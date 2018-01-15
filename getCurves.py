@@ -291,6 +291,7 @@ if Voc < 0:
 else:
     polarity = 1
 
+myPrint('# i-v file format v1', flush=True)
 myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,0,Voc*polarity,Ioc*polarity), flush=True)
 
 # for initial sweep
