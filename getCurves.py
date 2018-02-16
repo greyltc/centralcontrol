@@ -29,6 +29,7 @@ parser.add_argument("--rear", default=False, action='store_true', help="Use the 
 parser.add_argument("--baud", type=int, default=57600, help="Instrument comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
 parser.add_argument('--led_test', default=False, action='store_true', help="Test connectivity by blinking all 8 LEDs on the LED tester board")
+parser.add_argument('--snaith', default=False, action='store_true', help="Run the IV scan from Isc --> Voc")
 
 
 args = parser.parse_args()
@@ -65,6 +66,22 @@ sf = s.makefile("rwb", buffering=0)
 sf.write(b"\r")
 sf.flush()
 
+def myPrint(*args,**kwargs):
+    if kwargs.__contains__('file'):
+        print(*args,**kwargs) # if we specify a file dest, don't overwrite it
+    else:# if we were writing to stdout, also write to the other destinations
+        for dest in dataDestinations:
+            kwargs['file'] = dest
+            print(*args,**kwargs)
+            
+def weAreDone(sm):
+    sm.write('*RST')
+    sm.close()
+    if args.file is not None:
+        f.close()    
+    myPrint("Finished with no errors.", file=sys.stderr, flush=True)
+    sys.exit(0) # TODO: should check all the status values and immediately exit -3 if something is not right
+
 def getResponse():
     fail = True
     try:
@@ -83,25 +100,13 @@ if not fail:
     sf.write(cmd.encode())
     sf.flush()
     fail = getResponse()
+else:
+    myPrint("Got bad response from switch. Exiting now.", file=sys.stderr, flush=True)
+    sys.exit(-1)
 
 if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
-def myPrint(*args,**kwargs):
-    if kwargs.__contains__('file'):
-        print(*args,**kwargs) # if we specify a file dest, don't overwrite it
-    else:# if we were writing to stdout, also write to the other destinations
-        for dest in dataDestinations:
-            kwargs['file'] = dest
-            print(*args,**kwargs)
-            
-def weAreDone(sm):
-    sm.write('*RST')
-    sm.close()
-    if args.file is not None:
-        f.close()    
-    myPrint("Finished with no errors.", file=sys.stderr, flush=True)
-    sys.exit(0) # TODO: should check all the status values and immediately exit -3 if something is not right
 
 if not args.dummy:
     timeoutMS = 50000
@@ -255,6 +260,7 @@ sm.write(':trace:clear')
 sm.write(':output:smode himpedance')
 
 sm.write(':system:azero on')
+sm.write(':system:rsense on') # four wire mode on
 sm.write(':sense:function:concurrent on')
 sm.write(':sense:function "current:dc", "voltage:dc"')
 
@@ -272,21 +278,35 @@ else: # not running in LED test mode
     sm.write(':source:current:mode fixed')
     sm.write(':source:current:range min')
     sm.write(':source:current 0')
-    sm.write(':sense:voltage:protection 10')
-    sm.write(':sense:voltage:range 10')
+    sm.write(':sense:voltage:protection 2')
+    sm.write(':sense:voltage:range 2')
     
     sm.write(':sense:voltage:nplcycles 10')
     sm.write(':sense:current:nplcycles 10')
     sm.write(':display:digits 7')
     sm.write(':output on')
     exploring = 1
-    myPrint("Waiting to measure Voc...", file=sys.stderr, flush=True)
-    time.sleep(10) # let's let things chill (lightsoak?) here for 10 seconds
-    
-    # read OCV
-    myPrint("Measuring Voc:", file=sys.stderr, flush=True)
+    myPrint("Measuring Voc...", file=sys.stderr, flush=True)
     [Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
     myPrint(Voc, file=sys.stderr, flush=True)
+    
+#    vOC_measure_time = 10; #[s]
+#    t0 = time.clock()
+#    print("t0 is", t0)
+#    t = 0
+#    while t < vOC_measure_time:
+#        # read OCV
+#        
+#        now = time.clock()
+#        print("now is",now)
+#        print("t0 is",now)
+#        t = now - t0
+#        print("t is",t)
+#        print("")
+#        [Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
+#        myPrint(Voc, file=sys.stderr, flush=True)
+#        print("t is", t)
+    
     sm.write(':output off')
     myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
     
@@ -307,7 +327,7 @@ else: # not running in LED test mode
     sweepParams['sweepStart'] = Voc # volts
     sweepParams['sweepEnd'] = 0 # volts
     sweepParams['nPoints'] = 1001
-    sweepParams['stepDelay'] = 0 # seconds (-1 for auto, nearly zero, delay)
+    sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
     
     sm.write(':source:function voltage')
     sm.write(':source:voltage:mode sweep')
