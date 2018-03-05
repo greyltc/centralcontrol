@@ -31,6 +31,7 @@ parser.add_argument("--baud", type=int, default=57600, help="Instrument comms ba
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
 parser.add_argument('--led_test', default=False, action='store_true', help="Test connectivity by blinking all 8 LEDs on the LED tester board")
 parser.add_argument('--snaith', default=False, action='store_true', help="Run the IV scan from Isc --> Voc")
+parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
 
 
 args = parser.parse_args()
@@ -304,6 +305,8 @@ else: # not running in LED test mode
     
     sm.write(':output off')
     myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
+    myPrint('# Area = {:}'.format(args.area))
+    myPrint('#exploring,time,voltage,current', flush=True)
     
     # derive connection polarity from Voc
     if Voc < 0:
