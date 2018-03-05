@@ -4,7 +4,8 @@ Software design files for controlling the hardware from https://github.com/AFMD/
 ## Exapmle Usage 
 
 ```
-./getCurves.py ASRL/dev/ttyUSB0::INSTR 10.42.0.54 A1 --file ./a1.csv # scan pixel A1 and save output to file
+# scan pixel A4 and save it to a4-light-la.csv
+./getCurves.py --rear --file ./a4-light-la.csv ASRL/dev/ttyS0::INSTR 10.42.0.54 A4
 ```
 ## Arch Linux deps
 
