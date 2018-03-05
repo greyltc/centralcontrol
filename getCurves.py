@@ -25,6 +25,7 @@ parser.add_argument('--visa_lib', type=str, help="Path to visa library in case p
 parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
 parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
 parser.add_argument("--front", default=True, dest='rear', action='store_false', help="Use the front terminals")
+parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
 #parser.add_argument("--terminator", type=str, default=u'\r', help="Instrument comms read terminator")
 parser.add_argument("--baud", type=int, default=57600, help="Instrument comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
@@ -260,7 +261,10 @@ sm.write(':trace:clear')
 sm.write(':output:smode himpedance')
 
 sm.write(':system:azero on')
-sm.write(':system:rsense on') # four wire mode on
+if args.twoWire:
+    sm.write(':system:rsense off') # four wire mode off
+else:
+    sm.write(':system:rsense off') # four wire mode on
 sm.write(':sense:function:concurrent on')
 sm.write(':sense:function "current:dc", "voltage:dc"')
 
