@@ -319,19 +319,21 @@ else: # not running in LED test mode
     sweepParams['sweepEnd'] = 0 # volts
     sweepParams['nPoints'] = 1001
     sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
-    
+   
     sm.write(':source:function voltage')
     sm.write(':source:voltage:mode sweep')
     sm.write(':source:sweep:spacing linear')
-    sm.write(':source:delay {0:0.3f}'.format(sweepParams['stepDelay']))
+    if sweepParams['stepDelay'] == -1:
+        sm.write(':source:delay:auto on') # this just sets delay to 1ms
+    else:
+        sm.write(':source:delay:auto off')
+        sm.write(':source:delay {0:0.3f}'.format(sweepParams['stepDelay']))
     sm.write(':trigger:count {0:d}'.format(int(sweepParams['nPoints'])))
     sm.write(':source:sweep:points {0:d}'.format(int(sweepParams['nPoints'])))
     sm.write(':source:voltage:start {0:.4f}'.format(sweepParams['sweepStart']))
     sm.write(':source:voltage:stop {0:.4f}'.format(sweepParams['sweepEnd']))
     dV = sm.query_ascii_values(':source:voltage:step?')[0]
     
-    time.sleep(3)
-
     sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
     sm.write(':source:sweep:ranging best')
     sm.write(':sense:current:protection {0:.6f}'.format(sweepParams['maxCurrent']))
