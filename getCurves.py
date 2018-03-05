@@ -290,22 +290,13 @@ else: # not running in LED test mode
     [Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
     myPrint(Voc, file=sys.stderr, flush=True)
     
-#    vOC_measure_time = 10; #[s]
-#    t0 = time.clock()
-#    print("t0 is", t0)
-#    t = 0
-#    while t < vOC_measure_time:
-#        # read OCV
-#        
-#        now = time.clock()
-#        print("now is",now)
-#        print("t0 is",now)
-#        t = now - t0
-#        print("t is",t)
-#        print("")
-#        [Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
-#        myPrint(Voc, file=sys.stderr, flush=True)
-#        print("t is", t)
+    vOC_measure_time = 10; #[s]
+    t = 0
+    while t < vOC_measure_time:
+        # read OCV
+        [Voc, Ioc, now, status] = sm.query_ascii_values('READ?')
+        myPrint(Voc, file=sys.stderr, flush=True)
+        t = now - t0
     
     sm.write(':output off')
     myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
@@ -339,6 +330,8 @@ else: # not running in LED test mode
     sm.write(':source:voltage:stop {0:.4f}'.format(sweepParams['sweepEnd']))
     dV = sm.query_ascii_values(':source:voltage:step?')[0]
     
+    time.sleep(3)
+
     sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
     sm.write(':source:sweep:ranging best')
     sm.write(':sense:current:protection {0:.6f}'.format(sweepParams['maxCurrent']))
