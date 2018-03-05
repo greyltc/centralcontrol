@@ -305,8 +305,6 @@ else: # not running in LED test mode
     
     sm.write(':output off')
     myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
-    myPrint('# Area = {:}'.format(args.area))
-    myPrint('#exploring,time,voltage,current', flush=True)
     
     # derive connection polarity from Voc
     if Voc < 0:
@@ -315,6 +313,8 @@ else: # not running in LED test mode
         polarity = 1
     
     myPrint('# i-v file format v1', flush=True)
+    myPrint('# Area = {:}'.format(args.area))
+    myPrint('# exploring,time,voltage,current', flush=True)
     myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,0,Voc*polarity,Ioc*polarity), flush=True)
     
     # for initial sweep
