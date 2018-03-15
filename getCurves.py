@@ -265,7 +265,7 @@ sm.write(':system:azero on')
 if args.twoWire:
     sm.write(':system:rsense off') # four wire mode off
 else:
-    sm.write(':system:rsense off') # four wire mode on
+    sm.write(':system:rsense on') # four wire mode on
 sm.write(':sense:function:concurrent on')
 sm.write(':sense:function "current:dc", "voltage:dc"')
 
