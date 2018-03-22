@@ -24,14 +24,15 @@ parser.add_argument('--dummy', default=False, action='store_true', help="Run in 
 parser.add_argument('--visa_lib', type=str, help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
 parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
 parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
-parser.add_argument("--rear", default=False, action='store_true', help="Use the rear terminals")
-#parser.add_argument("--terminator", type=str, default=u'\r', help="Instrument comms read terminator")
+parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
+parser.add_argument("--terminator", type=str, default=u'\r', help="Instrument comms read&write terminator")
 parser.add_argument("--baud", type=int, default=57600, help="Instrument comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
 
 args = parser.parse_args()
 
 dataDestinations = [sys.stdout]
+smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and no flow control."
 
 if args.scan:
     try:
@@ -102,8 +103,10 @@ def weAreDone(sm):
     sys.exit(0) # TODO: should check all the status values and immediately exit -3 if something is not right
 
 if not args.dummy:
-    timeoutMS = 50000
-    openParams = {'resource_name': args.address, 'timeout': timeoutMS, '_read_termination': u'\n', 'baud_rate': args.baud}
+    #timeoutMS = 50000
+    timeoutMS = 300 # initial comms timeout
+    openParams = {'resource_name': args.address, 'timeout': timeoutMS, '_read_termination': args.terminator,'_write_termination': args.terminator, 'baud_rate': args.baud}
+    #openParams = {'resource_name': args.address}
     
     myPrint("Connecting to", openParams['resource_name'], "...", file=sys.stderr, flush=True)
     connectedVia = None
@@ -131,10 +134,13 @@ if not args.dummy:
                 sm.close()
             except:
                 pass
+            print(smCommsMsg)
             sys.exit(-1)
     myPrint("Connection established.", file=sys.stderr, flush=True)
     myPrint("Querying device type...", file=sys.stderr, flush=True)
     try:
+        if sm.bytes_in_buffer > 0:
+            junk = sm.read_raw(size = sm.bytes_in_buffer)
         # ask the device to identify its self
         idnString = sm.query("*IDN?")
     except:
@@ -145,9 +151,14 @@ if not args.dummy:
             sm.close()
         except:
             pass
+        print(smCommsMsg)
         sys.exit(-2)
-    myPrint("Sourcemeter found:", file=sys.stderr, flush=True)
-    myPrint(idnString, file=sys.stderr, flush=True)
+    if 'KEITHLEY' in idnString:
+        myPrint("Sourcemeter found:", file=sys.stderr, flush=True)
+        myPrint(idnString, file=sys.stderr, flush=True)
+    else:
+        print(smCommsMsg)
+        sys.exit(-3)
 else: # dummy mode
     class deviceSimulator():
         def __init__(self):
@@ -258,8 +269,10 @@ sm.write(':sense:function "current:dc", "voltage:dc"')
 
 sm.write(':format:elements time,voltage,current,status')
 
-# use rear terminals?
-if args.rear:
+# use front terminals?
+if args.front:
+    sm.write(':rout:term front')
+else:
     sm.write(':rout:term rear')
 
 # let's find our open circuit voltage
