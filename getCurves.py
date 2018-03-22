@@ -25,9 +25,14 @@ parser.add_argument('--visa_lib', type=str, help="Path to visa library in case p
 parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
 parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
 parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
+parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
 parser.add_argument("--terminator", type=str, default=u'\r', help="Instrument comms read&write terminator")
 parser.add_argument("--baud", type=int, default=57600, help="Instrument comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
+parser.add_argument('--led_test', default=False, action='store_true', help="Test connectivity by blinking all 8 LEDs on the LED tester board")
+parser.add_argument('--snaith', default=False, action='store_true', help="Run the IV scan from Isc --> Voc")
+parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
+
 
 args = parser.parse_args()
 
@@ -64,6 +69,22 @@ sf = s.makefile("rwb", buffering=0)
 sf.write(b"\r")
 sf.flush()
 
+def myPrint(*args,**kwargs):
+    if kwargs.__contains__('file'):
+        print(*args,**kwargs) # if we specify a file dest, don't overwrite it
+    else:# if we were writing to stdout, also write to the other destinations
+        for dest in dataDestinations:
+            kwargs['file'] = dest
+            print(*args,**kwargs)
+            
+def weAreDone(sm):
+    sm.write('*RST')
+    sm.close()
+    if args.file is not None:
+        f.close()    
+    myPrint("Finished with no errors.", file=sys.stderr, flush=True)
+    sys.exit(0) # TODO: should check all the status values and immediately exit -3 if something is not right
+
 def getResponse():
     fail = True
     try:
@@ -82,25 +103,13 @@ if not fail:
     sf.write(cmd.encode())
     sf.flush()
     fail = getResponse()
+else:
+    myPrint("Got bad response from switch. Exiting now.", file=sys.stderr, flush=True)
+    sys.exit(-1)
 
 if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
-def myPrint(*args,**kwargs):
-    if kwargs.__contains__('file'):
-        print(*args,**kwargs) # if we specify a file dest, don't overwrite it
-    else:# if we were writing to stdout, also write to the other destinations
-        for dest in dataDestinations:
-            kwargs['file'] = dest
-            print(*args,**kwargs)
-            
-def weAreDone(sm):
-    sm.write('*RST')
-    sm.close()
-    if args.file is not None:
-        f.close()    
-    myPrint("Finished with no errors.", file=sys.stderr, flush=True)
-    sys.exit(0) # TODO: should check all the status values and immediately exit -3 if something is not right
 
 if not args.dummy:
     #timeoutMS = 50000
@@ -264,6 +273,10 @@ sm.write(':trace:clear')
 sm.write(':output:smode himpedance')
 
 sm.write(':system:azero on')
+if args.twoWire:
+    sm.write(':system:rsense off') # four wire mode off
+else:
+    sm.write(':system:rsense on') # four wire mode on
 sm.write(':sense:function:concurrent on')
 sm.write(':sense:function "current:dc", "voltage:dc"')
 
@@ -274,93 +287,107 @@ if args.front:
     sm.write(':rout:term front')
 else:
     sm.write(':rout:term rear')
-
-# let's find our open circuit voltage
-sm.write(':source:function current')
-sm.write(':source:current:mode fixed')
-sm.write(':source:current:range min')
-sm.write(':source:current 0')
-sm.write(':sense:voltage:protection 10')
-sm.write(':sense:voltage:range 10')
-
-sm.write(':sense:voltage:nplcycles 10')
-sm.write(':sense:current:nplcycles 10')
-sm.write(':display:digits 7')
-sm.write(':output on')
-exploring = 1
-myPrint("Waiting to measure Voc...", file=sys.stderr, flush=True)
-time.sleep(10) # let's let things chill (lightsoak?) here for 10 seconds
-
-# read OCV
-myPrint("Measuring Voc:", file=sys.stderr, flush=True)
-[Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
-myPrint(Voc, file=sys.stderr, flush=True)
-sm.write(':output off')
-myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
-
-# derive connection polarity from Voc
-if Voc < 0:
-    polarity = -1
-else:
-    polarity = 1
-
-myPrint('# i-v file format v1', flush=True)
-myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,0,Voc*polarity,Ioc*polarity), flush=True)
-
-# for initial sweep
-##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
-##until the power output starts dropping instead of going all the way to zero volts...
-sweepParams = {} # here we'll store the parameters that define our sweep
-sweepParams['maxCurrent'] = 0.0001 # amps
-sweepParams['sweepStart'] = Voc # volts
-sweepParams['sweepEnd'] = 0 # volts
-sweepParams['nPoints'] = 1001
-sweepParams['stepDelay'] = 0 # seconds (-1 for auto, nearly zero, delay)
-
-sm.write(':source:function voltage')
-sm.write(':source:voltage:mode sweep')
-sm.write(':source:sweep:spacing linear')
-sm.write(':source:delay {0:0.3f}'.format(sweepParams['stepDelay']))
-sm.write(':trigger:count {0:d}'.format(int(sweepParams['nPoints'])))
-sm.write(':source:sweep:points {0:d}'.format(int(sweepParams['nPoints'])))
-sm.write(':source:voltage:start {0:.4f}'.format(sweepParams['sweepStart']))
-sm.write(':source:voltage:stop {0:.4f}'.format(sweepParams['sweepEnd']))
-dV = sm.query_ascii_values(':source:voltage:step?')[0]
-
-sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
-sm.write(':source:sweep:ranging best')
-sm.write(':sense:current:protection {0:.6f}'.format(sweepParams['maxCurrent']))
-sm.write(':sense:current:range {0:.6f}'.format(sweepParams['maxCurrent']))
-sm.write(':sense:voltage:nplcycles 0.5')
-sm.write(':sense:current:nplcycles 0.5')
-sm.write(':display:digits 5')
-
-sm.write(':source:voltage {0:0.4f}'.format(sweepParams['sweepStart']))
-sm.write(':output on')
-
-myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
-sweepValues = sm.query_ascii_values('READ?')
-
-# deselect all pixels
-cmd = "s\r"
-sf.write(cmd.encode())
-sf.flush()
-fail = getResponse()
-s.shutdown(socket.SHUT_RDWR)
-s.close()
-
-myPrint("Exploratory sweep done!", file=sys.stderr, flush=True)
-sm.write(':output off')
-
-sweepValues = numpy.reshape(sweepValues, (-1,4))
-v = sweepValues[:,0]
-i = sweepValues[:,1]
-t = sweepValues[:,2] - t0
-#p = v*i
-#Isc = i[-1]
-# derive new current limit from short circuit current
-#sm.write(':sense:current:range {0:.6f}'.format(Isc*1.2))
-
-# display initial sweep result
-for x in range(len(sweepValues)):
-    myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
+    
+if args.led_test:
+    myPrint("LED test mode active", file=sys.stderr, flush=True)
+else: # not running in LED test mode
+    # let's find our open circuit voltage
+    sm.write(':source:function current')
+    sm.write(':source:current:mode fixed')
+    sm.write(':source:current:range min')
+    sm.write(':source:current 0')
+    sm.write(':sense:voltage:protection 2')
+    sm.write(':sense:voltage:range 2')
+    
+    sm.write(':sense:voltage:nplcycles 10')
+    sm.write(':sense:current:nplcycles 10')
+    sm.write(':display:digits 7')
+    sm.write(':output on')
+    exploring = 1
+    myPrint("Measuring Voc...", file=sys.stderr, flush=True)
+    [Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
+    myPrint(Voc, file=sys.stderr, flush=True)
+    
+    vOC_measure_time = 10; #[s]
+    t = 0
+    while t < vOC_measure_time:
+        # read OCV
+        [Voc, Ioc, now, status] = sm.query_ascii_values('READ?')
+        myPrint(Voc, file=sys.stderr, flush=True)
+        t = now - t0
+    
+    sm.write(':output off')
+    myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
+    
+    # derive connection polarity from Voc
+    if Voc < 0:
+        polarity = -1
+    else:
+        polarity = 1
+    
+    myPrint('# i-v file format v1', flush=True)
+    myPrint('# Area = {:}'.format(args.area))
+    myPrint('# exploring,time,voltage,current', flush=True)
+    myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,0,Voc*polarity,Ioc*polarity), flush=True)
+    
+    # for initial sweep
+    ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
+    ##until the power output starts dropping instead of going all the way to zero volts...
+    sweepParams = {} # here we'll store the parameters that define our sweep
+    sweepParams['maxCurrent'] = 0.04 # amps
+    sweepParams['sweepStart'] = Voc # volts
+    sweepParams['sweepEnd'] = 0 # volts
+    sweepParams['nPoints'] = 1001
+    sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
+   
+    sm.write(':source:function voltage')
+    sm.write(':source:voltage:mode sweep')
+    sm.write(':source:sweep:spacing linear')
+    if sweepParams['stepDelay'] == -1:
+        sm.write(':source:delay:auto on') # this just sets delay to 1ms
+    else:
+        sm.write(':source:delay:auto off')
+        sm.write(':source:delay {0:0.3f}'.format(sweepParams['stepDelay']))
+    sm.write(':trigger:count {0:d}'.format(int(sweepParams['nPoints'])))
+    sm.write(':source:sweep:points {0:d}'.format(int(sweepParams['nPoints'])))
+    sm.write(':source:voltage:start {0:.4f}'.format(sweepParams['sweepStart']))
+    sm.write(':source:voltage:stop {0:.4f}'.format(sweepParams['sweepEnd']))
+    dV = sm.query_ascii_values(':source:voltage:step?')[0]
+    
+    sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
+    sm.write(':source:sweep:ranging best')
+    sm.write(':sense:current:protection {0:.6f}'.format(sweepParams['maxCurrent']))
+    sm.write(':sense:current:range {0:.6f}'.format(sweepParams['maxCurrent']))
+    sm.write(':sense:voltage:nplcycles 0.5')
+    sm.write(':sense:current:nplcycles 0.5')
+    sm.write(':display:digits 5')
+    
+    sm.write(':source:voltage {0:0.4f}'.format(sweepParams['sweepStart']))
+    sm.write(':output on')
+    
+    myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
+    sweepValues = sm.query_ascii_values('READ?')
+    
+    # deselect all pixels
+    cmd = "s\r"
+    sf.write(cmd.encode())
+    sf.flush()
+    fail = getResponse()
+    s.shutdown(socket.SHUT_RDWR)
+    s.close()
+    
+    myPrint("Exploratory sweep done!", file=sys.stderr, flush=True)
+    sm.write(':output off')
+    
+    sweepValues = numpy.reshape(sweepValues, (-1,4))
+    v = sweepValues[:,0]
+    i = sweepValues[:,1]
+    t = sweepValues[:,2] - t0
+    #p = v*i
+    #Isc = i[-1]
+    # derive new current limit from short circuit current
+    #sm.write(':sense:current:range {0:.6f}'.format(Isc*1.2))
+    
+    # display initial sweep result
+    for x in range(len(sweepValues)):
+        myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
