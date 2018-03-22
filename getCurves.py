@@ -321,7 +321,7 @@ else: # not running in LED test mode
     ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
     ##until the power output starts dropping instead of going all the way to zero volts...
     sweepParams = {} # here we'll store the parameters that define our sweep
-    sweepParams['maxCurrent'] = 0.02 # amps
+    sweepParams['maxCurrent'] = 0.04 # amps
     sweepParams['sweepStart'] = Voc # volts
     sweepParams['sweepEnd'] = 0 # volts
     sweepParams['nPoints'] = 1001
