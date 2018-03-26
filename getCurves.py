@@ -65,7 +65,7 @@ else: # not scanning
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((args.switch_address, args.port))
-s.settimeout(0.2)
+s.settimeout(0.5)
 sf = s.makefile("rwb", buffering=0)
 sf.write(b"\r")
 sf.flush()
@@ -336,7 +336,7 @@ if args.xmas_lights:
     sweepLow = 0 # amps    
     
     sweepParams = {} # here we'll store the parameters that define our sweep
-    sweepParams['compliance'] = 2 # volts
+    sweepParams['compliance'] = 2.5 # volts
     sweepParams['nPoints'] = 101
     sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
     sweepParams['nplc'] = 0.01
@@ -352,6 +352,8 @@ if args.xmas_lights:
         sf.write(cmd.encode())
         sf.flush()
         fail = getResponse()
+        if fail:
+            print("WARNING: unable to set pixel")
         
         sm.write(':source:{:s}:start {:.4f}'.format('current', sweepLow))
         sm.write(':source:{:s}:stop {:.4f}'.format('current', sweepHigh))                
