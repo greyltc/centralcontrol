@@ -26,15 +26,16 @@ parser.add_argument('--file', type=str, help="Write output data stream to this f
 parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
 parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
 parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
-parser.add_argument("--terminator", type=str, default=u'\r', help="Instrument comms read&write terminator")
+parser.add_argument("--terminator", type=str, default='0D0A', help="Instrument comms read & write terminator (enter in hex)")
 parser.add_argument("--baud", type=int, default=57600, help="Instrument comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
-parser.add_argument('--led_test', default=False, action='store_true', help="Test connectivity by blinking all 8 LEDs on the LED tester board")
+parser.add_argument('--xmas-lights', default=False, action='store_true', help="Connectivity test. Probs only run this with commercial LEDs.")
 parser.add_argument('--snaith', default=False, action='store_true', help="Run the IV scan from Isc --> Voc")
 parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
 
-
 args = parser.parse_args()
+
+args.terminator = bytearray.fromhex(args.terminator).decode()
 
 dataDestinations = [sys.stdout]
 smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and no flow control."
@@ -151,6 +152,8 @@ if not args.dummy:
         if sm.bytes_in_buffer > 0:
             junk = sm.read_raw(size = sm.bytes_in_buffer)
         # ask the device to identify its self
+        time.sleep(0.1)
+        sm.write('*RST')
         idnString = sm.query("*IDN?")
     except:
         myPrint('Unable perform "*IDN?" query.', file=sys.stderr, flush=True)
@@ -165,6 +168,8 @@ if not args.dummy:
     if 'KEITHLEY' in idnString:
         myPrint("Sourcemeter found:", file=sys.stderr, flush=True)
         myPrint(idnString, file=sys.stderr, flush=True)
+        sm.timeout = 50000 #long enough to collect an entire sweep
+        sm.values_format.is_binary = False
     else:
         print(smCommsMsg)
         sys.exit(-3)
@@ -238,7 +243,7 @@ else: # dummy mode
                 self.V = float(command.split(' ')[1])
                 self.updateCurrent()
             
-        def query_ascii_values(self, command):
+        def query_values(self, command):
             if command == "READ?":
                 if self.sweepMode:
                     sweepArray = numpy.array([],dtype=numpy.float_).reshape(0,4)
@@ -268,9 +273,45 @@ else: # dummy mode
 
 # sm is now set up (either in dummy or real hardware mode)
 
-sm.write('*RST')
+def sweep(sm,  sweepParams, voltage=True,):
+    if voltage:
+        src = 'voltage'
+        snc = 'current'
+    else:
+        src = 'current'
+        snc = 'voltage'
+    sm.write(':source:{:s} {:0.4f}'.format(src,sweepParams['sweepStart']))
+    sm.write(':source:function {:s}'.format(src))
+    sm.write(':output on')
+    sm.write(':source:{:s}:mode sweep'.format(src))
+    sm.write(':source:sweep:spacing linear')
+    if sweepParams['stepDelay'] == -1:
+        sm.write(':source:delay:auto on') # this just sets delay to 1ms
+    else:
+        sm.write(':source:delay:auto off')
+        sm.write(':source:delay {:0.3f}'.format(sweepParams['stepDelay']))
+    sm.write(':trigger:count {:d}'.format(int(sweepParams['nPoints'])))
+    sm.write(':source:sweep:points {:d}'.format(int(sweepParams['nPoints'])))
+    sm.write(':source:{:s}:start {:.4f}'.format(src,sweepParams['sweepStart']))
+    sm.write(':source:{:s}:stop {:.4f}'.format(src,sweepParams['sweepEnd']))
+    #sm.write(':source:{:s}:range {:.4f}'.format(src,max(sweepParams['sweepStart'],sweepParams['sweepStart'])))
+    sm.write(':source:sweep:ranging best')
+    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,sweepParams['compliance']))
+    sm.write(':sense:{:s}:range {:.6f}'.format(snc,sweepParams['compliance']))
+    sm.write(':sense:current:nplcycles {:}'.format(sweepParams['nplc']))
+    sm.write(':sense:voltage:nplcycles {:}'.format(sweepParams['nplc']))
+    sm.write(':display:digits 5')
+    #sm.write(':display:enable off')
+    
+    sm.query('*OPC?')
+
+#sm.write('*RST')
+sm.write(':status:preset')
+sm.write(':system:preset')
 sm.write(':trace:clear')
 sm.write(':output:smode himpedance')
+
+sm.write('source:clear:auto off')
 
 sm.write(':system:azero on')
 if args.twoWire:
@@ -288,8 +329,45 @@ if args.front:
 else:
     sm.write(':rout:term rear')
     
-if args.led_test:
+if args.xmas_lights:
     myPrint("LED test mode active", file=sys.stderr, flush=True)
+    
+    sweepHigh = 0.01 # amps
+    sweepLow = 0 # amps    
+    
+    sweepParams = {} # here we'll store the parameters that define our sweep
+    sweepParams['compliance'] = 2 # volts
+    sweepParams['nPoints'] = 101
+    sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
+    sweepParams['nplc'] = 0.01
+    sweepParams['sweepStart'] = sweepLow
+    sweepParams['sweepEnd'] = sweepHigh
+    
+    sweep(sm, sweepParams, voltage=False)
+    
+    substrate = args.pixel_address[0]
+    for pix in range(8):       
+        cmd = "s" + substrate + str(pix+1) + "\r"
+        print(cmd)
+        sf.write(cmd.encode())
+        sf.flush()
+        fail = getResponse()
+        
+        sm.write(':source:{:s}:start {:.4f}'.format('current', sweepLow))
+        sm.write(':source:{:s}:stop {:.4f}'.format('current', sweepHigh))                
+        sm.write(':init')
+        sm.query_values(':sense:data:latest?')
+        #sm.query_values('FETCH?')
+
+        sm.write(':source:{:s}:start {:.4f}'.format('current', sweepHigh))
+        sm.write(':source:{:s}:stop {:.4f}'.format('current', sweepLow)) 
+        sm.write(':init')
+        sm.query_values(':sense:data:latest?')
+        
+        
+    sm.write(':output off')
+        
+    
 else: # not running in LED test mode
     # let's find our open circuit voltage
     sm.write(':source:function current')
@@ -305,18 +383,18 @@ else: # not running in LED test mode
     sm.write(':output on')
     exploring = 1
     myPrint("Measuring Voc...", file=sys.stderr, flush=True)
-    [Voc, Ioc, t0, status] = sm.query_ascii_values('READ?')
+    [Voc, Ioc, t0, status] = sm.query_values('READ?')
     myPrint(Voc, file=sys.stderr, flush=True)
     
     vOC_measure_time = 10; #[s]
     t = 0
     while t < vOC_measure_time:
         # read OCV
-        [Voc, Ioc, now, status] = sm.query_ascii_values('READ?')
+        [Voc, Ioc, now, status] = sm.query_values('READ?')
         myPrint(Voc, file=sys.stderr, flush=True)
         t = now - t0
     
-    sm.write(':output off')
+    #sm.write(':output off')
     myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
     
     # derive connection polarity from Voc
@@ -339,8 +417,11 @@ else: # not running in LED test mode
     sweepParams['sweepEnd'] = 0 # volts
     sweepParams['nPoints'] = 1001
     sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
-   
+    sweepParams['nplc'] = 0.5
+    
+    sm.write(':source:voltage {0:0.4f}'.format(sweepParams['sweepStart']))
     sm.write(':source:function voltage')
+    sm.write(':output on')    
     sm.write(':source:voltage:mode sweep')
     sm.write(':source:sweep:spacing linear')
     if sweepParams['stepDelay'] == -1:
@@ -352,21 +433,18 @@ else: # not running in LED test mode
     sm.write(':source:sweep:points {0:d}'.format(int(sweepParams['nPoints'])))
     sm.write(':source:voltage:start {0:.4f}'.format(sweepParams['sweepStart']))
     sm.write(':source:voltage:stop {0:.4f}'.format(sweepParams['sweepEnd']))
-    dV = sm.query_ascii_values(':source:voltage:step?')[0]
+    dV = sm.query_values(':source:voltage:step?')[0]
     
-    sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
+    #sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
     sm.write(':source:sweep:ranging best')
     sm.write(':sense:current:protection {0:.6f}'.format(sweepParams['maxCurrent']))
     sm.write(':sense:current:range {0:.6f}'.format(sweepParams['maxCurrent']))
-    sm.write(':sense:voltage:nplcycles 0.5')
-    sm.write(':sense:current:nplcycles 0.5')
+    sm.write(':sense:voltage:nplcycles {:}'.format(sweepParams['nplc']))
+    sm.write(':sense:current:nplcycles {:}'.format(sweepParams['nplc']))
     sm.write(':display:digits 5')
     
-    sm.write(':source:voltage {0:0.4f}'.format(sweepParams['sweepStart']))
-    sm.write(':output on')
-    
     myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
-    sweepValues = sm.query_ascii_values('READ?')
+    sweepValues = sm.query_values('READ?')
     
     # deselect all pixels
     cmd = "s\r"
@@ -391,3 +469,4 @@ else: # not running in LED test mode
     # display initial sweep result
     for x in range(len(sweepValues)):
         myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
+
