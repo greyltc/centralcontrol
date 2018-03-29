@@ -366,7 +366,13 @@ if args.xmas_lights:
         sm.write(':init')
         sm.query_values(':sense:data:latest?')
         
-        
+    cmd = "s" + substrate + "0\r"
+    print(cmd)
+    sf.write(cmd.encode())
+    sf.flush()
+    fail = getResponse()
+    if fail:
+        print("WARNING: unable to set pixel")   
     sm.write(':output off')
         
     
