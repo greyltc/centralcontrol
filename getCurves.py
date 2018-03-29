@@ -38,7 +38,7 @@ args = parser.parse_args()
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
 dataDestinations = [sys.stdout]
-smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and no flow control."
+smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR+LF> terminator and no flow control."
 
 if args.scan:
     try:
@@ -115,7 +115,7 @@ if args.file is not None:
 if not args.dummy:
     #timeoutMS = 50000
     timeoutMS = 300 # initial comms timeout
-    openParams = {'resource_name': args.address, 'timeout': timeoutMS, '_read_termination': args.terminator,'_write_termination': args.terminator, 'baud_rate': args.baud}
+    openParams = {'resource_name': args.address, 'timeout': timeoutMS, 'read_termination': args.terminator,'write_termination': args.terminator, 'baud_rate': args.baud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF}
     #openParams = {'resource_name': args.address}
     
     myPrint("Connecting to", openParams['resource_name'], "...", file=sys.stderr, flush=True)
