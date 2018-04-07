@@ -23,7 +23,10 @@ class k2400:
     if addressString != None:
       self.sm = self._getSourceMeter(self.rm)
       self.readyForAction = self._setupSourcemeter(front=front, twoWire=twoWire)
-    
+  
+  def __del__(self):
+    self.disconnect()
+
   def _getResourceManager(self,visa_lib):
     try:
       rm = visa.ResourceManager(visa_lib)
