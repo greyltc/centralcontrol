@@ -24,7 +24,7 @@ parser.add_argument("--scan", default=False, action='store_true', help="Scan for
 parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
 parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
 parser.add_argument("--terminator", type=str, default='0A', help="Instrument comms read & write terminator (enter in hex)")
-parser.add_argument("--baud", type=int, default=57600, help="Instrument comms baud rate")
+parser.add_argument("--baud", type=int, default=57600, help="Instrument serial comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
 parser.add_argument('--xmas-lights', default=False, action='store_true', help="Connectivity test. Probs only run this with commercial LEDs.")
 parser.add_argument('--snaith', default=False, action='store_true', help="Run the IV scan from Isc --> Voc")
@@ -36,33 +36,13 @@ args = parser.parse_args()
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
 dataDestinations = [sys.stdout]
-smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <LF> terminator and xon-xoff flow control."
 
-sm2 = k2400(visa_lib=args.visa_lib)
-sm = sm2.sm
-
-if args.scan:
-    try:
-        rm = visa.ResourceManager('@py')
-        pyvisaList = rm.list_resources()
-        print ("===pyvisa-py===")
-        print (pyvisaList)
-    except:
-        pass
-    try:
-        if args.visa_lib is not None:
-            rm = visa.ResourceManager(args.visa_lib)
-        else:
-            rm = visa.ResourceManager()
-        niList = rm.list_resources()
-        print ('==='+str(rm.visalib)+'===')
-        print (niList)
-    except:
-        pass
-    sys.exit(0)
-else: # not scanning
-    if (args.address is None) or (args.switch_address is None) or (args.pixel_address is None):
-        parser.error("the following arguments are required: address, switch_address, pixel_address (unless you use --scan)")
+sm = k2400(visa_lib=args.visa_lib, terminator=args.terminator, addressString=args.address, serialBaud=args.baud, scan=args.scan)
+if sm.readyForAction:
+  if (args.address is None) or (args.switch_address is None) or (args.pixel_address is None):
+    parser.error("the following arguments are required: address, switch_address, pixel_address (unless you use --scan)")
+else:
+  raise ValueError('Sourcemeter not ready for action :-(')
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((args.switch_address, args.port))
@@ -93,12 +73,9 @@ def pix_picker(sockFile, substrate, pixel):
     return win
 
 def weAreDone(sm):
-    sm.write('*RST')
-    sm.close()
-    if args.file is not None:
-        f.close()    
-    myPrint("Finished with no errors.", file=sys.stderr, flush=True)
-    sys.exit(0) # TODO: should check all the status values and immediately exit -3 if something is not right
+  sm.disconnect()
+  if args.file is not None:
+      f.close()
 
 def getResponse():
     win = False
@@ -122,90 +99,7 @@ if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
 
-if not args.dummy:
-    #timeoutMS = 50000
-    timeoutMS = 300 # initial comms timeout
-    if 'ASRL' in args.address:
-        openParams = {'resource_name': args.address, 'timeout': timeoutMS, 'read_termination': args.terminator,'write_termination': args.terminator, 'baud_rate': args.baud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF}
-    elif 'GPIB' in args.address:
-        openParams = {'resource_name': args.address, 'write_termination': args.terminator}# , 'io_protocol': visa.constants.VI_HS488
-        addrParts = args.address.split('::')
-        board = addrParts[0][4:]
-        address = addrParts[1]
-        smCommsMsg = "ERROR: Can't talk to sourcemeter\nIs GPIB controller {:} correct?\nIs the sourcemeter configured to listen on address {:}?".format(board,address)
-    else:
-        openParams = {'resource_name': args.address}
-    
-    myPrint("Connecting to", openParams['resource_name'], "...", file=sys.stderr, flush=True)
-    connectedVia = None
-    try:
-        rm = visa.ResourceManager('@py') # first try native python pyvisa-py backend
-        sm = rm.open_resource(**openParams)
-        connectedVia = 'pyvisa-py'
-    except:
-        exctype, value1 = sys.exc_info()[:2]
-        try:
-            if args.visa_lib is not None:
-                rm = visa.ResourceManager(args.visa_lib)
-            else:
-                rm = visa.ResourceManager()
-            sm = rm.open_resource(**openParams)
-            connectedVia = 'pyvisa-default'
-        except:
-            exctype, value2 = sys.exc_info()[:2]
-            myPrint('Unable to connect to instrument.', file=sys.stderr, flush=True)
-            myPrint('Error 1 (using pyvisa-py backend):', file=sys.stderr, flush=True)
-            myPrint(value1, file=sys.stderr, flush=True)
-            myPrint('Error 2 (using pyvisa default backend):', file=sys.stderr, flush=True)
-            myPrint(value2, file=sys.stderr, flush=True)
-            try:
-                sm.close()
-            except:
-                pass
-            print(smCommsMsg)
-            sys.exit(-1)
-    myPrint("Connection established via {:}".format(connectedVia), file=sys.stderr, flush=True)
-    myPrint("Querying device type...", file=sys.stderr, flush=True)
-    try:
-        if hasattr(sm,'bytes_in_buffer') and (sm.bytes_in_buffer > 0):
-            junk = sm.read_raw(size = sm.bytes_in_buffer)
-        
-        time.sleep(0.1)
-        if 'GPIB' in args.address:
-            sm.send_ifc()
-            sm.clear()
-            sm._read_termination = '\n'
-        sm.write('*RST')
-        # ask the device to identify its self
-        idnString = sm.query("*IDN?")
-    except:
-        myPrint('Unable perform "*IDN?" query.', file=sys.stderr, flush=True)
-        exctype, value = sys.exc_info()[:2]
-        myPrint(value, file=sys.stderr, flush=True)
-        try:
-            sm.close()
-        except:
-            pass
-        print(smCommsMsg)
-        sys.exit(-2)
-    if 'KEITHLEY' in idnString:
-        myPrint("Sourcemeter found:", file=sys.stderr, flush=True)
-        myPrint(idnString, file=sys.stderr, flush=True)
-        sm.timeout = 50000 #long enough to collect an entire sweep
-        if 'ASRL' in args.address:
-            sm.values_format.is_binary = False
-            formatCmd = "format:data ascii"
-        elif 'GPIB' in args.address:
-            formatCmd = "format:data sreal"
-            sm.values_format.datatype = 'f'
-        else:
-            sm.values_format.is_binary = False
-            formatCmd = "format:data ascii"
-            
-    else:
-        print(smCommsMsg)
-        sys.exit(-3)
-else: # dummy mode
+if args.dummy: # dummy mode
     class deviceSimulator():
         def __init__(self):
             myPrint("Dummy mode initiated...", file=sys.stderr, flush=True)
@@ -305,63 +199,6 @@ else: # dummy mode
 
 # sm is now set up (either in dummy or real hardware mode)
 
-def sweep(sm,  sweepParams, voltage=True,):
-    if voltage:
-        src = 'voltage'
-        snc = 'current'
-    else:
-        src = 'current'
-        snc = 'voltage'
-    sm.write(':source:{:s} {:0.4f}'.format(src,sweepParams['sweepStart']))
-    sm.write(':source:function {:s}'.format(src))
-    sm.write(':output on')
-    sm.write(':source:{:s}:mode sweep'.format(src))
-    sm.write(':source:sweep:spacing linear')
-    if sweepParams['stepDelay'] == -1:
-        sm.write(':source:delay:auto on') # this just sets delay to 1ms
-    else:
-        sm.write(':source:delay:auto off')
-        sm.write(':source:delay {:0.3f}'.format(sweepParams['stepDelay']))
-    sm.write(':trigger:count {:d}'.format(int(sweepParams['nPoints'])))
-    sm.write(':source:sweep:points {:d}'.format(int(sweepParams['nPoints'])))
-    sm.write(':source:{:s}:start {:.4f}'.format(src,sweepParams['sweepStart']))
-    sm.write(':source:{:s}:stop {:.4f}'.format(src,sweepParams['sweepEnd']))
-    #sm.write(':source:{:s}:range {:.4f}'.format(src,max(sweepParams['sweepStart'],sweepParams['sweepStart'])))
-    sm.write(':source:sweep:ranging best')
-    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,sweepParams['compliance']))
-    sm.write(':sense:{:s}:range {:.6f}'.format(snc,sweepParams['compliance']))
-    sm.write(':sense:current:nplcycles {:}'.format(sweepParams['nplc']))
-    sm.write(':sense:voltage:nplcycles {:}'.format(sweepParams['nplc']))
-    sm.write(':display:digits 5')
-    #sm.write(':display:enable off')
-    
-    sm.query('*OPC?')
-
-#sm.write('*RST')
-sm.write(':status:preset')
-sm.write(':system:preset')
-sm.write(':trace:clear')
-sm.write(':output:smode himpedance')
-sm.write(formatCmd)
-
-sm.write('source:clear:auto off')
-
-sm.write(':system:azero on')
-if args.twoWire:
-    sm.write(':system:rsense off') # four wire mode off
-else:
-    sm.write(':system:rsense on') # four wire mode on
-sm.write(':sense:function:concurrent on')
-sm.write(':sense:function "current:dc", "voltage:dc"')
-
-sm.write(':format:elements time,voltage,current,status')
-
-# use front terminals?
-if args.front:
-    sm.write(':rout:term front')
-else:
-    sm.write(':rout:term rear')
-    
 if args.xmas_lights:
     myPrint("LED test mode active", file=sys.stderr, flush=True)
     
@@ -369,44 +206,44 @@ if args.xmas_lights:
     sweepLow = 0 # amps    
     
     sweepParams = {} # here we'll store the parameters that define our sweep
+    sweepParams['voltage'] = False # sweep in current
     sweepParams['compliance'] = 2.5 # volts
     sweepParams['nPoints'] = 101
     sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
     sweepParams['nplc'] = 0.01
     sweepParams['sweepStart'] = sweepLow
     sweepParams['sweepEnd'] = sweepHigh
-    sweepVoltage = False
     
-    if sweepVoltage:
+    if sweepParams['voltage']:
         sweepee = 'voltage'
     else:
         sweepee = 'current'
     
-    sweep(sm, sweepParams, voltage=sweepVoltage)
+    pix_picker(sf,substrate,1)
+    sm.setupSweep(sweepParams)
     
     substrate = args.pixel_address[0]
     for pix in range(8):
         pix_picker(sf,substrate,pix+1)
         
-        sm.write(':source:{:s}:start {:.4f}'.format(sweepee, sweepLow))
-        sm.write(':source:{:s}:stop {:.4f}'.format(sweepee, sweepHigh))                
+        sm.updateSweepStart(sweepLow)
+        sm.updateSweepStop(sweepHigh)
         sm.write(':init')
         sm.query_values(':sense:data:latest?')
         #sm.query_values('FETCH?')
-
-        sm.write(':source:{:s}:start {:.4f}'.format(sweepee, sweepHigh))
-        sm.write(':source:{:s}:stop {:.4f}'.format(sweepee, sweepLow)) 
+        
+        sm.updateSweepStart(sweepHigh)
+        sm.updateSweepStop(sweepLow)
         sm.write(':init')
         sm.query_values(':sense:data:latest?')
         
-        # off during switchover
-        sm.write(':source:{:s} 0'.format(sweepee))
+        # off during pix switchover
+        sm.setOutput(0)
+    
+    sm.outOn(False)
     
     # deselect all pixels
     pix_picker(sf, substrate, 0)
-  
-    sm.write(':output off')
-        
     
 else: # not running in LED test mode
     # let's find our open circuit voltage
