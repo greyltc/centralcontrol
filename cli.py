@@ -23,13 +23,15 @@ parser.add_argument('--dummy', default=False, action='store_true', help="Run in 
 parser.add_argument('--visa_lib', type=str, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
 parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
 parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
+parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
 parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
 parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
 parser.add_argument("--terminator", type=str, default='0A', help="Instrument comms read & write terminator (enter in hex)")
 parser.add_argument("--baud", type=int, default=57600, help="Instrument serial comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
 parser.add_argument('--xmas-lights', default=False, action='store_true', help="Connectivity test. Probs only run this with commercial LEDs.")
-parser.add_argument('--snaith', default=False, action='store_true', help="Run the IV scan from Isc --> Voc")
+parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
+parser.add_argument('--T_prebias', type=float, default=10, help="Wait this many seconds with the source on before sweeping")
 parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
 parser.add_argument('--mppt', type=float, default=0, help="Do maximum power point tracking for this many seconds")
 
@@ -61,29 +63,17 @@ if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
 
+substrate = args.pixel_address[0] 
 if args.xmas_lights:
-    substrate = args.pixel_address[0] 
     myPrint("LED test mode active on substrate {:s}".format(substrate), file=sys.stderr, flush=True)
     
     sweepHigh = 0.01 # amps
-    sweepLow = 0 # amps    
-    
-    sweepParams = {} # here we'll store the parameters that define our sweep
-    sweepParams['voltage'] = False # sweep in current
-    sweepParams['compliance'] = 2.5 # volts
-    sweepParams['nPoints'] = 101
-    sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
-    sweepParams['nplc'] = 0.01
-    sweepParams['sweepStart'] = sweepLow
-    sweepParams['sweepEnd'] = sweepHigh
-    
-    if sweepParams['voltage']:
-        sweepee = 'voltage'
-    else:
-        sweepee = 'current'
+    sweepLow = 0 # amps
     
     pcb.pix_picker(substrate,1)
-    sm.setupSweep(sweepParams)
+    sm.setNPLC(0.01)
+    sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, stepDelay=-1, start=sweepLow, end=sweepHigh)
+    sm.write(':arm:source bus') # this allows for the trigger style we'll use here
     
     substrate = args.pixel_address[0]
     for pix in range(8):
@@ -91,14 +81,15 @@ if args.xmas_lights:
         
         sm.updateSweepStart(sweepLow)
         sm.updateSweepStop(sweepHigh)
-        sm.write(':init')
-        sm.query_values(':sense:data:latest?')
-        #sm.query_values('FETCH?')
+        sm.arm()
+        sm.trigger()
+        sm.opc()
         
         sm.updateSweepStart(sweepHigh)
         sm.updateSweepStop(sweepLow)
-        sm.write(':init')
-        sm.query_values(':sense:data:latest?')
+        sm.arm()
+        sm.trigger()
+        sm.opc()
         
         # off during pix switchover
         sm.setOutput(0)
@@ -107,95 +98,60 @@ if args.xmas_lights:
     
     # deselect all pixels
     pcb.pix_picker(substrate, 0)
-    
-else: # not running in LED test mode
-    substrate = args.pixel_address[0] 
+
+if args.sweep or args.snaith:
     pix = args.pixel_address[1] 
     # let's find our open circuit voltage
-    sm.write(':source:function current')
-    sm.write(':source:current:mode fixed')
-    sm.write(':source:current:range min')
-    sm.write(':source:current 0')
-    sm.write(':sense:voltage:protection 2')
-    sm.write(':sense:voltage:range 2')
-    
-    sm.write(':sense:voltage:nplcycles 10')
-    sm.write(':sense:current:nplcycles 10')
-    sm.write(':display:digits 7')
-    
-
     if not pcb.pix_picker(substrate, pix):
-        myPrint("ERROR: Pixel selection failure.", file=sys.stderr, flush=True)
-        sys.exit(-1)
+      raise ValueError('Unable to select desired pixel')
+    sm.setNPLC(10)
+    sm.setupDC(sourceVoltage=False, compliance=2, setPoint=0)
+    sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
     
-    sm.write(':output on')
     exploring = 1
-    myPrint("Measuring Voc...", file=sys.stderr, flush=True)
-    [Voc, Ioc, t0, status] = sm.query_values('READ?')
-    myPrint(Voc, file=sys.stderr, flush=True)
+    myPrint("Measuring Voc:", file=sys.stderr, flush=True)
+    def streamCB(measurement):
+      [Voc, Ioc, now, status] = measurement
+      myPrint("{:.6f} V".format(Voc), file=sys.stderr, flush=True)
+    sm.initStreamMeasure(t_dwell=args.T_prebias, cb=streamCB)
     
-    vOC_measure_time = 10; #[s]
-    t = 0
-    while t < vOC_measure_time:
-        # read OCV
-        [Voc, Ioc, now, status] = sm.query_values('READ?')
-        myPrint(Voc, file=sys.stderr, flush=True)
-        t = now - t0
-    
-    #sm.write(':output off')
-    myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
+    [Voc, Ioc, t0, status] = sm.outQ.get(timeout=5) # need this for t0
+    while sm.busy:
+      pass
+    sm.thread.join()
+    unpackedQ = [sm.outQ.get() for i in range(sm.outQ.qsize())]
+    [Voc, Ioc, t1, status] = unpackedQ[-1] # get the last entry
     
     # derive connection polarity from Voc
     if Voc < 0:
         polarity = -1
     else:
-        polarity = 1
+        polarity = 1    
+
+if args.sweep:
+    #sm.write(':output off')
+    myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
     
     myPrint('# i-v file format v1', flush=True)
     myPrint('# Area = {:}'.format(args.area))
-    myPrint('# exploring,time,voltage,current', flush=True)
-    myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,0,Voc*polarity,Ioc*polarity), flush=True)
+    myPrint('# exploring\ttime\tvoltage\tcurrent', flush=True)
+    myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t1 - t0 ,Voc*polarity, Ioc*polarity), flush=True)
     
     # for initial sweep
     ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
     ##until the power output starts dropping instead of going all the way to zero volts...
-    sweepParams = {} # here we'll store the parameters that define our sweep
-    sweepParams['maxCurrent'] = 0.04 # amps
-    sweepParams['sweepStart'] = Voc # volts
-    sweepParams['sweepEnd'] = 0 # volts
-    sweepParams['nPoints'] = 1001
-    sweepParams['stepDelay'] = -1 # seconds (-1 for auto, nearly zero, delay)
-    sweepParams['nplc'] = 0.5
-    
-    sm.write(':source:voltage {0:0.4f}'.format(sweepParams['sweepStart']))
-    sm.write(':source:function voltage')
-    sm.write(':output on')    
-    sm.write(':source:voltage:mode sweep')
-    sm.write(':source:sweep:spacing linear')
-    if sweepParams['stepDelay'] == -1:
-        sm.write(':source:delay:auto on') # this just sets delay to 1ms
-    else:
-        sm.write(':source:delay:auto off')
-        sm.write(':source:delay {0:0.3f}'.format(sweepParams['stepDelay']))
-    sm.write(':trigger:count {0:d}'.format(int(sweepParams['nPoints'])))
-    sm.write(':source:sweep:points {0:d}'.format(int(sweepParams['nPoints'])))
-    sm.write(':source:voltage:start {0:.4f}'.format(sweepParams['sweepStart']))
-    sm.write(':source:voltage:stop {0:.4f}'.format(sweepParams['sweepEnd']))
-    dV = sm.query_ascii_values(':source:voltage:step?')[0]
-    
-    #sm.write(':source:voltage:range {0:.4f}'.format(sweepParams['sweepStart']))
-    sm.write(':source:sweep:ranging best')
-    sm.write(':sense:current:protection {0:.6f}'.format(sweepParams['maxCurrent']))
-    sm.write(':sense:current:range {0:.6f}'.format(sweepParams['maxCurrent']))
-    sm.write(':sense:voltage:nplcycles {:}'.format(sweepParams['nplc']))
-    sm.write(':sense:current:nplcycles {:}'.format(sweepParams['nplc']))
-    sm.write(':display:digits 5')
-    
+    sm.setNPLC(0.5)
+    points = 1001
+    sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=Voc, end=0)
+
     myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
-    sweepValues = sm.query_values('READ?')
-    
-    # deselect all pixels
-    pcb.pix_picker(substrate, 0)
+    sm.initStreamMeasure(measurements=1)
+
+    while sm.busy:
+      pass
+    sm.thread.join()    
+
+    sweepValues = sm.outQ.get()
     
     myPrint("Exploratory sweep done!", file=sys.stderr, flush=True)
     
@@ -210,5 +166,66 @@ else: # not running in LED test mode
     
     # display initial sweep result
     for x in range(len(sweepValues)):
-        myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
+        myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
 
+if args.snaith:
+  sm.setNPLC(10)
+  sm.setupDC(sourceVoltage=True, compliance=0.04, setPoint=0)
+  sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+  
+  exploring = 1
+  myPrint("Measuring Isc:", file=sys.stderr, flush=True)
+  def streamCB(measurement):
+    [Vsc, Isc, now, status] = measurement
+    myPrint("{:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
+  sm.initStreamMeasure(t_dwell=args.T_prebias, cb=streamCB)
+  
+  [Vsc, Isc, t0, status] = sm.outQ.get(timeout=5) # need this for t0
+  while sm.busy:
+    pass
+  sm.thread.join()
+  unpackedQ = [sm.outQ.get() for i in range(sm.outQ.qsize())]
+  [Vsc, Isc, t1, status] = unpackedQ[-1] # get the last entry  
+  #sm.write(':output off')
+  myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
+  
+  myPrint('# i-v file format v1', flush=True)
+  myPrint('# Area = {:}'.format(args.area))
+  myPrint('# exploring\ttime\tvoltage\tcurrent', flush=True)
+  myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t1 - t0 ,Vsc*polarity, Isc*polarity), flush=True)
+  
+  # for initial sweep
+  ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
+  ##until the power output starts dropping instead of going all the way to zero volts...
+  sm.setNPLC(0.5)
+  points = 1001
+  sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=0, end=Voc)
+
+  myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
+  sm.initStreamMeasure(measurements=1)
+
+  while sm.busy:
+    pass
+  sm.thread.join()    
+
+  sweepValues = sm.outQ.get()
+  
+  myPrint("Exploratory sweep done!", file=sys.stderr, flush=True)
+  
+  sweepValues = numpy.reshape(sweepValues, (-1,4))
+  v = sweepValues[:,0]
+  i = sweepValues[:,1]
+  t = sweepValues[:,2] - t0
+  #p = v*i
+  #Isc = i[-1]
+  # derive new current limit from short circuit current
+  #sm.write(':sense:current:range {0:.6f}'.format(Isc*1.2))
+  
+  # display initial sweep result
+  for x in range(len(sweepValues)):
+      myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
+
+
+
+# deselect all pixels
+pcb.pix_picker(substrate, 0)

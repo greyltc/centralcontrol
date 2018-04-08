@@ -3,6 +3,9 @@ import pyvisa
 import serial
 import sys
 import numpy as np
+import threading
+import queue
+import time
 
 class k2400:
   """
@@ -103,7 +106,7 @@ class k2400:
     """ Do initial setup for sourcemeter
     """
     sm = self.sm
-    sm.timeout = 50000 #long enough to collect an entire sweep
+    sm.timeout = 50000 #long enough to collect an entire sweep [ms]
     
     sm.write(':status:preset')
     sm.write(':system:preset')
@@ -141,6 +144,7 @@ class k2400:
       sm.write(':rout:term rear')
       
     self.src = sm.query(':source:function:mode?')
+    sm.write(':system:beeper:state off')
       
     return True
   
@@ -176,36 +180,130 @@ class k2400:
     if on:
       self.sm.write(':output on')
     else:
-      self.sm.write(':output off')      
-    
-  def setupSweep(self,sweepParams):
-    sm = self.sm
-    if sweepParams['voltage']:
-        src = 'voltage'
-        snc = 'current'
+      self.sm.write(':output off')
+      
+  def setNPLC(self,nplc):
+    self.sm.write(':sense:current:nplcycles {:}'.format(nplc))
+    self.sm.write(':sense:voltage:nplcycles {:}'.format(nplc))
+    if nplc < 1:
+      self.sm.write(':display:digits 5')
     else:
-        src = 'current'
-        snc = 'voltage'
+      self.sm.write(':display:digits 7')
+
+  def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1):
+    """setup DC measurement operation
+    """
+    sm = self.sm
+    if sourceVoltage:
+      src = 'voltage'
+      snc = 'current'
+    else:
+      src = 'current'
+      snc = 'voltage'
     self.src = src
-    sm.write(':source:{:s} {:0.4f}'.format(src,sweepParams['sweepStart']))
     sm.write(':source:function {:s}'.format(src))
+    sm.write(':source:{:s}:mode fixed'.format(src))
+    sm.write(':source:{:s} {:0.6f}'.format(src,setPoint))
+    sm.write(':sense:{:s}:range:auto on'.format(snc))
+    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,compliance))
+    sm.write(':output on')
+    sm.write(':trigger:count 1')
+    
+  def setupSweep(self, sourceVoltage=True, compliance=0.1, nPoints=101, stepDelay=-1, start=0, end=1, streaming=False):
+    """setup for a sweep operation
+    """
+    sm = self.sm
+    if sourceVoltage:
+      src = 'voltage'
+      snc = 'current'
+    else:
+      src = 'current'
+      snc = 'voltage'
+    self.src = src
+    sm.write(':source:function {:s}'.format(src))
+    sm.write(':source:{:s} {:0.6f}'.format(src,start))
+    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,compliance))
     sm.write(':output on')
     sm.write(':source:{:s}:mode sweep'.format(src))
     sm.write(':source:sweep:spacing linear')
-    if sweepParams['stepDelay'] == -1:
-        sm.write(':source:delay:auto on') # this just sets delay to 1ms
+    if stepDelay == -1:
+      sm.write(':source:delay:auto on') # this just sets delay to 1ms
     else:
-        sm.write(':source:delay:auto off')
-        sm.write(':source:delay {:0.3f}'.format(sweepParams['stepDelay']))
-    sm.write(':trigger:count {:d}'.format(int(sweepParams['nPoints'])))
-    sm.write(':source:sweep:points {:d}'.format(int(sweepParams['nPoints'])))
-    sm.write(':source:{:s}:start {:.4f}'.format(src,sweepParams['sweepStart']))
-    sm.write(':source:{:s}:stop {:.4f}'.format(src,sweepParams['sweepEnd']))
-    #sm.write(':source:{:s}:range {:.4f}'.format(src,max(sweepParams['sweepStart'],sweepParams['sweepStart'])))
+      sm.write(':source:delay:auto off')
+      sm.write(':source:delay {:0.3f}'.format(stepDelay))
+    sm.write(':trigger:count {:d}'.format(nPoints))
+    sm.write(':source:sweep:points {:d}'.format(nPoints))
+    sm.write(':source:{:s}:start {:.6f}'.format(src,start))
+    sm.write(':source:{:s}:stop {:.6f}'.format(src,end))
+    #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
-    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,sweepParams['compliance']))
-    sm.write(':sense:{:s}:range {:.6f}'.format(snc,sweepParams['compliance']))
-    sm.write(':sense:current:nplcycles {:}'.format(sweepParams['nplc']))
-    sm.write(':sense:voltage:nplcycles {:}'.format(sweepParams['nplc']))
-    sm.write(':display:digits 5')    
+    sm.write(':sense:{:s}:range {:.6f}'.format(snc,compliance))
+  
+  def opc(self):
+    """returns when all operations are complete
+    """
+    opcVAl = self.sm.query('*OPC?')
+    return
+  
+  def arm(self):
+    """arms trigger
+    """
+    self.sm.write(':init')
+  
+  def trigger(self):
+    """permorms trigger event
+    """
+    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
+      self.sm.assert_trigger()
+    else:
+      self.sm.write('*TRG')
+      
+  def sendBusCommand(self, command):
+    """sends a command over the GPIB bus
+    See: https://linux-gpib.sourceforge.io/doc_html/gpib-protocol.html#REFERENCE-COMMAND-BYTES
+    """
+    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
+      self.sm.send_command(command)
+      #self.sm.send_command(0x08) # whole bus trigger
+    else:
+      print('Bus commands can only be sent over GPIB')
+
+  def measure(self):
+    """Makes a measurement and returns the result
+    """
+    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
+      vals = self.sm.read_binary_values()
+      return 
+    else:
+      vals = self.sm.query_ascii_values(':read?')
+    return vals
+  
+  def _measurer(self):
+    """This is the initStreamMeasure worker that is run in self.thread,
+    used for streaming measurements
+    """
+    i = 0
+    t_end = time.time() + self.workerTime
+    while (i < self.workerIterations) and (time.time() < t_end):
+      i = i + 1
+      measurement = self.measure()
+      self.streamCB(measurement)
+      self.outQ.put(measurement)
+    self.busy = False
+    
+  def initStreamMeasure(self, t_dwell=np.inf, measurements=np.inf, cb=lambda x:None):
+    """Begins a streaming measurement
+    the measurement ends after either t_dwell seconds or measurements number of iterations
+    outputs go into self.outQ (forking into background)
+    self.busy is set True at the start and is set False when a termination condition is met
+    the user is responsible for calling self.thread.join() when self.busy goes False
+    cb can be used specify that a callback function is called every time a measurement is made
+    """
+    self.workerTime = t_dwell
+    self.streamCB = cb
+    self.workerIterations = measurements
+    self.outQ = queue.Queue()
+    self.busy = True
+    self.thread = threading.Thread(target=self._measurer)
+    self.thread.start()
     
