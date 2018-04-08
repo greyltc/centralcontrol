@@ -3,9 +3,8 @@ import pyvisa
 import serial
 import sys
 import numpy as np
-import threading
-import queue
 import time
+from collections import deque
 
 class k2400:
   """
@@ -235,6 +234,7 @@ class k2400:
     sm.write(':source:sweep:points {:d}'.format(nPoints))
     sm.write(':source:{:s}:start {:.6f}'.format(src,start))
     sm.write(':source:{:s}:stop {:.6f}'.format(src,end))
+    self.dV = abs(float(sm.query(':source:voltage:step?')))
     #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
     sm.write(':sense:{:s}:range {:.6f}'.format(snc,compliance))
@@ -273,37 +273,21 @@ class k2400:
     """
     if self.sm.interface_type == visa.constants.InterfaceType.gpib:
       vals = self.sm.read_binary_values()
-      return 
     else:
       vals = self.sm.query_ascii_values(':read?')
     return vals
   
-  def _measurer(self):
-    """This is the initStreamMeasure worker that is run in self.thread,
-    used for streaming measurements
+  def measureUntil(self, t_dwell=np.inf, measurements=np.inf, cb=lambda x:None):
+    """Meakes measurements until termination conditions are met
+    supports a callback after every measurement
+    returns a queqe of measurements
     """
     i = 0
-    t_end = time.time() + self.workerTime
-    while (i < self.workerIterations) and (time.time() < t_end):
+    t_end = time.time() + t_dwell
+    q = deque()
+    while (i < measurements) and (time.time() < t_end):
       i = i + 1
       measurement = self.measure()
-      self.streamCB(measurement)
-      self.outQ.put(measurement)
-    self.busy = False
-    
-  def initStreamMeasure(self, t_dwell=np.inf, measurements=np.inf, cb=lambda x:None):
-    """Begins a streaming measurement
-    the measurement ends after either t_dwell seconds or measurements number of iterations
-    outputs go into self.outQ (forking into background)
-    self.busy is set True at the start and is set False when a termination condition is met
-    the user is responsible for calling self.thread.join() when self.busy goes False
-    cb can be used specify that a callback function is called every time a measurement is made
-    """
-    self.workerTime = t_dwell
-    self.streamCB = cb
-    self.workerIterations = measurements
-    self.outQ = queue.Queue()
-    self.busy = True
-    self.thread = threading.Thread(target=self._measurer)
-    self.thread.start()
-    
+      q.append(measurement)
+      cb(measurement)
+    return q
