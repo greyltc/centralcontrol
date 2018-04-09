@@ -114,16 +114,16 @@ if args.sweep or args.snaith:
       myPrint("{:.6f} V".format(Voc), file=sys.stderr, flush=True)
     q = sm.measureUntil(t_dwell=args.T_prebias, cb=streamCB)
     
-    [Voc, Ioc, t0, status] = q.pop()
-    [Voc, Ioc, t1, status] = q.popleft() # get the last entry
+    [Voc, Ioc, t0, status] = q.popleft()  # get the oldest entry
+    [Voc, Ioc, t1, status] = q.pop() # get the most recent entry
     
     # derive connection polarity
     if Voc < 0:
-        polarity = -1
+        vPol = -1
+        iPol = 1
     else:
-        polarity = 1
-    
-    
+        vPol = 1
+        iPol = -1
 
 if args.sweep:
     #sm.write(':output off')
@@ -132,7 +132,7 @@ if args.sweep:
     myPrint('# i-v file format v1', flush=True)
     myPrint('# Area = {:}'.format(args.area))
     myPrint('# exploring\ttime\tvoltage\tcurrent', flush=True)
-    myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t1 - t0 ,Voc*polarity, Ioc*polarity), flush=True)
+    myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t1 - t0, Voc*vPol, Ioc*iPol), flush=True)
     
     # for initial sweep
     ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
@@ -141,10 +141,10 @@ if args.sweep:
     points = 1001
     sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=Voc, end=0)
 
-    myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
+    myPrint("Performing I-V sweep...", file=sys.stderr, flush=True)
     sweepValues = sm.measure()
     
-    myPrint("Exploratory sweep done!", file=sys.stderr, flush=True)
+    myPrint("Sweep done!", file=sys.stderr, flush=True)
     
     sweepValues = numpy.reshape(sweepValues, (-1,4))
     v = sweepValues[:,0]
@@ -157,7 +157,8 @@ if args.sweep:
     
     # display initial sweep result
     for x in range(len(sweepValues)):
-        myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
+        myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t[x], v[x]*vPol, i[x]*iPol), flush=True)
+    myPrint("Isc is {:} mA".format(Isc*1000), file=sys.stderr, flush=True)
 
 if args.snaith:
   sm.setNPLC(10)
@@ -167,12 +168,13 @@ if args.snaith:
   exploring = 1
   myPrint("Measuring Isc:", file=sys.stderr, flush=True)
   def streamCB(measurement):
-    [Vsc, Isc, now, status] = measurement
-    myPrint("{:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
+      [Vsc, Isc, now, status] = measurement
+      myPrint("{:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
   q = sm.measureUntil(t_dwell=args.T_prebias, cb=streamCB)
-    
-  [Vsc, Isc, t0, status] = q.pop()
-  [Vsc, Isc, t1, status] = q.popleft() # get the last entry
+
+  [Vsc, Isc, t, status] = q.popleft() # get the oldest entry
+  [Vsc, Isc, t1, status] = q.pop() # get the most recent entry
+  myPrint("Isc is {:} mA".format(Isc*1000), file=sys.stderr, flush=True)
   
   #sm.write(':output off')
   myPrint('#exploring,time,voltage,current', file=sys.stderr, flush=True)
@@ -180,7 +182,7 @@ if args.snaith:
   myPrint('# i-v file format v1', flush=True)
   myPrint('# Area = {:}'.format(args.area))
   myPrint('# exploring\ttime\tvoltage\tcurrent', flush=True)
-  myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t1 - t0 ,Vsc*polarity, Isc*polarity), flush=True)
+  myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t1 - t0 ,Vsc*vPol, Isc*iPol), flush=True)
   
   # for initial sweep
   ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
@@ -189,10 +191,10 @@ if args.snaith:
   points = 1001
   sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=0, end=Voc)
 
-  myPrint("Doing initial exploratory sweep...", file=sys.stderr, flush=True)
+  myPrint("Performing I-V snaith...", file=sys.stderr, flush=True)
   sweepValues = sm.measure()
   
-  myPrint("Exploratory sweep done!", file=sys.stderr, flush=True)
+  myPrint("Snaith done!", file=sys.stderr, flush=True)
   
   sweepValues = numpy.reshape(sweepValues, (-1,4))
   v = sweepValues[:,0]
@@ -205,96 +207,111 @@ if args.snaith:
   
   # display initial sweep result
   for x in range(len(sweepValues)):
-      myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring,t[x],v[x]*polarity,i[x]*polarity), flush=True)
+      myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t[x], v[x]*vPol, i[x]*iPol), flush=True)
+
+def mpptCB(measurement):
+    """Callback function for max powerpoint tracker
+    """
+    [v, i, now, status] = measurement
+    t = now - t0
+    myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(0, t, v*vPol, i*iPol), flush=True)
+    #myPrint("P={:.6f} mW".format(i*1000*v*-1), file=sys.stderr, flush=True)
 
 if args.mppt > 0:
     if not(args.snaith or args.sweep):
         raise ValueError('You must do a forward or reverse sweep before mppt')
-    p = v*i*polarity
+      
+    myPrint("Starting maximum power point tracker", file=sys.stderr, flush=True)
+
+    # find mpp from the previous sweep
+    p = v*i*-1
     maxIndex = numpy.argmax(p)
     Vmpp = v[maxIndex]
-    myPrint("Initial Mpp found:", file=sys.stderr, flush=True)
-    myPrint(p[maxIndex]*1000,"mW @",Vmpp,"V", file=sys.stderr, flush=True)
-    myPrint("Teleporting back to Mpp...", file=sys.stderr, flush=True)
-    dV = sm.dV
-    sm.setupDC(sourceVoltage=True, compliance=0.04, setPoint=Vmpp)
-    def streamCB(measurement):
-        [v, i, now, status] = measurement
-        t = now - t0
-        myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t, v*polarity, i*polarity), flush=True)
-        myPrint("P={:.6f} mW".format(i*1000*v), file=sys.stderr, flush=True)
-    #t_chill = 10
-    #myPrint("Chilling for {:} seconds...".format(t_chill), file=sys.stderr, flush=True)
-    #q = sm.measureUntil(t_dwell=10, cb=streamCB)
-    #yPrint("Mp after chill:", file=sys.stderr, flush=True)
-    #[v, i, now, status] = q.popleft()
-    #myPrint("P={:.6f} mW".format(i*1000*v), file=sys.stderr, flush=True)
     
-    # for curve exploration
-    dAngleMax = 25 #[degrees] (plus and minus)
-    while True:
+    # use previous voltage step
+    dV = sm.dV
+    
+    # switch to fixed DC mode
+    sm.setupDC(sourceVoltage=True, compliance=0.04, setPoint=Vmpp)
+    
+    # find runtime
+    [v, i, tx, status] = sm.measure()
+    t_run = tx - t0
+
+    # set exploration limits
+    dAngleMax = 3 #[degrees] (plus and minus)
+
+    while (t_run < args.mppt):
         exploring = 0
+        myPrint("Teleporting to Mpp...", file=sys.stderr, flush=True)
+        sm.setOutput(Vmpp)
         # dwell at Vmpp while measuring current
-        tic = time.time()
-        toc =  time.time() - tic
-        myPrint("Dwelling @ Mpp for",args.t_dwell,"s...", file=sys.stderr, flush=True)
-        myPrint("", file=sys.stderr, flush=True)
-        q = sm.measureUntil(t_dwell=args.t_dwell, cb=streamCB)
-        [v, i, now, status] = q.popleft()
+        t_dwell =args.t_dwell*4
+        myPrint("Dwelling @ Mpp for {:} seconds...".format(t_dwell), file=sys.stderr, flush=True)
+        q = sm.measureUntil(t_dwell=t_dwell, cb=mpptCB)
+        [Vmpp, Impp, now, status] = q.pop() # get the most recent entry
       
         myPrint("Exploring for new Mpp...", file=sys.stderr, flush=True)
         exploring = 1
-        i_explore = numpy.array(i)
-        v_explore = numpy.array(v)
-      
-        dAngle = 0
-        angleMpp = numpy.rad2deg(numpy.arctan(i/v*Voc/Isc))
+        i_explore = numpy.array(Vmpp)
+        v_explore = numpy.array(Impp)
+
+        angleMpp = numpy.rad2deg(numpy.arctan(Impp/Vmpp*Voc/Isc))
+        #print('MPP ANGLE = {:}'.format(angleMpp))
         v_set = Vmpp
-        switched = False
-        myPrint("Walking up in voltage...", file=sys.stderr, flush=True)
-        while dAngle < dAngleMax:
+        edgeANotTouched = True
+        edgeBNotTouched = True
+        while (edgeANotTouched or edgeBNotTouched) and (t_run < args.mppt):
             v_set = v_set + dV
-            sm.write(':source:voltage {0:0.4f}'.format(v_set))
+            sm.write(':source:voltage {0:0.6f}'.format(v_set))
             [v, i, tx, status] = sm.measure()
-            i = i*polarity
-            t_run = tx-t0
-            myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring,t_run,v,i), flush=True)
-            if t_run > args.mppt:
-                sys.exit()
+            
+            myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t_run, v*vPol, i*iPol), flush=True)
             i_explore = numpy.append(i_explore, i)
             v_explore = numpy.append(v_explore, v)
-            dAngle = numpy.rad2deg(numpy.arctan(i/v*Voc/Isc)) - angleMpp
-            if (dAngle < -dAngleMax) and not switched:
-                myPrint("Upper exploration voltage limit reached.", file=sys.stderr, flush=True)
-                myPrint("Walking down in voltage...", file=sys.stderr, flush=True)
-                switched = True
-                dV = dV * -1 # switch our voltage walking direction (only once)
-      
-        myPrint("Lower exploration voltage limit reached.", file=sys.stderr, flush=True)
-      
-        # find the powers for the values we just explored
-        p_explore = v_explore*i_explore*polarity
-        maxIndex = numpy.argmax(p_explore)
-        Vmpp = v_explore[maxIndex]
-      
-        myPrint("New Mpp found:", file=sys.stderr, flush=True)
-        myPrint(p_explore[maxIndex]*1000,"mW @",Vmpp,"V", file=sys.stderr, flush=True)    
-      
-        # now let's walk back to our new Vmpp
-        dV = dV * -1
-        v_set = v_set + dV
-        myPrint("Walking back to Mpp...", file=sys.stderr, flush=True)
-        while v_set < Vmpp:
-            sm.write(':source:voltage {0:0.4f}'.format(v_set))
-            [v, i, tx, status] = sm.query_ascii_values('READ?')
-            i = i*polarity
+            thisAngle = numpy.rad2deg(numpy.arctan(i/v*Voc/Isc))
+            #print('This Angle = {:}'.format(thisAngle))
+            dAngle = thisAngle - angleMpp
+            if ((dAngle > dAngleMax) or (v_set >= Voc)) and ( edgeANotTouched ): # twords Voc edge
+                edgeANotTouched = False
+                if (v_set >= Voc):
+                    because = 'Voc reached'
+                else:
+                    because = 'angle limit reached'
+                if edgeBNotTouched:
+                    myPrint("Bouncing off Edge A because {:}".format(because), file=sys.stderr, flush=True)
+                    dV = dV * -1 # switch our voltage walking direction
+                else:
+                    myPrint("Second edge (A) reached because {:}".format(because), file=sys.stderr, flush=True)
+            if ((-dAngle > dAngleMax) or (v_set <= 0)) and ( edgeBNotTouched ): # towards Isc (V=0) edge
+                edgeBNotTouched = False
+                if (v_set <= 0):
+                    because = 'V=0 reached'
+                else:
+                    because = 'angle limit reached'
+                if edgeANotTouched:
+                    myPrint("Bouncing off Edge B because {:}".format(because), file=sys.stderr, flush=True)
+                    dV = dV * -1 # switch our voltage walking direction
+                else:
+                    myPrint("Second edge (B) reached because {:}".format(because), file=sys.stderr, flush=True)
             t_run = tx-t0
-            myPrint('{:1d},{:.4e},{:.4e},{:.4e}'.format(exploring,t_run,v,i), flush=True)
-            if t_run > args.t_total:
-                sys.exit()
-            v_set = v_set + dV
-        sm.write(':source:voltage {0:0.4f}'.format(Vmpp))
-        myPrint("Mpp reached.", file=sys.stderr, flush=True)    
+        
+        if (t_run < args.mppt):
+            myPrint("Done exploring.", file=sys.stderr, flush=True)
+
+            # find the powers for the values we just explored
+            p_explore = v_explore * i_explore * -1
+            maxIndex = numpy.argmax(p_explore)
+            Vmpp = v_explore[maxIndex]
+            Impp = i_explore[maxIndex]
+
+            myPrint("New Mpp found: {:.6f} mW @ {:.6f} V".format(p_explore[maxIndex]*1000, Vmpp), file=sys.stderr, flush=True)
+            
+            dFromLastMppAngle = numpy.rad2deg(numpy.arctan(Impp/Vmpp*Voc/Isc)) - angleMpp
+            
+            myPrint("That's: {:.6f} degrees from the previous Mpp.".format(dFromLastMppAngle), file=sys.stderr, flush=True)
+        else:
+            myPrint("Time's up!.", file=sys.stderr, flush=True)
       
 
 # deselect all pixels
