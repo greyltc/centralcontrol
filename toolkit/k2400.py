@@ -1,5 +1,5 @@
-import visa # for talking to sourcemeter
-import pyvisa
+#import visa # for talking to sourcemeter
+#import pyvisa
 import serial
 import sys
 import numpy as np
