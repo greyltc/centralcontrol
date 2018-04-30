@@ -1,7 +1,8 @@
 from toolkit import k2400
 from toolkit import pcb
-from toolkit import k2400_virt
-from toolkit import pcb_virt
+from toolkit import virt
+#from toolkit import k2400_virt
+#from toolkit import pcb_virt
 
 class logic:
   
@@ -16,4 +17,5 @@ class logic:
     
   
   
-  def find_ss_voc(self, sm, pcb)
+  def find_ss_voc(self, sm, pcb):
+    pass

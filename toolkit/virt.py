@@ -3,11 +3,11 @@ import time
 import numpy
 from collections import deque
 
-class pcb_virt():
+class pcb():
     def pix_picker(self, substrate, pixel, suppressWarning=False):
         return True
 
-class k2400_virt():
+class k2400():
     """Solar cell device simulator (looks like k2400 class)
     """
     readyForAction = True

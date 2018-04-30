@@ -5,8 +5,9 @@
 
 from toolkit import k2400
 from toolkit import pcb
-from toolkit import k2400_virt
-from toolkit import pcb_virt
+from toolkit import virt
+#from toolkit import k2400_virt
+#from toolkit import pcb_virt
 from toolkit import logic
 import sys
 import argparse
@@ -42,11 +43,11 @@ args.terminator = bytearray.fromhex(args.terminator).decode()
 
 dataDestinations = [sys.stdout]
 
-l = logic()
+#l = logic()
 
 if args.dummy:
-  sm = k2400_virt()
-  pcb = pcb_virt()
+  sm = virt.k2400()
+  pcb = virt.pcb()
   args.pixel_address = 'A1'
 else:
   sm = k2400(visa_lib=args.visa_lib, terminator=args.terminator, addressString=args.address, serialBaud=args.baud, scan=args.scan)

@@ -1,3 +1,4 @@
+*.txt
 *.vscode/
 *.csv
 # Byte-compiled / optimized / DLL files
