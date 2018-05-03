@@ -1,10 +1,8 @@
-#import visa # for talking to sourcemeter
-#import pyvisa
-import serial
 import sys
 import numpy as np
 import time
 from collections import deque
+import visa
 
 class k2400:
   """
@@ -280,7 +278,7 @@ class k2400:
   def measureUntil(self, t_dwell=np.inf, measurements=np.inf, cb=lambda x:None):
     """Meakes measurements until termination conditions are met
     supports a callback after every measurement
-    returns a queqe of measurements
+    returns a deque of measurements
     """
     i = 0
     t_end = time.time() + t_dwell

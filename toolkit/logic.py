@@ -1,8 +1,6 @@
 from toolkit import k2400
 from toolkit import pcb
 from toolkit import virt
-#from toolkit import k2400_virt
-#from toolkit import pcb_virt
 
 class logic:
   
@@ -12,7 +10,7 @@ class logic:
       self.pcb = pcb_virt()
       self.pixel_address = pixel_address
     else:
-      sm = k2400(visa_lib=args.visa_lib, terminator=args.terminator, addressString=args.address, serialBaud=args.baud, scan=args.scan)
+      sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=args.address, serialBaud=args.baud, scan=args.scan)
     
     
   

@@ -6,15 +6,15 @@
 from toolkit import k2400
 from toolkit import pcb
 from toolkit import virt
-#from toolkit import k2400_virt
-#from toolkit import pcb_virt
 from toolkit import logic
+
 import sys
 import argparse
 import time
 import numpy
 import mpmath
 from scipy import special
+from string import digits
 parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 2400 sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
 
 parser.add_argument("address", nargs='?', default="None", type=str, help="VISA resource name for sourcemeter")
@@ -69,43 +69,45 @@ if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
 
-substrate = args.pixel_address[0]
+
 if args.xmas_lights:
-    myPrint("LED test mode active on substrate {:s}".format(substrate), file=sys.stderr, flush=True)
+    remove_digits = str.maketrans('', '', digits)
+    myPrint("LED test mode active on substrate(s) {:s}".format(pcb.substratesConnected), file=sys.stderr, flush=True)
 
-    sweepHigh = 0.01 # amps
-    sweepLow = 0 # amps
+    for xmas_substrate in pcb.substratesConnected:
+      sweepHigh = 0.01 # amps
+      sweepLow = 0 # amps
+  
+      pcb.pix_picker(xmas_substrate,1)
+      sm.setNPLC(0.01)
+      sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, stepDelay=-1, start=sweepLow, end=sweepHigh)
+      sm.write(':arm:source bus') # this allows for the trigger style we'll use here
+  
+      for pix in range(8):
+          pcb.pix_picker(xmas_substrate,pix+1)
 
-    pcb.pix_picker(substrate,1)
-    sm.setNPLC(0.01)
-    sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, stepDelay=-1, start=sweepLow, end=sweepHigh)
-    sm.write(':arm:source bus') # this allows for the trigger style we'll use here
-
-    substrate = args.pixel_address[0]
-    for pix in range(8):
-        pcb.pix_picker(substrate,pix+1)
-
-        sm.updateSweepStart(sweepLow)
-        sm.updateSweepStop(sweepHigh)
-        sm.arm()
-        sm.trigger()
-        sm.opc()
-
-        sm.updateSweepStart(sweepHigh)
-        sm.updateSweepStop(sweepLow)
-        sm.arm()
-        sm.trigger()
-        sm.opc()
-
-        # off during pix switchover
-        sm.setOutput(0)
-
-    sm.outOn(False)
-
-    # deselect all pixels
-    pcb.pix_picker(substrate, 0)
+          sm.updateSweepStart(sweepLow)
+          sm.updateSweepStop(sweepHigh)
+          sm.arm()
+          sm.trigger()
+          sm.opc()
+  
+          sm.updateSweepStart(sweepHigh)
+          sm.updateSweepStop(sweepLow)
+          sm.arm()
+          sm.trigger()
+          sm.opc()
+  
+          # off during pix switchover
+          sm.setOutput(0)
+  
+      sm.outOn(False)
+  
+      # deselect all pixels
+      pcb.pix_picker(xmas_substrate, 0)
 
 if args.sweep or args.snaith:
+    substrate = args.pixel_address[0]  
     pix = args.pixel_address[1]
     # let's find our open circuit voltage
     if not pcb.pix_picker(substrate, pix):
@@ -318,8 +320,4 @@ if args.mppt > 0:
 
             myPrint("That's: {:.6f} degrees from the previous Mpp.".format(dFromLastMppAngle), file=sys.stderr, flush=True)
         else:
-            myPrint("Time's up!.", file=sys.stderr, flush=True)
-
-
-# deselect all pixels
-pcb.pix_picker(substrate, 0)
+            myPrint("Time's up!", file=sys.stderr, flush=True)

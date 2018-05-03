@@ -2,12 +2,13 @@ import socket
 
 class pcb:
   """
-  Intertace for talking to my control PCB
+  Interface for talking to my control PCB
   """
   write_terminator = '\r'
   read_terminator = b'\r\n'
   prompt = '>>> '
-  substrateList = 'HGFEDCBA'
+  substrateList = 'HGFEDCBA'  # all the possible substrates
+  substratesConnected = ''  # the ones we've detected
   
   def __init__(self, ipAddress, port=23):
     timeout = 10
@@ -36,10 +37,12 @@ class pcb:
         substrate = self.substrateList[i]
         mask = 0x01 << (7-i)
         if (mask & substrates) != 0x00:
+          self.substratesConnected = self.substratesConnected + substrate
           found = found + substrate
       print(found)
 
   def __del__(self):
+    self.disconnect_all()
     self.disconnect()
     
   def substrateSearch(self):
@@ -64,19 +67,28 @@ class pcb:
     self.s.close()
     
   def pix_picker(self, substrate, pixel, suppressWarning=False):
-    sf = self.sf
     win = False
+    ready = False
     try:
         cmd = "s" + substrate + str(pixel)
-        answer, win = self.query(cmd)
+        answer, ready = self.query(cmd)
     except:
         pass
-    
-    if (not win) and (not suppressWarning):
+      
+    if ready:
+      if answer == '':
+        win = True
+      else:
         print("WARNING: unable to set pixel with command, {:s}".format(cmd))
+        print("Got message: {:s}".format(answer))
+    else:
+      raise (ValueError, "Comms are out of sync with the PCB")
 
     return win
   
+  # returns string, bool
+  # the string is the response
+  # the bool tells us if the read completed successfully
   def getResponse(self):
     sf = self.sf
     line = None
@@ -116,7 +128,12 @@ class pcb:
   def query(self, query):
     self.write(query)
     return self.getResponse()
-    
+  
+  def disconnect_all(self):
+    """ Opens all the switches
+    """
+    for substrate in self.substratesConnected:
+      self.pix_picker(substrate, 0)
     
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
     """Set TCP keepalive on an open socket.
