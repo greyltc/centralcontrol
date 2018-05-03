@@ -14,7 +14,6 @@ import time
 import numpy
 import mpmath
 from scipy import special
-from string import digits
 parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 2400 sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
 
 parser.add_argument("address", nargs='?', default="None", type=str, help="VISA resource name for sourcemeter")
@@ -29,7 +28,7 @@ parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_t
 parser.add_argument("--terminator", type=str, default='0A', help="Instrument comms read & write terminator (enter in hex)")
 parser.add_argument("--baud", type=int, default=57600, help="Instrument serial comms baud rate")
 parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
-parser.add_argument('--xmas-lights', default=False, action='store_true', help="Connectivity test. Probs only run this with commercial LEDs.")
+parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
 parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
 parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
 parser.add_argument('--T_prebias', type=float, default=10, help="Wait this many seconds with the source on before sweeping")
@@ -41,8 +40,7 @@ args = parser.parse_args()
 
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
-dataDestinations = [sys.stdout]
-
+# create the control entity
 l = logic()
 
 # connect to PCB and sourcemeter
@@ -56,10 +54,14 @@ else:
     l.sm.setTerminals(front=args.front)
   if args.twoWire:
     l.sm.setTerminals(twoWire=twoWire)
-    
+
+if args.test_hardware:
+  l.hardwareTest()
+  
 sm = l.sm
 pcb = l.pcb
 
+dataDestinations = [sys.stdout]
 def myPrint(*args,**kwargs):
     if kwargs.__contains__('file'):
         print(*args,**kwargs) # if we specify a file dest, don't overwrite it
@@ -71,42 +73,6 @@ def myPrint(*args,**kwargs):
 if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
-
-if args.xmas_lights:
-    remove_digits = str.maketrans('', '', digits)
-    myPrint("LED test mode active on substrate(s) {:s}".format(pcb.substratesConnected), file=sys.stderr, flush=True)
-
-    for xmas_substrate in pcb.substratesConnected:
-      sweepHigh = 0.01 # amps
-      sweepLow = 0 # amps
-  
-      pcb.pix_picker(xmas_substrate,1)
-      sm.setNPLC(0.01)
-      sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, stepDelay=-1, start=sweepLow, end=sweepHigh)
-      sm.write(':arm:source bus') # this allows for the trigger style we'll use here
-  
-      for pix in range(8):
-          pcb.pix_picker(xmas_substrate,pix+1)
-
-          sm.updateSweepStart(sweepLow)
-          sm.updateSweepStop(sweepHigh)
-          sm.arm()
-          sm.trigger()
-          sm.opc()
-  
-          sm.updateSweepStart(sweepHigh)
-          sm.updateSweepStop(sweepLow)
-          sm.arm()
-          sm.trigger()
-          sm.opc()
-  
-          # off during pix switchover
-          sm.setOutput(0)
-  
-      sm.outOn(False)
-  
-      # deselect all pixels
-      pcb.pix_picker(xmas_substrate, 0)
 
 if args.sweep or args.snaith:
     substrate = args.pixel_address[0]  
