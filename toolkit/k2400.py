@@ -20,12 +20,8 @@ class k2400:
     self.addressString = addressString
     self.terminator = terminator
     self.serialBaud = serialBaud     
-    if addressString != None:
-      self.sm = self._getSourceMeter(self.rm)
-      self.readyForAction = self._setupSourcemeter(front=front, twoWire=twoWire)
-  
-  def __del__(self):
-    self.disconnect()
+    self.sm = self._getSourceMeter(self.rm)
+    self._setupSourcemeter(front=front, twoWire=twoWire)
 
   def _getResourceManager(self,visa_lib):
     try:
@@ -77,7 +73,7 @@ class k2400:
     try:
       sm.write('*RST')
       sm.write(':status:preset')
-      sm.write(':system:preset')      
+      sm.write(':system:preset')
       # ask the device to identify its self
       idnString = sm.query('*IDN?')
     except:
@@ -125,36 +121,32 @@ class k2400:
     sm.write('source:clear:auto off')
     sm.write(':system:azero on')
     
-    if twoWire:
-      sm.write(':system:rsense off') # four wire mode off
-    else:
-      sm.write(':system:rsense on') # four wire mode on
+    self.setWires(twoWire=twoWire)
       
     sm.write(':sense:function:concurrent on')
     sm.write(':sense:function "current:dc", "voltage:dc"')
     sm.write(':format:elements time,voltage,current,status')
     
     # use front terminals?
-    if front:
-      sm.write(':rout:term front')
-    else:
-      sm.write(':rout:term rear')
+    self.setTerminals(front=front)
       
     self.src = sm.query(':source:function:mode?')
     sm.write(':system:beeper:state off')
+  
+  def setWires(self, twoWire=False):
+    if twoWire:
+      self.sm.write(':system:rsense off') # four wire mode off
+    else:
+      self.sm.write(':system:rsense on') # four wire mode on
       
-    return True
-  
-  def disconnect(self):
-    sm = self.sm
-    sm.write('*RST')
-    sm.close()
-  
-    print("Sourcemeter disconnected.")
+  def setTerminals(self, front=False):
+    if front:
+      self.sm.write(':rout:term front')
+    else:
+      self.sm.write(':rout:term rear')
     
   def updateSweepStart(self,startVal):
     self.sm.write(':source:{:s}:start {:.6f}'.format(self.src, startVal))
-
     
   def updateSweepStop(self,stopVal):
     self.sm.write(':source:{:s}:stop {:.6f}'.format(self.src, stopVal))

@@ -43,19 +43,22 @@ args.terminator = bytearray.fromhex(args.terminator).decode()
 
 dataDestinations = [sys.stdout]
 
-#l = logic()
+l = logic()
+
+# connect to PCB and sourcemeter
+l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, 
+         pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
 
 if args.dummy:
-  sm = virt.k2400()
-  pcb = virt.pcb()
   args.pixel_address = 'A1'
 else:
-  sm = k2400(visa_lib=args.visa_lib, terminator=args.terminator, addressString=args.address, serialBaud=args.baud, scan=args.scan)
-
-  if not sm.readyForAction:
-    raise ValueError('Sourcemeter not ready for action :-(')
-  
-  pcb = pcb(args.switch_address, port=args.port)
+  if args.front:
+    l.sm.setTerminals(front=args.front)
+  if args.twoWire:
+    l.sm.setTerminals(twoWire=twoWire)
+    
+sm = l.sm
+pcb = l.pcb
 
 def myPrint(*args,**kwargs):
     if kwargs.__contains__('file'):
@@ -68,7 +71,6 @@ def myPrint(*args,**kwargs):
 if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
-
 
 if args.xmas_lights:
     remove_digits = str.maketrans('', '', digits)

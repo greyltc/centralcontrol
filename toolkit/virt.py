@@ -10,7 +10,6 @@ class pcb():
 class k2400():
     """Solar cell device simulator (looks like k2400 class)
     """
-    readyForAction = True
 
     def __init__(self):
         self.t0 = time.time()

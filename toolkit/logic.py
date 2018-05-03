@@ -4,16 +4,20 @@ from toolkit import virt
 
 class logic:
   
-  def __init__(self, dummy=False, visa_lib='@py', scan=False, addressString=None, terminator='\n', serialBaud=57600, front=False, twoWire=False, pixel_address='A1'):
+  def __init__(self):
+    pass
+  
+  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', pcbPort=23, terminator='\n', serialBaud=57600):
+    """Forms a connection to the PCB and the sourcemeter
+    will form connections to dummy instruments if dummy=true
+    """
+
     if dummy:
-      self.sm = k2400_virt()
-      self.pcb = pcb_virt()
-      self.pixel_address = pixel_address
+      self.sm = virt.k2400()
+      self.pcb = virt.pcb()
     else:
-      sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=args.address, serialBaud=args.baud, scan=args.scan)
-    
-    
-  
-  
-  def find_ss_voc(self, sm, pcb):
+      self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
+      self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)
+
+  def find_ss_voc(self):
     pass
