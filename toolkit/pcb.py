@@ -73,7 +73,7 @@ class pcb:
         cmd = "s" + substrate + str(pixel)
         answer, ready = self.query(cmd)
     except:
-        pass
+        raise (ValueError, "Failure while talking to PCB")
       
     if ready:
       if answer == '':
@@ -128,6 +128,26 @@ class pcb:
   def query(self, query):
     self.write(query)
     return self.getResponse()
+  
+  def getADCCounts(self, chan):
+    counts = None
+    ready = False
+    try:
+        cmd = "ADC" + str(chan)
+        answer, ready = self.query(cmd)
+    except:
+        raise (ValueError, "Failure while talking to PCB")
+      
+    if ready:
+      if answer.startswith('AIN'):
+        counts = int(answer.split(' ')[1])
+      else:
+        print("WARNING: unable to set pixel with command, {:s}".format(cmd))
+        print("Got message: {:s}".format(answer))
+    else:
+      raise (ValueError, "Comms are out of sync with the PCB")
+
+    return counts    
   
   def disconnect_all(self):
     """ Opens all the switches

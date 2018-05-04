@@ -34,6 +34,7 @@ class logic:
       self.sm.write(':arm:source bus') # this allows for the trigger style we'll use here
     
       for pix in range(8):
+        print(substrate+str(pix+1))
         if pix != 0:
           self.pcb.pix_picker(substrate,pix+1)
     
@@ -58,15 +59,29 @@ class logic:
       self.pcb.pix_picker(substrate, 0)
     
     # exercise pcb ADC
-    d1Counts = 1
-    print('D1 Diode ADC counts: {:d}'.format(d1Counts))
+    print('ADC Counts:')
+    adcChan = 2
+    counts = self.pcb.getADCCounts(adcChan)
+    print('{:d}\t<-- D1 Diode (TP3, AIN{:d}): '.format(counts, adcChan))
     
-    d1Counts = 2
-    print('D2 Diode ADC counts: {:d}'.format(d2Counts))
+    adcChan = 3
+    counts = self.pcb.getADCCounts(adcChan)
+    print('{:d}\t<-- D2 Diode ADC counts (TP4, AIN{:d})'.format(counts, adcChan))
     
-    d1Counts = 1
-    print('Adapter board resistor ADC counts...')
-    for substrate in self.pcb.substratesConnected:
+    adcChan = 0
+    counts = self.pcb.getADCCounts(adcChan)
+    print('{:d}\t<-- Adapter board resistor divider ADC counts (TP5, AIN{:d})'.format(counts, adcChan))
+    
+    adcChan = 1
+    counts = self.pcb.getADCCounts(adcChan)
+    print('{:d}\t<-- Disconnected ADC counts (TP2, AIN{:d})'.format(counts, adcChan))
+    
+    #adcChan = 0
+    #for substrate in self.pcb.substratesConnected:
+      #counts = self.pcb.getADCCounts(adcChan)
+      #print('Substrate {:s} adapter board resistor divider ADC counts (TP5, AIN{:d}): {:d}'.format(adcChan, counts))
+      
+      
       
   def find_ss_voc(self):
     pass

@@ -53,7 +53,7 @@ else:
   if args.front:
     l.sm.setTerminals(front=args.front)
   if args.twoWire:
-    l.sm.setTerminals(twoWire=twoWire)
+    l.sm.setWires(twoWire=args.twoWire)
 
 if args.test_hardware:
   l.hardwareTest()
@@ -289,3 +289,5 @@ if args.mppt > 0:
             myPrint("That's: {:.6f} degrees from the previous Mpp.".format(dFromLastMppAngle), file=sys.stderr, flush=True)
         else:
             myPrint("Time's up!", file=sys.stderr, flush=True)
+
+sm.outOn(on=False)
