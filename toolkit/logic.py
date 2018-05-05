@@ -66,22 +66,20 @@ class logic:
     
     adcChan = 3
     counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- D2 Diode ADC counts (TP4, AIN{:d})'.format(counts, adcChan))
+    print('{:d}\t<-- D2 Diode (TP4, AIN{:d})'.format(counts, adcChan))
     
     adcChan = 0
     counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- Adapter board resistor divider ADC counts (TP5, AIN{:d})'.format(counts, adcChan))
+    print('{:d}\t<-- Adapter board resistor divider (TP5, AIN{:d})'.format(counts, adcChan))
     
     adcChan = 1
     counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- Disconnected ADC counts (TP2, AIN{:d})'.format(counts, adcChan))
+    print('{:d}\t<-- Disconnected (TP2, AIN{:d})'.format(counts, adcChan))
     
-    #adcChan = 0
-    #for substrate in self.pcb.substratesConnected:
-      #counts = self.pcb.getADCCounts(adcChan)
-      #print('Substrate {:s} adapter board resistor divider ADC counts (TP5, AIN{:d}): {:d}'.format(adcChan, counts))
-      
-      
+    adcChan = 0
+    for substrate in self.pcb.substratesConnected:
+      counts = self.pcb.getADCCounts(substrate)
+      print('{:d}\t<-- Substrate {:s} adapter board resistor divider (TP5, AIN{:d})'.format(counts, substrate, adcChan))
       
   def find_ss_voc(self):
     pass

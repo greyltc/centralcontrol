@@ -181,6 +181,8 @@ class k2400:
 
   def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1):
     """setup DC measurement operation
+    if sourceVoltage == True, then we'll have a voltage source at setPoint volts with max current +/- compliance amps
+    if sourceVoltage == False, we'll have a current source at setPoint amps with max voltage +/- compliance volts
     """
     sm = self.sm
     if sourceVoltage:
@@ -198,8 +200,10 @@ class k2400:
     sm.write(':output on')
     sm.write(':trigger:count 1')
     
-  def setupSweep(self, sourceVoltage=True, compliance=0.1, nPoints=101, stepDelay=-1, start=0, end=1, streaming=False):
+  def setupSweep(self, sourceVoltage=True, compliance=0.1, nPoints=101, stepDelay=-1, start=0, end=1, streaming=False, sRange=-1):
     """setup for a sweep operation
+    if sRange == -1 then use compliance as sense range
+    if stepDelay == -1 then step delay is on auto (1ms)
     """
     sm = self.sm
     if sourceVoltage:
@@ -224,10 +228,17 @@ class k2400:
     sm.write(':source:sweep:points {:d}'.format(nPoints))
     sm.write(':source:{:s}:start {:.6f}'.format(src,start))
     sm.write(':source:{:s}:stop {:.6f}'.format(src,end))
-    self.dV = abs(float(sm.query(':source:voltage:step?')))
+    if sourceVoltage:
+      self.dV = abs(float(sm.query(':source:voltage:step?')))
+    else:
+      self.dI = abs(float(sm.query(':source:current:step?')))
     #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
-    sm.write(':sense:{:s}:range {:.6f}'.format(snc,compliance))
+    sm.write(':sense:{:s}:range:auto off')
+    if sRange == -1 :
+      sm.write(':sense:{:s}:range {:.6f}'.format(snc,compliance))
+    else:
+      sm.write(':sense:{:s}:range {:.6f}'.format(snc,sRange))
   
   def opc(self):
     """returns when all operations are complete

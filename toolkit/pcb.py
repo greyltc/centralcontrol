@@ -21,11 +21,13 @@ class pcb:
     self.s = s
     self.sf = sf
     
-    self.write('') # check on switch
+    self.write('v') # check on switch
     answer, win = self.getResponse()
     
     if not win:
       raise ValueError('Got bad response from switch')
+    else:
+      print('Connected to control PCB with ' + answer)
     
     substrates = self.substrateSearch()
     
@@ -79,8 +81,7 @@ class pcb:
       if answer == '':
         win = True
       else:
-        print("WARNING: unable to set pixel with command, {:s}".format(cmd))
-        print("Got message: {:s}".format(answer))
+        print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
     else:
       raise (ValueError, "Comms are out of sync with the PCB")
 
@@ -130,10 +131,19 @@ class pcb:
     return self.getResponse()
   
   def getADCCounts(self, chan):
+    """makes adc readings.
+    chan can be 0-3 to directly read the corresponding adc channel
+    chan can also be A-H to get the adapter board resistor divider counts
+    """
     counts = None
     ready = False
+    
+    if (type(chan) == int):
+      cmd = "ADC" + str(chan)
+    else:  # must be in resistor divider mode
+      cmd = "d" + str(chan)
+    
     try:
-        cmd = "ADC" + str(chan)
         answer, ready = self.query(cmd)
     except:
         raise (ValueError, "Failure while talking to PCB")
@@ -141,13 +151,14 @@ class pcb:
     if ready:
       if answer.startswith('AIN'):
         counts = int(answer.split(' ')[1])
+      elif answer.startswith('Board'):
+        counts = int(answer.split(' ')[5])
       else:
-        print("WARNING: unable to set pixel with command, {:s}".format(cmd))
-        print("Got message: {:s}".format(answer))
+        print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
     else:
       raise (ValueError, "Comms are out of sync with the PCB")
 
-    return counts    
+    return counts
   
   def disconnect_all(self):
     """ Opens all the switches
