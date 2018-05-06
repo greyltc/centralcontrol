@@ -179,7 +179,7 @@ class k2400:
     else:
       self.sm.write(':display:digits 7')
 
-  def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1):
+  def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1, senseRange=-1):
     """setup DC measurement operation
     if sourceVoltage == True, then we'll have a voltage source at setPoint volts with max current +/- compliance amps
     if sourceVoltage == False, we'll have a current source at setPoint amps with max voltage +/- compliance volts
@@ -194,15 +194,21 @@ class k2400:
     self.src = src
     sm.write(':source:function {:s}'.format(src))
     sm.write(':source:{:s}:mode fixed'.format(src))
-    sm.write(':source:{:s} {:0.6f}'.format(src,setPoint))
-    sm.write(':sense:{:s}:range:auto on'.format(snc))
+    sm.write(':source:{:s} {:.6f}'.format(src,setPoint))
+
+    if senseRange == -1:
+      sm.write(':sense:{:s}:range:auto on'.format(snc))
+    else:
+      sm.write(':sense:{:s}:range:auto off'.format(snc))
+      sm.write(':sense:{:s}:range {:.6f}'.format(snc,senseRange))
+    
     sm.write(':sense:{:s}:protection {:.6f}'.format(snc,compliance))
     sm.write(':output on')
     sm.write(':trigger:count 1')
     
-  def setupSweep(self, sourceVoltage=True, compliance=0.1, nPoints=101, stepDelay=-1, start=0, end=1, streaming=False, sRange=-1):
+  def setupSweep(self, sourceVoltage=True, compliance=0.1, nPoints=101, stepDelay=-1, start=0, end=1, streaming=False, senseRange=-1):
     """setup for a sweep operation
-    if sRange == -1 then use compliance as sense range
+    if senseRange == -1 then use compliance as sense range
     if stepDelay == -1 then step delay is on auto (1ms)
     """
     sm = self.sm
@@ -223,7 +229,7 @@ class k2400:
       sm.write(':source:delay:auto on') # this just sets delay to 1ms
     else:
       sm.write(':source:delay:auto off')
-      sm.write(':source:delay {:0.3f}'.format(stepDelay))
+      sm.write(':source:delay {:0.6f}'.format(stepDelay))
     sm.write(':trigger:count {:d}'.format(nPoints))
     sm.write(':source:sweep:points {:d}'.format(nPoints))
     sm.write(':source:{:s}:start {:.6f}'.format(src,start))
@@ -235,10 +241,10 @@ class k2400:
     #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
     sm.write(':sense:{:s}:range:auto off')
-    if sRange == -1 :
+    if senseRange == -1 :
       sm.write(':sense:{:s}:range {:.6f}'.format(snc,compliance))
     else:
-      sm.write(':sense:{:s}:range {:.6f}'.format(snc,sRange))
+      sm.write(':sense:{:s}:range {:.6f}'.format(snc,senseRange))
   
   def opc(self):
     """returns when all operations are complete

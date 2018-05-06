@@ -5,6 +5,12 @@ from toolkit import virt
 class logic:
   """ this class contains the sourcemeter and pcb control logic
   """
+  ssVocDwell = 10  # [s] dwell time for steady state voc determination
+  ssIscDwell = 10  # [s] dwell time for steady state isc determination
+  
+  m = np.array([])  # measurement list
+  s = []  # status list
+  ns = np.array([])  # list of measurement indicies for the status messages
   
   def __init__(self):
     pass
@@ -81,5 +87,22 @@ class logic:
       counts = self.pcb.getADCCounts(substrate)
       print('{:d}\t<-- Substrate {:s} adapter board resistor divider (TP5, AIN{:d})'.format(counts, substrate, adcChan))
       
-  def find_ss_voc(self):
-    pass
+  def insertStatus(self, message):
+    self.s.append(message)
+    self.ns.append(len(self.m))
+    
+      
+  def steadyState(self, t_dwell=10, NPLC=10, sourceVoltage=False, compliance=2, setPoint=0):
+    """ makes steady state measurements for t_dwell seconds
+    set NPLC to -1 to leave it unchanged
+    returns array of measurements
+    """
+    self.insertStatus('steady state {:s} measurement at {:.0} m{:s}'.format('current' if sourceVoltage else 'voltage', setPoint*1000, 'A' if sourceVoltage else 'V'))
+    if NPLC != -1:
+      self.sm.setNPLC(NPLC)
+    self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint)
+    self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+    q = self.sm.measureUntil(t_dwell=t_dwell)
+    qa = np.array(q)
+    self.m.append(qa)
+    return qa
