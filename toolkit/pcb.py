@@ -130,12 +130,36 @@ class pcb:
     self.write(query)
     return self.getResponse()
   
+  def get(self, cmd):
+    """sends cmd to the pcb and returns the relevant command response
+    """
+    ready = False
+    ret = None
+    
+    try:
+      answer, ready = self.query(cmd)
+    except:
+      raise (ValueError, "Failure while talking to PCB")
+  
+    if ready:
+      if answer.startswith('AIN'):
+        ret = answer.split(' ')[1]
+      elif answer.startswith('Board'):
+        ret = answer.split(' ')[5]
+      elif answer.startswith('Firmware'):
+        ret = answer.split(' ')[2]
+      else:
+        print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
+    else:
+      raise (ValueError, "Comms are out of sync with the PCB")
+    
+    return ret
+  
   def getADCCounts(self, chan):
     """makes adc readings.
     chan can be 0-3 to directly read the corresponding adc channel
     chan can also be A-H to get the adapter board resistor divider counts
     """
-    counts = None
     ready = False
     
     if (type(chan) == int):
@@ -143,22 +167,7 @@ class pcb:
     else:  # must be in resistor divider mode
       cmd = "d" + str(chan)
     
-    try:
-        answer, ready = self.query(cmd)
-    except:
-        raise (ValueError, "Failure while talking to PCB")
-      
-    if ready:
-      if answer.startswith('AIN'):
-        counts = int(answer.split(' ')[1])
-      elif answer.startswith('Board'):
-        counts = int(answer.split(' ')[5])
-      else:
-        print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
-    else:
-      raise (ValueError, "Comms are out of sync with the PCB")
-
-    return counts
+    return int(self.get(cmd))
   
   def disconnect_all(self):
     """ Opens all the switches

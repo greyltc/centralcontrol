@@ -1,6 +1,12 @@
 from toolkit import k2400
 from toolkit import pcb
 from toolkit import virt
+import h5py
+import numpy as np
+import unicodedata
+import re
+import os
+import time
 
 class logic:
   """ this class contains the sourcemeter and pcb control logic
@@ -8,12 +14,14 @@ class logic:
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
   
-  m = np.array([])  # measurement list
-  s = []  # status list
-  ns = np.array([])  # list of measurement indicies for the status messages
+  m = np.array([]).reshape(0, 4)  # measurement list: columns = v, i, timestamp, status
+  s = np.array([])  # status list: columns = corresponding measurement index, status message
   
-  def __init__(self):
-    pass
+  adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG']
+  layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E']
+  
+  def __init__(self, saveDir):
+    self.saveDir = saveDir
   
   def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', pcbPort=23, terminator='\n', serialBaud=57600):
     """Forms a connection to the PCB and the sourcemeter
@@ -87,22 +95,83 @@ class logic:
       counts = self.pcb.getADCCounts(substrate)
       print('{:d}\t<-- Substrate {:s} adapter board resistor divider (TP5, AIN{:d})'.format(counts, substrate, adcChan))
       
-  def insertStatus(self, message):
-    self.s.append(message)
-    self.ns.append(len(self.m))
+  def lookupAdapterBoard(self, counts):
+    """map resistor divider adc counts to adapter board type"""
+
+    return(self.adapterBoardTypes[0])
+  
+  def runSetup(self, operator):
+    destinationDir = os.path.join(self.saveDir, self.slugify(operator) + '-' + time.strftime('%y-%m-%d'))
+    if not os.path.exists(destinationDir):
+      os.makedirs(destinationDir)
+      
+    i = 0
+    genFullpath = lambda a: os.path.join(destinationDir,"Run{:d}.h5".format(a))
+    while os.path.exists(genFullpath(i)):
+      i += 1    
+    self.f = h5py.File(genFullpath(i),'x')
+    #self.f.attrs.create('Operator', np.string_(operator))
+    self.f['Operator'] = np.string_(operator)
+    self.f['Timestamp'] = time.time()
+    self.f['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
+    self.f['Software Hash'] = np.string_("Not implemented")  # TODO: figure out how to get software version here
+      
+  def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
+    self.position = position
+    self.pcb.pix_picker(position, 0)
+    self.f.create_group(position)
+
+    self.f[position+'/Sample Unique Identifier'] = np.string_(suid)
+    self.f[position+'/Sample Description'] = np.string_(description)
     
+    abCounts = self.pcb.getADCCounts(position)
+    self.f[position+'/Sample Adapter Board ADC Counts'] = abCounts
+    self.f[position+'/Sample Adapter Board'] = np.string_(self.lookupAdapterBoard(abCounts))
+    self.f[position+'/Sample Layout Type'] = np.string_(self.layoutTypes[sampleLayoutType])
+    
+  def pixelSetup(self, pixel):
+    """Call this to switch to a new pixel"""
+    self.pixel = str(pixel)
+    self.pcb.pix_picker(self.position, pixel)
+    self.f[self.position].create_group(self.pixel)
+    
+  def pixelComplete (self):
+    """Call this when all measurements for a pixel are complete"""
+    self.pcb.pix_picker(self.position, 0)
+    self.f[self.position+'/'+self.pixel].create_dataset('AllMeasurements', data=self.m)
+    self.f[self.position+'/'+self.pixel].create_dataset('StatusList', data=[np.string_(i) for i in self.s])
+    self.m = np.array([]).reshape(0, 4)  # measurement list
+    self.s = np.array([])  # status list
+    
+  def slugify(self, value, allow_unicode=False):
+    """
+    Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.
+    Remove characters that aren't alphanumerics, underscores, or hyphens.
+    Convert to lowercase. Also strip leading and trailing whitespace.
+    """
+    value = str(value)
+    if allow_unicode:
+      value = unicodedata.normalize('NFKC', value)
+    else:
+      value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
+    value = re.sub(r'[^\w\s-]', '', value).strip().lower()
+    return re.sub(r'[-\s]+', '-', value)
+
+  def insertStatus(self, message):
+    print(message)
+    self.s = np.append(self.s, np.array([len(self.m), message]), axis=0)
       
   def steadyState(self, t_dwell=10, NPLC=10, sourceVoltage=False, compliance=2, setPoint=0):
     """ makes steady state measurements for t_dwell seconds
     set NPLC to -1 to leave it unchanged
     returns array of measurements
     """
-    self.insertStatus('steady state {:s} measurement at {:.0} m{:s}'.format('current' if sourceVoltage else 'voltage', setPoint*1000, 'A' if sourceVoltage else 'V'))
+    self.insertStatus('Measuring steady state {:s} at {:.0f} m{:s}'.format('current' if sourceVoltage else 'voltage', setPoint*1000, 'V' if sourceVoltage else 'A'))
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
     self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint)
     self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
     q = self.sm.measureUntil(t_dwell=t_dwell)
     qa = np.array(q)
-    self.m.append(qa)
+    self.m = np.append(self.m, qa, axis=0)
     return qa

@@ -13,35 +13,55 @@ import argparse
 import time
 import numpy
 import mpmath
+import os
 from scipy import special
-parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 2400 sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
 
-parser.add_argument("address", nargs='?', default="None", type=str, help="VISA resource name for sourcemeter")
-parser.add_argument("switch_address", nargs='?', default=None, type=str, help="IP address for PCB")
-parser.add_argument("pixel_address", nargs='?', default=None, type=str, help="Pixel to scan (A1, A2,...)")
-parser.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
-parser.add_argument('--visa_lib', type=str, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
-parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
-parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
-parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
-parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
-parser.add_argument("--terminator", type=str, default='0A', help="Instrument comms read & write terminator (enter in hex)")
-parser.add_argument("--baud", type=int, default=57600, help="Instrument serial comms baud rate")
-parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
-parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
-parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
-parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
-parser.add_argument('--t_prebias', type=float, default=10, help="Number of seconds to sit initial voltage value before doing sweep")
-parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
-parser.add_argument('--mppt', type=int, default=0, help="Do maximum power point tracking for this many cycles")
-parser.add_argument("--t_dwell", type=float, default=15, help="Total number of seconds for the dwell mppt phase(s)")
+class FullPaths(argparse.Action):
+  """Expand user- and relative-paths"""
+  def __call__(self, parser, namespace, values, option_string=None):
+    setattr(namespace, self.dest, os.path.abspath(os.path.expanduser(values)))
 
-args = parser.parse_args()
+def is_dir(dirname):
+  """Checks if a path is an actual directory"""
+  if not os.path.isdir(dirname):
+    msg = "{0} is not a directory".format(dirname)
+    raise argparse.ArgumentTypeError(msg)
+  else:
+    return dirname
+
+def get_args():
+  """Get CLI arguments and options"""
+  parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 2400 sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
+
+  parser.add_argument("address", nargs='?', default="None", type=str, help="VISA resource name for sourcemeter")
+  parser.add_argument("switch_address", nargs='?', default=None, type=str, help="IP address for PCB")
+  parser.add_argument("pixel_address", nargs='?', default=None, type=str, help="Pixel to scan (A1, A2,...)")
+  parser.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
+  parser.add_argument('--visa_lib', type=str, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
+  parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
+  parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
+  parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
+  parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
+  parser.add_argument("--terminator", type=str, default='0A', help="Instrument comms read & write terminator (enter in hex)")
+  parser.add_argument("--baud", type=int, default=57600, help="Instrument serial comms baud rate")
+  parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
+  parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
+  parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
+  parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
+  parser.add_argument('--t_prebias', type=float, default=10, help="Number of seconds to sit initial voltage value before doing sweep")
+  parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
+  parser.add_argument('--mppt', type=int, default=0, help="Do maximum power point tracking for this many cycles")
+  parser.add_argument("--t_dwell", type=float, default=15, help="Total number of seconds for the dwell mppt phase(s)")  
+  parser.add_argument('--destination', help="Save output files here", action=FullPaths, type=is_dir)
+  
+  return parser.parse_args()
+
+args = get_args()
 
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
 # create the control entity
-l = logic()
+l = logic(saveDir = args.destination)
 
 # connect to PCB and sourcemeter
 l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, 
@@ -73,8 +93,24 @@ def myPrint(*args,**kwargs):
 if args.file is not None:
     f = open(args.file, 'w')
     dataDestinations.append(f)
-
+    
 if args.sweep or args.snaith or mppt > 0:
+  substrate = args.pixel_address[0]
+  pix = args.pixel_address[1]  
+  l.runSetup(operator='grey')
+  l.substrateSetup(position=substrate)
+  l.pixelSetup(pix)
+  vocs = l.steadyState(t_dwell=args.t_prebias , NPLC=10, sourceVoltage=False, compliance=2, setPoint=0)
+  
+  Voc = vocs[-1, 0]  # take the last measurement to be Voc
+  
+  l.f[l.position+'/'+l.pixel+'/Voc'] = Voc
+  l.f[l.position+'/'+l.pixel].create_dataset('VocDwell', data=vocs)
+  l.pixelComplete()
+  
+  exit()
+
+if False and (args.sweep or args.snaith or mppt > 0):
     substrate = args.pixel_address[0]
     pix = args.pixel_address[1]
     
