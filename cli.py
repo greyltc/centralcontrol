@@ -96,119 +96,142 @@ if args.file is not None:
     
 if args.sweep or args.snaith or mppt > 0:
   substrate = args.pixel_address[0]
-  pix = args.pixel_address[1]  
+  pix = args.pixel_address[1]
+  
   l.runSetup(operator='grey')
   l.substrateSetup(position=substrate)
-  l.pixelSetup(pix)
-  vocs = l.steadyState(t_dwell=args.t_prebias , NPLC=10, sourceVoltage=False, compliance=2, setPoint=0)
-  
-  Voc = vocs[-1, 0]  # take the last measurement to be Voc
-  
-  l.f[l.position+'/'+l.pixel+'/Voc'] = Voc
-  l.f[l.position+'/'+l.pixel].create_dataset('VocDwell', data=vocs)
-  l.pixelComplete()
-  
-  exit()
+  l.pixelSetup(pix, t_dwell_voc=args.t_prebias)
 
-if False and (args.sweep or args.snaith or mppt > 0):
-    substrate = args.pixel_address[0]
-    pix = args.pixel_address[1]
+#if False and (args.sweep or args.snaith or mppt > 0):
+    #substrate = args.pixel_address[0]
+    #pix = args.pixel_address[1]
     
-    if not pcb.pix_picker(substrate, pix):
-      raise ValueError('Unable to select desired pixel')
-    # let's find our open circuit voltage
-    sm.setNPLC(10)
-    sm.setupDC(sourceVoltage=False, compliance=2, setPoint=0)
-    sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+    #if not pcb.pix_picker(substrate, pix):
+      #raise ValueError('Unable to select desired pixel')
+    ## let's find our open circuit voltage
+    #sm.setNPLC(10)
+    #sm.setupDC(sourceVoltage=False, compliance=2, setPoint=0)
+    #sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
 
-    myPrint("Measuring Voc..", file=sys.stderr, flush=True)
-    def streamCB(measurement):
-      [Voc, Ioc, now, status] = measurement
-      myPrint("Voc = {:.6f} V".format(Voc), file=sys.stderr, flush=True)
-    q = sm.measureUntil(t_dwell=args.t_prebias, cb=streamCB)
-    #vMax = float(sm.sm.query(':sense:voltage:range?'))
+    #myPrint("Measuring Voc..", file=sys.stderr, flush=True)
+    #def streamCB(measurement):
+      #[Voc, Ioc, now, status] = measurement
+      #myPrint("Voc = {:.6f} V".format(Voc), file=sys.stderr, flush=True)
+    #q = sm.measureUntil(t_dwell=args.t_prebias, cb=streamCB)
+    ##vMax = float(sm.sm.query(':sense:voltage:range?'))
     
-    [Voc, Ioc, t0, status] = q.popleft()  # get the oldest entry
-    [Voc, Ioc, tx, status] = q.pop() # get the most recent entry
-    myPrint("Voc is {:.6f} V".format(Voc), file=sys.stderr, flush=True)
+    #[Voc, Ioc, t0, status] = q.popleft()  # get the oldest entry
+    #[Voc, Ioc, tx, status] = q.pop() # get the most recent entry
+    #myPrint("Voc is {:.6f} V".format(Voc), file=sys.stderr, flush=True)
 
-    # derive connection polarity
-    if Voc < 0:
-        vPol = -1
-        iPol = 1
-    else:
-        vPol = 1
-        iPol = -1
+    ## derive connection polarity
+    #if Voc < 0:
+        #vPol = -1
+        #iPol = 1
+    #else:
+        #vPol = 1
+        #iPol = -1
         
-    exploring = 1
+    #exploring = 1
   
-    myPrint('# i-v file format v1', flush=True)
-    myPrint('# Area = {:}'.format(args.area))
-    myPrint('# exploring\ttime\tvoltage\tcurrent', flush=True)
-    myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, tx - t0, Voc*vPol, Ioc*iPol), flush=True)
+    #myPrint('# i-v file format v1', flush=True)
+    #myPrint('# Area = {:}'.format(args.area))
+    #myPrint('# exploring\ttime\tvoltage\tcurrent', flush=True)
+    #myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, tx - t0, Voc*vPol, Ioc*iPol), flush=True)
 
 if args.sweep:
-    # for initial sweep
-    ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
-    ##until the power output starts dropping instead of going all the way to zero volts...
-    sm.setNPLC(0.5)
+    start = l.Voc
+    end = 0
     points = 1001
-    sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=Voc, end=0)
+    message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
 
-    myPrint("Performing I-V sweep...", file=sys.stderr, flush=True)
-    sweepValues = sm.measure()
+    sv = l.sweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=start, end=end, NPLC=1, message=message)
+    l.f[l.position+'/'+l.pixel].create_dataset('Sweep', data=sv)
 
-    myPrint("Sweep done!", file=sys.stderr, flush=True)
+#if args.sweep and False:
+    ## for initial sweep
+    ###NOTE: what if Isc degrades the device? maybe I should only sweep backwards
+    ###until the power output starts dropping instead of going all the way to zero volts...
+    #sm.setNPLC(0.5)
+    #points = 1001
+    #sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points,
+                  #stepDelay=-1, start=Voc, end=0)
 
-    sweepValues = numpy.reshape(sweepValues, (-1,4))
-    v = sweepValues[:,0]
-    i = sweepValues[:,1]
-    t = sweepValues[:,2] - t0
+    #myPrint("Performing I-V sweep...", file=sys.stderr, flush=True)
+    #sweepValues = sm.measure()
 
-    # display initial sweep result
-    for x in range(len(sweepValues)):
-        myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t[x], v[x]*vPol, i[x]*iPol), flush=True)
-    
+    #myPrint("Sweep done!", file=sys.stderr, flush=True)
+
+    #sweepValues = numpy.reshape(sweepValues, (-1,4))
+    #v = sweepValues[:,0]
+    #i = sweepValues[:,1]
+    #t = sweepValues[:,2] - t0
+
+    ## display initial sweep result
+    #for x in range(len(sweepValues)):
+        #myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t[x], v[x]*vPol, i[x]*iPol), flush=True)
+
 if args.sweep or args.snaith:
   # let's find our sc current now
-  sm.setNPLC(10)
-  sm.setupDC(sourceVoltage=True, compliance=0.04, setPoint=0)
-  sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+  iscs = l.steadyState(t_dwell = args.t_dwell, NPLC = 10, sourceVoltage = True, compliance = 0.04, setPoint = 0)
 
-  exploring = 1
-  myPrint("Measuring Isc...", file=sys.stderr, flush=True)
-  def streamCB(measurement):
-      [Vsc, Isc, now, status] = measurement
-      myPrint("Isc = {:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
-  q = sm.measureUntil(t_dwell=args.t_prebias, cb=streamCB)
-  iMax = float(sm.sm.query(':sense:current:range?'))
+  l.Isc = iscs[-1][0]  # take the last measurement to be Isc
 
-  [Vsc, Isc, tx, status] = q.pop() # get the most recent entry
+  l.f[l.position+'/'+l.pixel].attrs['Isc'] = l.Isc
+  l.f[l.position+'/'+l.pixel].create_dataset('IscDwell', data=iscs)
+
+  #sm.setNPLC(10)
+  #sm.setupDC(sourceVoltage=True, compliance=0.04, setPoint=0)
+  #sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+
+  #exploring = 1
+  #myPrint("Measuring Isc...", file=sys.stderr, flush=True)
+  #def streamCB(measurement):
+      #[Vsc, Isc, now, status] = measurement
+      #myPrint("Isc = {:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
+  #q = sm.measureUntil(t_dwell=args.t_prebias, cb=streamCB)
+  #iMax = float(sm.sm.query(':sense:current:range?'))
+
+  #[Vsc, Isc, tx, status] = q.pop() # get the most recent entry
   
-  myPrint("Isc is {:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
-  myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, tx - t0 ,Vsc*vPol, Isc*iPol), flush=True)  
+  #myPrint("Isc is {:.6f} mA".format(Isc*1000), file=sys.stderr, flush=True)
+  #myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, tx - t0 ,Vsc*vPol, Isc*iPol), flush=True)
 
 if args.snaith:
   # for initial sweep
   ##NOTE: what if Isc degrades the device? maybe I should only sweep backwards
   ##until the power output starts dropping instead of going all the way to zero volts...
-  sm.setNPLC(0.5)
+  
+  start = 0
+  end = l.Voc * 1.07
   points = 1001
-  sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=0, end=Voc, senseRange=iMax)
+  message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
 
-  myPrint("Performing I-V snaith...", file=sys.stderr, flush=True)
-  sweepValues = sm.measure()
+  sv = l.sweep(sourceVoltage=True, compliance=l.Isc, nPoints=points, stepDelay=-1, start=start, end=end, NPLC=1, message=message)
+  l.f[l.position+'/'+l.pixel].create_dataset('Snaith', data=sv)  
+  
+  #sm.setNPLC(0.5)
+  #points = 1001
+  #sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=0, end=Voc, senseRange=iMax)
 
-  myPrint("Snaith done!", file=sys.stderr, flush=True)
+  #myPrint("Performing I-V snaith...", file=sys.stderr, flush=True)
+  #sweepValues = sm.measure()
 
-  sweepValues = numpy.reshape(sweepValues, (-1,4))
-  v = sweepValues[:,0]
-  i = sweepValues[:,1]
-  t = sweepValues[:,2] - t0
+  #myPrint("Snaith done!", file=sys.stderr, flush=True)
 
-  # display initial sweep result
-  for x in range(len(sweepValues)):
-      myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t[x], v[x]*vPol, i[x]*iPol), flush=True)
+  #sweepValues = numpy.reshape(sweepValues, (-1,4))
+  #v = sweepValues[:,0]
+  #i = sweepValues[:,1]
+  #t = sweepValues[:,2] - t0
+
+  ## display initial sweep result
+  #for x in range(len(sweepValues)):
+      #myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(exploring, t[x], v[x]*vPol, i[x]*iPol), flush=True)
+
+  l.pixelComplete()
+  l.runDone()
+
+  #exit()
 
 def mpptCB(measurement):
     """Callback function for max powerpoint tracker
@@ -218,7 +241,7 @@ def mpptCB(measurement):
     myPrint('{:1d},{:.6f},{:.6f},{:.6f}'.format(0, t, v*vPol, i*iPol), flush=True)
     #myPrint("P={:.6f} mW".format(i*1000*v*-1), file=sys.stderr, flush=True)
 
-if args.mppt > 0:
+if (args.mppt > 0) and False:
     myPrint("Starting maximum power point tracker", file=sys.stderr, flush=True)
     if not(args.snaith or args.sweep):
         print("Warning: doing max power point tracking without prior sweep")
