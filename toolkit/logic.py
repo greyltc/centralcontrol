@@ -42,21 +42,24 @@ class logic:
       
   def getMyHash():
     thisPath = os.path.dirname(os.path.abspath(__file__))
-    HEADFile = os.path.join(thisPath, '.git', 'HEAD')
-    commit_hashFile = os.path.join(thisPath, 'commit_hash.txt')
+    projectPath = os.path.join(thisPath, os.path.pardir)
+    HEADFile = os.path.join(projectPath, '.git', 'HEAD')
+    commit_hashFile = os.path.join(projectPath, 'commit_hash.txt')
     
     myHash = 'Unknown'
     if os.path.exists(HEADFile): # are we in a git repo?
       f = open(HEADFile)
-      myHash = f.readline()
+      hashFileLocation = f.readline().splitlines()[0].split()[1].split('/')
+      f.close()
+      f = open(os.path.join(projectPath, '.git', *hashFileLocation))
+      myHash = f.readline().splitlines()[0]
       f.close()
     elif os.path.exists(commit_hashFile):  # no git repo? check in commit_hash.txt
       f = open(commit_hashFile)
-      contents = f.readline()
+      contents = f.readline().splitlines()[0].split()
       f.close()
-      split = contents.split()
-      if len(split) == 2:
-        myHash = split[1]
+      if len(contents) == 2:  # the length will be 3 here if it doesn't contain the hash as position [1]
+        myHash = contents[1]
         
     return myHash
 
