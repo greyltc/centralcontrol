@@ -58,7 +58,7 @@ class logic:
       f = open(commit_hashFile)
       contents = f.readline().splitlines()[0].split()
       f.close()
-      if len(contents) == 2:  # the length will be 3 here if it doesn't contain the hash as position [1]
+      if len(contents) != 3:  # the length will be 3 here if it doesn't contain the hash as position [1]
         myHash = contents[1]
 
     if short:
