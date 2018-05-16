@@ -11,6 +11,7 @@ import time
 class logic:
   """ this class contains the sourcemeter and pcb control logic
   """
+  outputFormatRevision = 1  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination 51398016 40-24-10
   
@@ -99,6 +100,11 @@ class logic:
       counts = self.pcb.getADCCounts(substrate)
       print('{:d}\t<-- Substrate {:s} adapter board resistor divider (TP5, AIN{:d})'.format(counts, substrate, adcChan))
       
+  def measureIntensity(self):
+    """returns number of suns """
+    # TODO: write this
+    return 1.0
+  
   def lookupAdapterBoard(self, counts):
     """map resistor divider adc counts to adapter board type"""
 
@@ -119,6 +125,8 @@ class logic:
     self.f.attrs['Timestamp'] = time.time()
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
     self.f.attrs['Software Hash'] = np.string_("Not implemented")  # TODO: figure out how to get software version here
+    self.f.attrs['Format Revision'] = np.int(self.outputFormatRevision)
+    self.f.attrs['Intensity [suns]'] = np.float(self.measureIntensity())
     
   def runDone(self):
     self.f.close()

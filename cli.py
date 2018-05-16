@@ -151,7 +151,7 @@ if args.sweep:
 #if args.sweep and False:
     ## for initial sweep
     ###NOTE: what if Isc degrades the device? maybe I should only sweep backwards
-    ###until the power output starts dropping instead of going all the way to zero volts...
+    ###until the po10000000101110000000100wer output starts dropping instead of going all the way to zero volts...
     #sm.setNPLC(0.5)
     #points = 1001
     #sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points,
