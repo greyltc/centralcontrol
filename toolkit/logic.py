@@ -39,6 +39,26 @@ class logic:
     else:
       self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
       self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)
+      
+  def getMyHash():
+    thisPath = os.path.dirname(os.path.abspath(__file__))
+    HEADFile = os.path.join(thisPath, '.git', 'HEAD')
+    commit_hashFile = os.path.join(thisPath, 'commit_hash.txt')
+    
+    myHash = 'Unknown'
+    if os.path.exists(HEADFile): # are we in a git repo?
+      f = open(HEADFile)
+      myHash = f.readline()
+      f.close()
+    elif os.path.exists(commit_hashFile):  # no git repo? check in commit_hash.txt
+      f = open(commit_hashFile)
+      contents = f.readline()
+      f.close()
+      split = contents.split()
+      if len(split) == 2:
+        myHash = split[1]
+        
+    return myHash
 
   def hardwareTest(self):
     print("LED test mode active on substrate(s) {:s}".format(self.pcb.substratesConnected))
@@ -124,7 +144,7 @@ class logic:
     self.f.attrs['Operator'] = np.string_(operator)
     self.f.attrs['Timestamp'] = time.time()
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
-    self.f.attrs['Software Hash'] = np.string_("Not implemented")  # TODO: figure out how to get software version here
+    self.f.attrs['Software Hash'] = np.string_(logic.getMyHash())
     self.f.attrs['Format Revision'] = np.int(self.outputFormatRevision)
     self.f.attrs['Intensity [suns]'] = np.float(self.measureIntensity())
     
