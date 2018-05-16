@@ -40,12 +40,12 @@ class logic:
       self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
       self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)
       
-  def getMyHash():
+  def getMyHash(short=True):
     thisPath = os.path.dirname(os.path.abspath(__file__))
     projectPath = os.path.join(thisPath, os.path.pardir)
     HEADFile = os.path.join(projectPath, '.git', 'HEAD')
     commit_hashFile = os.path.join(projectPath, 'commit_hash.txt')
-    
+
     myHash = 'Unknown'
     if os.path.exists(HEADFile): # are we in a git repo?
       f = open(HEADFile)
@@ -60,7 +60,9 @@ class logic:
       f.close()
       if len(contents) == 2:  # the length will be 3 here if it doesn't contain the hash as position [1]
         myHash = contents[1]
-        
+
+    if short:
+      myHash = myHash[:7]
     return myHash
 
   def hardwareTest(self):
