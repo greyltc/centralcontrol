@@ -145,6 +145,7 @@ class logic:
     while os.path.exists(genFullpath(i)):
       i += 1    
     self.f = h5py.File(genFullpath(i),'x')
+    print("Creating file {:}".format(self.f.name))
     #self.f.attrs.create('Operator', np.string_(operator))
     self.f.attrs['Operator'] = np.string_(operator)
     self.f.attrs['Timestamp'] = time.time()
@@ -155,6 +156,7 @@ class logic:
     
   def runDone(self):
     self.f.close()
+    print("{:} closed".format(self.f.name))
       
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position
