@@ -13,20 +13,45 @@ class logic:
   """
   outputFormatRevision = 1  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
-  ssIscDwell = 10  # [s] dwell time for steady state isc determination 51398016 40-24-10
+  ssIscDwell = 10  # [s] dwell time for steady state isc determination
   
+  percent_beyond_voc = 7  # start/end sweeps this many percentage points beyond Voc
+  
+  # this is the datatype for the measurement in the h5py file
   measurement_datatype = np.dtype({'names': ['v','i','t','s'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
+  
+  # this is the datatype for the status messages in the h5py file
   status_datatype = np.dtype({'names': ['i', 'm'], 'formats': ['u4', h5py.special_dtype(vlen=str)], 'titles': ['Index', 'Message']})
-  #np.dtype([('index', np.uint32), ('message', h5py.special_dtype(vlen=str))])
+  
+  # this is an internal datatype to store the region of interest info
+  roi_datatype = np.dtype({'names': ['s', 'e', 'd'], 'formats': ['u4', 'u4', object], 'titles': ['Start Index', 'End Index', 'Description']})
 
   m = np.array([], dtype=measurement_datatype)  # measurement list: columns = v, i, timestamp, status
   s = np.array([], dtype=status_datatype)  # status list: columns = corresponding measurement index, status message
+  r = np.array([], dtype=roi_datatype)  # list defining regions of interest in the measurement list
 
   adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG']
   layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E']
 
   def __init__(self, saveDir):
     self.saveDir = saveDir
+    self.software_commit_hash = logic.getMyHash()
+    print('Software commit hash: {:s}'.format(self.software_commit_hash))
+    
+  def __setattr__(self, attr, value):
+    """here we can override what happends when we set an attribute"""
+    if attr == 'Voc':
+      self.__dict__[attr] = value
+      if value != None:
+        print('V_oc is {:.4f}mV'.format(value*1000))
+
+    elif attr == 'Isc':
+      self.__dict__[attr] = value
+      if value != None:
+        print('I_sc is {:.4f}mA'.format(value*1000))      
+      
+    else:
+      self.__dict__[attr] = value
   
   def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', pcbPort=23, terminator='\n', serialBaud=57600):
     """Forms a connection to the PCB and the sourcemeter
@@ -74,7 +99,7 @@ class logic:
     
       self.pcb.pix_picker(substrate, 1)
       self.sm.setNPLC(0.01)
-      self.sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, stepDelay=-1, start=sweepLow, end=sweepHigh)
+      self.sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, start=sweepLow, end=sweepHigh)
       self.sm.write(':arm:source bus') # this allows for the trigger style we'll use here
     
       for pix in range(8):
@@ -132,8 +157,34 @@ class logic:
   
   def lookupAdapterBoard(self, counts):
     """map resistor divider adc counts to adapter board type"""
+    # TODO: write this
+    
+    if counts > 100:
+      board_index = 0
+    else:
+      board_index = 0
 
-    return(self.adapterBoardTypes[0])
+    return(board_index)
+  
+  def lookupPixelArea(self, pixel_index):
+    """return pixel area in sq cm given pixel index (also needs sample_layout_type from self)"""
+    # TODO: write this
+    
+    if self.sample_layout_type == 1:
+      if pixel_index == 1:
+        area = 1.0
+      elif pixel_index == 2:
+        area = 1.0
+      else:
+        area = 1.0
+    else:
+      area = 1.0
+    
+    # take area from cli input (if it's provided)
+    if hasattr(self, 'cli_area'):
+      area = self.cli_area
+
+    return(area)
   
   def runSetup(self, operator):
     destinationDir = os.path.join(self.saveDir, self.slugify(operator) + '-' + time.strftime('%y-%m-%d'))
@@ -145,18 +196,17 @@ class logic:
     while os.path.exists(genFullpath(i)):
       i += 1    
     self.f = h5py.File(genFullpath(i),'x')
-    print("Creating file {:}".format(self.f.name))
-    #self.f.attrs.create('Operator', np.string_(operator))
+    print("Creating file {:}".format(self.f.filename))
     self.f.attrs['Operator'] = np.string_(operator)
     self.f.attrs['Timestamp'] = time.time()
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
-    self.f.attrs['Software Hash'] = np.string_(logic.getMyHash())
+    self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
     self.f.attrs['Format Revision'] = np.int(self.outputFormatRevision)
     self.f.attrs['Intensity [suns]'] = np.float(self.measureIntensity())
     
   def runDone(self):
+    print("Closing {:s}".format(self.f.filename))
     self.f.close()
-    print("{:} closed".format(self.f.name))
       
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position
@@ -168,38 +218,47 @@ class logic:
     
     abCounts = self.pcb.getADCCounts(position)
     self.f[position].attrs['Sample Adapter Board ADC Counts'] = abCounts
-    self.f[position].attrs['Sample Adapter Board'] = np.string_(self.lookupAdapterBoard(abCounts))
+    self.adapter_board_index = self.lookupAdapterBoard(abCounts)
+    self.f[position].attrs['Sample Adapter Board'] = np.string_(self.adapterBoardTypes[self.adapter_board_index])
     self.f[position].attrs['Sample Layout Type'] = np.string_(self.layoutTypes[sampleLayoutType])
+    self.sample_layout_type = sampleLayoutType
     
   def pixelSetup(self, pixel, t_dwell_voc=10):
     """Call this to switch to a new pixel"""
     self.pixel = str(pixel)
+    self.area = self.lookupPixelArea(pixel)
     self.pcb.pix_picker(self.position, pixel)
     self.f[self.position].create_group(self.pixel)
+    self.f[self.position+'/'+self.pixel].attrs['area'] = self.area  # in cm^2
     
-    vocs = self.steadyState(t_dwell= t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=2, setPoint=0)
+    vocs = self.steadyState(t_dwell=t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=2, senseRange='a', setPoint=0)
     
     self.Voc = vocs[-1][0]  # take the last measurement to be Voc
     
     self.f[self.position+'/'+self.pixel].attrs['Voc'] = self.Voc
-    self.f[self.position+'/'+self.pixel].create_dataset('VocDwell', data=vocs)
+    self.addROI(0, len(vocs) - 1, 'V_oc dwell')
+    #self.f[self.position+'/'+self.pixel].create_dataset('VocDwell', data=vocs)
     
     # derive connection polarity
-    if self.Voc < 0:
-        vPol = -1
-        iPol = 1
-    else:
-        vPol = 1
-        iPol = -1
+    #if self.Voc < 0:
+        #vPol = -1
+        #iPol = 1
+    #else:
+        #vPol = 1
+        #iPol = -1
     
   def pixelComplete (self):
     """Call this when all measurements for a pixel are complete"""
     self.pcb.pix_picker(self.position, 0)
-    self.f[self.position+'/'+self.pixel].create_dataset('AllMeasurements', data=self.m)
-    self.f[self.position+'/'+self.pixel].create_dataset('StatusList', data=self.s)
-    self.m = np.array([], dtype=self.measurement_datatype)
-    self.s = np.array([], dtype=self.status_datatype)
+    m = self.f[self.position+'/'+self.pixel].create_dataset('all_measurements', data=self.m, compression="gzip")
+    for i in range(len(self.r)):
+      m.attrs[self.r[i][2]] = m.regionref[self.r[i][0]:self.r[i][1]]
+    self.f[self.position+'/'+self.pixel].create_dataset('status_list', data=self.s, compression="gzip")
+    self.m = np.array([], dtype=self.measurement_datatype)  # reset measurement storage
+    self.s = np.array([], dtype=self.status_datatype)  # reset status storage
+    self.r = np.array([], dtype=self.roi_datatype)  # reset region of interest
     self.Voc = None
+    self.Isc = None
     
   def slugify(self, value, allow_unicode=False):
     """
@@ -216,11 +275,19 @@ class logic:
     return re.sub(r'[-\s]+', '-', value)
 
   def insertStatus(self, message):
+    """adds status message to the status message list"""
     print(message)
     s = np.array((len(self.m), message), dtype=self.status_datatype)
     self.s = np.append(self.s, s)
+    
+  def addROI(self, start, stop, description):
+    """adds a region of interest to the measurement list
+    takes start index, stop index and roi description"""
+    print("New region of iterest: [{:},{:}]\t{:s}".format(start, stop, description))
+    r = np.array((start, stop, description), dtype=self.roi_datatype)
+    self.r = np.append(self.r, r)  
       
-  def steadyState(self, t_dwell=10, NPLC=10, sourceVoltage=False, compliance=2, setPoint=0):
+  def steadyState(self, t_dwell=10, NPLC=10, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f'):
     """ makes steady state measurements for t_dwell seconds
     set NPLC to -1 to leave it unchanged
     returns array of measurements
@@ -228,17 +295,17 @@ class logic:
     self.insertStatus('Measuring steady state {:s} at {:.0f} m{:s}'.format('current' if sourceVoltage else 'voltage', setPoint*1000, 'V' if sourceVoltage else 'A'))
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
-    self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint)
+    self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint, senseRange=senseRange)
     self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
     q = self.sm.measureUntil(t_dwell=t_dwell)
     qa = np.array([tuple(s) for s in q], dtype=self.measurement_datatype)
     self.m = np.append(self.m, qa)
     return qa
 
-  def sweep(self, sourceVoltage=True, compliance=0.04, nPoints=1001, stepDelay=-1, start=1, end=0, NPLC=1, message=None):
+  def sweep(self, sourceVoltage=True, senseRange='f', compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, message=None):
     
     self.sm.setNPLC(NPLC)
-    self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, nPoints=nPoints, stepDelay=stepDelay, start=start, end=end)
+    self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, nPoints=nPoints, stepDelay=stepDelay, start=start, end=end, senseRange=senseRange)
 
     if message == None:
       word ='current' if sourceVoltage else 'voltage'

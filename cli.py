@@ -48,8 +48,8 @@ def get_args():
   parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
   parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
   parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
-  parser.add_argument('--t_prebias', type=float, default=10, help="Number of seconds to sit initial voltage value before doing sweep")
-  parser.add_argument('--area', type=float, default=1.0, help="Specify device area in cm^2")
+  parser.add_argument('--t_prebias', type=float, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
+  parser.add_argument('--area', type=float, default=-1.0, help="Specify device area in cm^2")
   parser.add_argument('--mppt', type=int, default=0, help="Do maximum power point tracking for this many cycles")
   parser.add_argument("--t_dwell", type=float, default=15, help="Total number of seconds for the dwell mppt phase(s)")  
   parser.add_argument('--destination', help="Save output files here", action=FullPaths, type=is_dir)
@@ -62,6 +62,9 @@ args.terminator = bytearray.fromhex(args.terminator).decode()
 
 # create the control entity
 l = logic(saveDir = args.destination)
+
+if args.area != -1.0:
+  l.cli_area = args.area
 
 # connect to PCB and sourcemeter
 l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, 
@@ -145,8 +148,11 @@ if args.sweep:
     points = 1001
     message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
 
-    sv = l.sweep(sourceVoltage=True, compliance=0.04, nPoints=points, stepDelay=-1, start=start, end=end, NPLC=1, message=message)
-    l.f[l.position+'/'+l.pixel].create_dataset('Sweep', data=sv)
+    sv = l.sweep(sourceVoltage=True, compliance=0.04, senseRange='f', nPoints=points, start=start, end=end, NPLC=1, message=message)
+    roi_start = len(l.m) - len(sv)
+    roi_end = len(l.m) - 1
+    l.addROI(roi_start, roi_end, 'Sweep')
+    #l.f[l.position+'/'+l.pixel].create_dataset('Sweep', data=sv)
 
 #if args.sweep and False:
     ## for initial sweep
@@ -173,12 +179,16 @@ if args.sweep:
 
 if args.sweep or args.snaith:
   # let's find our sc current now
-  iscs = l.steadyState(t_dwell = args.t_dwell, NPLC = 10, sourceVoltage = True, compliance = 0.04, setPoint = 0)
+  iscs = l.steadyState(t_dwell=args.t_dwell, NPLC = 10, sourceVoltage=True, compliance=0.04, senseRange ='a', setPoint=0)
 
-  l.Isc = iscs[-1][0]  # take the last measurement to be Isc
+  l.Isc = iscs[-1][1]  # take the last measurement to be Isc
 
   l.f[l.position+'/'+l.pixel].attrs['Isc'] = l.Isc
-  l.f[l.position+'/'+l.pixel].create_dataset('IscDwell', data=iscs)
+  roi_start = len(l.m) - len(iscs)
+  roi_end = len(l.m) - 1
+  l.addROI(roi_start, roi_end, 'I_sc Dwell')
+  
+  #l.f[l.position+'/'+l.pixel].create_dataset('IscDwell', data=iscs)
 
   #sm.setNPLC(10)
   #sm.setupDC(sourceVoltage=True, compliance=0.04, setPoint=0)
@@ -203,12 +213,15 @@ if args.snaith:
   ##until the power output starts dropping instead of going all the way to zero volts...
   
   start = 0
-  end = l.Voc * 1.07
+  end = l.Voc * (1 + l.percent_beyond_voc / 100)
   points = 1001
   message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
 
-  sv = l.sweep(sourceVoltage=True, compliance=l.Isc, nPoints=points, stepDelay=-1, start=start, end=end, NPLC=1, message=message)
-  l.f[l.position+'/'+l.pixel].create_dataset('Snaith', data=sv)  
+  sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=l.Isc*1.5, nPoints=points, start=start, end=end, NPLC=1, message=message)
+  roi_start = len(l.m) - len(sv)
+  roi_end = len(l.m) - 1
+  l.addROI(roi_start, roi_end, 'Snaith')
+  #l.f[l.position+'/'+l.pixel].create_dataset('Snaith', data=sv)  
   
   #sm.setNPLC(0.5)
   #points = 1001

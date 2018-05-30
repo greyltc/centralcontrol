@@ -132,6 +132,10 @@ class k2400:
       
     self.src = sm.query(':source:function:mode?')
     sm.write(':system:beeper:state off')
+    sm.write(':system:lfrequency:auto on')
+    sm.write(':system:time:reset')
+    
+    # TODO: look into contact checking function of 2400 :system:ccheck
   
   def setWires(self, twoWire=False):
     if twoWire:
@@ -146,13 +150,13 @@ class k2400:
       self.sm.write(':rout:term rear')
     
   def updateSweepStart(self,startVal):
-    self.sm.write(':source:{:s}:start {:.6f}'.format(self.src, startVal))
+    self.sm.write(':source:{:s}:start {:.8f}'.format(self.src, startVal))
     
   def updateSweepStop(self,stopVal):
-    self.sm.write(':source:{:s}:stop {:.6f}'.format(self.src, stopVal))
+    self.sm.write(':source:{:s}:stop {:.8f}'.format(self.src, stopVal))
 
   def setOutput(self, outVal):
-    self.sm.write(':source:{:s} {:.6f}'.format(self.src,outVal))
+    self.sm.write(':source:{:s} {:.8f}'.format(self.src,outVal))
     
   def write(self, toWrite):
     self.sm.write(toWrite)
@@ -179,9 +183,10 @@ class k2400:
     else:
       self.sm.write(':display:digits 7')
 
-  def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1, senseRange=-1):
+  def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f'):
     """setup DC measurement operation
-    if sourceVoltage == True, then we'll have a voltage source at setPoint volts with max current +/- compliance amps
+    if senseRange == 'a' the instrument will auto range for both current and voltage measurements
+    if senseRange == 'f' then the sense range will follow the compliance setting
     if sourceVoltage == False, we'll have a current source at setPoint amps with max voltage +/- compliance volts
     """
     sm = self.sm
@@ -194,21 +199,30 @@ class k2400:
     self.src = src
     sm.write(':source:function {:s}'.format(src))
     sm.write(':source:{:s}:mode fixed'.format(src))
-    sm.write(':source:{:s} {:.6f}'.format(src,setPoint))
-
-    if senseRange == -1:
+    sm.write(':source:{:s} {:.8f}'.format(src,setPoint))
+    
+    sm.write(':source:delay:auto on')
+    
+    sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+    
+    if senseRange == 'f':
+      sm.write(':sense:{:s}:range:auto off'.format(snc))
+      sm.write(':sense:{:s}:protection:rsynchronize on'.format(snc))
+    elif senseRange == 'a':
       sm.write(':sense:{:s}:range:auto on'.format(snc))
     else:
-      sm.write(':sense:{:s}:range:auto off'.format(snc))
-      sm.write(':sense:{:s}:range {:.6f}'.format(snc,senseRange))
+      sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
     
-    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,compliance))
+    # this again is to make sure the sense range gets updated
+    sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+    
     sm.write(':output on')
     sm.write(':trigger:count 1')
     
-  def setupSweep(self, sourceVoltage=True, compliance=0.1, nPoints=101, stepDelay=-1, start=0, end=1, streaming=False, senseRange=-1):
+  def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=0.005, start=0, end=1, streaming=False, senseRange='f'):
     """setup for a sweep operation
-    if senseRange == -1 then use compliance as sense range
+    if senseRange == 'a' the instrument will auto range for both current and voltage measurements
+    if senseRange == 'f' then the sense range will follow the compliance setting
     if stepDelay == -1 then step delay is on auto (1ms)
     """
     sm = self.sm
@@ -221,7 +235,26 @@ class k2400:
     self.src = src
     sm.write(':source:function {:s}'.format(src))
     sm.write(':source:{:s} {:0.6f}'.format(src,start))
-    sm.write(':sense:{:s}:protection {:.6f}'.format(snc,compliance))
+    
+    if snc == 'current':
+      holdoff_delay = 0.005
+      sm.write(':sense:current:range:holdoff on')
+      sm.write(':sense:current:range:holdoff {:.6f}'.format(holdoff_delay))
+      self.opc()  # needed to prevent input buffer overrun with serial comms (should be taken care of by flowcontrol!)
+    
+    sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+    
+    if senseRange == 'f':
+      sm.write(':sense:{:s}:range:auto off'.format(snc))
+      sm.write(':sense:{:s}:protection:rsynchronize on'.format(snc))
+    elif senseRange == 'a':
+      sm.write(':sense:{:s}:range:auto on'.format(snc))
+    else:
+      sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
+    
+    # this again is to make sure the sense range gets updated
+    sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+
     sm.write(':output on')
     sm.write(':source:{:s}:mode sweep'.format(src))
     sm.write(':source:sweep:spacing linear')
@@ -240,11 +273,7 @@ class k2400:
       self.dI = abs(float(sm.query(':source:current:step?')))
     #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
-    sm.write(':sense:{:s}:range:auto off')
-    if senseRange == -1 :
-      sm.write(':sense:{:s}:range {:.6f}'.format(snc,compliance))
-    else:
-      sm.write(':sense:{:s}:range {:.6f}'.format(snc,senseRange))
+    #sm.write(':sense:{:s}:range:auto off'.format(snc))
   
   def opc(self):
     """returns when all operations are complete
