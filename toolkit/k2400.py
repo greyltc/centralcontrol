@@ -119,7 +119,7 @@ class k2400:
     sm.write("format:data {:s}".format(self.dataFormat))
     
     sm.write('source:clear:auto off')
-    sm.write(':system:azero on')
+    
     
     self.setWires(twoWire=twoWire)
       
@@ -134,6 +134,9 @@ class k2400:
     sm.write(':system:beeper:state off')
     sm.write(':system:lfrequency:auto on')
     sm.write(':system:time:reset')
+    
+    sm.write(':system:azero off')  # we'll do this once before every measurement
+    sm.write(':system:azero:caching on')
     
     # TODO: look into contact checking function of 2400 :system:ccheck
   
@@ -219,6 +222,8 @@ class k2400:
     sm.write(':output on')
     sm.write(':trigger:count 1')
     
+    sm.write(':system:azero once')
+    
   def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=0.005, start=0, end=1, streaming=False, senseRange='f'):
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
@@ -236,11 +241,12 @@ class k2400:
     sm.write(':source:function {:s}'.format(src))
     sm.write(':source:{:s} {:0.6f}'.format(src,start))
     
-    if snc == 'current':
-      holdoff_delay = 0.005
-      sm.write(':sense:current:range:holdoff on')
-      sm.write(':sense:current:range:holdoff {:.6f}'.format(holdoff_delay))
-      self.opc()  # needed to prevent input buffer overrun with serial comms (should be taken care of by flowcontrol!)
+    # seems to do exactly nothing
+    #if snc == 'current':
+    #  holdoff_delay = 0.005
+    #  sm.write(':sense:current:range:holdoff on')
+    #  sm.write(':sense:current:range:holdoff {:.6f}'.format(holdoff_delay))
+    #  self.opc()  # needed to prevent input buffer overrun with serial comms (should be taken care of by flowcontrol!)
     
     sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
     
@@ -274,6 +280,8 @@ class k2400:
     #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
     #sm.write(':sense:{:s}:range:auto off'.format(snc))
+    
+    sm.write(':system:azero once')
   
   def opc(self):
     """returns when all operations are complete

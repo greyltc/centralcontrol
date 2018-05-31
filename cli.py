@@ -157,7 +157,7 @@ if args.sweep:
 #if args.sweep and False:
     ## for initial sweep
     ###NOTE: what if Isc degrades the device? maybe I should only sweep backwards
-    ###until the po10000000101110000000100wer output starts dropping instead of going all the way to zero volts...
+    ###until the power output starts dropping instead of going all the way to zero volts...
     #sm.setNPLC(0.5)
     #points = 1001
     #sm.setupSweep(sourceVoltage=True, compliance=0.04, nPoints=points,
@@ -216,8 +216,14 @@ if args.snaith:
   end = l.Voc * (1 + l.percent_beyond_voc / 100)
   points = 1001
   message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
+  
+  # if the measured Isc is below 5 microamps, set the compliance to 10
+  if abs(l.Isc) < 0.000005:
+    compliance = 0.00001
+  else:
+    compliance = l.Isc*1.5
 
-  sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=l.Isc*1.5, nPoints=points, start=start, end=end, NPLC=1, message=message)
+  sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=points, start=start, end=end, NPLC=1, message=message)
   roi_start = len(l.m) - len(sv)
   roi_end = len(l.m) - 1
   l.addROI(roi_start, roi_end, 'Snaith')

@@ -15,7 +15,10 @@ class logic:
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
   
-  percent_beyond_voc = 7  # start/end sweeps this many percentage points beyond Voc
+  # start/end sweeps this many percentage points beyond Voc
+  # bigger numbers here give better fitting for series resistance
+  # at an incresed danger of pushing too much current through the device
+  percent_beyond_voc = 10  
   
   # this is the datatype for the measurement in the h5py file
   measurement_datatype = np.dtype({'names': ['v','i','t','s'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
