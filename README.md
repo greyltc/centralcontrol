@@ -10,7 +10,7 @@ Software design files for controlling the hardware from https://github.com/AFMD/
 ## Arch Linux deps
 
 ```
-pacaur -Syyu python-pyvisa python-pyvisa-py python-pyserial
+yay -Syyu --needed python-pyvisa python-pyvisa-py python-pyserial python-h5py
 ```
 
 ## Switch firmware testing
