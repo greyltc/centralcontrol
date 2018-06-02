@@ -208,7 +208,7 @@ class logic:
     self.f.attrs['Intensity [suns]'] = np.float(self.measureIntensity())
     
   def runDone(self):
-    print("Closing {:s}".format(self.f.filename))
+    print("\nClosing {:s}".format(self.f.filename))
     self.f.close()
       
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
