@@ -3,6 +3,18 @@ import time
 import numpy
 from collections import deque
 
+class wavelabs():
+    def startServer(self):
+        pass
+    def awaitConnection(self):
+        print ("Connected to virtual lightsource")
+    def activateRecipe(self, recipe):
+        print ("Light engine recipe '{:}' virtually activated.".format(recipe))
+    def startRecipe(self):
+        print("Light engine recipe virtually started")
+    def cancelRecipe(self):
+        print("Light engine recipe virtually cancelled")
+
 class pcb():
     def pix_picker(self, substrate, pixel, suppressWarning=False):
         return True

@@ -7,6 +7,7 @@ from toolkit import k2400
 from toolkit import pcb
 from toolkit import virt
 from toolkit import logic
+from toolkit import LED_control
 
 import sys
 import argparse
@@ -118,6 +119,12 @@ if args.pixel_address is not None:
   pixel_address_que = buildQ(args.pixel_address)
 
 if args.sweep or args.snaith or mppt > 0:
+  # connect to light engine and activate recipe
+  wl = wavelabs()
+  wl.startServer()
+  wl.awaitConnection()
+  wl.activateRecipe('WL-Test')
+  
   l.runSetup(operator='grey')
   last_substrate = None
   for pixel_address in pixel_address_que:
@@ -128,8 +135,10 @@ if args.sweep or args.snaith or mppt > 0:
       print('New substrate!')
       last_substrate = substrate
       l.substrateSetup(position=substrate)
-      
-    l.pixelSetup(pix, t_dwell_voc=args.t_prebias)
+    
+    wl.startRecipe()
+    l.pixelSetup(pix, t_dwell_voc = args.t_prebias)
+    wl.cancelRecipe()
 
 #if False and (args.sweep or args.snaith or mppt > 0):
     #substrate = args.pixel_address[0]
@@ -173,8 +182,9 @@ if args.sweep or args.snaith or mppt > 0:
         end = 0
         points = 101
         message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
-    
+        wl.startRecipe()
         sv = l.sweep(sourceVoltage=True, compliance=0.04, senseRange='f', nPoints=points, start=start, end=end, NPLC=1, message=message)
+        wl.cancelRecipe()
         roi_start = len(l.m) - len(sv)
         roi_end = len(l.m) - 1
         l.addROI(roi_start, roi_end, 'Sweep')
@@ -205,7 +215,9 @@ if args.sweep or args.snaith or mppt > 0:
     
     if args.sweep or args.snaith:
       # let's find our sc current now
+      wl.startRecipe()
       iscs = l.steadyState(t_dwell=args.t_dwell, NPLC = 10, sourceVoltage=True, compliance=0.04, senseRange ='a', setPoint=0)
+      wl.cancelRecipe()
     
       l.Isc = iscs[-1][1]  # take the last measurement to be Isc
     
@@ -249,8 +261,9 @@ if args.sweep or args.snaith or mppt > 0:
         compliance = 0.00001
       else:
         compliance = l.Isc*1.5
-    
+      wl.startRecipe()
       sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=points, start=start, end=end, NPLC=1, message=message)
+      wl.cencelRecipe()
       roi_start = len(l.m) - len(sv)
       roi_end = len(l.m) - 1
       l.addROI(roi_start, roi_end, 'Snaith')
