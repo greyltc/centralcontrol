@@ -9,19 +9,25 @@ class k2400:
   Intertace for Keithley 2400 sourcemeter
   """
   idnContains = 'KEITHLEY'
-  
+
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\n', serialBaud=57600, front=False, twoWire=False):
     self.readyForAction = False
     self.rm = self._getResourceManager(visa_lib)
-    
+
     if scan:
       print(self.rm.list_resources())
-    
+
     self.addressString = addressString
     self.terminator = terminator
     self.serialBaud = serialBaud     
     self.sm = self._getSourceMeter(self.rm)
     self._setupSourcemeter(front=front, twoWire=twoWire)
+
+  def close(self):
+    try:
+      self.sm.close()
+    except:
+      pass
 
   def _getResourceManager(self,visa_lib):
     try:
@@ -38,16 +44,16 @@ class k2400:
         print('Error 2 (using pyvisa default backend):')
         print(value2)
         raise ValueError("Unable to create a resource manager.")
-    
+
     vLibPath = rm.visalib.get_library_paths()[0]
     if vLibPath == 'unset':
       self.backend = 'pyvisa-py'
     else:
       self.backend = vLibPath
-    
+
     print("Using {:s} pyvisa backend.".format(self.backend))
     return rm
-    
+
   def _getSourceMeter(self, rm):
     timeoutMS = 300 # initial comms timeout
     if 'ASRL' in self.addressString:
@@ -62,14 +68,14 @@ class k2400:
     else:
       smCommsMsg = "ERROR: Can't talk to sourcemeter"
       openParams = {'resource_name': self.addressString}
-    
+
     sm = rm.open_resource(**openParams)
-    
+
     if sm.interface_type == visa.constants.InterfaceType.gpib:
       sm.send_ifc()
       sm.clear()
       sm._read_termination = '\n'
-      
+
     try:
       sm.write('*RST')
       sm.write(':status:preset')
@@ -86,26 +92,26 @@ class k2400:
         pass
       print(smCommsMsg)
       raise ValueError("Failed to talk to sourcemeter.")
-    
+
     if self.idnContains in idnString:
       print("Sourcemeter found:")
       print(idnString)
     else:
       raise ValueError("Got a bad response to *IDN?: {:s}".format(idnString))
-  
+
     return sm
-  
+
   def _setupSourcemeter(self, twoWire, front):
     """ Do initial setup for sourcemeter
     """
     sm = self.sm
     sm.timeout = 50000 #long enough to collect an entire sweep [ms]
-    
+
     sm.write(':status:preset')
     sm.write(':system:preset')
     sm.write(':trace:clear')
     sm.write(':output:smode himpedance')    
-    
+
     if sm.interface_type == visa.constants.InterfaceType.asrl:
       self.dataFormat = 'ascii'
       sm.values_format.use_ascii('f',',')
@@ -115,55 +121,55 @@ class k2400:
     else:
       self.dataFormat = 'ascii'
       sm.values_format.use_ascii('f',',')
-      
+
     sm.write("format:data {:s}".format(self.dataFormat))
-    
+
     sm.write('source:clear:auto off')
-    
-    
+
+
     self.setWires(twoWire=twoWire)
-      
+
     sm.write(':sense:function:concurrent on')
     sm.write(':sense:function "current:dc", "voltage:dc"')
     sm.write(':format:elements time,voltage,current,status')
-    
+
     # use front terminals?
     self.setTerminals(front=front)
-      
+
     self.src = sm.query(':source:function:mode?')
     sm.write(':system:beeper:state off')
     sm.write(':system:lfrequency:auto on')
     sm.write(':system:time:reset')
-    
+
     sm.write(':system:azero off')  # we'll do this once before every measurement
     sm.write(':system:azero:caching on')
-    
+
     # TODO: look into contact checking function of 2400 :system:ccheck
-  
+
   def setWires(self, twoWire=False):
     if twoWire:
       self.sm.write(':system:rsense off') # four wire mode off
     else:
       self.sm.write(':system:rsense on') # four wire mode on
-      
+
   def setTerminals(self, front=False):
     if front:
       self.sm.write(':rout:term front')
     else:
       self.sm.write(':rout:term rear')
-    
+
   def updateSweepStart(self,startVal):
     self.sm.write(':source:{:s}:start {:.8f}'.format(self.src, startVal))
-    
+
   def updateSweepStop(self,stopVal):
     self.sm.write(':source:{:s}:stop {:.8f}'.format(self.src, stopVal))
 
   def setOutput(self, outVal):
     self.sm.write(':source:{:s} {:.8f}'.format(self.src,outVal))
-    
+
   def write(self, toWrite):
     self.sm.write(toWrite)
-    
+
   def query_values(self, query):
     if self.dataFormat == 'ascii':
       return self.sm.query_ascii_values(query)
@@ -171,13 +177,13 @@ class k2400:
       return self.sm.query_binary_values(query)
     else:
       raise ValueError("Don't know what values format to use!")
-    
+
   def outOn(self, on=True):
     if on:
       self.sm.write(':output on')
     else:
       self.sm.write(':output off')
-      
+
   def setNPLC(self,nplc):
     self.sm.write(':sense:current:nplcycles {:}'.format(nplc))
     self.sm.write(':sense:voltage:nplcycles {:}'.format(nplc))
@@ -203,11 +209,11 @@ class k2400:
     sm.write(':source:function {:s}'.format(src))
     sm.write(':source:{:s}:mode fixed'.format(src))
     sm.write(':source:{:s} {:.8f}'.format(src,setPoint))
-    
+
     sm.write(':source:delay:auto on')
-    
+
     sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
-    
+
     if senseRange == 'f':
       sm.write(':sense:{:s}:range:auto off'.format(snc))
       sm.write(':sense:{:s}:protection:rsynchronize on'.format(snc))
@@ -215,15 +221,15 @@ class k2400:
       sm.write(':sense:{:s}:range:auto on'.format(snc))
     else:
       sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
-    
+
     # this again is to make sure the sense range gets updated
     sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
-    
+
     sm.write(':output on')
     sm.write(':trigger:count 1')
-    
+
     sm.write(':system:azero once')
-    
+
   def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=0.005, start=0, end=1, streaming=False, senseRange='f'):
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
@@ -240,16 +246,16 @@ class k2400:
     self.src = src
     sm.write(':source:function {:s}'.format(src))
     sm.write(':source:{:s} {:0.6f}'.format(src,start))
-    
+
     # seems to do exactly nothing
     #if snc == 'current':
     #  holdoff_delay = 0.005
     #  sm.write(':sense:current:range:holdoff on')
     #  sm.write(':sense:current:range:holdoff {:.6f}'.format(holdoff_delay))
     #  self.opc()  # needed to prevent input buffer overrun with serial comms (should be taken care of by flowcontrol!)
-    
+
     sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
-    
+
     if senseRange == 'f':
       sm.write(':sense:{:s}:range:auto off'.format(snc))
       sm.write(':sense:{:s}:protection:rsynchronize on'.format(snc))
@@ -257,7 +263,7 @@ class k2400:
       sm.write(':sense:{:s}:range:auto on'.format(snc))
     else:
       sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
-    
+
     # this again is to make sure the sense range gets updated
     sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
 
@@ -280,20 +286,20 @@ class k2400:
     #sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
     sm.write(':source:sweep:ranging best')
     #sm.write(':sense:{:s}:range:auto off'.format(snc))
-    
+
     sm.write(':system:azero once')
-  
+
   def opc(self):
     """returns when all operations are complete
     """
     opcVAl = self.sm.query('*OPC?')
     return
-  
+
   def arm(self):
     """arms trigger
     """
     self.sm.write(':init')
-  
+
   def trigger(self):
     """permorms trigger event
     """
@@ -301,7 +307,7 @@ class k2400:
       self.sm.assert_trigger()
     else:
       self.sm.write('*TRG')
-      
+
   def sendBusCommand(self, command):
     """sends a command over the GPIB bus
     See: https://linux-gpib.sourceforge.io/doc_html/gpib-protocol.html#REFERENCE-COMMAND-BYTES
@@ -320,7 +326,7 @@ class k2400:
     else:
       vals = self.sm.query_ascii_values(':read?')
     return vals
-  
+
   def measureUntil(self, t_dwell=np.inf, measurements=np.inf, cb=lambda x:None):
     """Meakes measurements until termination conditions are met
     supports a callback after every measurement

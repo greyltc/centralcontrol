@@ -9,7 +9,7 @@ class pcb:
   prompt = '>>> '
   substrateList = 'HGFEDCBA'  # all the possible substrates
   substratesConnected = ''  # the ones we've detected
-  
+
   def __init__(self, ipAddress, port=23):
     timeout = 10
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -20,17 +20,17 @@ class pcb:
 
     self.s = s
     self.sf = sf
-    
+
     self.write('v') # check on switch
     answer, win = self.getResponse()
-    
+
     if not win:
       raise ValueError('Got bad response from switch')
     else:
       print('Connected to control PCB with ' + answer)
-    
+
     substrates = self.substrateSearch()
-    
+
     if substrates == 0x00:
       print('No multiplexer board detected.')
     else:
@@ -46,7 +46,7 @@ class pcb:
   def __del__(self):
     self.disconnect_all()
     self.disconnect()
-    
+
   def substrateSearch(self):
     """Returns bitmask of connected MUX boards
     """
@@ -59,24 +59,24 @@ class pcb:
       if answer == "MUX OK":
         found |= 0x01 << (7-i)
     return found
-    
+
   def disconnect(self):
     self.sf.close()
     try:
-        self.s.shutdown(socket.SHUT_RDWR)
+      self.s.shutdown(socket.SHUT_RDWR)
     except:
-        pass
+      pass
     self.s.close()
-    
+
   def pix_picker(self, substrate, pixel, suppressWarning=False):
     win = False
     ready = False
     try:
-        cmd = "s" + substrate + str(pixel)
-        answer, ready = self.query(cmd)
+      cmd = "s" + substrate + str(pixel)
+      answer, ready = self.query(cmd)
     except:
-        raise (ValueError, "Failure while talking to PCB")
-      
+      raise (ValueError, "Failure while talking to PCB")
+
     if ready:
       if answer == '':
         win = True
@@ -86,7 +86,7 @@ class pcb:
       raise (ValueError, "Comms are out of sync with the PCB")
 
     return win
-  
+
   # returns string, bool
   # the string is the response
   # the bool tells us if the read completed successfully
@@ -113,34 +113,34 @@ class pcb:
             win = True             
         else:
           print("WARNING: Didn't find expected terminator during read")
-     
+
     except:
       pass
     return line, win
-  
+
   def write(self, cmd):
     sf = self.sf
     if not cmd.endswith(self.write_terminator):
       cmd = cmd + self.write_terminator
-    
+
     sf.write(cmd.encode())
     sf.flush()
-  
+
   def query(self, query):
     self.write(query)
     return self.getResponse()
-  
+
   def get(self, cmd):
     """sends cmd to the pcb and returns the relevant command response
     """
     ready = False
     ret = None
-    
+
     try:
       answer, ready = self.query(cmd)
     except:
       raise (ValueError, "Failure while talking to PCB")
-  
+
     if ready:
       if answer.startswith('AIN'):
         ret = answer.split(' ')[1]
@@ -152,32 +152,32 @@ class pcb:
         print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
     else:
       raise (ValueError, "Comms are out of sync with the PCB")
-    
+
     return ret
-  
+
   def getADCCounts(self, chan):
     """makes adc readings.
     chan can be 0-3 to directly read the corresponding adc channel
     chan can also be A-H to get the adapter board resistor divider counts
     """
     ready = False
-    
+
     if (type(chan) == int):
       cmd = "ADC" + str(chan)
     else:  # must be in resistor divider mode
       cmd = "d" + str(chan)
-    
+
     return int(self.get(cmd))
-  
+
   def disconnect_all(self):
     """ Opens all the switches
     """
     for substrate in self.substratesConnected:
       self.pix_picker(substrate, 0)
-    
+
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
     """Set TCP keepalive on an open socket.
-  
+
     It activates after 1 second (after_idle_sec) of idleness,
     then sends a keepalive ping once every 3 seconds (interval_sec),
     and closes the connection after 5 failed ping (max_fails), or 15 seconds
@@ -186,10 +186,10 @@ class pcb:
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, after_idle_sec)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval_sec)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, max_fails)
-  
+
   def set_keepalive_osx(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
     """Set TCP keepalive on an open socket.
-  
+
     sends a keepalive ping once every 3 seconds (interval_sec)
     """
     # scraped from /usr/include, not exported by python's socket module

@@ -5,7 +5,7 @@ import time
 class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
-  
+
   class XMLHandler:
     """
     Class for handling the XML responses from the wavelabs software
@@ -15,7 +15,7 @@ class wavelabs:
       self.error = None
       self.error_message = None
       self.run_ID = None
-    
+
     def start(self, tag, attrib):
       if 'iEC' in attrib:
         self.error = int(attrib['iEC'])
@@ -27,17 +27,17 @@ class wavelabs:
     def end(self, tag):
       if tag == 'WLRC':
         self.done_parsing = True
-    
+
     def data(self, data):
       pass
-    
+
     def close(self):
       pass  
-  
+
   def __init__(self, listen_ip = "0.0.0.0", listen_port = 3334):
     self.host = listen_ip
     self.port = listen_port
-    
+
   def recvXML(self):
     """reads xml object from socket"""
     target = self.XMLHandler()
@@ -52,13 +52,13 @@ class wavelabs:
   def startServer(self):
     """define a server which listens for the wevelabs software to connect"""
     self.iseq = 0
-    
+
     self.server = socketserver.TCPServer((self.host, self.port), socketserver.StreamRequestHandler, bind_and_activate = False)
     self.server.timeout = None  # never timeout when waiting for the wavelabs software to connect
     self.server.allow_reuse_address = True
     self.server.server_bind()
     self.server.server_activate()
-    
+
   def awaitConnection(self):
     """returns once the wavelabs program has connected"""
     request, client_address = self.server.get_request()
@@ -67,7 +67,7 @@ class wavelabs:
       self.connection = request
     else:
       self.awaitConnection()
-  
+
   def activateRecipe(self, recipe_name):
     """activate a solar sim recipe by name"""
     root = ET.Element("WLRC")
@@ -78,7 +78,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Recipe '{:}' could not be activated, check that it exists".format(recipe_name))
-    
+
   def startRecipe(self):
     """starts the last activated recipe"""
     root = ET.Element("WLRC")
@@ -100,7 +100,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Could not cancel recipe, maybe it's not running")
-    
+
   def exitProgram(self):
     """closes the wavelabs solar sim program on the wavelabs PC"""
     root = ET.Element("WLRC")
@@ -110,7 +110,7 @@ class wavelabs:
     tree.write(self.sock_file)
     if response.error != 0:
       print("ERROR: Could not exit WaveLabs program")     
-    
+
 if __name__ == "__main__":
   wl = wavelabs()
   wl.startServer()
