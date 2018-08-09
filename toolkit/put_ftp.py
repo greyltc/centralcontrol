@@ -55,7 +55,7 @@ if __name__ == "__main__":
       print("Nothing to upload")
     sys.exit(-1)
   else:
-    ftp = put_ftp(server)
+    ftp = put_ftp(args.server)
     ftp.verbose = args.verbose
 
     for f in args.files:

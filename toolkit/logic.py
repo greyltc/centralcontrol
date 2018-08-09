@@ -235,7 +235,7 @@ class logic:
     
     ftp = put_ftp('epozz')
     fp = open(this_filename,'rb')
-    ftp.uploadFile(fp,'/drop/a/' + self.run_dir + '/')
+    ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
     ftp.close()
     fp.close()
     
