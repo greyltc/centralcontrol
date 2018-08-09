@@ -50,6 +50,7 @@ def get_args():
   parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
   parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
   parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
+  parser.add_argument('--no_wavelabs', default=False, action='store_true', help="WaveLabs LED solar sim is not present")  
   parser.add_argument('--t_prebias', type=float, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
   parser.add_argument('--area', type=float, default=-1.0, help="Specify device area in cm^2")
   parser.add_argument('--mppt', type=int, default=0, help="Do maximum power point tracking for this many cycles")
@@ -69,7 +70,7 @@ if args.area != -1.0:
   l.cli_area = args.area
 
 # connect to PCB and sourcemeter
-l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, 
+l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs
          pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
 
 if args.dummy:
