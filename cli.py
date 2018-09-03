@@ -70,13 +70,8 @@ if args.area != -1.0:
   l.cli_area = args.area
 
 # connect to PCB and sourcemeter
-<<<<<<< HEAD
 l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs
          pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
-=======
-l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, 
-          pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
->>>>>>> 194f5feda2252e49e06301a41be80925ba446d35
 
 if args.dummy:
   args.pixel_address = 'A1'
