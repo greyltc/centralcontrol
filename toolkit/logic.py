@@ -20,7 +20,7 @@ class logic:
   # start/end sweeps this many percentage points beyond Voc
   # bigger numbers here give better fitting for series resistance
   # at an incresed danger of pushing too much current through the device
-  percent_beyond_voc = 10  
+  percent_beyond_voc = 50  
 
   # this is the datatype for the measurement in the h5py file
   measurement_datatype = np.dtype({'names': ['v','i','t','s'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
@@ -59,22 +59,24 @@ class logic:
       self.__dict__[attr] = value
 
   def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', pcbPort=23, terminator='\n', serialBaud=57600, no_wavelabs=False):
-    """Forms a connection to the PCB and the sourcemeter
+    """Forms a connection to the PCB, the sourcemeter and the light engine
     will form connections to dummy instruments if dummy=true
     """
 
     if dummy:
       self.sm = virt.k2400()
       self.pcb = virt.pcb()
-      self.wl = virt.wavelabs()
+    else:
+      self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
+      self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)      
+
+    if no_wavelabs:
+      self.wl = self.wl = virt.wavelabs()
     else:
       self.wl = wavelabs()
       self.wl.startServer()
       self.wl.awaitConnection()
-      self.wl.activateRecipe('WL-Test')
-
-      self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
-      self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)
+      self.wl.activateRecipe()
 
   def getMyHash(short=True):
     thisPath = os.path.dirname(os.path.abspath(__file__))
