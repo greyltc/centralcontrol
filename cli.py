@@ -36,11 +36,18 @@ def is_dir(dirname):
 
 def get_args():
   """Get CLI arguments and options"""
-  parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 2400 sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
+  parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
 
+  # required named arguments
+  requiredNamed = parser.add_argument_group('required named arguments')
+  requiredNamed.add_argument('-o', '--operator', help='Name of operator', required=True)
+  
+  # "mostly" required arguments
   parser.add_argument("address", nargs='?', default="None", type=str, help="VISA resource name for sourcemeter")
   parser.add_argument("switch_address", nargs='?', default=None, type=str, help="IP address for PCB")
   parser.add_argument("pixel_address", nargs='?', default=None, type=str, help="Pixel to scan (A1, A2,...), use hex (0x...) to specify an enabled pixel bitmask")
+  
+  # truely optional arguments
   parser.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
   parser.add_argument('--visa_lib', type=str, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
   parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
@@ -85,8 +92,7 @@ if args.area != -1.0:
   l.cli_area = args.area
 
 # connect to PCB and sourcemeter
-l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs, 
-         pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
+l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs, pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
 
 if args.dummy:
   args.pixel_address = 'A1'
@@ -120,6 +126,7 @@ def buildQ(pixel_address_string):
   q = deque()
   if pixel_address_string[0:2] == '0x':
     bitmask = bytearray.fromhex(pixel_address_string[2:])
+    #TODO: flip LR this
     for substrate_index, byte in enumerate(bitmask):
       substrate = chr(substrate_index+ord('A'))
       for i in range(8):
@@ -135,13 +142,7 @@ if args.pixel_address is not None:
   pixel_address_que = buildQ(args.pixel_address)
 
 if args.sweep or args.snaith or args.mppt > 0:
-  # connect to light engine and activate recipe
-  #wl = wavelabs()
-  #wl.startServer()
-  #wl.awaitConnection()
-  #wl.activateRecipe('WL-Test')
-
-  l.runSetup(operator='grey')
+  l.runSetup(operator=args.operator)
   last_substrate = None
   for pixel_address in pixel_address_que:
     substrate = pixel_address[0]
@@ -152,9 +153,8 @@ if args.sweep or args.snaith or args.mppt > 0:
       last_substrate = substrate
       l.substrateSetup(position=substrate)
 
-    #wl.startRecipe()
     l.pixelSetup(pix, t_dwell_voc = args.t_prebias)
-    #wl.cancelRecipe()
+
 
 #if False and (args.sweep or args.snaith or mppt > 0):
     #substrate = args.pixel_address[0]
@@ -267,7 +267,7 @@ if args.sweep or args.snaith or args.mppt > 0:
       ##until the power output starts dropping instead of going all the way to zero volts...
 
       start = 0
-      end = l.Voc * (1 + l.percent_beyond_voc / 100)
+      end = l.Voc * ((100 + l.percent_beyond_voc) / 100)
       points = 101
       message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
 

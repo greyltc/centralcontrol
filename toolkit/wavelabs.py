@@ -5,6 +5,7 @@ import time
 class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
+  default_recipe = 'am1_5_1_sun'
 
   class XMLHandler:
     """
@@ -68,7 +69,7 @@ class wavelabs:
     else:
       self.awaitConnection()
 
-  def activateRecipe(self, recipe_name):
+  def activateRecipe(self, recipe_name=default_recipe):
     """activate a solar sim recipe by name"""
     root = ET.Element("WLRC")
     ET.SubElement(root, 'ActivateRecipe', iSeq=str(self.iseq), sRecipe = recipe_name)
@@ -115,7 +116,7 @@ if __name__ == "__main__":
   wl = wavelabs()
   wl.startServer()
   wl.awaitConnection()
-  wl.activateRecipe('WL-Test')
+  wl.activateRecipe('am1_5_1_sun')
   wl.startRecipe()
   time.sleep(5)
   wl.cancelRecipe()
