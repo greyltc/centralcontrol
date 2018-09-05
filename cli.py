@@ -3,11 +3,9 @@
 
 # written by grey@christoforo.net
 
-#from toolkit import k2400
-#from toolkit import pcb
-#from toolkit import virt
+appname = 'solar_sim_controller'
+
 from toolkit import logic
-#from toolkit import wavelabs
 
 import sys
 import argparse
@@ -15,6 +13,11 @@ import time
 import numpy
 import mpmath
 import os
+
+import appdirs
+import configparser
+import pathlib
+
 from scipy import special
 from collections import deque
 
@@ -61,6 +64,18 @@ def get_args():
 
 args = get_args()
 
+# for saving config
+config_path_string = appdirs.user_config_dir(appname)
+config_file_fullpath = config_path_string + os.pathsep + 'prefs.ini'
+config_path = pathlib.Path(config_path_string)
+config_path.parent.mkdir(parents = True, exist_ok = True)
+config = configparser.ConfigParser()
+config.read(config_file_fullpath)
+
+
+
+
+
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
 # create the control entity
@@ -70,13 +85,8 @@ if args.area != -1.0:
   l.cli_area = args.area
 
 # connect to PCB and sourcemeter
-<<<<<<< HEAD
-l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs
+l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs, 
          pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
-=======
-l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, 
-          pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
->>>>>>> 194f5feda2252e49e06301a41be80925ba446d35
 
 if args.dummy:
   args.pixel_address = 'A1'
