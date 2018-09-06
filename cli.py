@@ -35,15 +35,14 @@ class RecordPref(argparse.Action):
   """save pref arg parse action"""
   def __call__(self, parser, namespace, values, option_string=None):
     setattr(namespace, self.dest, values)
-    prefs[self.dest] = values
+    if values != None:  # don't save None params to prefs
+      prefs[self.dest] = values
     
-class StoreTrue(argparse._StoreConstAction):
+class StoreConst(argparse._StoreConstAction):
   """store true and save pref arg parse action"""
   def __call__(self, parser, namespace, values, option_string=None):
-    setattr(namespace, self.dest, self.const)  
-    #value = True
-    #setattr(namespace, self.dest, value)
-    prefs[self.dest] = True
+    setattr(namespace, self.dest, self.const)
+    prefs[self.dest] = self.const
 
 def is_dir(dirname):
   """Checks if a path is an actual directory"""
@@ -67,19 +66,24 @@ def get_args():
   parser.add_argument("pixel_address", nargs='?', default=None, type=str, action=RecordPref, help="Pixel to scan (A1, A2,...), use hex (0x...) to specify an enabled pixel bitmask")
   
   # truely optional arguments
-  parser.add_argument('--dummy', default=False, action=StoreTrue, const = True, help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
+  parser.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
   parser.add_argument('--visa_lib', type=str, action=RecordPref, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
   parser.add_argument('--file', type=str, action=RecordPref, help="Write output data stream to this file in addition to stdout.")
-  parser.add_argument("--scan", default=False, action=StoreTrue, const = True, help="Scan for obvious VISA resource names, print them and exit")
-  parser.add_argument("--front", default=False, action=StoreTrue, const = True, help="Use the front terminals")
-  parser.add_argument("--two-wire", default=False, dest='twoWire', action=StoreTrue, const = True, help="Use two wire mode")
+  parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
+  parser.add_argument("--front", default=False, action=StoreConst, const = True, help="Use the front terminals")
+  parser.add_argument("--rear", dest='front', action=StoreConst, const = False, help="Use the rear terminals (the default)")
+  parser.add_argument("--two-wire", default=False, dest='twoWire', action=StoreConst, const = True, help="Use two wire mode")
+  parser.add_argument("--four-wire", dest='two_wire', action=StoreConst, const = False, help="Use four wire mode (the defalt)")
   parser.add_argument("--terminator", type=str, action=RecordPref, default='0A', help="Instrument comms read & write terminator (enter in hex)")
   parser.add_argument("--baud", type=int, action=RecordPref, default=57600, help="Instrument serial comms baud rate")
   parser.add_argument("--port", type=int, action=RecordPref, default=23, help="Port to connect to switch hardware")
   parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
-  parser.add_argument("--sweep", default=False, action=StoreTrue, const = True, help="Do an I-V sweep from Voc to Jsc")
-  parser.add_argument('--snaith', default=False, action=StoreTrue, const = True, help="Do an I-V sweep from Jsc --> Voc")
-  parser.add_argument('--no_wavelabs', default=False, action=StoreTrue, const = True, help="WaveLabs LED solar sim is not present")  
+  parser.add_argument("--sweep", default=False, action=StoreConst, const = True, help="Do an I-V sweep from Voc --> Jsc")
+  parser.add_argument("--no_sweep", dest='sweep', action=StoreConst, const = False, help="Don't do an I-V sweep from Voc --> Jsc (the default)")
+  parser.add_argument('--snaith', default=False, action=StoreConst, const = True, help="Do an I-V sweep from Jsc --> Voc")
+  parser.add_argument("--no_snaith", dest='snaith', action=StoreConst, const = False, help="Don't do an I-V sweep from Jsc --> Voc (the default)")  
+  parser.add_argument('--no_wavelabs', default=False, action=StoreConst, const = True, help="WaveLabs LED solar sim is not present")
+  parser.add_argument('--wavelabs', dest='no_wavelabs', action=StoreConst, const = False, help="WaveLabs LED solar sim is present (the default)")    
   parser.add_argument('--t_prebias', type=float, action=RecordPref, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
   parser.add_argument('--area', type=float, action=RecordPref, default=-1.0, help="Specify device area in cm^2")
   parser.add_argument('--mppt', type=int, action=RecordPref, default=0, help="Do maximum power point tracking for this many cycles")
@@ -91,16 +95,33 @@ def get_args():
 args = get_args()
 
 # for saving config
-config_path_string = appdirs.user_config_dir(appname)
-config_file_fullpath = config_path_string + os.path.sep + 'prefs.ini'
-config_path = pathlib.Path(config_path_string)
+#config_path_string = appdirs.user_config_dir(appname) + os.path.sep 
+config_file_fullpath = appdirs.user_config_dir(appname) + os.path.sep + 'prefs.ini'
+config_path = pathlib.Path(config_file_fullpath)
 config_path.parent.mkdir(parents = True, exist_ok = True)
 config = configparser.ConfigParser()
 config.read(config_file_fullpath)
 
+# take command line args and put them in to prefrences
+if 'PREFRENCES' not in config:
+  config['PREFRENCES'] = prefs
+else:
+  for key, val in prefs.items():
+    config['PREFRENCES'][key] = str(val)
 
+# save the prefrences file
+with open(config_file_fullpath, 'w') as configfile:
+  config.write(configfile)
 
+# now read back the new prefs
+config.read(config_file_fullpath)
 
+# TODO: display to user what args are being taken from the command line,
+# and which ones are being taken from the saved prefrences file
+
+# apply prefrences to argparse
+for key, val in config['PREFRENCES'].items():
+  args.__setattr__(key, val)
 
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
@@ -118,8 +139,8 @@ if args.dummy:
 else:
   if args.front:
     l.sm.setTerminals(front=args.front)
-  if args.twoWire:
-    l.sm.setWires(twoWire=args.twoWire)
+  if args.two_wire:
+    l.sm.setWires(twoWire=args.two_wire)
 
 if args.test_hardware:
   l.hardwareTest()
