@@ -21,10 +21,29 @@ import pathlib
 from scipy import special
 from collections import deque
 
+# for updating prefrences
+prefs = {}
+
 class FullPaths(argparse.Action):
-  """Expand user- and relative-paths"""
+  """Expand user- and relative-paths and save pref arg parse action"""
   def __call__(self, parser, namespace, values, option_string=None):
-    setattr(namespace, self.dest, os.path.abspath(os.path.expanduser(values)))
+    value = os.path.abspath(os.path.expanduser(values))
+    setattr(namespace, self.dest, value)
+    prefs[self.dest] = value
+    
+class RecordPref(argparse.Action):
+  """save pref arg parse action"""
+  def __call__(self, parser, namespace, values, option_string=None):
+    setattr(namespace, self.dest, values)
+    prefs[self.dest] = values
+    
+class StoreTrue(argparse._StoreConstAction):
+  """store true and save pref arg parse action"""
+  def __call__(self, parser, namespace, values, option_string=None):
+    setattr(namespace, self.dest, self.const)  
+    #value = True
+    #setattr(namespace, self.dest, value)
+    prefs[self.dest] = True
 
 def is_dir(dirname):
   """Checks if a path is an actual directory"""
@@ -43,28 +62,28 @@ def get_args():
   requiredNamed.add_argument('-o', '--operator', help='Name of operator', required=True)
   
   # "mostly" required arguments
-  parser.add_argument("address", nargs='?', default="None", type=str, help="VISA resource name for sourcemeter")
-  parser.add_argument("switch_address", nargs='?', default=None, type=str, help="IP address for PCB")
-  parser.add_argument("pixel_address", nargs='?', default=None, type=str, help="Pixel to scan (A1, A2,...), use hex (0x...) to specify an enabled pixel bitmask")
+  parser.add_argument("address", nargs='?', default="None", type=str, action=RecordPref, help="VISA resource name for sourcemeter")
+  parser.add_argument("switch_address", nargs='?', default=None, type=str, action=RecordPref, help="IP address for PCB")
+  parser.add_argument("pixel_address", nargs='?', default=None, type=str, action=RecordPref, help="Pixel to scan (A1, A2,...), use hex (0x...) to specify an enabled pixel bitmask")
   
   # truely optional arguments
-  parser.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
-  parser.add_argument('--visa_lib', type=str, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
-  parser.add_argument('--file', type=str, help="Write output data stream to this file in addition to stdout.")
-  parser.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
-  parser.add_argument("--front", default=False, action='store_true', help="Use the front terminals")
-  parser.add_argument("--two-wire", default=False, dest='twoWire', action='store_true', help="Use two wire mode")
-  parser.add_argument("--terminator", type=str, default='0A', help="Instrument comms read & write terminator (enter in hex)")
-  parser.add_argument("--baud", type=int, default=57600, help="Instrument serial comms baud rate")
-  parser.add_argument("--port", type=int, default=23, help="Port to connect to switch hardware")
+  parser.add_argument('--dummy', default=False, action=StoreTrue, const = True, help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
+  parser.add_argument('--visa_lib', type=str, action=RecordPref, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
+  parser.add_argument('--file', type=str, action=RecordPref, help="Write output data stream to this file in addition to stdout.")
+  parser.add_argument("--scan", default=False, action=StoreTrue, const = True, help="Scan for obvious VISA resource names, print them and exit")
+  parser.add_argument("--front", default=False, action=StoreTrue, const = True, help="Use the front terminals")
+  parser.add_argument("--two-wire", default=False, dest='twoWire', action=StoreTrue, const = True, help="Use two wire mode")
+  parser.add_argument("--terminator", type=str, action=RecordPref, default='0A', help="Instrument comms read & write terminator (enter in hex)")
+  parser.add_argument("--baud", type=int, action=RecordPref, default=57600, help="Instrument serial comms baud rate")
+  parser.add_argument("--port", type=int, action=RecordPref, default=23, help="Port to connect to switch hardware")
   parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
-  parser.add_argument("--sweep", default=False, action='store_true', help="Do an I-V sweep from Voc to Jsc")
-  parser.add_argument('--snaith', default=False, action='store_true', help="Do an I-V sweep from Jsc --> Voc")
-  parser.add_argument('--no_wavelabs', default=False, action='store_true', help="WaveLabs LED solar sim is not present")  
-  parser.add_argument('--t_prebias', type=float, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
-  parser.add_argument('--area', type=float, default=-1.0, help="Specify device area in cm^2")
-  parser.add_argument('--mppt', type=int, default=0, help="Do maximum power point tracking for this many cycles")
-  parser.add_argument("--t_dwell", type=float, default=15, help="Total number of seconds for the dwell mppt phase(s)")  
+  parser.add_argument("--sweep", default=False, action=StoreTrue, const = True, help="Do an I-V sweep from Voc to Jsc")
+  parser.add_argument('--snaith', default=False, action=StoreTrue, const = True, help="Do an I-V sweep from Jsc --> Voc")
+  parser.add_argument('--no_wavelabs', default=False, action=StoreTrue, const = True, help="WaveLabs LED solar sim is not present")  
+  parser.add_argument('--t_prebias', type=float, action=RecordPref, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
+  parser.add_argument('--area', type=float, action=RecordPref, default=-1.0, help="Specify device area in cm^2")
+  parser.add_argument('--mppt', type=int, action=RecordPref, default=0, help="Do maximum power point tracking for this many cycles")
+  parser.add_argument("--t_dwell", type=float, action=RecordPref, default=15, help="Total number of seconds for the dwell mppt phase(s)")  
   parser.add_argument('--destination', help="Save output files here", action=FullPaths, type=is_dir)
 
   return parser.parse_args()
@@ -73,7 +92,7 @@ args = get_args()
 
 # for saving config
 config_path_string = appdirs.user_config_dir(appname)
-config_file_fullpath = config_path_string + os.pathsep + 'prefs.ini'
+config_file_fullpath = config_path_string + os.path.sep + 'prefs.ini'
 config_path = pathlib.Path(config_path_string)
 config_path.parent.mkdir(parents = True, exist_ok = True)
 config = configparser.ConfigParser()
