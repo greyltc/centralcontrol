@@ -4,6 +4,7 @@
 # written by grey@christoforo.net
 
 appname = 'solar_sim_controller'
+config_section = 'PREFRENCES'
 
 from toolkit import logic
 
@@ -58,10 +59,10 @@ def get_args():
 
   # required named arguments
   requiredNamed = parser.add_argument_group('required named arguments')
-  requiredNamed.add_argument('-o', '--operator', help='Name of operator', required=True)
+  requiredNamed.add_argument('-o', '--operator', type=str, help='Name of operator', required=True)
   
   # "mostly" required arguments
-  parser.add_argument("address", nargs='?', default="None", type=str, action=RecordPref, help="VISA resource name for sourcemeter")
+  parser.add_argument("address", nargs='?', default=None, type=str, action=RecordPref, help="VISA resource name for sourcemeter")
   parser.add_argument("switch_address", nargs='?', default=None, type=str, action=RecordPref, help="IP address for PCB")
   parser.add_argument("pixel_address", nargs='?', default=None, type=str, action=RecordPref, help="Pixel to scan (A1, A2,...), use hex (0x...) to specify an enabled pixel bitmask")
   
@@ -78,7 +79,7 @@ def get_args():
   parser.add_argument("--baud", type=int, action=RecordPref, default=57600, help="Instrument serial comms baud rate")
   parser.add_argument("--port", type=int, action=RecordPref, default=23, help="Port to connect to switch hardware")
   parser.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
-  parser.add_argument("--sweep", default=False, action=StoreConst, const = True, help="Do an I-V sweep from Voc --> Jsc")
+  parser.add_argument("--sweep",  default=False, action=StoreConst, const = True, help="Do an I-V sweep from Voc --> Jsc")
   parser.add_argument("--no_sweep", dest='sweep', action=StoreConst, const = False, help="Don't do an I-V sweep from Voc --> Jsc (the default)")
   parser.add_argument('--snaith', default=False, action=StoreConst, const = True, help="Do an I-V sweep from Jsc --> Voc")
   parser.add_argument("--no_snaith", dest='snaith', action=StoreConst, const = False, help="Don't do an I-V sweep from Jsc --> Voc (the default)")  
@@ -103,11 +104,11 @@ config = configparser.ConfigParser()
 config.read(config_file_fullpath)
 
 # take command line args and put them in to prefrences
-if 'PREFRENCES' not in config:
-  config['PREFRENCES'] = prefs
+if config_section not in config:
+  config[config_section] = prefs
 else:
   for key, val in prefs.items():
-    config['PREFRENCES'][key] = str(val)
+    config[config_section][key] = str(val)
 
 # save the prefrences file
 with open(config_file_fullpath, 'w') as configfile:
@@ -120,8 +121,20 @@ config.read(config_file_fullpath)
 # and which ones are being taken from the saved prefrences file
 
 # apply prefrences to argparse
-for key, val in config['PREFRENCES'].items():
-  args.__setattr__(key, val)
+for key, val in config[config_section].items():
+  if type(args.__getattribute__(key)) == int:
+    args.__setattr__(key, config.getint(config_section, key))
+  elif type(args.__getattribute__(key)) == float:
+    args.__setattr__(key, config.getfloat(config_section, key))
+  elif type(args.__getattribute__(key)) == bool:
+    args.__setattr__(key, config.getboolean(config_section, key))
+  else:
+    args.__setattr__(key, config.get(config_section, key))
+  
+if args.test_hardware:
+  args.snaith = False
+  args.sweep = False
+  args.mppt = 0
 
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
