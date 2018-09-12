@@ -71,12 +71,9 @@ class logic:
       self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)      
 
     if no_wavelabs:
-      self.wl = self.wl = virt.wavelabs()
+      self.wl = virt.wavelabs()
     else:
-      if no_wavelabs:
-        self.wl = virt.wavelabs()
-      else:
-        self.wl = wavelabs()
+      self.wl = wavelabs()
       self.wl.startServer()
       self.wl.awaitConnection()
       self.wl.activateRecipe()

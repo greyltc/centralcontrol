@@ -6,6 +6,7 @@ class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
   default_recipe = 'am1_5_1_sun'
+  default_server_port = 3334
 
   class XMLHandler:
     """
@@ -35,7 +36,7 @@ class wavelabs:
     def close(self):
       pass  
 
-  def __init__(self, listen_ip = "0.0.0.0", listen_port = 3334):
+  def __init__(self, listen_ip = "0.0.0.0", listen_port = default_server_port):
     self.host = listen_ip
     self.port = listen_port
 
@@ -116,8 +117,8 @@ if __name__ == "__main__":
   wl = wavelabs()
   wl.startServer()
   wl.awaitConnection()
-  wl.activateRecipe('am1_5_1_sun')
+  wl.activateRecipe(wl.default_recipe)
   wl.startRecipe()
-  time.sleep(5)
+  time.sleep(5)  # run the recipe for five seconds
   wl.cancelRecipe()
   wl.server.server_close()
