@@ -110,6 +110,7 @@ class wavelabs:
     self.iseq =  self.iseq + 1
     tree = ET.ElementTree(root)
     tree.write(self.sock_file)
+    response = self.recvXML()
     if response.error != 0:
       print("ERROR: Could not exit WaveLabs program")     
 
