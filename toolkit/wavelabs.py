@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import socketserver
 import xml.etree.cElementTree as ET
 import time
@@ -6,7 +8,9 @@ class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
   default_recipe = 'am1_5_1_sun'
-  default_server_port = 3334
+  wavelabs_port = 3334
+  relay_server_ip = 'localhost'
+  relay_server_port = 3335
 
   class XMLHandler:
     """
@@ -36,9 +40,11 @@ class wavelabs:
     def close(self):
       pass  
 
-  def __init__(self, listen_ip = "0.0.0.0", listen_port = default_server_port):
+  def __init__(self, listen_ip = "0.0.0.0", listen_port = wavelabs_port, relay_host = relay_server_ip, relay_port = relay_server_port):
     self.host = listen_ip
     self.port = listen_port
+    self._relay_host = relay_host
+    self._relay_port = relay_port
 
   def recvXML(self):
     """reads xml object from socket"""
@@ -63,12 +69,19 @@ class wavelabs:
 
   def awaitConnection(self):
     """returns once the wavelabs program has connected"""
-    request, client_address = self.server.get_request()
-    if self.server.verify_request(request, client_address):
-      self.sock_file = request.makefile(mode="rwb")
-      self.connection = request
-    else:
-      self.awaitConnection()
+    requestNotVerified = True
+    while requestNotVerified:
+      request, client_address = self.server.get_request()
+      if self.server.verify_request(request, client_address):
+        self.sock_file = request.makefile(mode="rwb")
+        self.connection = request
+        requestNotVerified = False
+        
+  def connectToRelay(self):
+    """forms connection to the relay server"""
+    self.connection = socketserver.socket.socket(socketserver.socket.AF_INET, socketserver.socket.SOCK_STREAM)
+    self.connection.connect((self._relay_host, self._relay_port))
+    self.sock_file = self.connection.makefile(mode="rwb")
 
   def activateRecipe(self, recipe_name=default_recipe):
     """activate a solar sim recipe by name"""
@@ -116,8 +129,10 @@ class wavelabs:
 
 if __name__ == "__main__":
   wl = wavelabs()
-  wl.startServer()
-  wl.awaitConnection()
+  #wl.startServer()
+  #wl.awaitConnection()
+  # or
+  wl.connectToRelay()
   wl.activateRecipe(wl.default_recipe)
   wl.startRecipe()
   time.sleep(5)  # run the recipe for five seconds

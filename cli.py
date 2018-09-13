@@ -67,6 +67,7 @@ def get_args():
   parser.add_argument("pixel_address", nargs='?', default=None, type=str, action=RecordPref, help="Pixel to scan (A1, A2,...), use hex (0x...) to specify an enabled pixel bitmask")
   
   # truely optional arguments
+  parser.add_argument("--relay-ip", type=str, action=RecordPref, default='10.42.0.1', help="IP address of the WaveLabs relay server (set to 0 for direct WaveLabs connection)")
   parser.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
   parser.add_argument('--visa-lib', type=str, action=RecordPref, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
   parser.add_argument('--file', type=str, action=RecordPref, help="Write output data stream to this file in addition to stdout.")
@@ -145,7 +146,7 @@ if args.area != -1.0:
   l.cli_area = args.area
 
 # connect to PCB and sourcemeter
-l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs, pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud)
+l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.address, no_wavelabs=args.no_wavelabs, pcbAddress=args.switch_address, terminator=args.terminator, serialBaud=args.baud, wavelabsRelayIP=args.relay_ip)
 
 if args.dummy:
   args.pixel_address = 'A1'
