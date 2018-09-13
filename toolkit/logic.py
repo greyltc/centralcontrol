@@ -58,7 +58,7 @@ class logic:
     else:
       self.__dict__[attr] = value
 
-  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', wavelabsRelayIP='10.42.0.1', pcbPort=23, terminator='\n', serialBaud=57600, no_wavelabs=False):
+  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', waveLabsRelayIP='10.42.0.1', pcbPort=23, terminator='\n', serialBaud=57600, no_wavelabs=False):
     """Forms a connection to the PCB, the sourcemeter and the light engine
     will form connections to dummy instruments if dummy=true
     """
