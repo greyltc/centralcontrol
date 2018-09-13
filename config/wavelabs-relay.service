@@ -1,0 +1,10 @@
+[Unit]
+Description=The WaveLabs command relay server
+ConditionPathExists=/usr/sbin/wavelabs-relay-server.py
+
+[Service]
+Type=idle
+ExecStart=/usr/sbin/wavelabs-relay-server.py
+
+[Install]
+WantedBy=multi-user.target
