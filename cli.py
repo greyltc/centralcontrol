@@ -180,11 +180,10 @@ def buildQ(pixel_address_string):
   q = deque()
   if pixel_address_string[0:2] == '0x':
     bitmask = bytearray.fromhex(pixel_address_string[2:])
-    #TODO: flip LR this
     for substrate_index, byte in enumerate(bitmask):
       substrate = chr(substrate_index+ord('A'))
       for i in range(8):
-        mask =  1 << i
+        mask =  128 >> i
         if (byte & mask):
           q.append(substrate+str(i+1))
   else:
