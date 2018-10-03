@@ -106,7 +106,7 @@ class logic:
       myHash = myHash[:7]
     return myHash
 
-  def hardwareTest(self):
+  def hardwareTest(self, substrates_to_test):
     self.wl.startRecipe()
 
 
@@ -129,13 +129,13 @@ class logic:
     print('{:d}\t<-- Disconnected (TP2, AIN{:d})'.format(counts, adcChan))
 
     adcChan = 0
-    for substrate in self.pcb.substratesConnected:
+    for substrate in substrates_to_test:
       counts = self.pcb.getADCCounts(substrate)
       print('{:d}\t<-- Substrate {:s} adapter board resistor divider (TP5, AIN{:d})'.format(counts, substrate, adcChan))
 
-    print("LED test mode active on substrate(s) {:s}".format(self.pcb.substratesConnected))
+    print("LED test mode active on substrate(s) {:s}".format(substrates_to_test))
     print("Every pixel should get an LED pulse IV sweep now, plus the light should turn on")    
-    for substrate in self.pcb.substratesConnected:
+    for substrate in substrates_to_test:
       sweepHigh = 0.01 # amps
       sweepLow = 0 # amps
 
@@ -238,11 +238,11 @@ class logic:
     this_filename = self.f.filename
     self.f.close()
     
-    ftp = put_ftp('epozz')
-    fp = open(this_filename,'rb')
-    ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
-    ftp.close()
-    fp.close()
+    #ftp = put_ftp('epozz')
+    #fp = open(this_filename,'rb')
+    #ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
+    #ftp.close()
+    #fp.close()
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position

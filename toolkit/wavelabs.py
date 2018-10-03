@@ -45,6 +45,17 @@ class wavelabs:
     self.port = listen_port
     self._relay_host = relay_host
     self._relay_port = relay_port
+    
+  def __del__(self):
+    try:
+      self.server.close()
+    except:
+      pass
+    try:
+      self.sock_file.close()
+      self.connection.close()
+    except:
+      pass    
 
   def recvXML(self):
     """reads xml object from socket"""
@@ -155,4 +166,4 @@ if __name__ == "__main__":
   time.sleep(1)
   print('Now!')
   wl.cancelRecipe()
-  #wl.server.server_close()
+  wl.server.close()

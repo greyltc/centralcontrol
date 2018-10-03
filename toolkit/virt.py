@@ -14,6 +14,8 @@ class wavelabs():
     print("Light engine recipe virtually started")
   def cancelRecipe(self):
     print("Light engine recipe virtually cancelled")
+  def close(self):
+    pass  
 
 class pcb():
   def pix_picker(self, substrate, pixel, suppressWarning=False):

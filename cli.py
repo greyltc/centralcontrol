@@ -155,22 +155,7 @@ else:
     l.sm.setTerminals(front=args.front)
   if args.two_wire:
     l.sm.setWires(twoWire=args.two_wire)
-
-if args.test_hardware:
-  l.hardwareTest()
-
-sm = l.sm
-pcb = l.pcb
-
-dataDestinations = [sys.stdout]
-def myPrint(*args,**kwargs):
-  if kwargs.__contains__('file'):
-    print(*args,**kwargs) # if we specify a file dest, don't overwrite it
-  else:# if we were writing to stdout, also write to the other destinations
-    for dest in dataDestinations:
-      kwargs['file'] = dest
-      print(*args,**kwargs)
-
+    
 def buildQ(pixel_address_string):
   """Generates a queue containing pixel addresses we'll run through
   if pixel_address_string starts with 0x, decode it as a hex value where
@@ -190,9 +175,38 @@ def buildQ(pixel_address_string):
     q.append(pixel_address_string)
 
   return q
-
+    
 if args.pixel_address is not None:
   pixel_address_que = buildQ(args.pixel_address)
+else:
+  pixel_address_que = None
+
+      
+if args.test_hardware:
+  if pixel_address_que is None:
+    holders_to_test = l.pcb.substratesConnected
+  else:
+    #turn the address que into a string of substrates
+    mash = ''
+    for pix in pixel_address_que:
+      mash = mash + pix
+    # delete the numbers
+    mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
+    holders_to_test = ''.join(sorted(set(mash))) # remove dupes
+  l.hardwareTest(holders_to_test)
+
+sm = l.sm
+pcb = l.pcb
+wl = l.wl
+
+dataDestinations = [sys.stdout]
+def myPrint(*args,**kwargs):
+  if kwargs.__contains__('file'):
+    print(*args,**kwargs) # if we specify a file dest, don't overwrite it
+  else:# if we were writing to stdout, also write to the other destinations
+    for dest in dataDestinations:
+      kwargs['file'] = dest
+      print(*args,**kwargs)
 
 if args.sweep or args.snaith or args.mppt > 0:
   l.runSetup(operator=args.operator)
@@ -466,5 +480,6 @@ if args.sweep or args.snaith or args.mppt > 0:
     l.pixelComplete()
   l.runDone()
 sm.outOn(on=False)
-sm.sm.close()
-print("done!")
+print("Program complete.")
+sys.exit()
+

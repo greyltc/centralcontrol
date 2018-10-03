@@ -3,6 +3,7 @@ import numpy as np
 import time
 from collections import deque
 import visa
+import warnings
 
 class k2400:
   """
@@ -23,9 +24,12 @@ class k2400:
     self.sm = self._getSourceMeter(self.rm)
     self._setupSourcemeter(front=front, twoWire=twoWire)
 
-  def close(self):
+  def __del__(self):
     try:
-      self.sm.close()
+      pass
+      g = self.sm.visalib.sessions[self.sm.session]
+      g.close(g.interface.id)
+      #self.sm.close()
     except:
       pass
 
@@ -86,10 +90,10 @@ class k2400:
       print('Unable perform "*IDN?" query.')
       exctype, value = sys.exc_info()[:2]
       print(value)
-      try:
-        sm.close()
-      except:
-        pass
+      #try:
+      #  sm.close()
+      #except:
+      #  pass
       print(smCommsMsg)
       raise ValueError("Failed to talk to sourcemeter.")
 
@@ -110,8 +114,9 @@ class k2400:
     sm.write(':status:preset')
     sm.write(':system:preset')
     sm.write(':trace:clear')
-    sm.write(':output:smode himpedance')    
-
+    sm.write(':output:smode himpedance')
+    
+    warnings.filterwarnings("ignore")
     if sm.interface_type == visa.constants.InterfaceType.asrl:
       self.dataFormat = 'ascii'
       sm.values_format.use_ascii('f',',')
@@ -121,6 +126,7 @@ class k2400:
     else:
       self.dataFormat = 'ascii'
       sm.values_format.use_ascii('f',',')
+    warnings.resetwarnings()
 
     sm.write("format:data {:s}".format(self.dataFormat))
 
