@@ -5,6 +5,12 @@ ConditionPathExists=/usr/sbin/wavelabs-relay-server.py
 [Service]
 Type=idle
 ExecStart=/usr/sbin/wavelabs-relay-server.py
+#Type=forking
+#PIDFile=/srv/www/sites/rails_app/current/tmp/pids/delayed_job.pid
+#RemainAfterExit=no
+#Restart=on-failure
+#RestartSec=5s
+
 
 [Install]
 WantedBy=multi-user.target
