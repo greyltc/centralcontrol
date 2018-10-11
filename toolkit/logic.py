@@ -238,9 +238,9 @@ class logic:
     this_filename = self.f.filename
     self.f.close()
     
-    ftp = put_ftp('epozz')
-    ftp = open(this_filename,'rb')
-    ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
+    ftp = put_ftp('epozz', pasv=True)
+    with open(this_filename,'rb') as fp:
+      ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
     ftp.close()
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):

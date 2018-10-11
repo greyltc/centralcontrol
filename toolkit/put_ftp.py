@@ -9,7 +9,7 @@ import sys
 
 class put_ftp:
   verbose = False
-  def __init__(self,server):
+  def __init__(self, server, pasv=True):
     
     # sanitize server input
     try:
@@ -19,6 +19,8 @@ class put_ftp:
       ip = ipaddress.ip_address(server_ip_string)
     
     self.ftp = ftplib.FTP(ip.exploded)
+    if pasv == False:
+      self.ftp.passiveserver = 0
     self.ftp.login()
 
   def uploadFile(self, file_pointer, remote_path):
@@ -46,6 +48,7 @@ class put_ftp:
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Upload files to a passwordless FTP server')
+  parser.add_argument('-a', '--active', action='store_true', default=False, help="Use active transfer mode instead of passive")
   parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Be verbose")
   parser.add_argument('-s', '--server', default='epozz', help="FTP server hostname or IP address")
   parser.add_argument('-r', '--remote_path', default='/drop/', help="Remote path to upload into (needs trailing slash)")
@@ -58,7 +61,7 @@ if __name__ == "__main__":
       print("Nothing to upload")
     sys.exit(-1)
   else:
-    ftp = put_ftp(args.server)
+    ftp = put_ftp(args.server, pasv=not args.active)
     ftp.verbose = args.verbose
 
     for f in args.files:
