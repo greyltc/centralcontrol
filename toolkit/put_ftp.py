@@ -12,8 +12,11 @@ class put_ftp:
   def __init__(self,server):
     
     # sanitize server input
-    server_ip_string = socket.gethostbyaddr(server)[2][0]
-    ip = ipaddress.ip_address(server_ip_string)
+    try:
+      ip = ipaddress.ip_address(server)
+    except:
+      server_ip_string = socket.gethostbyaddr(server)[2][0]
+      ip = ipaddress.ip_address(server_ip_string)
     
     self.ftp = ftplib.FTP(ip.exploded)
     self.ftp.login()
