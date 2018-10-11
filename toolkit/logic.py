@@ -238,11 +238,10 @@ class logic:
     this_filename = self.f.filename
     self.f.close()
     
-    #ftp = put_ftp('epozz')
-    #fp = open(this_filename,'rb')
-    #ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
-    #ftp.close()
-    #fp.close()
+    ftp = put_ftp('epozz')
+    ftp = open(this_filename,'rb')
+    ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
+    ftp.close()
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position
