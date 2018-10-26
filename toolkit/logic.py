@@ -1,4 +1,4 @@
-from toolkit import wavelabs
+from toolkit import wavelabs as wavelabs_tool
 from toolkit import k2400
 from toolkit import put_ftp
 from toolkit import pcb
@@ -9,6 +9,7 @@ import unicodedata
 import re
 import os
 import time
+import tempfile
 
 class logic:
   """ this class contains the sourcemeter and pcb control logic
@@ -40,6 +41,7 @@ class logic:
 
   def __init__(self, saveDir):
     self.saveDir = saveDir
+    
     self.software_commit_hash = logic.getMyHash()
     print('Software commit hash: {:s}'.format(self.software_commit_hash))
 
@@ -58,7 +60,7 @@ class logic:
     else:
       self.__dict__[attr] = value
 
-  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', waveLabsRelayIP='10.42.0.1', pcbPort=23, terminator='\n', serialBaud=57600, no_wavelabs=False):
+  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', waveLabsRelayIP='10.42.0.1', pcbPort=23, terminator='\n', serialBaud=57600, wavelabs=False):
     """Forms a connection to the PCB, the sourcemeter and the light engine
     will form connections to dummy instruments if dummy=true
     """
@@ -70,10 +72,10 @@ class logic:
       self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
       self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)      
 
-    if no_wavelabs:
+    if not wavelabs:
       self.wl = virt.wavelabs()
     else:
-      self.wl = wavelabs(relay_host = waveLabsRelayIP)
+      self.wl = wavelabs_tool(relay_host = waveLabsRelayIP)
       if waveLabsRelayIP == '0':  # direct connection to WaveLabs client software
         self.wl.startServer()
         self.wl.awaitConnection()
@@ -137,32 +139,30 @@ class logic:
     print("Every pixel should get an LED pulse IV sweep now, plus the light should turn on")    
     for substrate in substrates_to_test:
       sweepHigh = 0.01 # amps
-      sweepLow = 0 # amps
-
-      self.pcb.pix_picker(substrate, 1)
-      self.sm.setNPLC(0.01)
-      self.sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, start=sweepLow, end=sweepHigh)
-      self.sm.write(':arm:source bus') # this allows for the trigger style we'll use here
-
+      sweepLow = 0.0001 # amps
+      
+      ready_to_sweep = False
+      
       for pix in range(8):
         print(substrate+str(pix+1))
-        if pix != 0:
-          self.pcb.pix_picker(substrate,pix+1)
-
-        self.sm.updateSweepStart(sweepLow)
-        self.sm.updateSweepStop(sweepHigh)
-        self.sm.arm()
-        self.sm.trigger()
-        self.sm.opc()
-
-        self.sm.updateSweepStart(sweepHigh)
-        self.sm.updateSweepStop(sweepLow)
-        self.sm.arm()
-        self.sm.trigger()
-        self.sm.opc()
-
-        # off during pix switchover
-        self.sm.setOutput(0)
+        if self.pcb.pix_picker(substrate,pix+1):
+          if not ready_to_sweep:  # setup the sourcemeter if this is our first pixel
+            self.sm.setNPLC(0.01)
+            self.sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, start=sweepLow, end=sweepHigh)
+            self.sm.write(':arm:source bus') # this allows for the trigger style we'll use here
+            ready_to_sweep = True
+  
+          self.sm.updateSweepStart(sweepLow)
+          self.sm.updateSweepStop(sweepHigh)
+          self.sm.arm()
+          self.sm.trigger()
+          self.sm.opc()
+  
+          self.sm.updateSweepStart(sweepHigh)
+          self.sm.updateSweepStop(sweepLow)
+          self.sm.arm()
+          self.sm.trigger()
+          self.sm.opc()
 
       self.sm.outOn(False)
 
@@ -213,8 +213,14 @@ class logic:
     return(area)
 
   def runSetup(self, operator):
-    self.wl.startRecipe()
     self.run_dir = self.slugify(operator) + '-' + time.strftime('%y-%m-%d')
+    
+    if self.saveDir == None or self.saveDir == '__tmp__':
+      td = tempfile.mkdtemp(suffix='_iv_data')
+      # self.saveDir = td.name
+      self.saveDir = td
+      print('Using {:} as data storage location'.format(self.saveDir))
+    
     destinationDir = os.path.join(self.saveDir, self.run_dir)
     if not os.path.exists(destinationDir):
       os.makedirs(destinationDir)
@@ -231,6 +237,8 @@ class logic:
     self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
     self.f.attrs['Format Revision'] = np.int(self.outputFormatRevision)
     self.f.attrs['Intensity [suns]'] = np.float(self.measureIntensity())
+    
+    self.wl.startRecipe()
 
   def runDone(self):
     self.wl.cancelRecipe()
@@ -245,42 +253,49 @@ class logic:
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position
-    self.pcb.pix_picker(position, 0)
-    self.f.create_group(position)
-
-    self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
-    self.f[position].attrs['Sample Description'] = np.string_(description)
-
-    abCounts = self.pcb.getADCCounts(position)
-    self.f[position].attrs['Sample Adapter Board ADC Counts'] = abCounts
-    self.adapter_board_index = self.lookupAdapterBoard(abCounts)
-    self.f[position].attrs['Sample Adapter Board'] = np.string_(self.adapterBoardTypes[self.adapter_board_index])
-    self.f[position].attrs['Sample Layout Type'] = np.string_(self.layoutTypes[sampleLayoutType])
-    self.sample_layout_type = sampleLayoutType
+    if self.pcb.pix_picker(position, 0):
+      self.f.create_group(position)
+  
+      self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
+      self.f[position].attrs['Sample Description'] = np.string_(description)
+  
+      abCounts = self.pcb.getADCCounts(position)
+      self.f[position].attrs['Sample Adapter Board ADC Counts'] = abCounts
+      self.adapter_board_index = self.lookupAdapterBoard(abCounts)
+      self.f[position].attrs['Sample Adapter Board'] = np.string_(self.adapterBoardTypes[self.adapter_board_index])
+      self.f[position].attrs['Sample Layout Type'] = np.string_(self.layoutTypes[sampleLayoutType])
+      self.sample_layout_type = sampleLayoutType
+      return True
+    else:
+      return False
 
   def pixelSetup(self, pixel, t_dwell_voc=10):
     """Call this to switch to a new pixel"""
     self.pixel = str(pixel)
-    self.area = self.lookupPixelArea(pixel)
-    self.pcb.pix_picker(self.position, pixel)
-    self.f[self.position].create_group(self.pixel)
-    self.f[self.position+'/'+self.pixel].attrs['area'] = self.area  # in cm^2
-
-    vocs = self.steadyState(t_dwell=t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=2, senseRange='a', setPoint=0)
-
-    self.Voc = vocs[-1][0]  # take the last measurement to be Voc
-
-    self.f[self.position+'/'+self.pixel].attrs['Voc'] = self.Voc
-    self.addROI(0, len(vocs) - 1, 'V_oc dwell')
-    #self.f[self.position+'/'+self.pixel].create_dataset('VocDwell', data=vocs)
-
-    # derive connection polarity
-    #if self.Voc < 0:
-        #vPol = -1
-        #iPol = 1
-    #else:
-        #vPol = 1
-        #iPol = -1
+    if self.pcb.pix_picker(self.position, pixel):
+      self.area = self.lookupPixelArea(pixel)
+  
+      self.f[self.position].create_group(self.pixel)
+      self.f[self.position+'/'+self.pixel].attrs['area'] = self.area  # in cm^2
+  
+      vocs = self.steadyState(t_dwell=t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=2, senseRange='a', setPoint=0)
+  
+      self.Voc = vocs[-1][0]  # take the last measurement to be Voc
+  
+      self.f[self.position+'/'+self.pixel].attrs['Voc'] = self.Voc
+      self.addROI(0, len(vocs) - 1, 'V_oc dwell')
+      return True
+    else:
+      return False
+      #self.f[self.position+'/'+self.pixel].create_dataset('VocDwell', data=vocs)
+  
+      # derive connection polarity
+      #if self.Voc < 0:
+          #vPol = -1
+          #iPol = 1
+      #else:
+          #vPol = 1
+          #iPol = -1
 
   def pixelComplete (self):
     """Call this when all measurements for a pixel are complete"""
