@@ -18,6 +18,7 @@ import distutils.util
 
 import appdirs
 import configparser
+import ast
 import pathlib
 
 from scipy import special
@@ -81,7 +82,9 @@ def get_args():
   setup.add_argument("--baud", type=int, action=RecordPref, default=57600, help="Instrument serial comms baud rate")
   setup.add_argument("--port", type=int, action=RecordPref, default=23, help="Port to connect to switch hardware")
   setup.add_argument("--address", default='GPIB0::24::INSTR', type=str, action=RecordPref, help="VISA resource name for sourcemeter")
-  setup.add_argument("--switch_address", type=str, default='10.42.0.54', action=RecordPref, help="IP address for PCB")
+  setup.add_argument("--switch-address", type=str, default='10.42.0.54', action=RecordPref, help="IP address for PCB")
+  setup.add_argument("--diode-calibration", type=int, nargs=2, action=RecordPref, default=(1,1), help="Calibration ADC counts for diodes D1 and D2 that correspond to 1 sun")
+  setup.add_argument('--ignore-diodes', default=False, action='store_true', help="Assume 1.0 sun illumination")
   setup.add_argument('--visa-lib', type=str, action=RecordPref, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
   
   testing = parser.add_argument_group('optional arguments for debugging/testing')
@@ -127,6 +130,9 @@ for key, val in config[config_section].items():
     args.__setattr__(key, config.getfloat(config_section, key))
   elif type(args.__getattribute__(key)) == bool:
     args.__setattr__(key, config.getboolean(config_section, key))
+  elif key == 'diode_calibration':
+    dc = config.get(config_section, key)
+    args.__setattr__(key, ast.literal_eval(dc))
   else:
     args.__setattr__(key, config.get(config_section, key))
   
@@ -140,7 +146,7 @@ if args.test_hardware:
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
 # create the control entity
-l = logic(saveDir = args.destination)
+l = logic(saveDir = args.destination, ignore_diodes=args.ignore_diodes, diode_calibration=args.diode_calibration)
 
 if args.area != -1.0:
   l.cli_area = args.area

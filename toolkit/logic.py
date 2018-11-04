@@ -14,14 +14,20 @@ import tempfile
 class logic:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = 1  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.1.0"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
   # start/end sweeps this many percentage points beyond Voc
   # bigger numbers here give better fitting for series resistance
   # at an incresed danger of pushing too much current through the device
-  percent_beyond_voc = 50  
+  percent_beyond_voc = 50
+  
+  # if we want to ignore the diode calibration and assume we're illuminating with 1 sun
+  ignore_diodes = False
+  
+  # value to convert ADC counts for diode to number of suns
+  diode_calibration = (1,1)
 
   # this is the datatype for the measurement in the h5py file
   measurement_datatype = np.dtype({'names': ['v','i','t','s'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
@@ -39,8 +45,10 @@ class logic:
   adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG']
   layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E']
 
-  def __init__(self, saveDir):
+  def __init__(self, saveDir, diode_calibration=(1,1), ignore_diodes=False):
     self.saveDir = saveDir
+    self.diode_calibration = diode_calibration
+    self.ignore_diodes = ignore_diodes
     
     self.software_commit_hash = logic.getMyHash()
     print('Software commit hash: {:s}'.format(self.software_commit_hash))
@@ -172,14 +180,21 @@ class logic:
     self.wl.cancelRecipe()
 
   def measureIntensity(self):
-    """returns number of suns """
-    oneSunCounts = 1
+    """returns number of suns and ADC counts for both diodes"""
+    
     adcChan = 2
     countsA = self.pcb.getADCCounts(adcChan)
+    sunsA = countsA/self.diode_calibration[0]
 
     adcChan = 3
     countsB = self.pcb.getADCCounts(adcChan)
-    return ((countsA+countsB)/(2))/oneSunCounts
+    sunsB = countsB/self.diode_calibration[1]
+    
+    if self.ignore_diodes:
+      # force one sun if we're ignoring the diodes
+      sunsA = 1.0
+      sunsB = 1.0
+    return (countsA, countsB, sunsA, sunsB)
 
   def lookupAdapterBoard(self, counts):
     """map resistor divider adc counts to adapter board type"""
@@ -235,10 +250,15 @@ class logic:
     self.f.attrs['Timestamp'] = time.time()
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
     self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
-    self.f.attrs['Format Revision'] = np.int(self.outputFormatRevision)
-    self.f.attrs['Intensity [suns]'] = np.float(self.measureIntensity())
-    
+    self.f.attrs['Format Revision'] = np.string_(self.outputFormatRevision)
     self.wl.startRecipe()
+    if type(self.wl) == wavelabs_tool:
+      time.sleep(0.5) # if this is a real wavelabs solar sim (not a virtual one), wait half a sec before measuring intensity
+    intensity = self.measureIntensity()
+    self.f.attrs['Diode 1 intensity [ADC counts]'] = np.int(intensity[0])
+    self.f.attrs['Diode 2 intensity [ADC counts]'] = np.int(intensity[1])
+    self.f.attrs['Diode 1 intensity [suns]'] = np.float(intensity[2])
+    self.f.attrs['Diode 2 intensity [suns]'] = np.float(intensity[3])
 
   def runDone(self):
     self.wl.cancelRecipe()
