@@ -77,7 +77,7 @@ def get_args():
   setup.add_argument("--scan-low-override", type=float, help="Override more negative scan voltage value")
   setup.add_argument("--scan-high-override", type=float, help="Override more positive scan voltage value")
   setup.add_argument("--scan-points", type=int, action=RecordPref, default = 101, help="Number of measurement points in I-V curve")
-  setup.add_argument("--scan-NPLC", type=float, action=RecordPref, default = 1, help="Sourcemeter NPLC setting to use during I-V scan")  
+  setup.add_argument("--scan-nplc", type=float, action=RecordPref, default = 1, help="Sourcemeter NPLC setting to use during I-V scan")  
   setup.add_argument("--terminator", type=str, action=RecordPref, default='0A', help="Instrument comms read & write terminator (enter in hex)")
   setup.add_argument("--baud", type=int, action=RecordPref, default=57600, help="Instrument serial comms baud rate")
   setup.add_argument("--port", type=int, action=RecordPref, default=23, help="Port to connect to switch hardware")
@@ -284,7 +284,7 @@ if args.sweep or args.snaith or args.mppt > 0:
           compliance = 0.04
 
         message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
-        sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='f', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_NPLC, message=message)
+        sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='f', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
         roi_start = len(l.m) - len(sv)
         roi_end = len(l.m) - 1
         l.addROI(roi_start, roi_end, 'Sweep')
@@ -373,8 +373,8 @@ if args.sweep or args.snaith or args.mppt > 0:
           else:
             compliance = l.Isc * 2
         #wl.startRecipe()
-        compliance = 0.01
-        sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_NPLC, message=message)
+        #compliance = 0.01
+        sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
         #wl.cencelRecipe()
         roi_start = len(l.m) - len(sv)
         roi_end = len(l.m) - 1
