@@ -18,6 +18,7 @@ import distutils.util
 
 import appdirs
 import configparser
+import ast
 import pathlib
 
 from scipy import special
@@ -76,12 +77,14 @@ def get_args():
   setup.add_argument("--scan-low-override", type=float, help="Override more negative scan voltage value")
   setup.add_argument("--scan-high-override", type=float, help="Override more positive scan voltage value")
   setup.add_argument("--scan-points", type=int, action=RecordPref, default = 101, help="Number of measurement points in I-V curve")
-  setup.add_argument("--scan-NPLC", type=float, action=RecordPref, default = 1, help="Sourcemeter NPLC setting to use during I-V scan")  
+  setup.add_argument("--scan-nplc", type=float, action=RecordPref, default = 1, help="Sourcemeter NPLC setting to use during I-V scan")  
   setup.add_argument("--terminator", type=str, action=RecordPref, default='0A', help="Instrument comms read & write terminator (enter in hex)")
   setup.add_argument("--baud", type=int, action=RecordPref, default=57600, help="Instrument serial comms baud rate")
   setup.add_argument("--port", type=int, action=RecordPref, default=23, help="Port to connect to switch hardware")
   setup.add_argument("--address", default='GPIB0::24::INSTR', type=str, action=RecordPref, help="VISA resource name for sourcemeter")
-  setup.add_argument("--switch_address", type=str, default='10.42.0.54', action=RecordPref, help="IP address for PCB")
+  setup.add_argument("--switch-address", type=str, default='10.42.0.54', action=RecordPref, help="IP address for PCB")
+  setup.add_argument("--diode-calibration", type=int, nargs=2, action=RecordPref, default=(1,1), help="Calibration ADC counts for diodes D1 and D2 that correspond to 1 sun")
+  setup.add_argument('--ignore-diodes', default=False, action='store_true', help="Assume 1.0 sun illumination")
   setup.add_argument('--visa-lib', type=str, action=RecordPref, default='@py', help="Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll")
   
   testing = parser.add_argument_group('optional arguments for debugging/testing')
@@ -127,6 +130,9 @@ for key, val in config[config_section].items():
     args.__setattr__(key, config.getfloat(config_section, key))
   elif type(args.__getattribute__(key)) == bool:
     args.__setattr__(key, config.getboolean(config_section, key))
+  elif key == 'diode_calibration':
+    dc = config.get(config_section, key)
+    args.__setattr__(key, ast.literal_eval(dc))
   else:
     args.__setattr__(key, config.get(config_section, key))
   
@@ -140,7 +146,7 @@ if args.test_hardware:
 args.terminator = bytearray.fromhex(args.terminator).decode()
 
 # create the control entity
-l = logic(saveDir = args.destination)
+l = logic(saveDir = args.destination, ignore_diodes=args.ignore_diodes, diode_calibration=args.diode_calibration)
 
 if args.area != -1.0:
   l.cli_area = args.area
@@ -278,7 +284,7 @@ if args.sweep or args.snaith or args.mppt > 0:
           compliance = 0.04
 
         message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
-        sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='f', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_NPLC, message=message)
+        sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='f', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
         roi_start = len(l.m) - len(sv)
         roi_end = len(l.m) - 1
         l.addROI(roi_start, roi_end, 'Sweep')
@@ -367,8 +373,8 @@ if args.sweep or args.snaith or args.mppt > 0:
           else:
             compliance = l.Isc * 2
         #wl.startRecipe()
-        compliance = 0.01
-        sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_NPLC, message=message)
+        #compliance = 0.01
+        sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
         #wl.cencelRecipe()
         roi_start = len(l.m) - len(sv)
         roi_end = len(l.m) - 1

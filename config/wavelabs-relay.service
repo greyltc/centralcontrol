@@ -1,16 +1,14 @@
 [Unit]
-Description=The WaveLabs command relay server
+Description=Starts the WaveLabs relay server
 ConditionPathExists=/usr/sbin/wavelabs-relay-server.py
+After=network.target
 
 [Service]
 Type=idle
 ExecStart=/usr/sbin/wavelabs-relay-server.py
-#Type=forking
-#PIDFile=/srv/www/sites/rails_app/current/tmp/pids/delayed_job.pid
-#RemainAfterExit=no
-#Restart=on-failure
-#RestartSec=5s
 
+RestartSec=3
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
