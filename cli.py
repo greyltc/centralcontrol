@@ -53,7 +53,7 @@ def is_dir(dirname):
 
 def get_args():
   """Get CLI arguments and options"""
-  parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to stdout and human readable messages are written to stderr.')
+  parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stderr.')
   
   parser.add_argument('operator', type=str, help='Name of operator')
   parser.add_argument('--destination', help="Save output files here. '__tmp__' will use a system default temporary directory", type=is_dir, action=FullPaths)
@@ -87,7 +87,7 @@ def get_args():
   testing = parser.add_argument_group('optional arguments for debugging/testing')
   testing.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
   testing.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
-  testing.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware")
+  testing.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware, used to check for and debug issues")
   # parser.add_argument('--file', type=str, action=RecordPref, help="Write output data stream to this file in addition to stdout.")
 
   return parser.parse_args()
