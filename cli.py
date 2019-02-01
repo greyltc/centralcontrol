@@ -3,7 +3,7 @@
 
 # written by grey@mutovis.com
 
-appname = 'solar_sim_controller'
+appname = 'mutovis_control_software'
 config_section = 'PREFRENCES'
 
 from toolkit import logic
