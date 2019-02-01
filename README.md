@@ -93,7 +93,7 @@ optional arguments for debugging/testing:
                         debug issues
 ```
 
-## Exapmle Usage
+## Example Usage
 ```
 # measure pixels 1 and 2 on substrate A
 # collect forward and reverse I-V sweeps with steady state measurements for Voc and Isc)
