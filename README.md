@@ -94,10 +94,10 @@ optional arguments for debugging/testing:
 ```
 
 ## Example Usage
+Measure pixels 1 and 2 on substrate A (corresponds to a binary bitmask with ones in the positions for the pixel(s) to be measured, 8 bits per substarte so that b11000000 = __0xCO__ = pixel 1 and 2 on substrate A and b1111110011111100 = 0xFCFC = pixels 1-6 on substrates A and B)
+- collect forward and reverse I-V sweeps with steady state measurements for Voc and Isc)
+- as a user called "labuser"
+- saving the measurement into the folder /home/labuser/data
 ```
-# measure pixels 1 and 2 on substrate A
-# collect forward and reverse I-V sweeps with steady state measurements for Voc and Isc)
-# as a user called "labuser"
-# saving the data into the folder /home/labuser/data
 ./cli.py --pixel_address 0xC0 --address GPIB0::24::INSTR --switch_address=10.42.0.54  --sweep true --snaith true --t_prebias 10.0 --wavelabs false --rear true --four-wire true --ignore-diodes false --area 0.1824 --destination /home/labuser/data labuser
 ```
