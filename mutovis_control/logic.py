@@ -1,8 +1,8 @@
-from toolkit import wavelabs as wavelabs_tool
-from toolkit import k2400
-from toolkit import put_ftp
-from toolkit import pcb
-from toolkit import virt
+from mutovis_control import wavelabs as wavelabs_tool
+from mutovis_control import k2400
+from mutovis_control import put_ftp
+from mutovis_control import pcb
+from mutovis_control import virt
 import h5py
 import numpy as np
 import unicodedata
@@ -42,8 +42,8 @@ class logic:
   s = np.array([], dtype=status_datatype)  # status list: columns = corresponding measurement index, status message
   r = np.array([], dtype=roi_datatype)  # list defining regions of interest in the measurement list
 
-  adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG']
-  layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E']
+  adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG', '1x1in MIT']
+  layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E', 'MIT 6x4.8x3.8mm']
 
   def __init__(self, saveDir, diode_calibration=(1,1), ignore_diodes=False):
     self.saveDir = saveDir
@@ -373,6 +373,8 @@ class logic:
     return qa
 
   def sweep(self, sourceVoltage=True, senseRange='f', compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, message=None):
+    """ make a series of measurements while sweeping the sourcemeter along linearly progressing voltage or current setpoints
+    """
 
     self.sm.setNPLC(NPLC)
     self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, nPoints=nPoints, stepDelay=stepDelay, start=start, end=end, senseRange=senseRange)
@@ -387,3 +389,27 @@ class logic:
     self.m = np.append(self.m, sweepValues)
 
     return sweepValues
+
+  def mppt(self, sourceVoltage=True, senseRange='f', compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, message=None):
+
+    self.sm.setNPLC(NPLC)
+    self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, nPoints=nPoints, stepDelay=stepDelay, start=start, end=end, senseRange=senseRange)
+
+    if message == None:
+      word ='current' if sourceVoltage else 'voltage'
+      abv = 'V' if sourceVoltage else 'A'
+      message = 'Sweeping {:s} from {:.0f} m{:s} to {:.0f} m{:s}'.format(word, start, abv, end, abv)
+    self.insertStatus(message)
+    raw = self.sm.measure()
+    sweepValues = np.array(list(zip(*[iter(raw)]*4)), dtype=self.measurement_datatype)
+    self.m = np.append(self.m, sweepValues)
+
+    return sweepValues
+  
+  def mpptCB(measurement):
+    """Callback function for max powerpoint tracker
+    (for live tracking)
+    """
+    [v, i, now, status] = measurement
+    t = now - t0
+    print('{:1d},{:.6f},{:.6f},{:.6f}'.format(0, t, v, i), flush=True)
