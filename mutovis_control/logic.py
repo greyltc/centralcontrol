@@ -265,11 +265,11 @@ class logic:
     print("\nClosing {:s}".format(self.f.filename))
     this_filename = self.f.filename
     self.f.close()
-    
-    ftp = put_ftp('epozz', pasv=True)
-    with open(this_filename,'rb') as fp:
-      ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
-    ftp.close()
+    #TODO: make this optional
+    #ftp = put_ftp('epozz', pasv=True)
+    #with open(this_filename,'rb') as fp:
+    #  ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
+    #ftp.close()
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position

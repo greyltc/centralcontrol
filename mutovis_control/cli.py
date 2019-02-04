@@ -20,13 +20,13 @@ import pathlib
 
 from collections import deque
 
+# for updating prefrences
+prefs = {} # TODO: figure out how to un-global this
+
 class cli:
   """the command line interface"""
   appname = 'mutovis_control_software'
   config_section = 'PREFRENCES'
-  
-  # for updating prefrences
-  prefs = {}
   
   class FullPaths(argparse.Action):
     """Expand user- and relative-paths and save pref arg parse action"""
@@ -112,10 +112,10 @@ class cli:
       if args.four_wire == False:
         l.sm.setWires(twoWire=True)
         
-        if args.pixel_address is not None:
-          pixel_address_que = self.buildQ(args.pixel_address)
-        else:
-          pixel_address_que = None
+    if args.pixel_address is not None:
+      pixel_address_que = self.buildQ(args.pixel_address)
+    else:
+      pixel_address_que = None
 
     if args.test_hardware:
       if pixel_address_que is None:
