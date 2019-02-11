@@ -30,13 +30,13 @@ class logic:
   diode_calibration = (1,1)
 
   # this is the datatype for the measurement in the h5py file
-  measurement_datatype = np.dtype({'names': ['v','i','t','s'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
+  measurement_datatype = np.dtype({'names': ['voltage','current','time','status'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
 
   # this is the datatype for the status messages in the h5py file
-  status_datatype = np.dtype({'names': ['i', 'm'], 'formats': ['u4', h5py.special_dtype(vlen=str)], 'titles': ['Index', 'Message']})
+  status_datatype = np.dtype({'names': ['index', 'message'], 'formats': ['u4', h5py.special_dtype(vlen=str)], 'titles': ['Index', 'Message']})
 
   # this is an internal datatype to store the region of interest info
-  roi_datatype = np.dtype({'names': ['s', 'e', 'd'], 'formats': ['u4', 'u4', object], 'titles': ['Start Index', 'End Index', 'Description']})
+  roi_datatype = np.dtype({'names': ['start_index', 'end_index', 'description'], 'formats': ['u4', 'u4', object], 'titles': ['Start Index', 'End Index', 'Description']})
 
   m = np.array([], dtype=measurement_datatype)  # measurement list: columns = v, i, timestamp, status
   s = np.array([], dtype=status_datatype)  # status list: columns = corresponding measurement index, status message
