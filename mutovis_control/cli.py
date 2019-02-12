@@ -137,10 +137,6 @@ class cli:
         holders_to_test = ''.join(sorted(set(mash))) # remove dupes
       l.hardwareTest(holders_to_test)
     
-    sm = l.sm
-    pcb = l.pcb
-    wl = l.wl
-    
     if args.sweep or args.snaith or args.mppt > 0:
       l.runSetup(operator=args.operator)
       last_substrate = None
@@ -155,6 +151,14 @@ class cli:
     
         pixel_ready = l.pixelSetup(pix, t_dwell_voc = args.t_prebias)  #  steady state Voc measured here
         if pixel_ready and substrate_ready:
+          
+          if type(args.current_compliance_override) == float:
+            compliance = args.current_compliance_override
+          else:
+            compliance = l.compliance_guess  # we have to just guess what the current complaince here
+            # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
+          l.mppt.current_compliance = compliance
+            
           if args.sweep:
             # now sweep from Voc --> Isc
             if type(args.scan_high_override) == float:
@@ -165,28 +169,38 @@ class cli:
               end = args.scan_low_override
             else:
               end = 0
-              
-            if type(args.current_compliance_override) == float:
-              compliance = args.current_compliance_override
-            else:
-              compliance = 0.04  # we have to just guess what the current complaince here
-              # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
     
             message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
             sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='f', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
-            roi_start = len(l.m) - len(sv)
-            roi_end = len(l.m) - 1
-            l.addROI(roi_start, roi_end, 'Sweep')
+            l.registerMeasurements(sv, 'Sweep')
+            
+            (Pmax, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+            l.mppt.Vmpp = Vmpp
+            
+            if type(args.current_compliance_override) == float:
+              compliance = args.current_compliance_override
+            else:
+              compliance = abs(sv[-1][1] * 2)  # take the last measurement*2 to be our compliance limit
+            l.mppt.current_compliance = compliance
     
           # steady state Isc measured here
-          iscs = l.steadyState(t_dwell=args.t_dwell, NPLC = 10, sourceVoltage=True, compliance=0.04, senseRange ='a', setPoint=0)
+          iscs = l.steadyState(t_dwell=args.t_prebias, NPLC = 10, sourceVoltage=True, compliance=compliance, senseRange ='a', setPoint=0)
+          l.registerMeasurements(iscs, 'I_sc dwell')
     
           l.Isc = iscs[-1][1]  # take the last measurement to be Isc
-    
-          l.f[l.position+'/'+l.pixel].attrs['Isc'] = l.Isc
-          roi_start = len(l.m) - len(iscs)
-          roi_end = len(l.m) - 1
-          l.addROI(roi_start, roi_end, 'I_sc Dwell')
+          l.mppt.Isc = l.Isc
+          
+          if type(args.current_compliance_override) == float:
+            compliance = args.current_compliance_override
+          else:
+            # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
+            # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
+            # otherwise, set it to be 2x of Isc            
+            if abs(l.Isc) < 0.000005:
+              compliance = 0.00001
+            else:
+              compliance = abs(l.Isc * 2)          
+          l.mppt.current_compliance = compliance
       
           if args.snaith:
             # "snaithing" is a sweep from Isc --> Voc * (1+ l.percent_beyond_voc)
@@ -201,150 +215,18 @@ class cli:
     
             message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
       
-            # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
-            # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
-            # otherwise, set it to be 2x of Isc
-            
-            if type(args.current_compliance_override) == float:
-              compliance = args.current_compliance_override
-            else:
-              if abs(l.Isc) < 0.000005:
-                compliance = 0.00001
-              else:
-                compliance = l.Isc * 2
             sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
-            roi_start = len(l.m) - len(sv)
-            roi_end = len(l.m) - 1
-            l.addROI(roi_start, roi_end, 'Snaith')
+            l.registerMeasurements(sv, 'Snaith')
+            (Pmax, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+            l.mppt.Vmpp = Vmpp
       
           if (args.mppt > 0):
-            # maximum power point tracker
-            print("Starting maximum power point tracker", file=sys.stderr, flush=True)
-            if not(args.snaith or args.sweep):
-              print("Warning: doing max power point tracking without prior sweep")
-              Vmpp = 0.7
-              dV = l.Voc / 101
-              iMax = 0.04
-            else:
-              # find mpp from the previous sweep
-              v = numpy.array([e[0] for e in sv])
-              i = numpy.array([e[1] for e in sv])  
-              p = v*i*-1
-              maxIndex = numpy.argmax(p)
-              Vmpp = v[maxIndex]
-              iMax = compliance
-      
-              # use previous voltage step
-              dV = sm.dV
-      
-            # switch to fixed DC mode
-            sm.setupDC(sourceVoltage=True, compliance=iMax, setPoint=Vmpp, senseRange=iMax)
-      
-            # set exploration limits
-            dAngleMax = 7 #[exploration degrees] (plus and minus)
-      
-            mpptCyclesRemaining = args.mppt
-            
-            q = deque()
-      
-            while (True):
-              exploring = 0
-              print("Teleporting to Mpp...", file=sys.stderr, flush=True)
-              sm.setOutput(Vmpp)
-              # dwell at Vmpp while measuring current
-              print("Dwelling @ Mpp for {:} seconds...".format(args.t_dwell), file=sys.stderr, flush=True)
-              # q = sm.measureUntil(t_dwell=args.t_dwell, cb=mpptCB)  #
-              q = sm.measureUntil(t_dwell=args.t_dwell)
-              qa = numpy.array([tuple(s) for s in q], dtype=l.measurement_datatype)
-              l.m = numpy.append(l.m, qa)
-      
-              [Vmpp, Impp, now, status] = q.pop() # get the most recent entry
-              if mpptCyclesRemaining == 0:
-                print('Mppt final max power was {:0.4f} mW @ {:0.2f} mV'.format(Vmpp*Impp*1000*-1, Vmpp*1000))
-                break
-      
-              print("Exploring for new Mpp...", file=sys.stderr, flush=True)
-              exploring = 1
-              i_explore = numpy.array(Impp)
-              v_explore = numpy.array(Vmpp)
-      
-              angleMpp = numpy.rad2deg(numpy.arctan(Impp/Vmpp*l.Voc/l.Isc))
-              print('MPP ANGLE = {:}'.format(angleMpp))
-              v_set = Vmpp
-              highEdgeTouched = False
-              lowEdgeTouched = False
-              while (not(highEdgeTouched and lowEdgeTouched)):
-                sm.write(':source:voltage {0:0.6f}'.format(v_set))
-                measurement = sm.measure()
-                [v, i, tx, status] = measurement
-                dt = numpy.array([tuple(measurement)], dtype=l.measurement_datatype)
-                l.m = numpy.append(l.m, qa)
-      
-                i_explore = numpy.append(i_explore, i)
-                v_explore = numpy.append(v_explore, v)
-                thisAngle = numpy.rad2deg(numpy.arctan(i/v*l.Voc/l.Isc))
-                dAngle = angleMpp - thisAngle
-                # print("dAngle={:}, highEdgeTouched={:}, lowEdgeTouched={:}".format(dAngle, highEdgeTouched, lowEdgeTouched))
-                
-                if dAngle > dAngleMax:
-                  highEdgeTouched = True
-                  dV = dV * -1
-                  print("Reached high voltage edge because angle exceeded")
-                
-                if dAngle < -dAngleMax:
-                  lowEdgeTouched = True
-                  dV = dV * -1
-                  print("Reached low voltage edge because angle exceeded")
-                  
-                
-                v_set = v_set + dV
-                if ((v_set > 0) and (dV > 0)) or ((v_set < 0) and (dV < 0)):  #  walking towards Voc
-                  if (dV > 0) and v_set >= l.Voc:
-                    highEdgeTouched = True
-                    dV = dV * -1 # switch our voltage walking direction
-                    v_set = v_set + dV
-                    print("WARNING: Reached high voltage edge because we hit Voc")
-                    
-                  if (dV < 0) and v_set <= l.Voc:
-                    lowEdgeTouched = True
-                    dV = dV * -1 # switch our voltage walking direction
-                    v_set = v_set + dV
-                    print("WARNING: Reached high voltage edge because we hit Voc")
-                    
-                  
-                else: #  walking towards Jsc
-                  if (dV > 0) and v_set >= 0:
-                    highEdgeTouched = True
-                    dV = dV * -1 # switch our voltage walking direction
-                    v_set = v_set + dV
-                    print("WARNING: Reached low voltage edge because we hit 0V")
-                    
-                  if (dV < 0) and v_set <= 0:
-                    lowEdgeTouched = True
-                    dV = dV * -1 # switch our voltage walking direction
-                    v_set = v_set + dV
-                    print("WARNING: Reached low voltage edge because we hit 0V")
-                
+            message = 'Tracking maximum power point for {:} seconds'.format(args.mppt)
+            l.track_max_power(args.mppt, message)
 
-              print("Done exploring.", file=sys.stderr, flush=True)
-      
-              # find the powers for the values we just explored
-              p_explore = v_explore * i_explore * -1
-              maxIndex = numpy.argmax(p_explore)
-              Vmpp = v_explore[maxIndex]
-              Impp = i_explore[maxIndex]
-      
-              print("New Mpp found: {:.6f} mW @ {:.6f} V".format(p_explore[maxIndex]*1000, Vmpp), file=sys.stderr, flush=True)
-      
-              dFromLastMppAngle = numpy.rad2deg(numpy.arctan(Impp/Vmpp*l.Voc/l.Isc)) - angleMpp
-      
-              print("That's: {:.6f} degrees from the previous Mpp.".format(dFromLastMppAngle), file=sys.stderr, flush=True)
-              mpptCyclesRemaining =  mpptCyclesRemaining - 1
-      
-      
           l.pixelComplete()
       l.runDone()
-    sm.outOn(on=False)
+    l.sm.outOn(on=False)
     print("Program complete.")
         
   def get_args(self):
@@ -356,12 +238,11 @@ class cli:
   
     measure = parser.add_argument_group('optional arguments for measurement configuration')
     measure.add_argument("--pixel_address", default='0x80', type=str, action=self.RecordPref, help='Hex value to specify an enabled pixel bitmask or individual pixel addresses "0xC0 == A1A2"')
-    measure.add_argument("--sweep", type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Voc --> Jsc")
-    measure.add_argument('--snaith', type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Jsc --> Voc")
-    measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
+    measure.add_argument("--sweep", type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Voc --> Isc")
+    measure.add_argument('--snaith', type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Isc --> Voc")
+    measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10, help="Number of seconds to measure to find steady state Voc and Isc")
     measure.add_argument('--area', type=float, action=self.RecordPref, default=1.0, help="Specify device area in cm^2")
-    measure.add_argument('--mppt', type=int, action=self.RecordPref, default=0, help="Do maximum power point tracking for this many cycles")
-    measure.add_argument("--t-dwell", type=float, action=self.RecordPref, default=15, help="Total number of seconds for the dwell mppt phase(s)")  
+    measure.add_argument('--mppt', type=int, action=self.RecordPref, default=30, help="Do maximum power point tracking for this many seconds")
     
     setup = parser.add_argument_group('optional arguments for setup configuration')
     setup.add_argument("--relay-ip", type=str, action=self.RecordPref, default='10.42.0.1', help="IP address of the WaveLabs relay server (set to 0 for direct WaveLabs connection)")  

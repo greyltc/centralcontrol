@@ -3,6 +3,7 @@ from mutovis_control import k2400
 from mutovis_control import put_ftp
 from mutovis_control import pcb
 from mutovis_control import virt
+from mutovis_control import mppt
 import h5py
 import numpy as np
 import unicodedata
@@ -22,6 +23,9 @@ class fabric:
   # bigger numbers here give better fitting for series resistance
   # at an incresed danger of pushing too much current through the device
   percent_beyond_voc = 50
+  
+  # guess at what the current limit should be set to (in amps) if we have no other way to determine it
+  compliance_guess = 0.04
   
   # if we want to ignore the diode calibration and assume we're illuminating with 1 sun
   ignore_diodes = False
@@ -77,7 +81,9 @@ class fabric:
       self.pcb = virt.pcb()
     else:
       self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
-      self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)      
+      self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)
+      
+    self.mppt = mppt(self.sm)
 
     if not wavelabs:
       self.wl = virt.wavelabs()
@@ -301,23 +307,15 @@ class fabric:
       self.f[self.position+'/'+self.pixel].attrs['area'] = self.area  # in cm^2
   
       vocs = self.steadyState(t_dwell=t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=2, senseRange='a', setPoint=0)
+      self.registerMeasurements(vocs, 'V_oc dwell')
   
       self.Voc = vocs[-1][0]  # take the last measurement to be Voc
+      self.mppt.Voc = self.Voc
   
       self.f[self.position+'/'+self.pixel].attrs['Voc'] = self.Voc
-      self.addROI(0, len(vocs) - 1, 'V_oc dwell')
       return True
     else:
       return False
-      #self.f[self.position+'/'+self.pixel].create_dataset('VocDwell', data=vocs)
-  
-      # derive connection polarity
-      #if self.Voc < 0:
-          #vPol = -1
-          #iPol = 1
-      #else:
-          #vPol = 1
-          #iPol = -1
 
   def pixelComplete (self):
     """Call this when all measurements for a pixel are complete"""
@@ -331,6 +329,7 @@ class fabric:
     self.r = np.array([], dtype=self.roi_datatype)  # reset region of interest
     self.Voc = None
     self.Isc = None
+    self.mppt.reset()
 
   def slugify(self, value, allow_unicode=False):
     """
@@ -352,12 +351,19 @@ class fabric:
     s = np.array((len(self.m), message), dtype=self.status_datatype)
     self.s = np.append(self.s, s)
 
-  def addROI(self, start, stop, description):
-    """adds a region of interest to the measurement list
-    takes start index, stop index and roi description"""
-    print("New region of iterest: [{:},{:}]\t{:s}".format(start, stop, description))
-    r = np.array((start, stop, description), dtype=self.roi_datatype)
-    self.r = np.append(self.r, r)  
+  def registerMeasurements(self, measurements, description):
+    """adds an array of measurements to the master list and creates an ROI for them
+    takes new measurement numpy array and description of them"""
+    self.m = np.append(self.m, measurements)
+    length = len(measurements)
+    if length > 0:
+      stop = len(self.m) - 1
+      start = stop - length + 1
+      print("New region of iterest: [{:},{:}]\t{:s}".format(start, stop, description))
+      r = np.array((start, stop, description), dtype=self.roi_datatype)
+      self.r = np.append(self.r, r)
+    else:
+      print("WARNING: Non-positive ROI length")
 
   def steadyState(self, t_dwell=10, NPLC=10, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f'):
     """ makes steady state measurements for t_dwell seconds
@@ -371,7 +377,6 @@ class fabric:
     self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
     q = self.sm.measureUntil(t_dwell=t_dwell)
     qa = np.array([tuple(s) for s in q], dtype=self.measurement_datatype)
-    self.m = np.append(self.m, qa)
     return qa
 
   def sweep(self, sourceVoltage=True, senseRange='f', compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, message=None):
@@ -388,30 +393,28 @@ class fabric:
     self.insertStatus(message)
     raw = self.sm.measure()
     sweepValues = np.array(list(zip(*[iter(raw)]*4)), dtype=self.measurement_datatype)
-    self.m = np.append(self.m, sweepValues)
 
     return sweepValues
 
-  def mppt(self, sourceVoltage=True, senseRange='f', compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, message=None):
-
-    self.sm.setNPLC(NPLC)
-    self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, nPoints=nPoints, stepDelay=stepDelay, start=start, end=end, senseRange=senseRange)
-
+  def track_max_power(self, duration=30, message=None, NPLC=-1):
     if message == None:
-      word ='current' if sourceVoltage else 'voltage'
-      abv = 'V' if sourceVoltage else 'A'
-      message = 'Sweeping {:s} from {:.0f} m{:s} to {:.0f} m{:s}'.format(word, start, abv, end, abv)
+      message = 'Tracking maximum power point for {:} seconds'.format(duration)
     self.insertStatus(message)
-    raw = self.sm.measure()
-    sweepValues = np.array(list(zip(*[iter(raw)]*4)), dtype=self.measurement_datatype)
-    self.m = np.append(self.m, sweepValues)
+    raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC)
+    # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
+    qa = np.array([tuple(s) for s in raw], dtype=self.measurement_datatype)
+    self.registerMeasurements(qa, 'MPPT')
+    
+    if self.mppt.Vmpp != None:
+      self.f[self.position+'/'+self.pixel].attrs['Vmpp'] = self.mppt.Vmpp
+    if self.mppt.Impp != None:
+      self.f[self.position+'/'+self.pixel].attrs['Impp'] = self.mppt.Impp
+    if (self.mppt.Impp != None) and (self.mppt.Vmpp != None):
+      self.f[self.position+'/'+self.pixel].attrs['ssPmax'] = abs(self.mppt.Impp * self.mppt.Vmpp)
 
-    return sweepValues
-  
   def mpptCB(measurement):
-    """Callback function for max powerpoint tracker
+    """Callback function for max power point tracker
     (for live tracking)
     """
-    [v, i, now, status] = measurement
-    t = now - t0
-    print('{:1d},{:.6f},{:.6f},{:.6f}'.format(0, t, v, i), flush=True)
+    [v, i, t, status] = measurement
+    print('At {:.6f}\t{:.6f}\t{:.6f}\t{:d}'.format(t, v, i, int(status)))
