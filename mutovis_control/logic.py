@@ -118,30 +118,25 @@ class logic:
 
   def hardwareTest(self, substrates_to_test):
     self.wl.startRecipe()
+    
+    n_adc_channels = 8
+    
+    for chan in range(n_adc_channels):
+      print('ADC channel {:} Counts: {:}'.format(chan,self.pcb.getADCCounts(chan)))
+      
+    chan = 2
+    counts = self.pcb.getADCCounts(chan)
+    print('{:d}\t<-- D1 Diode ADC counts (TP3, AIN{:d})'.format(counts, chan))
+
+    chan = 3
+    counts = self.pcb.getADCCounts(chan)
+    print('{:d}\t<-- D2 Diode ADC counts (TP4, AIN{:d})'.format(counts, chan))
 
 
-    # exercise pcb ADC
-    print('ADC Counts:')
-    adcChan = 2
-    counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- D1 Diode (TP3, AIN{:d}): '.format(counts, adcChan))
-
-    adcChan = 3
-    counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- D2 Diode (TP4, AIN{:d})'.format(counts, adcChan))
-
-    adcChan = 0
-    counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- Adapter board resistor divider (TP5, AIN{:d})'.format(counts, adcChan))
-
-    adcChan = 1
-    counts = self.pcb.getADCCounts(adcChan)
-    print('{:d}\t<-- Disconnected (TP2, AIN{:d})'.format(counts, adcChan))
-
-    adcChan = 0
+    chan = 0
     for substrate in substrates_to_test:
-      counts = self.pcb.getADCCounts(substrate)
-      print('{:d}\t<-- Substrate {:s} adapter board resistor divider (TP5, AIN{:d})'.format(counts, substrate, adcChan))
+      r = self.pcb.get('d'+substrate)
+      print('{:s}\t<-- Substrate {:s} adapter resistor value in ohms (AIN{:d})'.format(r, substrate, chan))
 
     print("LED test mode active on substrate(s) {:s}".format(substrates_to_test))
     print("Every pixel should get an LED pulse IV sweep now, plus the light should turn on")    

@@ -11,7 +11,7 @@ class pcb:
   substratesConnected = ''  # the ones we've detected
 
   def __init__(self, ipAddress, port=23):
-    timeout = 10
+    timeout = 10  # pcb has this many seconds to respond
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((ipAddress, port))
     s.settimeout(timeout)
@@ -100,7 +100,7 @@ class pcb:
         line = line[:-len(self.read_terminator)].decode() # strip off the terminator and decode
       else:
         print("WARNING: Didn't find expected terminator during read")
-      maybePrompt = sf.read(len(self.prompt))
+      maybePrompt = sf.read(1) + sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
       if maybePrompt.decode() == self.prompt:
         win = True
       else: # it's not the prompt, so let's finish the line
@@ -108,9 +108,12 @@ class pcb:
         line = maybePrompt + theRest
         if line.endswith(self.read_terminator):
           line = line[:-len(self.read_terminator)].decode() # strip off the terminator and decode
-          maybePrompt = sf.read(len(self.prompt))
+          maybePrompt = sf.read(1) +  sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
           if maybePrompt.decode() == self.prompt:
-            win = True             
+            win = True
+          else:
+            print("WARNING: Expected this to be a prompt:")
+            print(maybePrompt)
         else:
           print("WARNING: Didn't find expected terminator during read")
 
@@ -157,15 +160,12 @@ class pcb:
 
   def getADCCounts(self, chan):
     """makes adc readings.
-    chan can be 0-3 to directly read the corresponding adc channel
-    chan can also be A-H to get the adapter board resistor divider counts
+    chan can be 0-7 to directly read the corresponding adc channel
     """
-    ready = False
+    cmd = ""
 
     if (type(chan) == int):
       cmd = "ADC" + str(chan)
-    else:  # must be in resistor divider mode
-      cmd = "d" + str(chan)
 
     return int(self.get(cmd))
 
