@@ -3,7 +3,7 @@
 
 # written by grey@mutovis.com
 
-from mutovis_control import logic
+from mutovis_control import fabric
 
 import sys
 import argparse
@@ -27,6 +27,8 @@ class cli:
   """the command line interface"""
   appname = 'mutovis_control_software'
   config_section = 'PREFRENCES'
+  ftp_host = None  # for archival data backup
+  ftp_path = None  # for archival data backup
   
   class FullPaths(argparse.Action):
     """Expand user- and relative-paths and save pref arg parse action"""
@@ -83,6 +85,10 @@ class cli:
         self.args.__setattr__(key, ast.literal_eval(dc))
       else:
         self.args.__setattr__(key, config.get(self.config_section, key))
+        
+    if 'FTP' in config:
+      self.ftp_host = config['FTP']['host']  
+      self.ftp_path = config['FTP']['path']  # this needs to end in /, example: "/drop/"
 
   def run(self):
     args = self.args
@@ -96,7 +102,8 @@ class cli:
     args.terminator = bytearray.fromhex(args.terminator).decode()
     
     # create the control entity
-    l = logic(saveDir = args.destination, ignore_diodes=args.ignore_diodes, diode_calibration=args.diode_calibration)
+    l = fabric(saveDir = args.destination, ignore_diodes=args.ignore_diodes, diode_calibration=args.diode_calibration, ftp =(self.ftp_host, self.ftp_path))
+    self.l = l
     
     if args.area != -1.0:
       l.cli_area = args.area
@@ -234,7 +241,7 @@ class cli:
             sm.setupDC(sourceVoltage=True, compliance=iMax, setPoint=Vmpp, senseRange=iMax)
       
             # set exploration limits
-            dAngleMax = 5 #[exploration degrees] (plus and minus)
+            dAngleMax = 7 #[exploration degrees] (plus and minus)
       
             mpptCyclesRemaining = args.mppt
             
@@ -264,10 +271,9 @@ class cli:
               angleMpp = numpy.rad2deg(numpy.arctan(Impp/Vmpp*l.Voc/l.Isc))
               print('MPP ANGLE = {:}'.format(angleMpp))
               v_set = Vmpp
-              edgeANotTouched = True
-              edgeBNotTouched = True
-              while (edgeANotTouched or edgeBNotTouched):
-                v_set = v_set + dV
+              highEdgeTouched = False
+              lowEdgeTouched = False
+              while (not(highEdgeTouched and lowEdgeTouched)):
                 sm.write(':source:voltage {0:0.6f}'.format(v_set))
                 measurement = sm.measure()
                 [v, i, tx, status] = measurement
@@ -277,32 +283,49 @@ class cli:
                 i_explore = numpy.append(i_explore, i)
                 v_explore = numpy.append(v_explore, v)
                 thisAngle = numpy.rad2deg(numpy.arctan(i/v*l.Voc/l.Isc))
-                dAngle = thisAngle - angleMpp
-                print("dAngle={:}, edgeANotTouched={:}, edgeBNotTouched={:}".format(dAngle, edgeANotTouched, edgeBNotTouched))
-                if ((dAngle > dAngleMax) or (v_set >= l.Voc)) and ( edgeANotTouched ): # twords Voc edge
-                  edgeANotTouched = False
-                  if (v_set >= l.Voc):
-                    because = 'Voc reached'
-                  else:
-                    because = 'angle limit reached'
-                  if edgeBNotTouched:
-                    print("Bouncing off Edge A because {:}".format(because), file=sys.stderr, flush=True)
+                dAngle = angleMpp - thisAngle
+                # print("dAngle={:}, highEdgeTouched={:}, lowEdgeTouched={:}".format(dAngle, highEdgeTouched, lowEdgeTouched))
+                
+                if dAngle > dAngleMax:
+                  highEdgeTouched = True
+                  dV = dV * -1
+                  print("Reached high voltage edge because angle exceeded")
+                
+                if dAngle < -dAngleMax:
+                  lowEdgeTouched = True
+                  dV = dV * -1
+                  print("Reached low voltage edge because angle exceeded")
+                  
+                
+                v_set = v_set + dV
+                if ((v_set > 0) and (dV > 0)) or ((v_set < 0) and (dV < 0)):  #  walking towards Voc
+                  if (dV > 0) and v_set >= l.Voc:
+                    highEdgeTouched = True
                     dV = dV * -1 # switch our voltage walking direction
-                  else:
-                    print("Second edge (A) reached because {:}".format(because), file=sys.stderr, flush=True)
-                if ((-dAngle > dAngleMax) or (v_set <= 0)) and ( edgeBNotTouched ): # towards Isc (V=0) edge
-                  edgeBNotTouched = False
-                  if (v_set <= 0):
-                    because = 'V=0 reached'
-                  else:
-                    because = 'angle limit reached'
-                  if edgeANotTouched:
-                    print("Bouncing off Edge B because {:}".format(because), file=sys.stderr, flush=True)
+                    v_set = v_set + dV
+                    print("WARNING: Reached high voltage edge because we hit Voc")
+                    
+                  if (dV < 0) and v_set <= l.Voc:
+                    lowEdgeTouched = True
                     dV = dV * -1 # switch our voltage walking direction
-                  else:
-                    print("Second edge (B) reached because {:}".format(because), file=sys.stderr, flush=True)
-      
-      
+                    v_set = v_set + dV
+                    print("WARNING: Reached high voltage edge because we hit Voc")
+                    
+                  
+                else: #  walking towards Jsc
+                  if (dV > 0) and v_set >= 0:
+                    highEdgeTouched = True
+                    dV = dV * -1 # switch our voltage walking direction
+                    v_set = v_set + dV
+                    print("WARNING: Reached low voltage edge because we hit 0V")
+                    
+                  if (dV < 0) and v_set <= 0:
+                    lowEdgeTouched = True
+                    dV = dV * -1 # switch our voltage walking direction
+                    v_set = v_set + dV
+                    print("WARNING: Reached low voltage edge because we hit 0V")
+                
+
               print("Done exploring.", file=sys.stderr, flush=True)
       
               # find the powers for the values we just explored
@@ -332,7 +355,7 @@ class cli:
     parser.add_argument('--destination', help="Save output files here. '__tmp__' will use a system default temporary directory", type=self.is_dir, action=self.FullPaths)
   
     measure = parser.add_argument_group('optional arguments for measurement configuration')
-    measure.add_argument("--pixel_address", default='0x01', type=str, action=self.RecordPref, help="Hex value to specify an enabled pixel bitmask (must start with 0x...)")
+    measure.add_argument("--pixel_address", default='0x80', type=str, action=self.RecordPref, help='Hex value to specify an enabled pixel bitmask or individual pixel addresses "0xC0 == A1A2"')
     measure.add_argument("--sweep", type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Voc --> Jsc")
     measure.add_argument('--snaith', type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Jsc --> Voc")
     measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10, help="Number of seconds to sit at initial voltage value before doing sweep")
@@ -383,7 +406,16 @@ class cli:
           if (byte & mask):
             q.append(substrate+str(i+1))
     else:
-      q.append(pixel_address_string)
+      pixels = [pixel_address_string[i:i+2] for i in range(0, len(pixel_address_string), 2)]
+      for pixel in pixels:
+        pixel_in_q = False
+        if len(pixel) == 2:
+          pixel_int = int(pixel[1])
+          if (pixel[0] in self.l.pcb.substratesConnected) and (pixel_int >= 1 and pixel_int <= 8):
+            q.append(pixel)  #  only put good pixels in the que
+            pixel_in_q = True
+        if pixel_in_q == False:
+            print("WARNING! Discarded bad pixel address: {:}".format(pixel))
   
     return q
       

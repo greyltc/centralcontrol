@@ -11,10 +11,10 @@ import os
 import time
 import tempfile
 
-class logic:
+class fabric:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = "1.1.0"  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.1.1"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
@@ -42,15 +42,14 @@ class logic:
   s = np.array([], dtype=status_datatype)  # status list: columns = corresponding measurement index, status message
   r = np.array([], dtype=roi_datatype)  # list defining regions of interest in the measurement list
 
-  adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG', '1x1in MIT']
-  layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E', 'MIT 6x4.8x3.8mm']
-
-  def __init__(self, saveDir, diode_calibration=(1,1), ignore_diodes=False):
+  def __init__(self, saveDir, diode_calibration=(1,1), ignore_diodes=False, ftp=(None, None)):
     self.saveDir = saveDir
     self.diode_calibration = diode_calibration
     self.ignore_diodes = ignore_diodes
+    self.ftp_host = ftp[0]
+    self.ftp_path = ftp[1]
     
-    self.software_commit_hash = logic.getMyHash()
+    self.software_commit_hash = fabric.getMyHash()
     print('Software commit hash: {:s}'.format(self.software_commit_hash))
 
   def __setattr__(self, attr, value):
@@ -132,7 +131,6 @@ class logic:
     counts = self.pcb.getADCCounts(chan)
     print('{:d}\t<-- D2 Diode ADC counts (TP4, AIN{:d})'.format(counts, chan))
 
-
     chan = 0
     for substrate in substrates_to_test:
       r = self.pcb.get('d'+substrate)
@@ -191,16 +189,25 @@ class logic:
       sunsB = 1.0
     return (countsA, countsB, sunsA, sunsB)
 
-  def lookupAdapterBoard(self, counts):
-    """map resistor divider adc counts to adapter board type"""
-    # TODO: write this
+  def lookupAdapterBoard(self, r):
+    """map resistor value counts to adapter board type
+    TODO: this should all be configured by the user in the prefrences file instead of hardcoded here
+    """
+    
+    # adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG', '1x1in MIT', 'No Board']
+    # layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E', 'MIT 6x4.8x3.8mm']
 
-    if counts > 100:
-      board_index = 0
+    if r > 900 and r < 1100:
+      self.adapterBoard = '28x28 Snaith Legacy'
+      self.layout = '28x28 Snaith Legacy'
+      #TODO enforce areas
+      pixel_areas = [0.0909, 0.0909, 0.0909, 0.0909, 0.0909, 0.0909, 0.0909, 0.0909]
+    elif r > 40000: # maximum is ~40k
+      self.adapterBoard = 'No Board'
+      self.layout = 'No Board'
     else:
-      board_index = 0
-
-    return(board_index)
+      self.adapterBoard = 'Unknown, R={:}'.format(r)
+      self.layout = 'Unknown board, R={:}'.format(r)
 
   def lookupPixelArea(self, pixel_index):
     """return pixel area in sq cm given pixel index (also needs sample_layout_type from self)"""
@@ -260,11 +267,11 @@ class logic:
     print("\nClosing {:s}".format(self.f.filename))
     this_filename = self.f.filename
     self.f.close()
-    #TODO: make this optional
-    #ftp = put_ftp('epozz', pasv=True)
-    #with open(this_filename,'rb') as fp:
-    #  ftp.uploadFile(fp,'/drop/' + self.run_dir + '/')
-    #ftp.close()
+    if self.ftp_host is not None:
+      ftp = put_ftp(self.ftp_host, pasv=True)
+      with open(this_filename,'rb') as fp:
+        ftp.uploadFile(fp, self.ftp_path + self.run_dir + '/')
+      ftp.close()
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position
@@ -274,11 +281,11 @@ class logic:
       self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
       self.f[position].attrs['Sample Description'] = np.string_(description)
   
-      abCounts = self.pcb.getADCCounts(position)
-      self.f[position].attrs['Sample Adapter Board ADC Counts'] = abCounts
-      self.adapter_board_index = self.lookupAdapterBoard(abCounts)
-      self.f[position].attrs['Sample Adapter Board'] = np.string_(self.adapterBoardTypes[self.adapter_board_index])
-      self.f[position].attrs['Sample Layout Type'] = np.string_(self.layoutTypes[sampleLayoutType])
+      abResistor = int(self.pcb.get('d'+position))
+      self.f[position].attrs['Sample Adapter Board Resistor Value'] = abResistor
+      self.lookupAdapterBoard(abResistor)
+      self.f[position].attrs['Sample Adapter Board'] = np.string_(self.adapterBoard)
+      self.f[position].attrs['Sample Layout Type'] = np.string_(self.layout)
       self.sample_layout_type = sampleLayoutType
       return True
     else:
