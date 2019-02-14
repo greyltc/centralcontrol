@@ -11,11 +11,12 @@ import re
 import os
 import time
 import tempfile
+from collections import deque
 
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = "1.1.1"  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.5.0"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
@@ -45,6 +46,9 @@ class fabric:
   m = np.array([], dtype=measurement_datatype)  # measurement list: columns = v, i, timestamp, status
   s = np.array([], dtype=status_datatype)  # status list: columns = corresponding measurement index, status message
   r = np.array([], dtype=roi_datatype)  # list defining regions of interest in the measurement list
+  
+  # function to use when sending ROIs to the GUI
+  update_gui = None
 
   def __init__(self, saveDir, diode_calibration=(1,1), ignore_diodes=False, ftp=(None, None)):
     self.saveDir = saveDir
@@ -304,7 +308,7 @@ class fabric:
       self.area = self.lookupPixelArea(pixel)
   
       self.f[self.position].create_group(self.pixel)
-      self.f[self.position+'/'+self.pixel].attrs['area'] = self.area  # in cm^2
+      self.f[self.position+'/'+self.pixel].attrs['area'] = self.area * 1e-4  # in m^2
   
       vocs = self.steadyState(t_dwell=t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=2, senseRange='a', setPoint=0)
       self.registerMeasurements(vocs, 'V_oc dwell')
@@ -354,6 +358,17 @@ class fabric:
   def registerMeasurements(self, measurements, description):
     """adds an array of measurements to the master list and creates an ROI for them
     takes new measurement numpy array and description of them"""
+    roi = {}
+    roi['v'] = [float(e[0]) for e in measurements]
+    roi['i'] = [float(e[1]) for e in measurements]
+    roi['t'] = [float(e[2]) for e in measurements]
+    roi['s'] = [float(e[3]) for e in measurements]
+    roi['message'] =  description
+    roi['area'] =  self.area
+    try:
+      self.update_gui(roi)  # send the new region of interest data to the GUI
+    except:
+      pass  # probably no gui server to send data to, NBD
     self.m = np.append(self.m, measurements)
     length = len(measurements)
     if length > 0:

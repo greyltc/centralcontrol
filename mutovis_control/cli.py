@@ -18,6 +18,8 @@ import configparser
 import ast
 import pathlib
 
+import xmlrpc.client
+
 from collections import deque
 
 # for updating prefrences
@@ -104,6 +106,8 @@ class cli:
     # create the control entity
     l = fabric(saveDir = args.destination, ignore_diodes=args.ignore_diodes, diode_calibration=args.diode_calibration, ftp =(self.ftp_host, self.ftp_path))
     self.l = l
+    s = xmlrpc.client.ServerProxy('http://localhost:51246')
+    l.update_gui = s.drop
     
     if args.area != -1.0:
       l.cli_area = args.area
@@ -141,7 +145,7 @@ class cli:
       l.runSetup(operator=args.operator)
       last_substrate = None
       for pixel_address in pixel_address_que:
-        substrate = pixel_address[0]
+        substrate = pixel_address[0].upper()
         pix = pixel_address[1]
         print('\nOperating on substrate {:s}, pixel {:s}...'.format(substrate, pix))
         if last_substrate != substrate:  # we have a new substrate
@@ -188,6 +192,7 @@ class cli:
           l.registerMeasurements(iscs, 'I_sc dwell')
     
           l.Isc = iscs[-1][1]  # take the last measurement to be Isc
+          l.f[l.position+'/'+l.pixel].attrs['Isc'] = l.Isc 
           l.mppt.Isc = l.Isc
           
           if type(args.current_compliance_override) == float:
@@ -240,9 +245,9 @@ class cli:
     measure.add_argument("--pixel_address", default='0x80', type=str, action=self.RecordPref, help='Hex value to specify an enabled pixel bitmask or individual pixel addresses "0xC0 == A1A2"')
     measure.add_argument("--sweep", type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Voc --> Isc")
     measure.add_argument('--snaith', type=self.str2bool, default=False, action=self.RecordPref, const = True, help="Do an I-V sweep from Isc --> Voc")
-    measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10, help="Number of seconds to measure to find steady state Voc and Isc")
+    measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10.0, help="Number of seconds to measure to find steady state Voc and Isc")
     measure.add_argument('--area', type=float, action=self.RecordPref, default=1.0, help="Specify device area in cm^2")
-    measure.add_argument('--mppt', type=int, action=self.RecordPref, default=30, help="Do maximum power point tracking for this many seconds")
+    measure.add_argument('--mppt', type=int, action=self.RecordPref, default=37, help="Do maximum power point tracking for this many seconds")
     
     setup = parser.add_argument_group('optional arguments for setup configuration')
     setup.add_argument("--relay-ip", type=str, action=self.RecordPref, default='10.42.0.1', help="IP address of the WaveLabs relay server (set to 0 for direct WaveLabs connection)")  
