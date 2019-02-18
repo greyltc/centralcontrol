@@ -10,10 +10,11 @@ class pcb:
   substrateList = 'HGFEDCBA'  # all the possible substrates
   substratesConnected = ''  # the ones we've detected
 
-  def __init__(self, ipAddress, port=23):
+  def __init__(self, address):
     timeout = 10  # pcb has this many seconds to respond
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.connect((ipAddress, port))
+    ipAddress, port = address.split(':')
+    s.connect((ipAddress, int(port)))
     s.settimeout(timeout)
     pcb.set_keepalive_linux(s) # let's try to keep our connection alive!
     sf = s.makefile("rwb", buffering=0)
@@ -151,6 +152,8 @@ class pcb:
         ret = answer.split(' ')[5]
       elif answer.startswith('Firmware'):
         ret = answer.split(' ')[2]
+      elif answer.startswith('Photodiode'):
+        ret = int(answer.split(' ')[3])
       else:
         print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
     else:

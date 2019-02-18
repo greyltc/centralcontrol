@@ -1,9 +1,3 @@
-from mutovis_control import wavelabs as wavelabs_tool
-from mutovis_control import k2400
-from mutovis_control import put_ftp
-from mutovis_control import pcb
-from mutovis_control import virt
-from mutovis_control import mppt
 import h5py
 import numpy as np
 import unicodedata
@@ -13,10 +7,12 @@ import time
 import tempfile
 from collections import deque
 
+import mutovis_control as mc
+
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = "1.5.0"  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.6.0"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
@@ -27,12 +23,6 @@ class fabric:
   
   # guess at what the current limit should be set to (in amps) if we have no other way to determine it
   compliance_guess = 0.04
-  
-  # if we want to ignore the diode calibration and assume we're illuminating with 1 sun
-  ignore_diodes = False
-  
-  # value to convert ADC counts for diode to number of suns
-  diode_calibration = (1,1)
 
   # this is the datatype for the measurement in the h5py file
   measurement_datatype = np.dtype({'names': ['voltage','current','time','status'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
@@ -50,12 +40,9 @@ class fabric:
   # function to use when sending ROIs to the GUI
   update_gui = None
 
-  def __init__(self, saveDir, diode_calibration=(1,1), ignore_diodes=False, ftp=(None, None)):
+  def __init__(self, saveDir, archive_address=None):
     self.saveDir = saveDir
-    self.diode_calibration = diode_calibration
-    self.ignore_diodes = ignore_diodes
-    self.ftp_host = ftp[0]
-    self.ftp_path = ftp[1]
+    self.archive_address = archive_address
     
     self.software_commit_hash = fabric.getMyHash()
     print('Software commit hash: {:s}'.format(self.software_commit_hash))
@@ -75,30 +62,25 @@ class fabric:
     else:
       self.__dict__[attr] = value
 
-  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54', waveLabsRelayIP='10.42.0.1', pcbPort=23, terminator='\n', serialBaud=57600, wavelabs=False):
+  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54:23', lightAddress=None, visaTerminator='\n', visaBaud=57600):
     """Forms a connection to the PCB, the sourcemeter and the light engine
     will form connections to dummy instruments if dummy=true
     """
 
     if dummy:
-      self.sm = virt.k2400()
-      self.pcb = virt.pcb()
+      self.sm = mc.virt.k2400()
+      self.pcb = mc.virt.pcb()
     else:
-      self.sm = k2400(visa_lib=visa_lib, terminator=terminator, addressString=visaAddress, serialBaud=serialBaud)
-      self.pcb = pcb(ipAddress=pcbAddress, port=pcbPort)
+      self.sm = mc.k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
+      self.pcb = mc.pcb(address=pcbAddress)
       
-    self.mppt = mppt(self.sm)
+    self.mppt = mc.mppt(self.sm)
 
-    if not wavelabs:
-      self.wl = virt.wavelabs()
+    if lightAddress == None:
+      self.le = mc.virt.illumination()
     else:
-      self.wl = wavelabs_tool(relay_host = waveLabsRelayIP)
-      if waveLabsRelayIP == '0':  # direct connection to WaveLabs client software
-        self.wl.startServer()
-        self.wl.awaitConnection()
-      else:  # connection through WaveLabs relay server
-        self.wl.connectToRelay()
-      self.wl.activateRecipe()
+      self.le = mc.illumination(address = lightAddress)
+      self.le.connect()
 
   def getMyHash(short=True):
     thisPath = os.path.dirname(os.path.abspath(__file__))
@@ -126,7 +108,7 @@ class fabric:
     return myHash
 
   def hardwareTest(self, substrates_to_test):
-    self.wl.startRecipe()
+    self.le.on()
     
     n_adc_channels = 8
     
@@ -180,25 +162,29 @@ class fabric:
       # deselect all pixels
       self.pcb.pix_picker(substrate, 0)
 
-    self.wl.cancelRecipe()
+    self.le.off()
 
-  def measureIntensity(self):
-    """returns number of suns and ADC counts for both diodes"""
+  def measureIntensity(self, diode_cal):
+    """
+    returns number of suns and ADC counts for both diodes
+    takes diode calibration values in diode_cal
+    if diode_cal is not a tuple with valid calibration values, sets intensity to 1.0 sun for both diodes
+    """
+    ret = [self.pcb.get('p1'), self.pcb.get('p2'), 1.0, 1.0]
     
-    adcChan = 2
-    countsA = self.pcb.getADCCounts(adcChan)
-    sunsA = countsA/self.diode_calibration[0]
-
-    adcChan = 3
-    countsB = self.pcb.getADCCounts(adcChan)
-    sunsB = countsB/self.diode_calibration[1]
+    if type(diode_cal) == list or type(diode_cal) == tuple:
+      if diode_cal[0] <= 1:
+        print("WARNING: No or bad intensity diode calibration values, assuming 1.0 suns")
+      else:
+        ret[2] = ret[0]/diode_cal[0]
+        
+      if diode_cal[1] <= 1:
+        print("WARNING: No or bad intensity diode calibration values, assuming 1.0 suns")
+      else:
+        ret[3] = ret[1]/diode_cal[1]    
     
-    if self.ignore_diodes:
-      # force one sun if we're ignoring the diodes
-      sunsA = 1.0
-      sunsB = 1.0
-    return (countsA, countsB, sunsA, sunsB)
-
+    return ret
+    
   def lookupAdapterBoard(self, r):
     """map resistor value counts to adapter board type
     TODO: this should all be configured by the user in the prefrences file instead of hardcoded here
@@ -239,7 +225,15 @@ class fabric:
 
     return(area)
 
-  def runSetup(self, operator):
+  def runSetup(self, operator, diode_cal, ignore_diodes=False):
+    """
+    stuff that needs to be done at the start of a run
+    returns intensity tuple of length 4 where [0:1] are the raw ADC counts measured by the PCB's photodiodes
+    and [2:3] are the number of suns of intensity
+    if diode_cal == True, suns intensity will be assumed and reported as 1.0
+    if type(diode_cal) == list, diode_cal[0] and [1] will be used to calculate number of suns
+    if ignore_diodes == True, diode ADC values will not be read and intensity = (1, 1, 1.0 1.0) will be used and reported
+    """
     self.run_dir = self.slugify(operator) + '-' + time.strftime('%y-%m-%d')
     
     if self.saveDir == None or self.saveDir == '__tmp__':
@@ -263,25 +257,39 @@ class fabric:
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
     self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
     self.f.attrs['Format Revision'] = np.string_(self.outputFormatRevision)
-    self.wl.startRecipe()
-    if type(self.wl) == wavelabs_tool:
-      time.sleep(0.5) # if this is a real wavelabs solar sim (not a virtual one), wait half a sec before measuring intensity
-    intensity = self.measureIntensity()
+    self.le.on()
+    if type(self.le) == mc.illumination:
+      time.sleep(0.5) # if this is a real solar sim (not a virtual one), wait half a sec before measuring intensity
+    if ignore_diodes == True:
+      intensity = (1, 1, 1.0, 1.0)
+    else:
+      intensity = self.measureIntensity(diode_cal)
     self.f.attrs['Diode 1 intensity [ADC counts]'] = np.int(intensity[0])
     self.f.attrs['Diode 2 intensity [ADC counts]'] = np.int(intensity[1])
+    if type(diode_cal) == list:
+      self.f.attrs['Diode 1 calibration [ADC counts]'] = np.int(diode_cal[0])
+      self.f.attrs['Diode 2 calibration [ADC counts]'] = np.int(diode_cal[1])
+    else:  #  we re-calibrated this run
+      self.f.attrs['Diode 1 calibration [ADC counts]'] = np.int(intensity[0])
+      self.f.attrs['Diode 2 calibration [ADC counts]'] = np.int(intensity[1])
     self.f.attrs['Diode 1 intensity [suns]'] = np.float(intensity[2])
     self.f.attrs['Diode 2 intensity [suns]'] = np.float(intensity[3])
+    print("Intensity = [{:0.4f} {:0.4f}] suns".format(np.float(intensity[2]), np.float(intensity[3])))
+    return intensity
 
   def runDone(self):
-    self.wl.cancelRecipe()
+    self.le.off()
     print("\nClosing {:s}".format(self.f.filename))
     this_filename = self.f.filename
     self.f.close()
-    if self.ftp_host is not None:
-      ftp = put_ftp(self.ftp_host, pasv=True)
-      with open(this_filename,'rb') as fp:
-        ftp.uploadFile(fp, self.ftp_path + self.run_dir + '/')
-      ftp.close()
+    if self.archive_address is not None:
+      if self.archive_address.startswith('ftp://'):
+        with mc.put_ftp(self.archive_address+self.run_dir + '/', pasv=True) as ftp:
+          with open(this_filename,'rb') as fp:
+            ftp.uploadFile(fp)
+
+      else:
+        print('WARNING: Could not understand archive url')
     
   def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
     self.position = position

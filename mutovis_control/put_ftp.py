@@ -9,21 +9,49 @@ import sys
 
 class put_ftp:
   verbose = False
-  def __init__(self, server, pasv=True):
+  remote_path = None
+  
+  # need __enter__ and exit for use with "with"
+  def __enter__(self):
+    return self
+  
+  def __exit__(self, *a):
+    self.close()
     
-    # sanitize server input
+  def __init__(self, address, pasv=True):
+    
+     # sanitize address input
+    protocol, address = address.split('://')
+    host, remote_path = address.split('/', 1)
+    self.remote_path = '/' + remote_path
+    host_split = host.split(':')
+    host = host_split[0]
+    port = 21
+    if len(host_split) == 1:
+      if protocol == 'ftp':  
+        port = 21
+      else: # possibility to handle default ports for other protocols here
+        port = 21
+    else:
+      port = int(host_split[1])
+        
     try:
-      ip = ipaddress.ip_address(server)
+      ip = ipaddress.ip_address(host)
     except:
-      server_ip_string = socket.gethostbyaddr(server)[2][0]
+      server_ip_string = socket.gethostbyname_ex('epozz')[2][0]
       ip = ipaddress.ip_address(server_ip_string)
     
-    self.ftp = ftplib.FTP(ip.exploded)
+    self.ftp = ftplib.FTP()
+    self.ftp.connect(host=ip.exploded, port=port)
     if pasv == False:
       self.ftp.passiveserver = 0
+    else:
+      self.ftp.passiveserver = 1
     self.ftp.login()
 
-  def uploadFile(self, file_pointer, remote_path):
+  def uploadFile(self, file_pointer, remote_path=None):
+    if remote_path == None:
+      remote_path = self.remote_path
     file_name = os.path.basename(file_pointer.name)
     if self.verbose:
       print('Uploading {:}...'.format(file_pointer.name))
@@ -41,17 +69,16 @@ class put_ftp:
         pass # directory probably already exists
     self.ftp.storbinary('STOR {:}{:}'.format(remote_path, file_name), file_pointer) #upload the file
     if self.verbose:
-      print('Success: uploaded to {:}:{:}{:}'.format(args.server, remote_path, file_name))    
+      print('Success: uploaded to {:}:{:}{:}{:}'.format(self.ftp.host, self.ftp.port, remote_path, file_name))    
 
   def close(self):
     self.ftp.quit()
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Upload files to a passwordless FTP server')
+  parser.add_argument('address', type=str, help='complete ftp server address and remote path to upload to, eg "ftp://epozz:21/drop/"')
   parser.add_argument('-a', '--active', action='store_true', default=False, help="Use active transfer mode instead of passive")
   parser.add_argument('-v', '--verbose', action='store_true', default=False, help="Be verbose")
-  parser.add_argument('-s', '--server', default='epozz', help="FTP server hostname or IP address")
-  parser.add_argument('-r', '--remote_path', default='/drop/', help="Remote path to upload into (needs trailing slash)")
   parser.add_argument('files', type=argparse.FileType('rb'), nargs='+', help="File(s) to upload")
 
   args = parser.parse_args()
@@ -60,11 +87,8 @@ if __name__ == "__main__":
     if args.verbose:
       print("Nothing to upload")
     sys.exit(-1)
-  else:
-    ftp = put_ftp(args.server, pasv=not args.active)
+
+  with put_ftp(args.address, pasv=not args.active) as ftp:
     ftp.verbose = args.verbose
-
     for f in args.files:
-      ftp.uploadFile(f, args.remote_path)
-
-    ftp.close()
+      ftp.uploadFile(f)

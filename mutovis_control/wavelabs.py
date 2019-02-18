@@ -7,10 +7,10 @@ import time
 class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
+  protocol = 'wavelabs'  # communication method for talking to the wavelabs light engine, wavelabs for direct, wavelabs-relay for relay
   default_recipe = 'am1_5_1_sun'
-  wavelabs_port = 3334
-  relay_server_ip = 'localhost'
-  relay_server_port = 3335
+  port = 3334  # 3334 for direct connection, 3335 for through relay service
+  host = '0.0.0.0'  # 0.0.0.0 for direct connection, localhost for through relay service
 
   class XMLHandler:
     """
@@ -40,20 +40,28 @@ class wavelabs:
     def close(self):
       pass  
 
-  def __init__(self, listen_ip = "0.0.0.0", listen_port = wavelabs_port, relay_host = relay_server_ip, relay_port = relay_server_port):
-    self.host = listen_ip
-    self.port = listen_port
-    self._relay_host = relay_host
-    self._relay_port = relay_port
+  def __init__(self, address="wavelabs://0.0.0.0:3334"):
+    """
+    sets up the wavelabs object
+    address is a string of the format:
+    wavelabs://listen_ip:listen_port (should probably be wavelabs://0.0.0.0:3334)
+    or
+    wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
+    
+    """
+    self.protocol, location = address.split('://')
+    self.host, self.port = location.split(':')
+    self.port = int(self.port)
     
   def __del__(self):
     try:
-      self.server.close()
-    except:
-      pass
-    try:
       self.sock_file.close()
       self.connection.close()
+    except:
+      pass
+    
+    try:
+      self.server.close()
     except:
       pass    
 
@@ -77,6 +85,20 @@ class wavelabs:
     self.server.allow_reuse_address = True
     self.server.server_bind()
     self.server.server_activate()
+    
+  def connect(self):
+    """
+    generic connect method, does what's appropriate for getting comms up based on self.protocol
+    """
+    if self.protocol == 'wavelabs':
+      self.startServer()
+      self.awaitConnection()
+      self.activateRecipe(self.default_recipe)
+    elif self.protocol == 'wavelabs-relay':
+      self.connectToRelay()
+      self.activateRecipe(self.default_recipe)
+    else:
+      print("WRNING: Got unexpected wavelabs comms protocol: {:}".format(self.protocol))
 
   def awaitConnection(self):
     """returns once the wavelabs program has connected"""
@@ -91,7 +113,7 @@ class wavelabs:
   def connectToRelay(self):
     """forms connection to the relay server"""
     self.connection = socketserver.socket.socket(socketserver.socket.AF_INET, socketserver.socket.SOCK_STREAM)
-    self.connection.connect((self._relay_host, self._relay_port))
+    self.connection.connect((self.host, int(self.port)))
     self.sock_file = self.connection.makefile(mode="rwb")
 
   def activateRecipe(self, recipe_name=default_recipe):
@@ -105,7 +127,7 @@ class wavelabs:
     if response.error != 0:
       print("ERROR: Recipe '{:}' could not be activated, check that it exists".format(recipe_name))
 
-  def startRecipe(self):
+  def on(self):
     """starts the last activated recipe"""
     root = ET.Element("WLRC")
     ET.SubElement(root, 'StartRecipe', iSeq=str(self.iseq), sAutomationID = 'justtext')
@@ -116,7 +138,7 @@ class wavelabs:
     if response.error != 0:
       print("ERROR: Recipe could not be started")
 
-  def cancelRecipe(self):
+  def off(self):
     """cancel a currently running recipe"""
     root = ET.Element("WLRC")
     ET.SubElement(root, 'CancelRecipe', iSeq=str(self.iseq))
@@ -139,12 +161,8 @@ class wavelabs:
       print("ERROR: Could not exit WaveLabs program")     
 
 if __name__ == "__main__":
-  wl = wavelabs()
-  #wl.startServer()
-  #wl.awaitConnection()
-  # or
-  wl.connectToRelay()
-  wl.activateRecipe(wl.default_recipe)
+  # wl = wavelabs('wavelabs://0.0.0.0:3334')  # for direct connection
+  wl = wavelabs('wavelabs-relay://0.0.0.0:3335')  #  for comms via relay
   print('Light turns on in...')
   time.sleep(1)
   print('3...')
@@ -154,7 +172,7 @@ if __name__ == "__main__":
   print('1...')
   time.sleep(1)
   print('Now!')
-  wl.startRecipe()
+  wl.on()
   time.sleep(1)
   print('Light turns off in...')
   time.sleep(1)
@@ -165,5 +183,4 @@ if __name__ == "__main__":
   print('1...')
   time.sleep(1)
   print('Now!')
-  wl.cancelRecipe()
-  wl.server.close()
+  wl.off()

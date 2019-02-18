@@ -3,17 +3,15 @@ import time
 import numpy
 from collections import deque
 
-class wavelabs():
-  def startServer(self):
-    pass
-  def awaitConnection(self):
+class illumination():
+  def connect(self):
     print ("Connected to virtual lightsource")
   def activateRecipe(self, recipe):
     print ("Light engine recipe '{:}' virtually activated.".format(recipe))
-  def startRecipe(self):
-    print("Light engine recipe virtually started")
-  def cancelRecipe(self):
-    print("Light engine recipe virtually cancelled")
+  def on(self):
+    print("Virtual light turned on")
+  def off(self):
+    print("Virtual light turned off")
   def close(self):
     pass  
 
