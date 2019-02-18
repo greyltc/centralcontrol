@@ -13,9 +13,6 @@ class illumination:
     """
     if address.startswith('wavelabs'):
       self.light_engine = wavelabs(address=address)
-  
-  def __del__(self):
-    pass  
       
   def connect(self):
     """

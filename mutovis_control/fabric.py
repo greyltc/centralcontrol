@@ -81,6 +81,12 @@ class fabric:
     else:
       self.le = mc.illumination(address = lightAddress)
       self.le.connect()
+      
+    #if motionAddress == None:
+      #self.me = mc.virt.motion()
+    #else:
+      #self.me = mc.motion(address = motionAddress)
+      #self.me.connect()    
 
   def getMyHash(short=True):
     thisPath = os.path.dirname(os.path.abspath(__file__))
