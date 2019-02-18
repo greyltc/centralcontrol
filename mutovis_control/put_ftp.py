@@ -38,7 +38,7 @@ class put_ftp:
     try:
       ip = ipaddress.ip_address(host)
     except:
-      server_ip_string = socket.gethostbyname_ex('epozz')[2][0]
+      server_ip_string = socket.gethostbyname_ex(host)[2][0]
       ip = ipaddress.ip_address(server_ip_string)
     
     self.ftp = ftplib.FTP()
