@@ -124,22 +124,36 @@ class cli:
     if 'ARCHIVE' in config:
       self.archive_address = config['ARCHIVE']['address']  # an address string where to archive data to as we collect it, like "ftp://epozz:21/drop/"
 
+    self.args.sm_terminator = bytearray.fromhex(self.args.sm_terminator).decode()
+    
+    if self.args.light_address.upper() == 'NONE':
+      self.args.light_address = None
+      
+    if self.args.motion_address.upper() == 'NONE':
+      self.args.motion_address = None
+      
+    if self.args.layout_index == []:
+      self.args.layout_index = [None]
+    
+    # this puts each of the the experimental_parameters the user gave
+    # into a dict with the keys being the parameter names and the values being
+    # deques that we can pop() off the correct values as we go through substrates
+    exps = {}
+    for i, pset in enumerate(self.args.experimental_parameter):
+      tionary = {}
+      variable_name = pset[0]
+      del(pset[0])
+      pq = deque(pset)
+      pq.reverse()
+      exps[variable_name] = pq
+      self.args.experimental_parameter[i] = pq
+    self.args.experimental_parameter = exps
+    
   def run(self):
     """
     Does the measurements
     """
     args = self.args
-    
-    args.sm_terminator = bytearray.fromhex(args.sm_terminator).decode()
-    
-    if args.light_address.upper() == 'NONE':
-      args.light_address = None
-      
-    if args.motion_address.upper() == 'NONE':
-      args.motion_address = None
-      
-    if self.args.layout_index == []:
-      self.args.layout_index = [None]
   
     # create the control entity
     l = fabric(saveDir = args.destination, archive_address=self.archive_address)
@@ -189,7 +203,7 @@ class cli:
         diode_cal = True
       else:
         diode_cal = args.diode_calibration_values
-      intensity = l.runSetup(args.operator, diode_cal, ignore_diodes=args.ignore_diodes)
+      intensity = l.runSetup(args.operator, diode_cal, ignore_diodes=args.ignore_diodes, run_description=args.run_description)
       if args.calibrate_diodes == True:
         d1_cal = intensity[0]
         d2_cal = intensity[1]
@@ -211,7 +225,11 @@ class cli:
           if last_substrate != substrate:  # we have a new substrate
             print('New substrate using "{:}" layout!'.format(pixel[3]))
             last_substrate = substrate
-            substrate_ready = l.substrateSetup(position=substrate, variable_name='', variable_value='', layout_name=pixel[3])
+            variable_pairs = []
+            for key, value in self.args.experimental_parameter.items():
+              variable_pairs.append([key, value.pop()])
+
+            substrate_ready = l.substrateSetup(position=substrate, variable_pairs=variable_pairs, layout_name=pixel[3])
       
           pixel_ready = l.pixelSetup(pixel, t_dwell_voc = args.t_prebias)  #  steady state Voc measured here
           if pixel_ready and substrate_ready:
@@ -219,7 +237,7 @@ class cli:
             if type(args.current_compliance_override) == float:
               compliance = args.current_compliance_override
             else:
-              compliance = l.compliance_guess  # we have to just guess what the current complaince here
+              compliance = l.compliance_guess  # we have to just guess what the current complaince should be here
               # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
             l.mppt.current_compliance = compliance
               
@@ -235,7 +253,7 @@ class cli:
                 end = 0
       
               message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
-              sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='f', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
+              sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='a', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
               l.registerMeasurements(sv, 'Sweep')
               
               (Pmax, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
@@ -298,16 +316,18 @@ class cli:
     """Get CLI arguments and options"""
     parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stderr.')
     
-    parser.add_argument('operator', type=str, help='Name of operator')
-    parser.add_argument('--destination', help="Save output files here. '__tmp__' will use a system default temporary directory", type=self.is_dir, action=self.FullPaths)
+    parser.add_argument('-o', '--operator', type=str, required=True, help='Name of operator')
+    parser.add_argument('-r', '--run-description', type=str, required=True, help='Words describing the measurements about to be taken')
+    parser.add_argument('-p', '--experimental-parameter', type=str, nargs='+', action='append', required=True, help="Space seperated experimental parameter name and values. Multiple parameters can be specified by additional uses of '-p'. Use one value per substrate measured. The first item given here is taken to be the parameter name and the rest of the items are taken to be the values for each substrate. eg. '-p Thickness 2m 3m 4m' would attach a Thickness attribute with values 2m 3m and 4m to the first, second and third substrate measured in this run respectively.")
   
     measure = parser.add_argument_group('optional arguments for measurement configuration')
-    measure.add_argument("--pixel_address", default=None, type=str, help='Hexadecimal bit mask for enabled pixels, also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"')
+    measure.add_argument('-d', '--destination', help="Directory in which to save the output data, '__tmp__' will use a system default temporary directory", type=self.is_dir, action=self.FullPaths)    
+    measure.add_argument('-a', "--pixel-address", default=None, type=str, help='Hexadecimal bit mask for enabled pixels, also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"')
     measure.add_argument("--sweep", type=self.str2bool, default=True, action=self.RecordPref, const = True, help="Do an I-V sweep from Voc --> Isc")
     measure.add_argument('--snaith', type=self.str2bool, default=True, action=self.RecordPref, const = True, help="Do an I-V sweep from Isc --> Voc")
     measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10.0, help="Number of seconds to measure to find steady state Voc and Isc")
     measure.add_argument('--mppt', type=float, action=self.RecordPref, default=37.0, help="Do maximum power point tracking for this many seconds")
-    measure.add_argument('--layout-index', type=int, nargs='*', action=self.RecordPref, default=[], help="Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(self.system_layouts_file_fullpath))
+    measure.add_argument('-i', '--layout-index', type=int, nargs='*', action=self.RecordPref, default=[], help="Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(self.system_layouts_file_fullpath))
     measure.add_argument('--area', type=float, nargs='*', default=[], help="Override pixel areas taken from layout (given in cm^2)")
     
     setup = parser.add_argument_group('optional arguments for setup configuration')
@@ -335,8 +355,10 @@ class cli:
     testing.add_argument('--dummy', default=False, action='store_true', help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)")
     testing.add_argument("--scan", default=False, action='store_true', help="Scan for obvious VISA resource names, print them and exit")
     testing.add_argument('--test-hardware', default=False, action='store_true', help="Exercises all the hardware, used to check for and debug issues")
-  
-    return parser.parse_args()
+    
+    args = parser.parse_args()
+    
+    return args
       
   def buildQ(self, pixel_address_string, areas=None):
     """
@@ -386,6 +408,11 @@ class cli:
       user_layouts = deque(self.args.layout_index)  # layout indicies given to us by the user
       substrates = [x[0] for x in q]
       substrates = sorted(set(substrates))
+      n = len(substrates)  # we have this many substrates
+      for key, val in self.args.experimental_parameter.items():
+        p = len(val)  # we got this many values for the key variable
+        if p != n:
+          raise ValueError('{:} Values were given for experimental parameter "{:}", but we are measuring {:} substrate(s).'.format(p, key, n))
       for substrate in substrates:
         r_value = self.l.pcb.resistors[substrate]
         valid_layouts = {}
@@ -403,7 +430,7 @@ class cli:
         elif len(valid_layouts) == 1:
           using_layouts[substrate] = valid_layouts.popitem()[1]
         else:
-          raise ValueError("Could not determine the layout for substrate {:}. Use the --layout-index parameter with one of the following values {:}".format(substrate, valid_layouts))
+          raise ValueError("Could not determine the layout for substrate {:}. Use the -i argument with one of the following values {:}".format(substrate, valid_layouts))
 
       
       user_areas = deque(self.args.area)  # device areas given to us by the user

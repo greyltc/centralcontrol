@@ -12,7 +12,7 @@ import mutovis_control as mc
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = "1.6.0"  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.7.0"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
@@ -276,17 +276,19 @@ class fabric:
       else:
         print('WARNING: Could not understand archive url')
     
-  def substrateSetup (self, position, suid='', variable_name='', variable_value='', layout_name=''):
+  def substrateSetup (self, position, suid='', variable_pairs=[], layout_name=''):
     self.position = position
     if self.pcb.pix_picker(position, 0):
       self.f.create_group(position)
   
       self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
-      self.f[position].attrs['Variable Name'] = np.string_(variable_name)
-      self.f[position].attrs['Variable Value'] = np.string_(variable_value)
   
       self.f[position].attrs['Sample Adapter Board Resistor Value'] = self.pcb.resistors[position]
       self.f[position].attrs['Sample Layout Name'] = np.string_(layout_name)
+      for pair in variable_pairs:  # attach the user defined name-value pairs to each substrate
+        parameter_name = pair[0]
+        parameter_value = pair[1]
+        self.f[position].attrs['User_'+parameter_name] = np.string_(parameter_value)
 
       return True
     else:
