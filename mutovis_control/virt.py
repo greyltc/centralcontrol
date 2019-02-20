@@ -3,6 +3,18 @@ import time
 import numpy
 from collections import deque
 
+class motion():
+  substrate_centers = [300, 260, 220, 180, 140, 100, 60, 20]  # mm from home to the centers of A, B, C, D, E, F, G, H substrates
+  photodiode_location = 315  # mm  
+  def connect(self):
+    print ("Connected to virtual motion controller")
+  def move(self, mm):
+    print("Virtually moving {:}mm".format(mm))
+  def goto(self, mm):
+    print("Virtually moving to {:}mm".format(mm))
+  def home(self):
+    print("Virtually homing")    
+
 class illumination():
   def connect(self):
     print ("Connected to virtual lightsource")

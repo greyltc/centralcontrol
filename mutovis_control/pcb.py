@@ -9,8 +9,9 @@ class pcb:
   prompt = '>>> '
   substrateList = 'HGFEDCBA'  # all the possible substrates
   substratesConnected = ''  # the ones we've detected
+  adapters = []  # list of tuples of adapter boards: (substrate_letter, resistor_value)
 
-  def __init__(self, address):
+  def __init__(self, address, ignore_adapter_resistors=False):
     timeout = 10  # pcb has this many seconds to respond
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     ipAddress, port = address.split(':')
@@ -31,6 +32,7 @@ class pcb:
       print('Connected to control PCB with ' + answer)
 
     substrates = self.substrateSearch()
+    resistors = {}  # dict of measured resistor values where the key is the associated substrate
 
     if substrates == 0x00:
       print('No multiplexer board detected.')
@@ -41,8 +43,13 @@ class pcb:
         mask = 0x01 << (7-i)
         if (mask & substrates) != 0x00:
           self.substratesConnected = self.substratesConnected + substrate
+          if ignore_adapter_resistors:
+            resistors[substrate] = 0
+          else:
+            resistors[substrate] = self.get('d'+substrate)
           found = found + substrate
       print(found)
+    self.resistors = resistors
 
   def __del__(self):
     self.disconnect_all()
@@ -149,7 +156,7 @@ class pcb:
       if answer.startswith('AIN'):
         ret = answer.split(' ')[1]
       elif answer.startswith('Board'):
-        ret = answer.split(' ')[5]
+        ret = int(answer.split(' ')[5])
       elif answer.startswith('Firmware'):
         ret = answer.split(' ')[2]
       elif answer.startswith('Photodiode'):

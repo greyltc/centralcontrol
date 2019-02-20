@@ -35,6 +35,8 @@ class cli:
   layouts_file_name = 'layouts.ini'  # this file holds the device layout definitions
   system_layouts_file_fullpath = sys.prefix + os.path.sep + 'etc' + os.path.sep + layouts_file_name
   
+  layouts_file_used = ''
+  
   archive_address = None  # for archival data backup
   
   class FullPaths(argparse.Action):
@@ -53,7 +55,7 @@ class cli:
   
   def __init__(self):
     """
-    gets command line arguments and handles prefrence file
+    gets command line arguments and handles preference file
     """
     self.args = self.get_args()
     
@@ -88,21 +90,35 @@ class cli:
         self.args.__setattr__(key, config.getfloat(self.config_section, key))
       elif type(self.args.__getattribute__(key)) == bool:
         self.args.__setattr__(key, config.getboolean(self.config_section, key))
-      elif key == 'diode_calibration_values':
-        dc = config.get(self.config_section, key)
-        self.args.__setattr__(key, ast.literal_eval(dc))
+      elif type(self.args.__getattribute__(key)) == list or type(self.args.__getattribute__(key)) == tuple:
+        v = config.get(self.config_section, key)
+        self.args.__setattr__(key, ast.literal_eval(v))
       else:
         self.args.__setattr__(key, config.get(self.config_section, key))
 
     # use local layouts if it exists, otherwise use system layouts definition file
-    layouts_file_fullpath = os.getcwd() + os.path.sep + self.layouts_file_name
-    if not os.path.exists(layouts_file_fullpath):
-      layouts_file_fullpath = self.system_layouts_file_fullpath
-      if not os.path.exists(layouts_file_fullpath):
+    self.layouts_file_used = os.getcwd() + os.path.sep + self.layouts_file_name
+    if not os.path.exists(self.layouts_file_used):
+      self.layouts_file_used = self.system_layouts_file_fullpath
+      if not os.path.exists(self.layouts_file_used):
         raise ValueError("{:} must be in {:} or in the current working directory".format(self.layouts_file_name, system_layouts_file_fullpath))
     
-    # self.layouts = configparser.ConfigParser()
-    # self.layouts.read(layouts_file_fullpath)
+    layouts_config = configparser.ConfigParser()
+    layouts_config.read(self.layouts_file_used)
+    self.layouts = {}
+    for layout in layouts_config.sections():
+      this_layout = dict(layouts_config[layout])
+      this_layout['name'] = layout
+      for key, value in this_layout.items():
+        if value.startswith('['):
+          this_layout[key] = ast.literal_eval(value)  #  turn lists into lists
+      for key, value in this_layout.items():
+        if key.startswith('pixel') and len(value) < 8:
+          n_padding = 8 - len(value)
+          this_layout[key] = value.append([0.0]*n_padding)  # pad with zeros up to 8 pixels
+      index = int(this_layout['index'])
+      del(this_layout['index'])
+      self.layouts[index] = this_layout
 
     #  attach ARCHIVE settings for data archiving 
     if 'ARCHIVE' in config:
@@ -118,7 +134,13 @@ class cli:
     
     if args.light_address.upper() == 'NONE':
       args.light_address = None
-    
+      
+    if args.motion_address.upper() == 'NONE':
+      args.motion_address = None
+      
+    if self.args.layout_index == []:
+      self.args.layout_index = [None]
+  
     # create the control entity
     l = fabric(saveDir = args.destination, archive_address=self.archive_address)
     self.l = l
@@ -133,7 +155,7 @@ class cli:
       pass  # there's probably just no server gui running
     
     # connect to PCB and sourcemeter
-    l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.sm_address, visaTerminator=args.sm_terminator, visaBaud=args.sm_baud, lightAddress=args.light_address, pcbAddress=args.pcb_address)
+    l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.sm_address, visaTerminator=args.sm_terminator, visaBaud=args.sm_baud, lightAddress=args.light_address, motionAddress=args.motion_address, pcbAddress=args.pcb_address, ignore_adapter_resistors=args.ignore_adapter_resistors)
     
     if args.dummy:
       args.pixel_address = 'A1'
@@ -145,22 +167,22 @@ class cli:
     
     # build up the queue of pixels to run through
     if args.pixel_address is not None:
-      pixel_address_que = self.buildQ(args.pixel_address)
+      pixel_que = self.buildQ(args.pixel_address)
     else:
-      pixel_address_que = []
+      pixel_que = []
 
     if args.test_hardware:
-      if pixel_address_que is []:
+      if pixel_que is []:
         holders_to_test = l.pcb.substratesConnected
       else:
         #turn the address que into a string of substrates
         mash = ''
-        for pix in pixel_address_que:
-          mash = mash + pix[0]
+        for pix in pixel_que:
+          mash = mash + pix[0][0]
         # delete the numbers
         # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
         holders_to_test = ''.join(sorted(set(mash))) # remove dupes
-      l.hardwareTest(holders_to_test)
+      l.hardwareTest(holders_to_test.upper())
     else:  # if we do the hardware test, don't then scan pixels
       #  do run setup things now like diode calibration and opening the data storage file
       if args.calibrate_diodes == True:
@@ -182,16 +204,16 @@ class cli:
       if args.sweep or args.snaith or args.mppt > 0:
         last_substrate = None
         # scan through the pixels and do the requested measurements
-        for pixel_address in pixel_address_que:
-          substrate = pixel_address[0].upper()
-          pix = pixel_address[1]
+        for pixel in pixel_que:
+          substrate = pixel[0][0].upper()
+          pix = pixel[0][1]
           print('\nOperating on substrate {:s}, pixel {:s}...'.format(substrate, pix))
           if last_substrate != substrate:  # we have a new substrate
-            print('New substrate!')
+            print('New substrate using "{:}" layout!'.format(pixel[3]))
             last_substrate = substrate
-            substrate_ready = l.substrateSetup(position=substrate)
+            substrate_ready = l.substrateSetup(position=substrate, variable_name='', variable_value='', layout_name=pixel[3])
       
-          pixel_ready = l.pixelSetup(pix, t_dwell_voc = args.t_prebias)  #  steady state Voc measured here
+          pixel_ready = l.pixelSetup(pixel, t_dwell_voc = args.t_prebias)  #  steady state Voc measured here
           if pixel_ready and substrate_ready:
             
             if type(args.current_compliance_override) == float:
@@ -285,11 +307,13 @@ class cli:
     measure.add_argument('--snaith', type=self.str2bool, default=True, action=self.RecordPref, const = True, help="Do an I-V sweep from Isc --> Voc")
     measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10.0, help="Number of seconds to measure to find steady state Voc and Isc")
     measure.add_argument('--mppt', type=float, action=self.RecordPref, default=37.0, help="Do maximum power point tracking for this many seconds")
-    measure.add_argument('--layout-index', type=int, nargs='*', action=self.RecordPref, default=(0), help="Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(self.system_layouts_file_fullpath))
-    measure.add_argument('--area', type=float, nargs='*', help="Override pixel areas taken from layout (given in cm^2)")
+    measure.add_argument('--layout-index', type=int, nargs='*', action=self.RecordPref, default=[], help="Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(self.system_layouts_file_fullpath))
+    measure.add_argument('--area', type=float, nargs='*', default=[], help="Override pixel areas taken from layout (given in cm^2)")
     
     setup = parser.add_argument_group('optional arguments for setup configuration')
-    setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="protocol://hostname:port for communication with the solar simulator, 'none' for no light")  
+    setup.add_argument("--ignore-adapter-resistors", type=self.str2bool, default=True, action=self.RecordPref, const = True, help="Don't consider the resistor value of adapter boards when determining device layouts")
+    setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0:3334' for starting a wavelabs server on port 3334")
+    setup.add_argument("--motion-address", type=str, action=self.RecordPref, default='none', help="protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0")
     setup.add_argument("--rear", type=self.str2bool, default=True, action=self.RecordPref, help="Use the rear terminals")
     setup.add_argument("--four-wire", type=self.str2bool, default=True, action=self.RecordPref, help="Use four wire mode (the defalt)")
     setup.add_argument("--current-compliance-override", type=float, help="Override current compliance value used diring I-V scans")
@@ -314,21 +338,35 @@ class cli:
   
     return parser.parse_args()
       
-  def buildQ(self, pixel_address_string):
-    """Generates a queue containing pixel addresses we'll run through
+  def buildQ(self, pixel_address_string, areas=None):
+    """
+    Generates a queue containing pixels we'll run through.
+    Each element of the queue is a tuple: (address_string, area, position, layout_name)
+    address_string is a string like A1
+    area is the pixel area in cm^2
+    position is the mm location for the center of the pixel
+    
+    inputs are
+    pixel_address_string, which can just be a list like A1A2B3...or a hex bitmask
+    substrate_definitions, this is a list of dictionaries with keys: 'name', 'areas', 'positions'
+    
     if pixel_address_string starts with 0x, decode it as a hex value where
     a 1 in a position means that pixel is enabled
     the leftmost byte here is for substrate A
+    the leftmost bit is for pixel one
     """
-    q = deque()
+    q = []
     if pixel_address_string[0:2] == '0x':
       bitmask = bytearray.fromhex(pixel_address_string[2:])
       for substrate_index, byte in enumerate(bitmask):
         substrate = chr(substrate_index+ord('A'))
-        for i in range(8):
-          mask =  128 >> i
-          if (byte & mask):
-            q.append(substrate+str(i+1))
+        if (pixel[0] in self.l.pcb.substratesConnected): #  only put good pixels in the queue
+          for i in range(8):
+            mask =  128 >> i
+            if (byte & mask):
+              q.append(substrate+str(i+1))
+        else:
+          print("WARNING! Substrate {:} could not be found".format(substrate))
     else:
       pixels = [pixel_address_string[i:i+2] for i in range(0, len(pixel_address_string), 2)]
       for pixel in pixels:
@@ -336,12 +374,57 @@ class cli:
         if len(pixel) == 2:
           pixel_int = int(pixel[1])
           if (pixel[0] in self.l.pcb.substratesConnected) and (pixel_int >= 1 and pixel_int <= 8):
-            q.append(pixel)  #  only put good pixels in the que
+            q.append(pixel)  #  only put good pixels in the queue
             pixel_in_q = True
         if pixel_in_q == False:
             print("WARNING! Discarded bad pixel address: {:}".format(pixel))
-  
-    return q
+    
+    # now we have a list of pixel addresses, q
+    ret = []
+    if len(q) > 0:
+      using_layouts = {}
+      user_layouts = deque(self.args.layout_index)  # layout indicies given to us by the user
+      substrates = [x[0] for x in q]
+      substrates = sorted(set(substrates))
+      for substrate in substrates:
+        r_value = self.l.pcb.resistors[substrate]
+        valid_layouts = {}
+        for key, value in self.layouts.items():
+          targets = value['adapterboardresistor']
+          for target in targets:
+            if fabric.isWithinPercent(target, r_value) or self.args.ignore_adapter_resistors or target == 0:
+              valid_layouts[key] = value
+              break
+        user_layout = user_layouts[0]  # here's the layout the user selected for this substrate
+        user_layouts.rotate(-1)  # rotate the deque
+        if user_layout in valid_layouts:
+          using_layouts[substrate] = valid_layouts[user_layout]
+          this_layout = valid_layouts[user_layout]
+        elif len(valid_layouts) == 1:
+          using_layouts[substrate] = valid_layouts.popitem()[1]
+        else:
+          raise ValueError("Could not determine the layout for substrate {:}. Use the --layout-index parameter with one of the following values {:}".format(substrate, valid_layouts))
+
+      
+      user_areas = deque(self.args.area)  # device areas given to us by the user
+      for pxad in q:
+        this_substrate = pxad[0]
+        this_pixel = int(pxad[1])
+        area = using_layouts[this_substrate]['pixelareas'][this_pixel]
+        
+        # absolute position for this pixel
+        position = self.l.me.substrate_centers[ord(this_substrate)-ord('A')] + using_layouts[this_substrate]['pixelpositions'][this_pixel]
+        if len(user_areas) > 0:
+          print("WARNING: Overriding pixel {:}'s area value with {:} cm^2".format(user_areas[0]))
+          area = user_areas[0]  # here's the area the user selected for this pixel
+          user_areas.rotate(-1)  # rotate the deque
+        if area == 0:
+          print("INFO: Skipping zero area pixel: {:}".format(pxad))
+        else:
+          final_element = (pxad, area, position, using_layouts[this_substrate]['name'])
+          ret.append(final_element)
+    
+    return deque(ret)
       
   
   def is_dir(self, dirname):

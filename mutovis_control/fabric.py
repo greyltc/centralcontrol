@@ -62,7 +62,7 @@ class fabric:
     else:
       self.__dict__[attr] = value
 
-  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54:23', lightAddress=None, visaTerminator='\n', visaBaud=57600):
+  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54:23', motionAddress=None, lightAddress=None, visaTerminator='\n', visaBaud=57600, ignore_adapter_resistors=False):
     """Forms a connection to the PCB, the sourcemeter and the light engine
     will form connections to dummy instruments if dummy=true
     """
@@ -72,7 +72,7 @@ class fabric:
       self.pcb = mc.virt.pcb()
     else:
       self.sm = mc.k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
-      self.pcb = mc.pcb(address=pcbAddress)
+      self.pcb = mc.pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
       
     self.mppt = mc.mppt(self.sm)
 
@@ -82,11 +82,11 @@ class fabric:
       self.le = mc.illumination(address = lightAddress)
       self.le.connect()
       
-    #if motionAddress == None:
-      #self.me = mc.virt.motion()
-    #else:
-      #self.me = mc.motion(address = motionAddress)
-      #self.me.connect()    
+    if motionAddress == None:
+      self.me = mc.virt.motion()
+    else:
+      self.me = mc.motion(address = motionAddress)
+      self.me.connect()
 
   def getMyHash(short=True):
     thisPath = os.path.dirname(os.path.abspath(__file__))
@@ -142,9 +142,14 @@ class fabric:
       
       ready_to_sweep = False
       
+      # move to center of substrate
+      self.me.goto(self.me.substrate_centers[ord(substrate)-ord('A')])
+      
       for pix in range(8):
-        print(substrate+str(pix+1))
+        pixel_addr = substrate+str(pix+1) 
+        print(pixel_addr)
         if self.pcb.pix_picker(substrate,pix+1):
+          
           if not ready_to_sweep:  # setup the sourcemeter if this is our first pixel
             self.sm.setNPLC(0.01)
             self.sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, start=sweepLow, end=sweepHigh)
@@ -190,48 +195,19 @@ class fabric:
         ret[3] = ret[1]/diode_cal[1]    
     
     return ret
-    
-  def lookupAdapterBoard(self, r):
-    """map resistor value counts to adapter board type
-    TODO: this should all be configured by the user in the prefrences file instead of hardcoded here
+  
+  def isWithinPercent(target, value, percent=10):
     """
-    
-    # adapterBoardTypes = ['Unknown', '28x28 Snaith Legacy', '30x30', '28x28 MRG', '25x25 DBG', '1x1in MIT', 'No Board']
-    # layoutTypes = ['Unknown', '30x30 Two Big', '30x30 One Big', '30x30 Six Small', '28x28 Snaith Legacy', '28x28 MRG', '25x25 DBG-A', '25x25 DBG-B', '25x25 DBG-C', '25x25 DBG-D', '25x25 DBG-E', 'MIT 6x4.8x3.8mm']
+    returns true if value is within percent percent of target, otherwise returns false
+    """
+    lb = target * (100 - percent) / 100
+    ub = target * (100 + percent) / 100
+    ret = False
+    if lb <= value and value <= ub:
+      ret = True
+    return ret
 
-    if r > 900 and r < 1100:
-      self.adapterBoard = '28x28 Snaith Legacy'
-      self.layout = '28x28 Snaith Legacy'
-      #TODO enforce areas
-      pixel_areas = [0.0909, 0.0909, 0.0909, 0.0909, 0.0909, 0.0909, 0.0909, 0.0909]
-    elif r > 40000: # maximum is ~40k
-      self.adapterBoard = 'No Board'
-      self.layout = 'No Board'
-    else:
-      self.adapterBoard = 'Unknown, R={:}'.format(r)
-      self.layout = 'Unknown board, R={:}'.format(r)
-
-  def lookupPixelArea(self, pixel_index):
-    """return pixel area in sq cm given pixel index (also needs sample_layout_type from self)"""
-    # TODO: write this
-
-    if self.sample_layout_type == 1:
-      if pixel_index == 1:
-        area = 1.0
-      elif pixel_index == 2:
-        area = 1.0
-      else:
-        area = 1.0
-    else:
-      area = 1.0
-
-    # take area from cli input (if it's provided)
-    if hasattr(self, 'cli_area'):
-      area = self.cli_area
-
-    return(area)
-
-  def runSetup(self, operator, diode_cal, ignore_diodes=False):
+  def runSetup(self, operator, diode_cal, ignore_diodes=False, run_description=''):
     """
     stuff that needs to be done at the start of a run
     returns intensity tuple of length 4 where [0:1] are the raw ADC counts measured by the PCB's photodiodes
@@ -263,6 +239,9 @@ class fabric:
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
     self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
     self.f.attrs['Format Revision'] = np.string_(self.outputFormatRevision)
+    self.f.attrs['Run Description'] = np.string_(run_description)
+    if not ignore_diodes:
+      self.me.goto(self.me.photodiode_location)
     self.le.on()
     if type(self.le) == mc.illumination:
       time.sleep(0.5) # if this is a real solar sim (not a virtual one), wait half a sec before measuring intensity
@@ -297,29 +276,28 @@ class fabric:
       else:
         print('WARNING: Could not understand archive url')
     
-  def substrateSetup (self, position, suid='', description='', sampleLayoutType = 0):
+  def substrateSetup (self, position, suid='', variable_name='', variable_value='', layout_name=''):
     self.position = position
     if self.pcb.pix_picker(position, 0):
       self.f.create_group(position)
   
       self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
-      self.f[position].attrs['Sample Description'] = np.string_(description)
+      self.f[position].attrs['Variable Name'] = np.string_(variable_name)
+      self.f[position].attrs['Variable Value'] = np.string_(variable_value)
   
-      abResistor = int(self.pcb.get('d'+position))
-      self.f[position].attrs['Sample Adapter Board Resistor Value'] = abResistor
-      self.lookupAdapterBoard(abResistor)
-      self.f[position].attrs['Sample Adapter Board'] = np.string_(self.adapterBoard)
-      self.f[position].attrs['Sample Layout Type'] = np.string_(self.layout)
-      self.sample_layout_type = sampleLayoutType
+      self.f[position].attrs['Sample Adapter Board Resistor Value'] = self.pcb.resistors[position]
+      self.f[position].attrs['Sample Layout Name'] = np.string_(layout_name)
+
       return True
     else:
       return False
 
   def pixelSetup(self, pixel, t_dwell_voc=10):
     """Call this to switch to a new pixel"""
-    self.pixel = str(pixel)
-    if self.pcb.pix_picker(self.position, pixel):
-      self.area = self.lookupPixelArea(pixel)
+    self.pixel = str(pixel[0])
+    if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
+      self.me.goto(pixel[2])  # move stage here
+      self.area = pixel[1]
   
       self.f[self.position].create_group(self.pixel)
       self.f[self.position+'/'+self.pixel].attrs['area'] = self.area * 1e-4  # in m^2

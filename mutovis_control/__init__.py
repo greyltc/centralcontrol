@@ -2,7 +2,7 @@ from .mppt import mppt
 from .k2400 import k2400
 from .put_ftp import put_ftp
 from .illumination import illumination
-# from .motion import motion
+from .motion import motion
 from .pcb import pcb
 from .fabric import fabric
 from . import virt
