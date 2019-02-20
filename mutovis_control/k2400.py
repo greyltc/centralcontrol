@@ -10,8 +10,10 @@ class k2400:
   Intertace for Keithley 2400 sourcemeter
   """
   idnContains = 'KEITHLEY'
+  quiet=False
 
-  def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\n', serialBaud=57600, front=False, twoWire=False):
+  def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\n', serialBaud=57600, front=False, twoWire=False, quiet=False):
+    self.quiet = quiet
     self.readyForAction = False
     self.rm = self._getResourceManager(visa_lib)
 
@@ -54,8 +56,9 @@ class k2400:
       self.backend = 'pyvisa-py'
     else:
       self.backend = vLibPath
-
-    print("Using {:s} pyvisa backend.".format(self.backend))
+    
+    if not self.quiet:
+      print("Using {:s} pyvisa backend.".format(self.backend))
     return rm
 
   def _getSourceMeter(self, rm):
@@ -98,8 +101,9 @@ class k2400:
       raise ValueError("Failed to talk to sourcemeter.")
 
     if self.idnContains in idnString:
-      print("Sourcemeter found:")
-      print(idnString)
+      if not self.quiet:
+        print("Sourcemeter found:")
+        print(idnString)
     else:
       raise ValueError("Got a bad response to *IDN?: {:s}".format(idnString))
 
