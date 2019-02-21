@@ -314,11 +314,11 @@ class cli:
         
   def get_args(self):
     """Get CLI arguments and options"""
-    parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stderr.')
+    parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stdout.')
     
     parser.add_argument('-o', '--operator', type=str, required=True, help='Name of operator')
     parser.add_argument('-r', '--run-description', type=str, required=True, help='Words describing the measurements about to be taken')
-    parser.add_argument('-p', '--experimental-parameter', type=str, nargs='+', action='append', required=True, help="Space seperated experimental parameter name and values. Multiple parameters can be specified by additional uses of '-p'. Use one value per substrate measured. The first item given here is taken to be the parameter name and the rest of the items are taken to be the values for each substrate. eg. '-p Thickness 2m 3m 4m' would attach a Thickness attribute with values 2m 3m and 4m to the first, second and third substrate measured in this run respectively.")
+    parser.add_argument('-p', '--experimental-parameter', type=str, nargs='+', action='append', required=True, help="Space separated experimental parameter name and values. Multiple parameters can be specified by additional uses of '-p'. Use one value per substrate measured. The first item given here is taken to be the parameter name and the rest of the items are taken to be the values for each substrate. eg. '-p Thickness 2m 3m 4m' would attach a Thickness attribute with values 2m 3m and 4m to the first, second and third substrate measured in this run respectively.")
   
     measure = parser.add_argument_group('optional arguments for measurement configuration')
     measure.add_argument('-d', '--destination', help="Directory in which to save the output data, '__tmp__' will use a system default temporary directory", type=self.is_dir, action=self.FullPaths)    
@@ -332,11 +332,11 @@ class cli:
     
     setup = parser.add_argument_group('optional arguments for setup configuration')
     setup.add_argument("--ignore-adapter-resistors", type=self.str2bool, default=True, action=self.RecordPref, const = True, help="Don't consider the resistor value of adapter boards when determining device layouts")
-    setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0:3334' for starting a wavelabs server on port 3334")
+    setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334")
     setup.add_argument("--motion-address", type=str, action=self.RecordPref, default='none', help="protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0")
     setup.add_argument("--rear", type=self.str2bool, default=True, action=self.RecordPref, help="Use the rear terminals")
-    setup.add_argument("--four-wire", type=self.str2bool, default=True, action=self.RecordPref, help="Use four wire mode (the defalt)")
-    setup.add_argument("--current-compliance-override", type=float, help="Override current compliance value used diring I-V scans")
+    setup.add_argument("--four-wire", type=self.str2bool, default=True, action=self.RecordPref, help="Use four wire mode (the default)")
+    setup.add_argument("--current-compliance-override", type=float, help="Override current compliance value used during I-V scans")
     setup.add_argument("--scan-low-override", type=float, help="Override more negative scan voltage value")
     setup.add_argument("--scan-high-override", type=float, help="Override more positive scan voltage value")
     setup.add_argument("--scan-points", type=int, action=self.RecordPref, default = 101, help="Number of measurement points in I-V curve")
