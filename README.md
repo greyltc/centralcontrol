@@ -3,7 +3,13 @@ Software for collecting electrical characterization data for solar cells.
 Intended to be used with the hardware from https://github.com/mutovis/hardware
 
 ## Installation
-
+### For Arch Linux (and derivatives)
+This software is in the Arch User Repository as `python-mutovis-control` so if your favorite AUR helper is yay:
+```
+yay -Syyu python-mutovis-control
+```
+### For everything else
+Probably unsupported/untested.  
 Follow the instructions given in https://github.com/mutovis/deploy/blob/master/README.md
 
 ## Usage
