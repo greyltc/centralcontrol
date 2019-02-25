@@ -16,7 +16,7 @@ setuptools.setup(
     entry_points = {
         'console_scripts': ['mutovis-control-cli=mutovis_control.launch_cli:main'],
     },
-    data_files=[('etc',['config/layouts.ini'])],
+    data_files=[('etc',['config/layouts.ini', 'config/gpib.conf', 'config/wavelabs-relay.service']),('bin',['utilities/wavelabs-relay-server'])],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GPL-3.0",

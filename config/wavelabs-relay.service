@@ -1,11 +1,10 @@
 [Unit]
 Description=Starts the WaveLabs relay server
-ConditionPathExists=/usr/sbin/wavelabs-relay-server.py
 After=network.target
 
 [Service]
 Type=idle
-ExecStart=/usr/sbin/wavelabs-relay-server.py
+ExecStart=wavelabs-relay-server
 
 RestartSec=3
 Restart=always
