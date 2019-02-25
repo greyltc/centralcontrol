@@ -151,3 +151,11 @@ These options tell the program to take a series (or "run") of I-V measurements o
 - record the user name "labuser" into the run data file
 - record a run description of "buffalo thickness study" into the run data file
 - record two experimental variables, thickness and hair color, where thickness for the devices of substrate A is recorded into the run data file as 1.2m and B is 2.4m and where hair color for substrate A is turquoise and substrate B is blond
+
+## Hacking this
+```bash
+git clone https://github.com/mutovis/control-software
+cd control-software
+# do your hacking here
+python3 mutovis-control-cli
+```
