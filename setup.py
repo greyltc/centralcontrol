@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="mutovis-control",
-    version="0.9.8",
+    version="0.9.9",
     author="Grey Christoforo",
     author_email="grey@mutovis.com",
     description="Software for collecting electrical characterization data for solar cells",
@@ -16,7 +16,7 @@ setuptools.setup(
     entry_points = {
         'console_scripts': ['mutovis-control-cli=mutovis_control.cli:run'],
     },
-    data_files=[('config',['etc/layouts.ini'])],
+    data_files=[('etc',['config/layouts.ini'])],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: GPL-3.0",

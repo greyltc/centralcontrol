@@ -8,8 +8,6 @@ from mutovis_control import fabric
 import sys
 import argparse
 import time
-import numpy
-import mpmath
 import os
 import distutils.util
 
