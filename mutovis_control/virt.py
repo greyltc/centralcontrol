@@ -36,6 +36,7 @@ class k2400():
   """
 
   def __init__(self):
+    idn = 'Virtual Sourcemeter'
     self.t0 = time.time()
     self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
 

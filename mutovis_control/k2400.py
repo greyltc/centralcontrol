@@ -11,6 +11,7 @@ class k2400:
   """
   idnContains = 'KEITHLEY'
   quiet=False
+  idn = ''
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\n', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
@@ -88,7 +89,7 @@ class k2400:
       sm.write(':status:preset')
       sm.write(':system:preset')
       # ask the device to identify its self
-      idnString = sm.query('*IDN?')
+      self.idn = sm.query('*IDN?')
     except:
       print('Unable perform "*IDN?" query.')
       exctype, value = sys.exc_info()[:2]
@@ -100,12 +101,12 @@ class k2400:
       print(smCommsMsg)
       raise ValueError("Failed to talk to sourcemeter.")
 
-    if self.idnContains in idnString:
+    if self.idnContains in self.idn:
       if not self.quiet:
         print("Sourcemeter found:")
-        print(idnString)
+        print(self.idn)
     else:
-      raise ValueError("Got a bad response to *IDN?: {:s}".format(idnString))
+      raise ValueError("Got a bad response to *IDN?: {:s}".format(self.idn))
 
     return sm
 

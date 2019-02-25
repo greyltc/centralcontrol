@@ -12,7 +12,7 @@ import mutovis_control as mc
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = "1.7.0"  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.8.0"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
@@ -73,6 +73,7 @@ class fabric:
     else:
       self.sm = mc.k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
       self.pcb = mc.pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
+    self.sm_idn = self.sm.idn
       
     self.mppt = mc.mppt(self.sm)
 
@@ -240,6 +241,7 @@ class fabric:
     self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
     self.f.attrs['Format Revision'] = np.string_(self.outputFormatRevision)
     self.f.attrs['Run Description'] = np.string_(run_description)
+    self.f.attrs['Sourcemeter'] = np.string_(self.sm_idn)
     if not ignore_diodes:
       self.me.goto(self.me.photodiode_location)
     self.le.on()
@@ -296,7 +298,7 @@ class fabric:
 
   def pixelSetup(self, pixel, t_dwell_voc=10):
     """Call this to switch to a new pixel"""
-    self.pixel = str(pixel[0])
+    self.pixel = str(pixel[0][1])
     if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
       self.me.goto(pixel[2])  # move stage here
       self.area = pixel[1]
