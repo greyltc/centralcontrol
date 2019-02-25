@@ -1,5 +1,6 @@
 # control-software
-Software design files for controlling the hardware from https://github.com/mutovis/hardware to perform electrical characterization of research solar cells
+Software for collecting electrical characterization data for solar cells.  
+Intended to be used with the hardware from https://github.com/mutovis/hardware
 
 ## Installation
 
