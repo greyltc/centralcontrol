@@ -463,6 +463,7 @@ class cli:
   def str2bool(self, v):
     return bool(distutils.util.strtobool(v))
   
-def main():
+if __name__ == "__main__":
   cli = cli()
   cli.run()
+

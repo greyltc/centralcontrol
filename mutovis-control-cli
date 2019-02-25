@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import mutovis_control
 
-if __name__ == "__main__":
+def main():
   cli = mutovis_control.cli()
   cli.run()
+
+if __name__ == "__main__":
+  main()
 

@@ -14,7 +14,7 @@ setuptools.setup(
     url="https://github.com/mutovis/control-software",
     packages=setuptools.find_packages(),
     entry_points = {
-        'console_scripts': ['mutovis-control-cli=mutovis_control.cli:run'],
+        'console_scripts': ['mutovis-control-cli=mutovis_control.launch_cli:main'],
     },
     data_files=[('etc',['config/layouts.ini'])],
     classifiers=[
