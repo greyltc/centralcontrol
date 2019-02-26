@@ -115,7 +115,7 @@ class fabric:
       if len(contents) != 3:  # the length will be 3 here if it doesn't contain the hash as position [1]
         myHash = contents[1]
     elif (prefix in top_stack_code_context) and (splitter in top_stack_code_context):
-      myHash = top_stack_code_context.strip().lstrip(prefix).split("==")[1].split("'")[0]
+      myHash = "v"+top_stack_code_context.strip().lstrip(prefix).split("==")[1].split("'")[0]
 
     if short:
       myHash = myHash[:7]
