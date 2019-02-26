@@ -5,6 +5,7 @@ import re
 import os
 import time
 import tempfile
+import inspect
 from collections import deque
 
 import mutovis_control as mc
@@ -44,8 +45,8 @@ class fabric:
     self.saveDir = saveDir
     self.archive_address = archive_address
     
-    self.software_commit_hash = fabric.getMyHash()
-    print('Software commit hash: {:s}'.format(self.software_commit_hash))
+    self.software_revision = fabric.getMyHash()
+    print('Software revision: {:s}'.format(self.software_revision))
 
   def __setattr__(self, attr, value):
     """here we can override what happends when we set an attribute"""
@@ -94,6 +95,10 @@ class fabric:
     projectPath = os.path.join(thisPath, os.path.pardir)
     HEADFile = os.path.join(projectPath, '.git', 'HEAD')
     commit_hashFile = os.path.join(projectPath, 'commit_hash.txt')
+    prefix = "load_entry_point('mutovis-control=="
+    prefix = "load_entry_point"
+    splitter = '=='
+    top_stack_code_context = inspect.stack()[-1].code_context[0]
 
     myHash = 'Unknown'
     if os.path.exists(HEADFile): # are we in a git repo?
@@ -109,6 +114,8 @@ class fabric:
       f.close()
       if len(contents) != 3:  # the length will be 3 here if it doesn't contain the hash as position [1]
         myHash = contents[1]
+    elif (prefix in top_stack_code_context) and (splitter in top_stack_code_context):
+      myHash = top_stack_code_context.strip().lstrip(prefix).split("==")[1].split("'")[0]
 
     if short:
       myHash = myHash[:7]
