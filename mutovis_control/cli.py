@@ -113,7 +113,7 @@ class cli:
       for key, value in this_layout.items():
         if key.startswith('pixel') and len(value) < 8:
           n_padding = 8 - len(value)
-          this_layout[key] = value.append([0.0]*n_padding)  # pad with zeros up to 8 pixels
+          this_layout[key] = value + [0.0]*n_padding  # pad with zeros up to 8 pixels
       index = int(this_layout['index'])
       del(this_layout['index'])
       self.layouts[index] = this_layout
@@ -428,7 +428,7 @@ class cli:
         elif len(valid_layouts) == 1:
           using_layouts[substrate] = valid_layouts.popitem()[1]
         else:
-          raise ValueError("Could not determine the layout for substrate {:}. Use the -i argument with one of the following values {:}".format(substrate, valid_layouts))
+          raise ValueError("Could not determine the layout for substrate {:}. Use the -i argument with one of the following values {:}".format(substrate, list(valid_layouts.keys())))
 
       
       user_areas = deque(self.args.area)  # device areas given to us by the user
