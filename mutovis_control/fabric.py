@@ -13,7 +13,7 @@ import mutovis_control as mc
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
   """
-  outputFormatRevision = "1.8.0"  # tells reader what format to expect for the output file
+  outputFormatRevision = "1.8.1"  # tells reader what format to expect for the output file
   ssVocDwell = 10  # [s] dwell time for steady state voc determination
   ssIscDwell = 10  # [s] dwell time for steady state isc determination
 
@@ -245,7 +245,7 @@ class fabric:
     self.f.attrs['Operator'] = np.string_(operator)
     self.f.attrs['Timestamp'] = time.time()
     self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
-    self.f.attrs['Software Hash'] = np.string_(self.software_commit_hash)
+    self.f.attrs['Control Software Revision'] = np.string_(self.software_revision)
     self.f.attrs['Format Revision'] = np.string_(self.outputFormatRevision)
     self.f.attrs['Run Description'] = np.string_(run_description)
     self.f.attrs['Sourcemeter'] = np.string_(self.sm_idn)
