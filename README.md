@@ -15,7 +15,6 @@ Follow the instructions given in https://github.com/mutovis/deploy/blob/master/R
 ## Usage
 Usage of this program is described by running `mutovis-control-cli --help`: 
 ```
-$ mutovis-control-cli --help
 usage: mutovis-control-cli [-h] -o OPERATOR -r RUN_DESCRIPTION -p
                            EXPERIMENTAL_PARAMETER [EXPERIMENTAL_PARAMETER ...]
                            [-d DESTINATION] [-a PIXEL_ADDRESS] [--sweep SWEEP]
@@ -41,7 +40,7 @@ usage: mutovis-control-cli [-h] -o OPERATOR -r RUN_DESCRIPTION -p
 
 Automated solar cell IV curve collector using a Keithley 24XX sourcemeter.
 Data is written to HDF5 files and human readable messages are written to
-stdout.
+stdout. * denotes arguments that are remembered between calls.
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -62,19 +61,19 @@ optional arguments:
 
 optional arguments for measurement configuration:
   -d DESTINATION, --destination DESTINATION
-                        Directory in which to save the output data, '__tmp__'
+                        *Directory in which to save the output data, '__tmp__'
                         will use a system default temporary directory
   -a PIXEL_ADDRESS, --pixel-address PIXEL_ADDRESS
                         Hexadecimal bit mask for enabled pixels, also takes
                         letter-number pixel addresses "0xFC == A1A2A3A4A5A6"
-  --sweep SWEEP         Do an I-V sweep from Voc --> Isc
-  --snaith SNAITH       Do an I-V sweep from Isc --> Voc
+  --sweep SWEEP         *Do an I-V sweep from Voc --> Isc
+  --snaith SNAITH       *Do an I-V sweep from Isc --> Voc
   --t-prebias T_PREBIAS
-                        Number of seconds to measure to find steady state Voc
+                        *Number of seconds to measure to find steady state Voc
                         and Isc
-  --mppt MPPT           Do maximum power point tracking for this many seconds
+  --mppt MPPT           *Do maximum power point tracking for this many seconds
   -i [LAYOUT_INDEX [LAYOUT_INDEX ...]], --layout-index [LAYOUT_INDEX [LAYOUT_INDEX ...]]
-                        Substrate layout(s) to use for finding pixel areas,
+                        *Substrate layout(s) to use for finding pixel areas,
                         read from layouts.ini file in CWD or
                         /usr/etc/layouts.ini
   --area [AREA [AREA ...]]
@@ -82,21 +81,21 @@ optional arguments for measurement configuration:
 
 optional arguments for setup configuration:
   --ignore-adapter-resistors IGNORE_ADAPTER_RESISTORS
-                        Don't consider the resistor value of adapter boards
+                        *Don't consider the resistor value of adapter boards
                         when determining device layouts
   --light-address LIGHT_ADDRESS
-                        protocol://hostname:port for communication with the
+                        *protocol://hostname:port for communication with the
                         solar simulator, 'none' for no light,
-                        'wavelabs://0:3334' for starting a wavelabs server on
-                        port 3334
+                        'wavelabs://0.0.0.0:3334' for starting a wavelabs
+                        server on port 3334
   --motion-address MOTION_ADDRESS
-                        protocol://hostname:port for communication with the
+                        *protocol://hostname:port for communication with the
                         motion controller, 'none' for no motion,
                         'afms:///dev/ttyAMC0' for an Adafruit Arduino motor
                         shield on /dev/ttyAMC0
-  --rear REAR           Use the rear terminals
+  --rear REAR           *Use the rear terminals
   --four-wire FOUR_WIRE
-                        Use four wire mode (the default)
+                        *Use four wire mode (the default)
   --current-compliance-override CURRENT_COMPLIANCE_OVERRIDE
                         Override current compliance value used during I-V
                         scans
@@ -105,28 +104,28 @@ optional arguments for setup configuration:
   --scan-high-override SCAN_HIGH_OVERRIDE
                         Override more positive scan voltage value
   --scan-points SCAN_POINTS
-                        Number of measurement points in I-V curve
+                        *Number of measurement points in I-V curve
   --scan-nplc SCAN_NPLC
-                        Sourcemeter NPLC setting to use during I-V scans and
+                        *Sourcemeter NPLC setting to use during I-V scans and
                         max power point tracking
   --sm-terminator SM_TERMINATOR
-                        Visa comms read & write terminator (enter in hex)
-  --sm-baud SM_BAUD     Visa serial comms baud rate
+                        *Visa comms read & write terminator (enter in hex)
+  --sm-baud SM_BAUD     *Visa serial comms baud rate
   --sm-address SM_ADDRESS
-                        VISA resource name for sourcemeter
+                        *VISA resource name for sourcemeter
   --pcb-address PCB_ADDRESS
-                        host:port for PCB comms
+                        *host:port for PCB comms
   --calibrate-diodes    Read diode ADC counts now and store those as
                         corresponding to 1.0 sun intensity
   --diode-calibration-values DIODE_CALIBRATION_VALUES DIODE_CALIBRATION_VALUES
-                        Calibration ADC counts for diodes D1 and D2 that
+                        *Calibration ADC counts for diodes D1 and D2 that
                         correspond to 1.0 sun intensity
   --ignore-diodes       Ignore intensity diode readings and assume 1.0 sun
                         illumination
-  --visa-lib VISA_LIB   Path to visa library in case pyvisa can't find it, try
-                        C:\Windows\system32\visa64.dll
+  --visa-lib VISA_LIB   *Path to visa library in case pyvisa can't find it,
+                        try C:\Windows\system32\visa64.dll
   --gui-address GUI_ADDRESS
-                        protocol://host:port for the gui server
+                        *protocol://host:port for the gui server
 
 optional arguments for debugging/testing:
   --dummy               Run in dummy mode (doesn't need sourcemeter, generates
