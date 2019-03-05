@@ -24,7 +24,7 @@ class illumination:
       addr_split = address.split(sep='://', maxsplit=1)
       protocol = addr_split[0]
 
-    if protocol.lower() == 'wavelabs':
+    if protocol.lower().startswith('wavelabs'):
       self.light_engine = wavelabs(address=address)
     elif protocol.lower() == ('ftdi'):
       self.light_engine = Newport(address=address)

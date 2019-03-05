@@ -8,6 +8,9 @@ class Newport:
         self.state = None
         self.address = address
         
+    def __del__(self):
+        self.disconnect()
+        
     def connect(self):
         self.gpio.open_from_url(self.address,direction=self.direction)
         self.state = self.gpio.read()
