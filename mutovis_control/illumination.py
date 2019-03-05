@@ -1,4 +1,6 @@
 from mutovis_control.wavelabs import wavelabs
+from mutovis_control.newport import Newport
+import os
 
 class illumination:
   """
@@ -11,8 +13,21 @@ class illumination:
     """
     sets up communication to light source
     """
-    if address.startswith('wavelabs'):
+    addr_split = address.split(sep='://', maxsplit=1)
+    protocol = addr_split[0]
+    if protocol.lower() == 'env':
+      env_var = addr_split[1]
+      if env_var in os.environ:
+        address = environ.get(env_var)
+      else:
+        raise ValueError("Environment Variable {:} could not be found".format(env_var))
+      addr_split = address.split(sep='://', maxsplit=1)
+      protocol = addr_split[0]
+
+    if protocol.lower() == 'wavelabs':
       self.light_engine = wavelabs(address=address)
+    elif protocol.lower() == ('ftdi'):
+      self.light_engine = Newport(address=address)
       
   def connect(self):
     """
