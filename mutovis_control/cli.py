@@ -435,10 +435,10 @@ class cli:
       for pxad in q:
         this_substrate = pxad[0]
         this_pixel = int(pxad[1])
-        area = using_layouts[this_substrate]['pixelareas'][this_pixel]
+        area = using_layouts[this_substrate]['pixelareas'][this_pixel - 1]
         
         # absolute position for this pixel
-        position = self.l.me.substrate_centers[ord(this_substrate)-ord('A')] + using_layouts[this_substrate]['pixelpositions'][this_pixel]
+        position = self.l.me.substrate_centers[ord(this_substrate)-ord('A')] + using_layouts[this_substrate]['pixelpositions'][this_pixel - 1]
         if len(user_areas) > 0:
           print("WARNING: Overriding pixel {:}'s area value with {:} cm^2".format(user_areas[0]))
           area = user_areas[0]  # here's the area the user selected for this pixel
