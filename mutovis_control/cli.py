@@ -303,7 +303,7 @@ class cli:
         
             if (args.mppt > 0):
               message = 'Tracking maximum power point for {:} seconds'.format(args.mppt)
-              l.track_max_power(args.mppt, message)
+              l.track_max_power(args.mppt, message, extra=args.mppt_params)
   
             l.pixelComplete()
       l.runDone()
@@ -325,6 +325,7 @@ class cli:
     measure.add_argument('--snaith', type=self.str2bool, default=True, action=self.RecordPref, const = True, help="*Do an I-V sweep from Isc --> Voc")
     measure.add_argument('--t-prebias', type=float, action=self.RecordPref, default=10.0, help="*Number of seconds to measure to find steady state Voc and Isc")
     measure.add_argument('--mppt', type=float, action=self.RecordPref, default=37.0, help="*Do maximum power point tracking for this many seconds")
+    measure.add_argument('--mppt-params', type=str, action=self.RecordPref, default='basic://7:10', help="*Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ")
     measure.add_argument('-i', '--layout-index', type=int, nargs='*', action=self.RecordPref, default=[], help="*Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(self.system_layouts_file_fullpath))
     measure.add_argument('--area', type=float, nargs='*', default=[], help="Override pixel areas taken from layout (given in cm^2)")
     

@@ -414,11 +414,11 @@ class fabric:
 
     return sweepValues
 
-  def track_max_power(self, duration=30, message=None, NPLC=-1):
+  def track_max_power(self, duration=30, message=None, NPLC=-1, extra="basic://7:10"):
     if message == None:
       message = 'Tracking maximum power point for {:} seconds'.format(duration)
     self.insertStatus(message)
-    raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC)
+    raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra)
     # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
     qa = np.array([tuple(s) for s in raw], dtype=self.measurement_datatype)
     self.registerMeasurements(qa, 'MPPT')

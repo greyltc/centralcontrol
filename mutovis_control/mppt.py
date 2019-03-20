@@ -6,7 +6,6 @@ class mppt:
   """
   Maximum power point tracker class
   """
-  dwell_time = 10  # number of seconds to spend in the soak phase of a mppt algorithm
   Voc = None
   Isc = None
   Vmpp = None  # voltage at max power point
@@ -41,7 +40,7 @@ class mppt:
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
     
-  def launch_tracker(self, duration=30, callback = None, NPLC=-1):
+  def launch_tracker(self, duration=30, callback = None, NPLC=-1, extra="basic://7:10"):
     """
     general function to call begin a max power point tracking algorithm
     duration given in seconds, optionally calling callback function on each measurement point
@@ -80,30 +79,34 @@ class mppt:
       # if nobody told us otherwise, assume Isc is 10% higher than Impp
       self.Isc = self.Impp * 1.1
   
-    # run the a tracking algorithm
-    pptv = self.really_dumb_tracker(duration, callback)
+    # run a tracking algorithm
+    extra_split = extra.split(sep='://', maxsplit=1)
+    algo = extra_split[0]
+    params = extra_split[1].split(':')
+    params = [float(f) for f in params]
+    if algo == 'basic':
+      pptv = self.really_dumb_tracker(duration, callback, dAngleMax=params[0], dwell_time=params[1])
     
-    run_time = time.time() - self.t0
-    print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
-    print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
+      run_time = time.time() - self.t0
+      print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
+      print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     
-    q.extend(pptv)
+      q.extend(pptv)
     
     return q
     
-  def really_dumb_tracker(self, duration, callback = None):
+  def really_dumb_tracker(self, duration, callback = None, dAngleMax = 7, dwell_time = 10):
     """
     A super dumb maximum power point tracking algorithm that
     alternates between periods of exploration around the mppt and periods of constant voltage dwells
     runs for duration seconds and returns a nx4 deque of the measurements it made
+    dAngleMax, exploration limits, [exploration degrees] (plus and minus)
+    dwell_time, dwell period duration in seconds
     """
     print("===Starting up dumb maximum power point tracking algorithm===")
 
     # work in voltage steps that are this fraction of Voc
     dV = self.Voc / 301
-
-    # set exploration limits, this is probably an important variable
-    dAngleMax = 7 #[exploration degrees] (plus and minus)
     
     q = deque()
     
@@ -198,10 +201,10 @@ class mppt:
       print("Teleporting to Mpp!")
       self.sm.setOutput(Vmpp)
       
-      if time_left < self.dwell_time:
+      if time_left < dwell_time:
         dwell = time_left
       else:
-        dwell = self.dwell_time
+        dwell = dwell_time
         
       print("Dwelling @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp*1000, dwell))
       if callback != None:
