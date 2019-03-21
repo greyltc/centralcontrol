@@ -143,20 +143,19 @@ class mppt:
   def measure(self, v_set):
     """
     sets the voltage and makes a measurement
-    returns abort = true and shuts off the sourcemeter output
-    if the mppt wanders out of the power quadrant
-    this should protect the system from events like sudden open circuit or loss of light
-    causing the mppt to go haywire and asking the sourcemeter for dangerously high or low voltages
+    #returns abort = true and shuts off the sourcemeter output
+    #if the mppt wanders out of the power quadrant
+    #this should protect the system from events like sudden open circuit or loss of light
+    #causing the mppt to go haywire and asking the sourcemeter for dangerously high or low voltages
     """
     self.sm.setOutput(v_set)
     measurement = self.sm.measure()
     [v, i, tx, status] = measurement
-    if v * i > 0:
-      abort = True
-      self.sm.outOn(False)
-      print("WARNING: Stopping max power point tracking because the MPPT algorithm wandered out of the power quadrant")
-    else:
-      abort = False
+    abort = False
+    # if v * i > 0:
+    #  abort = True
+    #  self.sm.outOn(False)
+    #  print("WARNING: Stopping max power point tracking because the MPPT algorithm wandered out of the power quadrant")
     self.q.append(measurement)
     return v, i, abort
 
@@ -202,25 +201,25 @@ class mppt:
         dAngle = angleMpp - thisAngle
         # print("dAngle={:}, highEdgeTouched={:}, lowEdgeTouched={:}".format(dAngle, highEdgeTouched, lowEdgeTouched))
         
-        if dAngle > dAngleMax:
+        if (highEdgeTouched == False) and (dAngle > dAngleMax):
           highEdgeTouched = True
           dV = dV * -1
           print("Reached high voltage edge because angle exceeded")
         
-        if dAngle < -dAngleMax:
+        if (lowEdgeTouched == False) and (dAngle < -dAngleMax):
           lowEdgeTouched = True
           dV = dV * -1
           print("Reached low voltage edge because angle exceeded")
           
         v_set = v_set + dV
         if ((v_set > 0) and (dV > 0)) or ((v_set < 0) and (dV < 0)):  #  walking towards Voc
-          if (dV > 0) and v_set >= Voc:
+          if (highEdgeTouched == False) and (dV > 0) and v_set >= Voc:
             highEdgeTouched = True
             dV = dV * -1 # switch our voltage walking direction
             v_set = v_set + dV
             print("WARNING: Reached high voltage edge because we hit Voc")
             
-          if (dV < 0) and v_set <= Voc:
+          if (lowEdgeTouched == False) and (dV < 0) and v_set <= Voc:
             lowEdgeTouched = True
             dV = dV * -1 # switch our voltage walking direction
             v_set = v_set + dV
@@ -228,13 +227,13 @@ class mppt:
             
           
         else: #  walking towards Jsc
-          if (dV > 0) and v_set >= 0:
+          if (highEdgeTouched == False) and (dV > 0) and v_set >= 0:
             highEdgeTouched = True
             dV = dV * -1 # switch our voltage walking direction
             v_set = v_set + dV
             print("WARNING: Reached low voltage edge because we hit 0V")
             
-          if (dV < 0) and v_set <= 0:
+          if (lowEdgeTouched == False) and (dV < 0) and v_set <= 0:
             lowEdgeTouched = True
             dV = dV * -1 # switch our voltage walking direction
             v_set = v_set + dV
@@ -275,7 +274,7 @@ class mppt:
       else:
         dq = self.sm.measureUntil(t_dwell=dwell)
       Impp = dq[-1][1]
-      q.extend(dq)
+      self.q.extend(dq)
 
       run_time = time.time() - self.t0
     
