@@ -82,19 +82,84 @@ class mppt:
     # run a tracking algorithm
     extra_split = extra.split(sep='://', maxsplit=1)
     algo = extra_split[0]
-    params = extra_split[1].split(':')
-    params = [float(f) for f in params]
+    params = extra_split[1]
+    pptv = []
     if algo == 'basic':
-      pptv = self.really_dumb_tracker(duration, callback, dAngleMax=params[0], dwell_time=params[1])
+      if len(params) == 0: #  use defaults
+        pptv = self.really_dumb_tracker(duration, callback)
+      else:
+        params = params.split(':')
+        params = [float(f) for f in params]      
+        pptv = self.really_dumb_tracker(duration, callback, dAngleMax=params[0], dwell_time=params[1])
+    elif (algo == 'gradient_descent'):
+      if len(params) == 0: #  use defaults
+        pptv = self.gradient_descent(duration, callback)
+      else:
+        alpha = float(params)
+        pptv = self.gradient_descent(duration, callback, alpha=alpha)
+    else:
+      print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
     
-      run_time = time.time() - self.t0
-      print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
-      print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
-    
-      q.extend(pptv)
-    
+    q.extend(pptv)
+    run_time = time.time() - self.t0
+    print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
+    print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
     return q
+  
+  def gradient_descent(self, duration, callback = None, alpha = 0.001):
+    """
+    gradient descent MPPT algorithm
+    alpha is the "learning rate"
+    """
+    print("===Starting up gradient descent maximum power point tracking algorithm===")
+    print("alpha = {:}".format(alpha))
     
+    # initial voltage step size
+    # dV = self.Voc / 1001
+    
+    self.q = deque()
+
+    W = self.Vmpp
+    data = (self.Vmpp, self.Impp)
+    
+    # the loss function we'll use here is just power * -1 so that minimzing loss maximizes power
+    loss = lambda x, y: -1 * x * y 
+    
+    run_time = time.time() - self.t0
+    abort = False
+    while (not abort and (run_time < duration)):
+      v, i, abort = self.measure(W)
+      if v != data[0]: # prevent div by zer
+        gradient = (loss(v, i) - loss(*data)) / (v - data[0])
+        W += -alpha * gradient
+      data = (v, i)
+      run_time = time.time() - self.t0
+    self.Impp = i
+    self.Vmpp = v
+    q = self.q
+    del(self.q)
+    return q
+  
+  def measure(self, v_set):
+    """
+    sets the voltage and makes a measurement
+    returns abort = true and shuts off the sourcemeter output
+    if the mppt wanders out of the power quadrant
+    this should protect the system from events like sudden open circuit or loss of light
+    causing the mppt to go haywire and asking the sourcemeter for dangerously high or low voltages
+    """
+    self.sm.setOutput(v_set)
+    measurement = self.sm.measure()
+    [v, i, tx, status] = measurement
+    if v * i > 0:
+      abort = True
+      self.sm.outOn(False)
+      print("WARNING: Stopping max power point tracking because the MPPT algorithm wandered out of the power quadrant")
+    else:
+      abort = False
+    self.q.append(measurement)
+    return v, i, abort
+
   def really_dumb_tracker(self, duration, callback = None, dAngleMax = 7, dwell_time = 10):
     """
     A super dumb maximum power point tracking algorithm that
@@ -104,19 +169,21 @@ class mppt:
     dwell_time, dwell period duration in seconds
     """
     print("===Starting up dumb maximum power point tracking algorithm===")
+    print("dAngleMax = {:}\ndwell_time = {:}".format(dAngleMax, dwell_time))
 
     # work in voltage steps that are this fraction of Voc
     dV = self.Voc / 301
     
-    q = deque()
+    self.q = deque()
     
     Impp = self.Impp
     Vmpp = self.Vmpp
     Voc = self.Voc
     Isc = self.Isc
     
+    abort = False
     run_time = time.time() - self.t0
-    while (run_time < duration):
+    while (not abort and (run_time < duration)):
       print("Exploring for new Mpp...")
       i_explore = numpy.array(Impp)
       v_explore = numpy.array(Vmpp)
@@ -126,11 +193,8 @@ class mppt:
       v_set = Vmpp
       highEdgeTouched = False
       lowEdgeTouched = False
-      while (not(highEdgeTouched and lowEdgeTouched)):
-        self.sm.setOutput(v_set)
-        measurement = self.sm.measure()
-        [v, i, tx, status] = measurement
-        q.append(measurement)
+      while (not abort and not(highEdgeTouched and lowEdgeTouched)):
+        v, i, abort = self.measure(v_set)
 
         i_explore = numpy.append(i_explore, i)
         v_explore = numpy.append(v_explore, v)
@@ -148,7 +212,6 @@ class mppt:
           dV = dV * -1
           print("Reached low voltage edge because angle exceeded")
           
-        
         v_set = v_set + dV
         if ((v_set > 0) and (dV > 0)) or ((v_set < 0) and (dV < 0)):  #  walking towards Voc
           if (dV > 0) and v_set >= Voc:
@@ -216,6 +279,8 @@ class mppt:
 
       run_time = time.time() - self.t0
     
+    q = self.q
+    del(self.q)
     self.Impp = Impp
     self.Vmpp = Vmpp
     return q
