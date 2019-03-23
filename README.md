@@ -15,7 +15,6 @@ Follow the instructions given in https://github.com/mutovis/deploy/blob/master/R
 ## Usage
 Usage of this program is described by running `mutovis-control-cli --help`: 
 ```
-mutovis-control-cli --help
 usage: mutovis-control-cli [-h] -o OPERATOR -r RUN_DESCRIPTION -p
                            EXPERIMENTAL_PARAMETER [EXPERIMENTAL_PARAMETER ...]
                            [-d DESTINATION] [-a PIXEL_ADDRESS] [--sweep SWEEP]
