@@ -15,11 +15,12 @@ Follow the instructions given in https://github.com/mutovis/deploy/blob/master/R
 ## Usage
 Usage of this program is described by running `mutovis-control-cli --help`: 
 ```
+mutovis-control-cli --help
 usage: mutovis-control-cli [-h] -o OPERATOR -r RUN_DESCRIPTION -p
                            EXPERIMENTAL_PARAMETER [EXPERIMENTAL_PARAMETER ...]
                            [-d DESTINATION] [-a PIXEL_ADDRESS] [--sweep SWEEP]
                            [--snaith SNAITH] [--t-prebias T_PREBIAS]
-                           [--mppt MPPT]
+                           [--mppt MPPT] [--mppt-params MPPT_PARAMS]
                            [-i [LAYOUT_INDEX [LAYOUT_INDEX ...]]]
                            [--area [AREA [AREA ...]]]
                            [--ignore-adapter-resistors IGNORE_ADAPTER_RESISTORS]
@@ -72,6 +73,9 @@ optional arguments for measurement configuration:
                         *Number of seconds to measure to find steady state Voc
                         and Isc
   --mppt MPPT           *Do maximum power point tracking for this many seconds
+  --mppt-params MPPT_PARAMS
+                        *Extra configuration parameters for the maximum power
+                        point tracker, see https://git.io/fjfrZ
   -i [LAYOUT_INDEX [LAYOUT_INDEX ...]], --layout-index [LAYOUT_INDEX [LAYOUT_INDEX ...]]
                         *Substrate layout(s) to use for finding pixel areas,
                         read from layouts.ini file in CWD or
@@ -87,7 +91,8 @@ optional arguments for setup configuration:
                         *protocol://hostname:port for communication with the
                         solar simulator, 'none' for no light,
                         'wavelabs://0.0.0.0:3334' for starting a wavelabs
-                        server on port 3334
+                        server on port 3334, 'env://FTDI_DEVICE' to read the
+                        address from an environment variable named FTDI_DEVICE
   --motion-address MOTION_ADDRESS
                         *protocol://hostname:port for communication with the
                         motion controller, 'none' for no motion,
