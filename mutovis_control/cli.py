@@ -331,8 +331,8 @@ class cli:
     
     setup = parser.add_argument_group('optional arguments for setup configuration')
     setup.add_argument("--ignore-adapter-resistors", type=self.str2bool, default=True, action=self.RecordPref, const = True, help="*Don't consider the resistor value of adapter boards when determining device layouts")
-    setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'env://FTDI_DEVICE' to read the address from an environment variable named FTDI_DEVICE")
-    setup.add_argument("--motion-address", type=str, action=self.RecordPref, default='none', help="*protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0")
+    setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'wavelabs-relay://127.0.0.1:3335' for connecting to a wavelabs-relay server)
+    setup.add_argument("--motion-address", type=str, action=self.RecordPref, default='none', help="*protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0, 'env://FTDI_DEVICE' to read the address from an environment variable named FTDI_DEVICE"")
     setup.add_argument("--rear", type=self.str2bool, default=True, action=self.RecordPref, help="*Use the rear terminals")
     setup.add_argument("--four-wire", type=self.str2bool, default=True, action=self.RecordPref, help="*Use four wire mode (the default)")
     setup.add_argument("--current-compliance-override", type=float, help="Override current compliance value used during I-V scans")
