@@ -29,6 +29,8 @@ class wavelabs:
         self.error_message = attrib['sError']
       if 'sRunID' in attrib:
         self.run_ID = attrib['sRunID']
+      if 'sVal' in attrib:
+        self.paramVal = attrib['sVal']      
 
     def end(self, tag):
       if tag == 'WLRC':
@@ -126,6 +128,54 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Recipe '{:}' could not be activated, check that it exists".format(recipe_name))
+      
+  def waitForResultAvailable(self, timeout=10000):
+    """wait for result from a recipe to be available"""
+    root = ET.Element("WLRC")
+    ET.SubElement(root, 'WaitForResultAvailable', iSeq=str(self.iseq), fTimeout = str(timeout))
+    self.iseq =  self.iseq + 1
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: Failed to wait for result")
+
+  def waitForRunFinished(self, timeout=10000):
+    """wait for the current run to finish"""
+    root = ET.Element("WLRC")
+    ET.SubElement(root, 'WaitForRunFinished', iSeq=str(self.iseq), fTimeout = str(timeout))
+    self.iseq =  self.iseq + 1
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: Failed to wait for run finish")
+      
+  def getRecipeParam(self, recipe_name=default_recipe, step=1, device="Light", param="Intensity"):
+    ret = None
+    root = ET.Element("WLRC")
+    ET.SubElement(root, 'GetRecipeParam', iSeq=str(self.iseq), sRecipe = recipe_name, iStep = str(step), sDevice=device, sParam=param)
+    self.iseq =  self.iseq + 1
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: Failed to get recipe parameter")
+    else:
+      ret = response.paramVal
+    return ret
+  
+  def setRecipeParam(self, recipe_name=default_recipe, step=1, device="Light", param="Intensity", value=100.0):
+    root = ET.Element("WLRC")
+    ET.SubElement(root, 'SetRecipeParam', iSeq=str(self.iseq), sRecipe=recipe_name, iStep=str(step), sDevice=device, sParam=param, sVal=str(value))
+    self.iseq =  self.iseq + 1
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: Failed to set recipe parameter")
+    else:
+      self.activateRecipe(recipe_name=recipe_name)
 
   def on(self):
     """starts the last activated recipe"""
@@ -162,7 +212,23 @@ class wavelabs:
 
 if __name__ == "__main__":
   # wl = wavelabs('wavelabs://0.0.0.0:3334')  # for direct connection
-  wl = wavelabs('wavelabs-relay://0.0.0.0:3335')  #  for comms via relay
+  wl = wavelabs('wavelabs-relay://localhost:3335')  #  for comms via relay
+  print("Connecting to light engine...")
+  wl.connect()
+  old_intensity = wl.getRecipeParam(param="Intensity")
+  old_duration = wl.getRecipeParam(param="Duration")
+  new_intensity = 100.0
+  new_duration = 5 # in seconds
+  if new_duration < 3:
+    raise(ValueError("Pick a new duration larger than 3"))
+  wl.setRecipeParam(param="Duration", value=new_duration*1000)
+  wl.setRecipeParam(param="Intensity", value=new_intensity)
+  
+  duration = wl.getRecipeParam(param="Duration")
+  intensity = wl.getRecipeParam(param="Intensity") 
+  print("Recipe Duration = {:} [s]".format(float(duration)/1000))
+  print("Recipe Intensity = {:} [%]".format(intensity))  
+  
   print('Light turns on in...')
   time.sleep(1)
   print('3...')
@@ -173,9 +239,8 @@ if __name__ == "__main__":
   time.sleep(1)
   print('Now!')
   wl.on()
-  time.sleep(1)
-  print('Light turns off in...')
-  time.sleep(1)
+  print('Light turns off in {:} [s]'.format(new_duration))
+  time.sleep(new_duration-3)
   print('3...')
   time.sleep(1)
   print('2...')
@@ -183,4 +248,14 @@ if __name__ == "__main__":
   print('1...')
   time.sleep(1)
   print('Now!')
-  wl.off()
+  wl.waitForRunFinished()
+  wl.waitForResultAvailable()
+  #wl.off()
+  #wl.activateRecipe()
+  wl.setRecipeParam(param="Intensity", value=old_intensity)
+  wl.setRecipeParam(param="Duration", value=old_duration)
+  
+  duration = wl.getRecipeParam(param="Duration")
+  intensity = wl.getRecipeParam(param="Intensity")
+  print("Recipe Duration = {:} [s]".format(float(duration)/1000))
+  print("Recipe Intensity = {:} [%]".format(intensity))
