@@ -4,6 +4,7 @@ import time
 from collections import deque
 import visa
 import warnings
+import os
 
 class k2400:
   """
@@ -80,7 +81,8 @@ class k2400:
     sm = rm.open_resource(**openParams)
 
     if sm.interface_type == visa.constants.InterfaceType.gpib:
-      sm.send_ifc()
+      if os.name != 'nt':
+        sm.send_ifc()
       sm.clear()
       sm._read_termination = '\n'
 
