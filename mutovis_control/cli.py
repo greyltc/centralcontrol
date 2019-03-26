@@ -94,12 +94,14 @@ class cli:
       else:
         self.args.__setattr__(key, config.get(self.config_section, key))
 
-    # use local layouts if it exists, otherwise use system layouts definition file
+    # layouts.ini search order: 1=cwd, 2=sys.prefix 3=mutovis_control.__path__
     self.layouts_file_used = os.getcwd() + os.path.sep + self.layouts_file_name
     if not os.path.exists(self.layouts_file_used):
       self.layouts_file_used = self.system_layouts_file_fullpath
       if not os.path.exists(self.layouts_file_used):
-        raise ValueError("{:} must be in {:} or in the current working directory".format(self.layouts_file_name, self.system_layouts_file_fullpath))
+        self.layouts_file_used = mutovis_control.__path__ + os.path.sep + self.layouts_file_name
+        if not os.path.exists(self.layouts_file_used):
+          raise ValueError("{:} must be in {:} or in the current working directory or in {:}".format(self.layouts_file_name, self.system_layouts_file_fullpath, mutovis_control.__path__))
     
     layouts_config = configparser.ConfigParser()
     layouts_config.read(self.layouts_file_used)
