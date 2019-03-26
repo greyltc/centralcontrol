@@ -99,7 +99,7 @@ class cli:
     if not os.path.exists(self.layouts_file_used):
       self.layouts_file_used = self.system_layouts_file_fullpath
       if not os.path.exists(self.layouts_file_used):
-        raise ValueError("{:} must be in {:} or in the current working directory".format(self.layouts_file_name, system_layouts_file_fullpath))
+        raise ValueError("{:} must be in {:} or in the current working directory".format(self.layouts_file_name, self.system_layouts_file_fullpath))
     
     layouts_config = configparser.ConfigParser()
     layouts_config.read(self.layouts_file_used)
