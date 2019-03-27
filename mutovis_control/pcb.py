@@ -17,7 +17,8 @@ class pcb:
     ipAddress, port = address.split(':')
     s.connect((ipAddress, int(port)))
     s.settimeout(timeout)
-    pcb.set_keepalive_linux(s) # let's try to keep our connection alive!
+    if os.name != 'nt':
+      pcb.set_keepalive_linux(s) # let's try to keep our connection alive!
     sf = s.makefile("rwb", buffering=0)
 
     self.s = s
