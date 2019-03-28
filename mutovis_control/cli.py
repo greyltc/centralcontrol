@@ -27,12 +27,13 @@ prefs = {} # TODO: figure out how to un-global this
 class cli:
   """the command line interface"""
   appname = 'mutovis_control_software'
-  config_section = 'PREFRENCES'
+  config_section = 'PREFERENCES'
   prefs_file_name = 'prefs.ini'
   config_file_fullpath = appdirs.user_config_dir(appname) + os.path.sep + prefs_file_name
   
   layouts_file_name = 'layouts.ini'  # this file holds the device layout definitions
   system_layouts_file_fullpath = sys.prefix + os.path.sep + 'etc' + os.path.sep + layouts_file_name
+  module_layouts_file_fullpath = os.path.split(os.path.split(inspect.getfile(fabric))[0])[0] + os.path.sep + 'etc' + os.path.sep + layouts_file_name
   
   layouts_file_used = ''
   
@@ -95,15 +96,14 @@ class cli:
       else:
         self.args.__setattr__(key, config.get(self.config_section, key))
 
-    # layouts.ini search order: 1=cwd, 2=sys.prefix 3=mutovis_control.__path__
-    mod_path = os.path.split(os.path.split(inspect.getfile(fabric))[0])[0] + os.path.sep + 'etc' + os.path.sep
+    # layouts.ini search order: 1=cwd, 2=sys.prefix, 3=mutovis_control.__path__
     self.layouts_file_used = os.getcwd() + os.path.sep + self.layouts_file_name
     if not os.path.exists(self.layouts_file_used):
       self.layouts_file_used = self.system_layouts_file_fullpath
       if not os.path.exists(self.layouts_file_used):
-        self.layouts_file_used = mod_path + self.layouts_file_name
+        self.layouts_file_used = module_layouts_file_fullpath
         if not os.path.exists(self.layouts_file_used):
-          raise ValueError("{:} must be in {:} or in the current working directory or in {:}".format(self.layouts_file_name, self.system_layouts_file_fullpath, mod_path))
+          raise ValueError("{:} must be in the current working directory ({:}), or in the system config file location ({:}), or in {:}".format(self.layouts_file_name, os.getcwd(), os.path.split(self.system_layouts_file_fullpath)[0], os.path.split(self.module_layouts_file_fullpath)[0]))
     
     layouts_config = configparser.ConfigParser()
     layouts_config.read(self.layouts_file_used)
