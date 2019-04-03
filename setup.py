@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="mutovis-control",
-    version="1.1.0",
+    version="1.1.3",
     author="Grey Christoforo",
     author_email="grey@mutovis.com",
     description="Software for collecting electrical characterization data for solar cells",
