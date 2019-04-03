@@ -89,14 +89,19 @@ class mppt:
         pptv = self.really_dumb_tracker(duration, callback)
       else:
         params = params.split(':')
-        params = [float(f) for f in params]      
+        if len(params) != 2:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]"))
+        params = [float(f) for f in params]
         pptv = self.really_dumb_tracker(duration, callback, dAngleMax=params[0], dwell_time=params[1])
     elif (algo == 'gradient_descent'):
       if len(params) == 0: #  use defaults
         pptv = self.gradient_descent(duration, callback)
       else:
-        alpha = float(params)
-        pptv = self.gradient_descent(duration, callback, alpha=alpha)
+        params = params.split(':')
+        if len(params) != 2:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]"))        
+        params = [float(f) for f in params]
+        pptv = self.gradient_descent(duration, callback, alpha=params[0], min_step=params[1])
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
     
@@ -106,13 +111,15 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
     return q
   
-  def gradient_descent(self, duration, callback = None, alpha = 0.001):
+  def gradient_descent(self, duration, callback = None, alpha = 10, min_step = 0.001):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
+    min_step is the minimum voltage step size the algorithm will be allowed to take
     """
     print("===Starting up gradient descent maximum power point tracking algorithm===")
-    print("alpha = {:}".format(alpha))
+    print("Learning rate (alpha) = {:}".format(alpha))
+    print("Smallest step (min_step) = {:} [mV]".format(min_step*1000))
     
     # initial voltage step size
     # dV = self.Voc / 1001
@@ -120,19 +127,28 @@ class mppt:
     self.q = deque()
 
     W = self.Vmpp
-    data = (self.Vmpp, self.Impp)
+    last = (self.Vmpp, self.Impp)
     
     # the loss function we'll use here is just power * -1 so that minimzing loss maximizes power
-    loss = lambda x, y: -1 * x * y 
+    loss = lambda x, y: -1 * x * y
+    
+    # get the sign of a number
+    sign = lambda x: (1, -1)[int(x<0)]
     
     run_time = time.time() - self.t0
     abort = False
     while (not abort and (run_time < duration)):
       v, i, abort = self.measure(W)
-      if v != data[0]: # prevent div by zer
-        gradient = (loss(v, i) - loss(*data)) / (v - data[0])
-        W += -alpha * gradient
-      data = (v, i)
+      this = (v, i)
+      if this[0] == last[0]:
+        W += 1e-6 # bump the voltage by a microvolt if we couldn't sense a voltage change (prevents div by zer below)
+      else:
+        gradient = (loss(*this) - loss(*last)) / (this[0] - last[0])
+        v_step = alpha * gradient
+        if (abs(v_step) < min_step) and (min_step > 0): # enforce minimum step size if we're doing that
+          v_step = sign(v_step) * min_step
+        W += v_step
+      last = this #  save the measuerment we just took for comparison in the next loop iteration
       run_time = time.time() - self.t0
     self.Impp = i
     self.Vmpp = v
@@ -168,7 +184,7 @@ class mppt:
     dwell_time, dwell period duration in seconds
     """
     print("===Starting up dumb maximum power point tracking algorithm===")
-    print("dAngleMax = {:}\ndwell_time = {:}".format(dAngleMax, dwell_time))
+    print("dAngleMax = {:}[degrees]\ndwell_time = {:}[s]".format(dAngleMax, dwell_time))
 
     # work in voltage steps that are this fraction of Voc
     dV = self.Voc / 301

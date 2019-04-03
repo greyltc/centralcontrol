@@ -236,11 +236,19 @@ class fabric:
     if not os.path.exists(destinationDir):
       os.makedirs(destinationDir)
 
-    i = 0
-    genFullpath = lambda a: os.path.join(destinationDir,"Run{:d}.h5".format(a))
-    while os.path.exists(genFullpath(i)):
-      i += 1    
-    self.f = h5py.File(genFullpath(i),'x')
+    i = 0 # file name run integer
+    save_file_prefix = "Run"
+    # find the next unused run number
+    files_here = os.listdir(destinationDir)
+    while True:
+      prefix = "{:}_{:}_".format(save_file_prefix, i)
+      prefix_match = any([file.startswith(prefix) for file in files_here])
+      if prefix_match:
+        i += 1
+      else:
+        break
+    save_file_full_path = os.path.join(destinationDir,"{:}{:}.h5".format(prefix, round(time.time())))
+    self.f = h5py.File(save_file_full_path,'x')
     print("Creating file {:}".format(self.f.filename))
     self.f.attrs['Operator'] = np.string_(operator)
     self.f.attrs['Timestamp'] = time.time()
