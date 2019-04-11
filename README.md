@@ -140,6 +140,9 @@ optional arguments for debugging/testing:
                         debug issues
 ```
 
+## Windows support
+This has been tested as working under Windows in a 32bit Anaconda 3.7 environment and with the latest NI-488.2 Runtime drivers from National Instruments (version 18.5.0 as of this writing). This setup should support all NI GPIB interface hardware supported by the NI-488.2 Runtime drivers.
+
 ## Example Usage
 ```
 ./mutovis-control-cli --destination /home/labuser/data --pcb-address 10.42.0.54:23 --sm-address GPIB0::24::INSTR --rear false --four-wire on --light-address wavelabs://0.0.0.0:3334 --motion-address afms:///dev/ttyAMC0 --pixel-address A4B1 --sweep on --snaith on --mppt 37 --layout-index 0 -o labuser -r "buffalo thickness study" -p thickness 1.2m 2.4m -p "hair color" turquoise blond
