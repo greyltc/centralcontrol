@@ -385,7 +385,7 @@ class fabric:
     if length > 0:
       stop = len(self.m) - 1
       start = stop - length + 1
-      print("New region of iterest: [{:},{:}]\t{:s}".format(start, stop, description))
+      print("New region of interest: [{:},{:}]\t{:s}".format(start, stop, description))
       r = np.array((start, stop, description), dtype=self.roi_datatype)
       self.r = np.append(self.r, r)
     else:
