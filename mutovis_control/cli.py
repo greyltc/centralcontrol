@@ -206,6 +206,12 @@ class cli:
       else:
         diode_cal = args.diode_calibration_values
       intensity = l.runSetup(args.operator, diode_cal, ignore_diodes=args.ignore_diodes, run_description=args.run_description)
+
+      # record all arguments into the run file
+      l.f.create_group('args')
+      for attr, value in args.__dict__.items():
+        l.f['args'].attrs[attr] = str(value)
+
       if args.calibrate_diodes == True:
         d1_cal = intensity[0]
         d2_cal = intensity[1]
