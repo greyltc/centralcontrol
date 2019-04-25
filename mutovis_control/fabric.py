@@ -8,7 +8,13 @@ import tempfile
 import inspect
 from collections import deque
 
-import mutovis_control as mc
+import mutovis_control.virt as virt
+from mutovis_control.k2400 import k2400
+from mutovis_control.pcb import pcb
+from mutovis_control.mppt import mppt
+from mutovis_control.illumination import illumination
+from mutovis_control.motion import motion
+from mutovis_control.put_ftp import put_ftp
 
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
@@ -69,25 +75,25 @@ class fabric:
     """
 
     if dummy:
-      self.sm = mc.virt.k2400()
-      self.pcb = mc.virt.pcb()
+      self.sm = virt.k2400()
+      self.pcb = virt.pcb()
     else:
-      self.sm = mc.k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
-      self.pcb = mc.pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
+      self.sm = k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
+      self.pcb = pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
     self.sm_idn = self.sm.idn
       
-    self.mppt = mc.mppt(self.sm)
+    self.mppt = mppt(self.sm)
 
     if lightAddress == None:
-      self.le = mc.virt.illumination()
+      self.le = virt.illumination()
     else:
-      self.le = mc.illumination(address = lightAddress)
+      self.le = illumination(address = lightAddress)
       self.le.connect()
       
     if motionAddress == None:
-      self.me = mc.virt.motion()
+      self.me = virt.motion()
     else:
-      self.me = mc.motion(address = motionAddress)
+      self.me = motion(address = motionAddress)
       self.me.connect()
 
   def getMyHash(short=True):
@@ -260,7 +266,7 @@ class fabric:
     if not ignore_diodes:
       self.me.goto(self.me.photodiode_location)
     self.le.on()
-    if type(self.le) == mc.illumination:
+    if type(self.le) == illumination:
       time.sleep(0.5) # if this is a real solar sim (not a virtual one), wait half a sec before measuring intensity
     if ignore_diodes == True:
       intensity = (1, 1, 1.0, 1.0)
@@ -286,7 +292,7 @@ class fabric:
     self.f.close()
     if self.archive_address is not None:
       if self.archive_address.startswith('ftp://'):
-        with mc.put_ftp(self.archive_address+self.run_dir + '/', pasv=True) as ftp:
+        with put_ftp(self.archive_address+self.run_dir + '/', pasv=True) as ftp:
           with open(this_filename,'rb') as fp:
             ftp.uploadFile(fp)
 

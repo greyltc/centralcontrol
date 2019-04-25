@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="mutovis-control",
-    version="1.1.4",
+    version="1.1.5",
     author="Grey Christoforo",
     author_email="grey@mutovis.com",
     description="Software for collecting electrical characterization data for solar cells",
@@ -14,7 +14,7 @@ setuptools.setup(
     url="https://github.com/mutovis/control-software",
     packages=setuptools.find_packages(),
     entry_points = {
-        'console_scripts': ['mutovis-control-cli=mutovis_control.launch_cli:main'],
+        'console_scripts': ['mutovis-control=mutovis_control.__main__'],
     },
     data_files=[('etc',['config/layouts.ini', 'config/gpib.conf', 'config/wavelabs-relay.service']),('bin',['utilities/wavelabs-relay-server'])],
     classifiers=[

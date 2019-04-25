@@ -3,7 +3,7 @@
 
 # written by grey@mutovis.com
 
-from mutovis_control import fabric
+from mutovis_control.fabric import fabric
 
 import sys
 import argparse
@@ -32,10 +32,15 @@ class cli:
   config_file_fullpath = appdirs.user_config_dir(appname) + os.path.sep + prefs_file_name
   
   layouts_file_name = 'layouts.ini'  # this file holds the device layout definitions
+  # for correct system-wide install
   system_layouts_file_fullpath = sys.prefix + os.path.sep + 'etc' + os.path.sep + layouts_file_name
+  # for weird windows anaconda setup.py install 
   module_layouts_file_fullpath = os.path.split(os.path.split(inspect.getfile(fabric))[0])[0] + os.path.sep + 'etc' + os.path.sep + layouts_file_name
+  # if running from source
+  source_layouts_file_fullpath = os.path.split(os.path.split(inspect.getfile(fabric))[0])[0] + os.path.sep + 'config' + os.path.sep + layouts_file_name
+
   
-  layouts_file_used = ''
+  layouts_file_used = None
   
   archive_address = None  # for archival data backup
   
@@ -96,15 +101,24 @@ class cli:
       else:
         self.args.__setattr__(key, config.get(self.config_section, key))
 
-    # layouts.ini search order: 1=cwd, 2=sys.prefix, 3=mutovis_control.__path__
-    self.layouts_file_used = os.getcwd() + os.path.sep + self.layouts_file_name
-    if not os.path.exists(self.layouts_file_used):
-      self.layouts_file_used = self.system_layouts_file_fullpath
-      if not os.path.exists(self.layouts_file_used):
-        self.layouts_file_used = module_layouts_file_fullpath
-        if not os.path.exists(self.layouts_file_used):
-          raise ValueError("{:} must be in the current working directory ({:}), or in the system config file location ({:}), or in {:}".format(self.layouts_file_name, os.getcwd(), os.path.split(self.system_layouts_file_fullpath)[0], os.path.split(self.module_layouts_file_fullpath)[0]))
+    # layouts.ini file search order: 1=cwd, 2=source/config, 3=sys.prefix, 4=mutovis_control.__path__
+    cwd_layouts_file_fullpath = os.getcwd() + os.path.sep + self.layouts_file_name
+    layouts_file_possible_locations = []
+    layouts_file_possible_locations.append(cwd_layouts_file_fullpath)
+    layouts_file_possible_locations.append(self.source_layouts_file_fullpath)
+    layouts_file_possible_locations.append(self.system_layouts_file_fullpath)
+    layouts_file_possible_locations.append(self.module_layouts_file_fullpath)
+
+    self.layouts_file_used = None
+    for layouts_file in layouts_file_possible_locations:
+      if os.path.exists(layouts_file):
+        self.layouts_file_used = layouts_file
+        break
     
+    if self.layouts_file_used == None:
+      places_searched = [os.path.split(fullpath)[0] for fullpath in layouts_file_possible_locations]
+      raise ValueError("Unable to find layouts.ini file in any of the following palces: {:}".format(str(places_searched)))
+
     layouts_config = configparser.ConfigParser()
     layouts_config.read(self.layouts_file_used)
     self.layouts = {}

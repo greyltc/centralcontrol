@@ -98,10 +98,10 @@ class mppt:
         pptv = self.gradient_descent(duration, callback)
       else:
         params = params.split(':')
-        if len(params) != 2:
-          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]"))        
+        if len(params) != 3:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[fade_in]"))        
         params = [float(f) for f in params]
-        pptv = self.gradient_descent(duration, callback, alpha=params[0], min_step=params[1])
+        pptv = self.gradient_descent(duration, callback, alpha=params[0], min_step=params[1], fade_in=params[2])
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
     
@@ -111,15 +111,17 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
     return q
   
-  def gradient_descent(self, duration, callback = None, alpha = 10, min_step = 0.001):
+  def gradient_descent(self, duration, callback = None, alpha = 10, min_step = 0.001, fade_in = 10):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
     min_step is the minimum voltage step size the algorithm will be allowed to take
+    fade_in is the number of seconds to use to ramp the learning rate from 0 to alpha at the start of the algorithm
     """
     print("===Starting up gradient descent maximum power point tracking algorithm===")
     print("Learning rate (alpha) = {:}".format(alpha))
     print("Smallest step (min_step) = {:} [mV]".format(min_step*1000))
+    print("Ramp up time (fade_in) = {:} [s]".format(fade_in))
     
     # initial voltage step size
     # dV = self.Voc / 1001
@@ -135,21 +137,30 @@ class mppt:
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
     
+    given_alpha = alpha
     run_time = time.time() - self.t0
     abort = False
     while (not abort and (run_time < duration)):
+      # slowly ramp up alpha
+      if run_time < fade_in:
+        alpha = run_time/fade_in * given_alpha
+      else:
+        alpha = given_alpha
+      
+      # apply new voltage and record a measurement
       v, i, abort = self.measure(W)
       this = (v, i)
-      if this[0] == last[0]:
-        W += 1e-6 # bump the voltage by a microvolt if we couldn't sense a voltage change (prevents div by zer below)
+      if this[0] == last[0]: # do nothing if two consecutive voltages are the same (prevents div by zer below)
+        pass
+        #W += 1e-6 # bump the voltage by a microvolt if we couldn't sense a voltage change (prevents div by zer below)
       else:
-        gradient = (loss(*this) - loss(*last)) / (this[0] - last[0])
-        v_step = alpha * gradient
+        gradient = (loss(*this) - loss(*last)) / (this[0] - last[0]) # calculate the slope in the loss function
+        v_step = alpha * gradient # calculate the voltage step size based on alpha and the gradient
         if (abs(v_step) < min_step) and (min_step > 0): # enforce minimum step size if we're doing that
           v_step = sign(v_step) * min_step
-        W += v_step
+        W += v_step # apply voltage step
       last = this #  save the measuerment we just took for comparison in the next loop iteration
-      run_time = time.time() - self.t0
+      run_time = time.time() - self.t0 # recompute runtime
     self.Impp = i
     self.Vmpp = v
     q = self.q
