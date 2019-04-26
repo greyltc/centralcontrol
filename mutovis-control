@@ -1,5 +1,2 @@
 #!/usr/bin/env python3
-from mutovis_control.cli import cli
-
-c = cli()
-c.run()
+import mutovis_control.__main__

@@ -1,10 +1,7 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 # written by grey@mutovis.com
 
 import matplotlib.pyplot as plt
-from control_gui import server
+from mutovis_control.gui.server import server as gui_server
 from collections import deque
 import argparse
 import numpy
@@ -20,7 +17,7 @@ class gui:
   
   def __init__(self):
     self.args = self.get_args()
-    self.server = server(self.args.server_listen_ip, self.args.server_listen_port)
+    self.server = gui_server(self.args.server_listen_ip, self.args.server_listen_port)
     self.server.rpc_server.register_function(self.q_append, name='drop')  #
     # plt.ion()
     

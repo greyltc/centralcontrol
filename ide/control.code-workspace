@@ -4,24 +4,30 @@
 			"path": ".."
 		}
 	],
-	"settings": {},
 	"launch": {
 		"configurations": [
 			{
-				"name": "Python: Module",
+				"name": "Python: Module CLI",
 				"type": "python",
 				"request": "launch",
 				"module": "mutovis_control",
 				"args": [
-					"--operator",
-					"grey",
-					"--run-description",
-					"software testing",
-					"--experimental-parameter",
-					"explode false",
-					"--destination",
-					"~/data"
+					"--operator", "developer",
+					"--run-description", "software testing (code debug)",
+					"--experimental-parameter", "explode", "false",
+					"--destination", "~/data",
+					"--pixel-address","A3",
+					"--layout-index", "1",
+					"--mppt", "37",
+					"--mppt-params", "gradient_descent://10:0.001:10"
 				],
+			},
+			{
+				"name": "Python: Module GUI",
+				"type": "python",
+				"request": "launch",
+				"module": "mutovis_control",
+				"env": {"MUTOVIS_GUI_CONTROL":"true"}
 			}
 		],
 		"compounds": []

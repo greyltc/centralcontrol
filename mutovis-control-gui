@@ -1,6 +1,2 @@
 #!/usr/bin/env python3
-import control_gui
-
-if __name__ == "__main__":
-  gui = control_gui.gui()
-  gui.run()
+import mutovis_control.__main__
