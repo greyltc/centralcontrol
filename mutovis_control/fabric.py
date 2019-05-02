@@ -15,6 +15,7 @@ from mutovis_control.mppt import mppt
 from mutovis_control.illumination import illumination
 from mutovis_control.motion import motion
 from mutovis_control.put_ftp import put_ftp
+import mutovis_control # for __version__
 
 class fabric:
   """ this class contains the sourcemeter and pcb control logic
@@ -51,7 +52,7 @@ class fabric:
     self.saveDir = saveDir
     self.archive_address = archive_address
     
-    self.software_revision = fabric.getMyHash()
+    self.software_revision = mutovis_control.__version__
     print('Software revision: {:s}'.format(self.software_revision))
 
   def __setattr__(self, attr, value):
@@ -95,37 +96,6 @@ class fabric:
     else:
       self.me = motion(address = motionAddress)
       self.me.connect()
-
-  def getMyHash(short=True):
-    thisPath = os.path.dirname(os.path.abspath(__file__))
-    projectPath = os.path.join(thisPath, os.path.pardir)
-    HEADFile = os.path.join(projectPath, '.git', 'HEAD')
-    commit_hashFile = os.path.join(projectPath, 'commit_hash.txt')
-    prefix = "load_entry_point('mutovis-control=="
-    prefix = "load_entry_point"
-    splitter = '=='
-    top_stack_code_context = inspect.stack()[-1].code_context[0]
-
-    myHash = 'Unknown'
-    if os.path.exists(HEADFile): # are we in a git repo?
-      f = open(HEADFile)
-      hashFileLocation = f.readline().splitlines()[0].split()[1].split('/')
-      f.close()
-      f = open(os.path.join(projectPath, '.git', *hashFileLocation))
-      myHash = f.readline().splitlines()[0]
-      f.close()
-    elif os.path.exists(commit_hashFile):  # no git repo? check in commit_hash.txt
-      f = open(commit_hashFile)
-      contents = f.readline().splitlines()[0].split()
-      f.close()
-      if len(contents) != 3:  # the length will be 3 here if it doesn't contain the hash as position [1]
-        myHash = contents[1]
-    elif (prefix in top_stack_code_context) and (splitter in top_stack_code_context):
-      myHash = "v"+top_stack_code_context.strip().lstrip(prefix).split("==")[1].split("'")[0]
-
-    if short:
-      myHash = myHash[:7]
-    return myHash
 
   def hardwareTest(self, substrates_to_test):
     self.le.on()
