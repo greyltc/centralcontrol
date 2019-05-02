@@ -1,2 +1,3 @@
 #!/usr/bin/env python3
-import mutovis_control.__main__
+from mutovis_control import main
+main()

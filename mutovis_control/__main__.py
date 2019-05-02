@@ -11,4 +11,5 @@ def main():
         c = cli()
         c.run()
 
-main()
+if __name__ == "__main__":
+    main()

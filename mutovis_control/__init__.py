@@ -1,6 +1,7 @@
 from setuptools_scm import get_version
 import setuptools_scm_git_archive
 from pkg_resources import get_distribution, DistributionNotFound
+from mutovis_control.__main__ import main
 
 # check if we're running from git or a github archive
 try:
