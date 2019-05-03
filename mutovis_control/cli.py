@@ -3,6 +3,7 @@
 
 # written by grey@mutovis.com
 
+import mutovis_control # for __version__
 from mutovis_control.fabric import fabric
 
 import sys
@@ -170,7 +171,7 @@ class cli:
     Does the measurements
     """
     args = self.args
-  
+
     # create the control entity
     l = fabric(saveDir = args.destination, archive_address=self.archive_address)
     self.l = l
@@ -338,6 +339,7 @@ class cli:
     """Get CLI arguments and options"""
     parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stdout. * denotes arguments that are remembered between calls.')
     
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + mutovis_control.__version__)
     parser.add_argument('-o', '--operator', type=str, required=True, help='Name of operator')
     parser.add_argument('-r', '--run-description', type=str, required=True, help='Words describing the measurements about to be taken')
     parser.add_argument('-p', '--experimental-parameter', type=str, nargs='+', action='append', required=True, help="Space separated experimental parameter name and values. Multiple parameters can be specified by additional uses of '-p'. Use one value per substrate measured. The first item given here is taken to be the parameter name and the rest of the items are taken to be the values for each substrate. eg. '-p Thickness 2m 3m 4m' would attach a Thickness attribute with values 2m 3m and 4m to the first, second and third substrate measured in this run respectively.")

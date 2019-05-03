@@ -14,8 +14,8 @@ setuptools.setup(
     url="https://github.com/mutovis/control-software",
     packages=setuptools.find_packages(),
     entry_points = {
-        'gui_scripts': ['mutovis-control-gui = mutovis_control:main', ],
-        'console_scripts': ['mutovis-control = mutovis_control:main', 'wavelabs-relay-server = util.wavelabs_relay_server' ],
+        'gui_scripts': ['mutovis-control-gui = mutovis_control.__main__:main', ],
+        'console_scripts': ['mutovis-control = mutovis_control.__main__:main', 'wavelabs-relay-server = util.wavelabs_relay_server' ],
     },
     data_files=[('etc',['config/layouts.ini', 'config/gpib.conf', 'config/wavelabs-relay.service'])],
     classifiers=[
