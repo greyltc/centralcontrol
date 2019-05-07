@@ -3,6 +3,7 @@ This software supports several different maximum power point tracking algorithms
 ## basic algorithm
 Alternates between periods of exploration and constant voltage dwelling with dwell period voltage determined by the previous exploration period's voltage at maximum power point.  
 Usage: `--mppt-params basic://[degrees]:[dwell]`  
+just `--mppt-params basic://` runs with the default values  
 __[degrees]__  
 Default = 7   
 Sets the upper (+__[degrees]__) and lower (-__[degrees]__) exploration limits for the exploration phasees of the algorithm. Larger numbers mean wider exploration.  
@@ -13,6 +14,7 @@ Sets the length of the dwell periods of the algorithm in seconds.
 ## gradient descent algorithm
 Uses the difference in power between voltage measurement points to find and stay at peak power output.  
 Usage: `--mppt-params gradient_descent://[alpha]:[min_step]:[fade_in]`  
+just `--mppt-params gradient_descent://` runs with the default values   
 __[alpha]__  
 Default = 10  
 The "learning rate" should be > 0. Higher values mean the algorithm will respond more quickly to changes, but may oscillate or otherwise be unstable around the max power point. Lower values will mean slower response and less instability.  
