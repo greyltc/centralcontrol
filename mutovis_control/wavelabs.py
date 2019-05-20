@@ -21,6 +21,12 @@ class wavelabs:
       self.error = None
       self.error_message = None
       self.run_ID = None
+      # these are for GetDataSeries[]
+      self.this_series = None
+      self.type = []
+      self.unit = []
+      self.name = []
+      self.series = {}
 
     def start(self, tag, attrib):
       if 'iEC' in attrib:
@@ -30,14 +36,29 @@ class wavelabs:
       if 'sRunID' in attrib:
         self.run_ID = attrib['sRunID']
       if 'sVal' in attrib:
-        self.paramVal = attrib['sVal']      
+        self.paramVal = attrib['sVal']
+      if 'sName' in attrib:
+        self.name.append(attrib['sName'])
+      if 'sUnit' in attrib:
+        self.unit.append(attrib['sUnit'])
+      if 'sType' in attrib:
+        self.type.append(attrib['sType'])
+      if tag == 'DataSeries':
+        self.this_series = attrib['sName']
 
     def end(self, tag):
       if tag == 'WLRC':
         self.done_parsing = True
+      if tag == 'DataSeries':
+        series = self.series[self.this_series].split(';')
+        self.series[self.this_series] = [float(x) for x in series]
+        self.this_series = None
 
     def data(self, data):
-      pass
+      if self.this_series in self.series:
+        self.series[self.this_series] = self.series[self.this_series] + data
+      else:
+        self.series[self.this_series] = data
 
     def close(self):
       pass  
@@ -118,6 +139,20 @@ class wavelabs:
     self.connection.connect((self.host, int(self.port)))
     self.sock_file = self.connection.makefile(mode="rwb")
 
+  def startFreeFloat(self, time = 0, intensity_relative = 100, intensity_sensor = 0, channel_nums = ['8'], channel_values=[50.0]):
+    """starts/modifies/ends a free-float run"""
+    root = ET.Element("WLRC")
+    se = ET.SubElement(root, 'StartFreeFloat', iSeq=str(self.iseq), fTime = str(time), fIntensityRelative = str(intensity_relative), fIntensitySensor=str(intensity_sensor))
+    self.iseq =  self.iseq + 1
+    num_chans = len(channel_nums)
+    for i in range(num_chans):
+      ET.SubElement(se, 'Channel', iCh=str(channel_nums[i]), fInt=str(channel_values[i]))
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: FreeFloat command could not be handled")
+
   def activateRecipe(self, recipe_name=default_recipe):
     """activate a solar sim recipe by name"""
     root = ET.Element("WLRC")
@@ -129,10 +164,13 @@ class wavelabs:
     if response.error != 0:
       print("ERROR: Recipe '{:}' could not be activated, check that it exists".format(recipe_name))
       
-  def waitForResultAvailable(self, timeout=10000):
+  def waitForResultAvailable(self, timeout=10000, run_ID=None):
     """wait for result from a recipe to be available"""
     root = ET.Element("WLRC")
-    ET.SubElement(root, 'WaitForResultAvailable', iSeq=str(self.iseq), fTimeout = str(timeout))
+    if run_ID == None:
+      ET.SubElement(root, 'WaitForResultAvailable', iSeq=str(self.iseq), fTimeout = str(timeout))
+    else:
+      ET.SubElement(root, 'WaitForResultAvailable', iSeq=str(self.iseq), fTimeout = str(timeout), sRunID = run_ID)
     self.iseq =  self.iseq + 1
     tree = ET.ElementTree(root)
     tree.write(self.sock_file)
@@ -140,10 +178,13 @@ class wavelabs:
     if response.error != 0:
       print("ERROR: Failed to wait for result")
 
-  def waitForRunFinished(self, timeout=10000):
+  def waitForRunFinished(self, timeout=10000, run_ID=None):
     """wait for the current run to finish"""
     root = ET.Element("WLRC")
-    ET.SubElement(root, 'WaitForRunFinished', iSeq=str(self.iseq), fTimeout = str(timeout))
+    if run_ID == None:
+      ET.SubElement(root, 'WaitForRunFinished', iSeq=str(self.iseq), fTimeout = str(timeout))
+    else:
+      ET.SubElement(root, 'WaitForRunFinished', iSeq=str(self.iseq), fTimeout = str(timeout), sRunID = run_ID)
     self.iseq =  self.iseq + 1
     tree = ET.ElementTree(root)
     tree.write(self.sock_file)
@@ -163,6 +204,32 @@ class wavelabs:
       print("ERROR: Failed to get recipe parameter")
     else:
       ret = response.paramVal
+    return ret
+
+  def getDataSeries(self, step=1, device="LE", curve_name="Irradiance-Wavelength", attributes="raw", run_ID=None):
+    """returns a data series from SinusGUI"""
+    ret = None
+    root = ET.Element("WLRC")
+    if run_ID == None:
+      ET.SubElement(root, 'GetDataSeries', iSeq=str(self.iseq), iStep = str(step), sDevice=device, sCurveName=curve_name, sAttributes=attributes)
+    else:
+      ET.SubElement(root, 'GetDataSeries', iSeq=str(self.iseq), iStep = str(step), sDevice=device, sCurveName=curve_name, sAttributes=attributes, sRunID=run_ID)
+    self.iseq =  self.iseq + 1
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: Failed to get recipe parameter")
+    else:
+      ret = []
+      n_series = len(response.name) # number of data series we got
+      for i in range(n_series):
+        series = {}
+        series['name'] = response.name
+        series['unit'] = response.unit
+        series['type'] = response.type
+        series['data'] = response.series
+        ret.append(series)
     return ret
   
   def setRecipeParam(self, recipe_name=default_recipe, step=1, device="Light", param="Intensity", value=100.0):
@@ -187,6 +254,10 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Recipe could not be started")
+      runID = None
+    else:
+      runID = response.run_ID
+    return runID
 
   def off(self):
     """cancel a currently running recipe"""
@@ -211,8 +282,9 @@ class wavelabs:
       print("ERROR: Could not exit WaveLabs program")     
 
 if __name__ == "__main__":
+  import matplotlib.pyplot as plt
   # wl = wavelabs('wavelabs://0.0.0.0:3334')  # for direct connection
-  wl = wavelabs('wavelabs-relay://localhost:3335')  #  for comms via relay
+  wl = wavelabs('wavelabs-relay://solarsim.lan:3335')  #  for comms via relay
   print("Connecting to light engine...")
   wl.connect()
   old_intensity = wl.getRecipeParam(param="Intensity")
@@ -238,7 +310,8 @@ if __name__ == "__main__":
   print('1...')
   time.sleep(1)
   print('Now!')
-  wl.on()
+  run_ID = wl.on()
+  print('Run ID: {:}'.format(run_ID))
   print('Light turns off in {:} [s]'.format(new_duration))
   time.sleep(new_duration-3)
   print('3...')
@@ -248,8 +321,18 @@ if __name__ == "__main__":
   print('1...')
   time.sleep(1)
   print('Now!')
-  wl.waitForRunFinished()
-  wl.waitForResultAvailable()
+  wl.waitForRunFinished(run_ID = run_ID)
+  wl.waitForResultAvailable(run_ID = run_ID)
+  spectra = wl.getDataSeries(run_ID=run_ID)
+  spectrum = spectra[0]
+  x = spectrum['data']['Wavelenght']
+  y = spectrum['data']['Irradiance']
+  plt.plot(x,y)
+  plt.ylabel('Irradiance')
+  plt.xlabel('Wavelength [nm]')
+  plt.grid(True)
+  plt.show()
+
   #wl.off()
   #wl.activateRecipe()
   wl.setRecipeParam(param="Intensity", value=old_intensity)
@@ -259,3 +342,20 @@ if __name__ == "__main__":
   intensity = wl.getRecipeParam(param="Intensity")
   print("Recipe Duration = {:} [s]".format(float(duration)/1000))
   print("Recipe Intensity = {:} [%]".format(intensity))
+
+  print("Now we do the Christo Disco!")
+  chan_names = ['all']
+  chan_values = [0.0]
+  disco_time = 10000 # [ms]
+  wl.startFreeFloat(time = disco_time, channel_nums = chan_names, channel_values = chan_values)
+  n_chans = 21
+  disco_sleep = disco_time/n_chans
+  disco_val = 75
+  chan_names = [str(x) for x in range(1,n_chans+1)]
+  for i in range(n_chans):
+    print('{:}% on Channel {:}'.format(disco_val, chan_names[i]))
+    chan_values = [0]*n_chans
+    chan_values[i] = disco_val
+    wl.startFreeFloat(time = disco_time, channel_nums=chan_names, channel_values=chan_values)
+    time.sleep(disco_sleep/1000)
+  wl.startFreeFloat() # stop freefloat
