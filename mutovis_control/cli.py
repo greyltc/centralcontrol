@@ -362,8 +362,8 @@ class cli:
     setup.add_argument("--rear", type=self.str2bool, default=True, action=self.RecordPref, help="*Use the rear terminals")
     setup.add_argument("--four-wire", type=self.str2bool, default=True, action=self.RecordPref, help="*Use four wire mode (the default)")
     setup.add_argument("--current-compliance-override", type=float, help="Override current compliance value used during I-V scans")
-    setup.add_argument("--scan-low-override", type=float, help="Override more negative scan voltage value")
-    setup.add_argument("--scan-high-override", type=float, help="Override more positive scan voltage value")
+    setup.add_argument("--scan-low-override", type=float, help="Override the sweep voltage limit on the Jsc side")
+    setup.add_argument("--scan-high-override", type=float, help="Override the scan voltage limit on the Voc side")
     setup.add_argument("--scan-points", type=int, action=self.RecordPref, default = 101, help="*Number of measurement points in I-V curve")
     setup.add_argument("--scan-nplc", type=float, action=self.RecordPref, default = 1, help="*Sourcemeter NPLC setting to use during I-V scans and max power point tracking")  
     setup.add_argument("--sm-terminator", type=str, action=self.RecordPref, default='0A', help="*Visa comms read & write terminator (enter in hex)")
@@ -467,7 +467,7 @@ class cli:
         # absolute position for this pixel
         position = self.l.me.substrate_centers[ord(this_substrate)-ord('A')] + using_layouts[this_substrate]['pixelpositions'][this_pixel - 1]
         if len(user_areas) > 0:
-          print("WARNING: Overriding pixel {:}'s area value with {:} cm^2".format(user_areas[0]))
+          print("WARNING: Overriding pixel {:}'s area value with {:} cm^2".format(pxad, user_areas[0]))
           area = user_areas[0]  # here's the area the user selected for this pixel
           user_areas.rotate(-1)  # rotate the deque
         if area == 0:
