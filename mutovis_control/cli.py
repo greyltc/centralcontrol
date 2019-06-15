@@ -407,7 +407,7 @@ class cli:
       bitmask = bytearray.fromhex(pixel_address_string[2:])
       for substrate_index, byte in enumerate(bitmask):
         substrate = chr(substrate_index+ord('A'))
-        if (pixel[0] in self.l.pcb.substratesConnected): #  only put good pixels in the queue
+        if (substrate in self.l.pcb.substratesConnected): #  only put good pixels in the queue
           for i in range(8):
             mask =  128 >> i
             if (byte & mask):
