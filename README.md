@@ -15,28 +15,29 @@ Follow the instructions given in https://github.com/mutovis/deploy/blob/master/R
 ## Usage
 Usage of this program is described by running `mutovis-control-cli --help`: 
 ```
-usage: mutovis-control-cli [-h] -o OPERATOR -r RUN_DESCRIPTION -p
-                           EXPERIMENTAL_PARAMETER [EXPERIMENTAL_PARAMETER ...]
-                           [-d DESTINATION] [-a PIXEL_ADDRESS] [--sweep SWEEP]
-                           [--snaith SNAITH] [--t-prebias T_PREBIAS]
-                           [--mppt MPPT] [--mppt-params MPPT_PARAMS]
-                           [-i [LAYOUT_INDEX [LAYOUT_INDEX ...]]]
-                           [--area [AREA [AREA ...]]]
-                           [--ignore-adapter-resistors IGNORE_ADAPTER_RESISTORS]
-                           [--light-address LIGHT_ADDRESS]
-                           [--motion-address MOTION_ADDRESS] [--rear REAR]
-                           [--four-wire FOUR_WIRE]
-                           [--current-compliance-override CURRENT_COMPLIANCE_OVERRIDE]
-                           [--scan-low-override SCAN_LOW_OVERRIDE]
-                           [--scan-high-override SCAN_HIGH_OVERRIDE]
-                           [--scan-points SCAN_POINTS] [--scan-nplc SCAN_NPLC]
-                           [--sm-terminator SM_TERMINATOR] [--sm-baud SM_BAUD]
-                           [--sm-address SM_ADDRESS]
-                           [--pcb-address PCB_ADDRESS] [--calibrate-diodes]
-                           [--diode-calibration-values DIODE_CALIBRATION_VALUES DIODE_CALIBRATION_VALUES]
-                           [--ignore-diodes] [--visa-lib VISA_LIB]
-                           [--gui-address GUI_ADDRESS] [--dummy] [--scan]
-                           [--test-hardware]
+usage: mutovis-control [-h] [-v] -o OPERATOR -r RUN_DESCRIPTION -p
+                       EXPERIMENTAL_PARAMETER [EXPERIMENTAL_PARAMETER ...]
+                       [-d DESTINATION] [-a PIXEL_ADDRESS] [--sweep SWEEP]
+                       [--snaith SNAITH] [--t-prebias T_PREBIAS] [--mppt MPPT]
+                       [--mppt-params MPPT_PARAMS]
+                       [-i [LAYOUT_INDEX [LAYOUT_INDEX ...]]]
+                       [--area [AREA [AREA ...]]]
+                       [--ignore-adapter-resistors IGNORE_ADAPTER_RESISTORS]
+                       [--light-address LIGHT_ADDRESS]
+                       [--motion-address MOTION_ADDRESS] [--rear REAR]
+                       [--four-wire FOUR_WIRE]
+                       [--voltage-compliance-override VOLTAGE_COMPLIANCE_OVERRIDE]
+                       [--current-compliance-override CURRENT_COMPLIANCE_OVERRIDE]
+                       [--scan-low-override SCAN_LOW_OVERRIDE]
+                       [--scan-high-override SCAN_HIGH_OVERRIDE]
+                       [--scan-points SCAN_POINTS] [--scan-nplc SCAN_NPLC]
+                       [--sm-terminator SM_TERMINATOR] [--sm-baud SM_BAUD]
+                       [--sm-address SM_ADDRESS] [--pcb-address PCB_ADDRESS]
+                       [--calibrate-diodes]
+                       [--diode-calibration-values DIODE_CALIBRATION_VALUES DIODE_CALIBRATION_VALUES]
+                       [--ignore-diodes] [--visa-lib VISA_LIB]
+                       [--gui-address GUI_ADDRESS] [--dummy] [--scan]
+                       [--test-hardware]
 
 Automated solar cell IV curve collector using a Keithley 24XX sourcemeter.
 Data is written to HDF5 files and human readable messages are written to
@@ -44,6 +45,7 @@ stdout. * denotes arguments that are remembered between calls.
 
 optional arguments:
   -h, --help            show this help message and exit
+  -v, --version         show program's version number and exit
   -o OPERATOR, --operator OPERATOR
                         Name of operator
   -r RUN_DESCRIPTION, --run-description RUN_DESCRIPTION
@@ -90,23 +92,28 @@ optional arguments for setup configuration:
                         *protocol://hostname:port for communication with the
                         solar simulator, 'none' for no light,
                         'wavelabs://0.0.0.0:3334' for starting a wavelabs
-                        server on port 3334, 'env://FTDI_DEVICE' to read the
-                        address from an environment variable named FTDI_DEVICE
+                        server on port 3334, 'wavelabs-relay://127.0.0.1:3335'
+                        for connecting to a wavelabs-relay server
   --motion-address MOTION_ADDRESS
                         *protocol://hostname:port for communication with the
                         motion controller, 'none' for no motion,
                         'afms:///dev/ttyAMC0' for an Adafruit Arduino motor
-                        shield on /dev/ttyAMC0
+                        shield on /dev/ttyAMC0, 'env://FTDI_DEVICE' to read
+                        the address from an environment variable named
+                        FTDI_DEVICE
   --rear REAR           *Use the rear terminals
   --four-wire FOUR_WIRE
                         *Use four wire mode (the default)
+  --voltage-compliance-override VOLTAGE_COMPLIANCE_OVERRIDE
+                        Override voltage complaince setting used during Voc
+                        measurement
   --current-compliance-override CURRENT_COMPLIANCE_OVERRIDE
                         Override current compliance value used during I-V
                         scans
   --scan-low-override SCAN_LOW_OVERRIDE
-                        Override more negative scan voltage value
+                        Override the sweep voltage limit on the Jsc side
   --scan-high-override SCAN_HIGH_OVERRIDE
-                        Override more positive scan voltage value
+                        Override the scan voltage limit on the Voc side
   --scan-points SCAN_POINTS
                         *Number of measurement points in I-V curve
   --scan-nplc SCAN_NPLC
