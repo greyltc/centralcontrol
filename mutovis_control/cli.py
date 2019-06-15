@@ -254,7 +254,7 @@ class cli:
 
             substrate_ready = l.substrateSetup(position=substrate, variable_pairs=variable_pairs, layout_name=pixel[3])
       
-          pixel_ready = l.pixelSetup(pixel, t_dwell_voc = args.t_prebias)  #  steady state Voc measured here
+          pixel_ready = l.pixelSetup(pixel, t_dwell_voc = args.t_prebias, voltage_compliance = args.voltage_compliance_override)  #  steady state Voc measured here
           if pixel_ready and substrate_ready:
             
             if type(args.current_compliance_override) == float:
@@ -361,6 +361,7 @@ class cli:
     setup.add_argument("--motion-address", type=str, action=self.RecordPref, default='none', help="*protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0, 'env://FTDI_DEVICE' to read the address from an environment variable named FTDI_DEVICE")
     setup.add_argument("--rear", type=self.str2bool, default=True, action=self.RecordPref, help="*Use the rear terminals")
     setup.add_argument("--four-wire", type=self.str2bool, default=True, action=self.RecordPref, help="*Use four wire mode (the default)")
+    setup.add_argument("--voltage-compliance-override", default=2, type=float, help="Override voltage complaince setting used during Voc measurement")
     setup.add_argument("--current-compliance-override", type=float, help="Override current compliance value used during I-V scans")
     setup.add_argument("--scan-low-override", type=float, help="Override the sweep voltage limit on the Jsc side")
     setup.add_argument("--scan-high-override", type=float, help="Override the scan voltage limit on the Voc side")
