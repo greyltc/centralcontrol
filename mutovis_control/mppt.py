@@ -282,18 +282,18 @@ class mppt:
       print("That's {:.6f} degrees different from the previous Mpp.".format(dFromLastMppAngle))
       
       run_time = time.time() - self.t0
-      time_left = duration - run_time
+      #time_left = duration - run_time
       
-      if time_left <= 0:
-        break
+      #if time_left <= 0:
+      #  break
       
       print("Teleporting to Mpp!")
       self.sm.setOutput(Vmpp)
       
-      if time_left < dwell_time:
-        dwell = time_left
-      else:
-        dwell = dwell_time
+      #if time_left < dwell_time:
+      #  dwell = time_left
+      #else:
+      dwell = dwell_time
         
       print("Dwelling @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp*1000, dwell))
       if callback != None:
