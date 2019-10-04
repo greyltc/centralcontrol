@@ -323,8 +323,9 @@ class cli:
         
               sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
               l.registerMeasurements(sv, 'Snaith')
-              (Pmax, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
-              l.mppt.Vmpp = Vmpp
+              (Pmax_snaith, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+              if abs(Pmax_snaith) > abs(Pmax_sweep):
+                l.mppt.Vmpp = Vmpp
         
             if (args.mppt > 0):
               message = 'Tracking maximum power point for {:} seconds'.format(args.mppt)
