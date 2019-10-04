@@ -279,7 +279,7 @@ class cli:
               sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='a', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
               l.registerMeasurements(sv, 'Sweep')
               
-              (Pmax, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+              (Pmax_sweep, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
               l.mppt.Vmpp = Vmpp
               
               if type(args.current_compliance_override) == float:
