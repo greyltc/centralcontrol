@@ -7,4 +7,7 @@ sudo pacman -Sy --needed \
 
 # install unofficial ones
 yay -Sy --needed \
-	python-pyftdi
+	python-pyftdi \
+	python-setuptools-scm-git-archive \
+	python-pyvisa-py-git \ # change this to non-git once a release is cut
+	python-pyvisa-git # change this to non-git once a release is cut

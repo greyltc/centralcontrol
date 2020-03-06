@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import socket
 import os
 
@@ -5,7 +7,7 @@ class pcb:
   """
   Interface for talking to my control PCB
   """
-  write_terminator = '\r'
+  write_terminator = '\r\n'
   read_terminator = b'\r\n'
   prompt = '>>> '
   substrateList = 'HGFEDCBA'  # all the possible substrates
@@ -15,23 +17,27 @@ class pcb:
   def __init__(self, address, ignore_adapter_resistors=False):
     timeout = 10  # pcb has this many seconds to respond
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    ipAddress, port = address.split(':')
-    s.connect((ipAddress, int(port)))
+    addr_split = address.split(':')
+    if len(addr_split) == 1:
+        port = 23  # default port
+        host = addr_split[0]
+    else:
+        host, port = address.split(':')
     s.settimeout(timeout)
+    s.connect((socket.gethostbyname(host), int(port)))
     if os.name != 'nt':
-      pcb.set_keepalive_linux(s) # let's try to keep our connection alive!
+      pcb.set_keepalive_linux(s)  # let's try to keep our connection alive!
     sf = s.makefile("rwb", buffering=0)
 
     self.s = s
     self.sf = sf
 
-    self.write('v') # check on switch
-    answer, win = self.getResponse()
+    welcome_message, win = self.getResponse()
 
     if not win:
-      raise ValueError('Got bad response from switch')
-    else:
-      print('Connected to control PCB with ' + answer)
+      raise ValueError('Did not see welcome message from pcb')
+    
+    print(f"Connected to control PCB running firmware version {self.get('v')}")
 
     substrates = self.substrateSearch()
     resistors = {}  # dict of measured resistor values where the key is the associated substrate
@@ -65,8 +71,8 @@ class pcb:
     win = False
     for i in range(len(substrates)):
       cmd = "c" + substrates[i]
-      answer, win = self.query(cmd)
-      if answer == "MUX OK":
+      answer = self.get(cmd)
+      if answer == "":  # empty answer means mux board found
         found |= 0x01 << (7-i)
     return found
 
@@ -102,34 +108,26 @@ class pcb:
   # the bool tells us if the read completed successfully
   def getResponse(self):
     sf = self.sf
-    line = None
-    win = False
-    try:
-      line = sf.readline()
-      if line.endswith(self.read_terminator):
-        line = line[:-len(self.read_terminator)].decode() # strip off the terminator and decode
-      else:
-        print("WARNING: Didn't find expected terminator during read")
-      maybePrompt = sf.read(1) + sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
-      if maybePrompt.decode() == self.prompt:
-        win = True
-      else: # it's not the prompt, so let's finish the line
-        theRest = sf.readline()
-        line = maybePrompt + theRest
-        if line.endswith(self.read_terminator):
-          line = line[:-len(self.read_terminator)].decode() # strip off the terminator and decode
-          maybePrompt = sf.read(1) +  sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
-          if maybePrompt.decode() == self.prompt:
-            win = True
-          else:
-            print("WARNING: Expected this to be a prompt:")
-            print(maybePrompt)
-        else:
-          print("WARNING: Didn't find expected terminator during read")
+    result = None
+    found_prompt = False
 
+    try:
+      maybePrompt = sf.read(1) + sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
+      while found_prompt == False:
+        if result is None:
+          result = b""
+        if maybePrompt.decode() == self.prompt:
+          found_prompt = True
+          break
+        else:  # it's not the prompt, so let's keep reading
+          theRest = sf.readline()
+          result = result + maybePrompt + theRest
+          maybePrompt = sf.read(1) + sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
     except:
       pass
-    return line, win
+    if result is not None:
+      result = result.decode().rstrip() # strip off the final terminator and decode
+    return result, found_prompt
 
   def write(self, cmd):
     sf = self.sf
@@ -139,9 +137,11 @@ class pcb:
     sf.write(cmd.encode())
     sf.flush()
 
+
   def query(self, query):
     self.write(query)
     return self.getResponse()
+
 
   def get(self, cmd):
     """sends cmd to the pcb and returns the relevant command response
@@ -155,16 +155,20 @@ class pcb:
       raise (ValueError, "Failure while talking to PCB")
 
     if ready:
-      if answer.startswith('AIN'):
-        ret = answer.split(' ')[1]
-      elif answer.startswith('Board'):
-        ret = int(answer.split(' ')[5])
-      elif answer.startswith('Firmware'):
-        ret = answer.split(' ')[2]
-      elif answer.startswith('Photodiode'):
-        ret = int(answer.split(' ')[3])
-      else:
-        print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
+      # parse by question
+      if cmd == 'v':
+        ret = answer
+      elif cmd.startswith('p'):
+        ret = int(answer)
+      elif cmd.startswith('c'):
+        ret = answer
+      else:  # parse by answer
+        if answer.startswith('AIN'):
+          ret = answer.split(' ')[1]
+        elif answer.startswith('Board'):
+          ret = int(answer.split(' ')[5])
+        else:
+          print(f'WARNING: Got unexpected response form PCB to "{cmd}": {answer}')
     else:
       raise (ValueError, "Comms are out of sync with the PCB")
 
@@ -208,3 +212,10 @@ class pcb:
     TCP_KEEPALIVE = 0x10
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, interval_sec)  
+
+
+# testing
+if __name__ == "__main__":
+  pcb_address = 'WIZnet111785'
+  p = pcb(pcb_address, ignore_adapter_resistors=True)
+  print(f"PD1 COUNTS = {p.getADCCounts(1)}")

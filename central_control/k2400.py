@@ -2,7 +2,7 @@ import sys
 import numpy as np
 import time
 from collections import deque
-import visa
+import pyvisa as visa
 import warnings
 import os
 

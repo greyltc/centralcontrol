@@ -7,6 +7,13 @@
 	"launch": {
 		"configurations": [
 			{
+				"name": "Python: Current File",
+				"type": "python",
+				"request": "launch",
+				"program": "${file}",
+				"console": "integratedTerminal"
+			},
+			{
 				"name": "Python: Module CLI",
 				"type": "python",
 				"request": "launch",
@@ -31,5 +38,8 @@
 			}
 		],
 		"compounds": []
+	},
+	"settings": {
+		"python.pythonPath": "/home/grey/.platformio/penv/bin/python"
 	}
 }
