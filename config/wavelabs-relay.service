@@ -1,0 +1,13 @@
+[Unit]
+Description=Starts the WaveLabs relay server
+After=network.target
+
+[Service]
+Type=idle
+ExecStart=wavelabs-relay-server
+
+RestartSec=3
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
