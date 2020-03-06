@@ -10,7 +10,7 @@
 				"name": "Python: Module CLI",
 				"type": "python",
 				"request": "launch",
-				"module": "mutovis_control",
+				"module": "central_control",
 				"args": [
 					"--operator", "developer",
 					"--run-description", "software testing (code debug)",
@@ -26,8 +26,8 @@
 				"name": "Python: Module GUI",
 				"type": "python",
 				"request": "launch",
-				"module": "mutovis_control",
-				"env": {"MUTOVIS_GUI_CONTROL":"true"}
+				"module": "central_control",
+				"env": {"CENTRAL_GUI_CONTROL":"true"}
 			}
 		],
 		"compounds": []

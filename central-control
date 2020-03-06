@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from central_control.__main__ import main
+main()
+
