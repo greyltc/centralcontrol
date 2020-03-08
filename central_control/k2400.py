@@ -331,11 +331,11 @@ class k2400:
     else:
       print('Bus commands can only be sent over GPIB')
 
-  def measure(self):
+  def measure(self, nPoints=1):
     """Makes a measurement and returns the result
     """
     if self.sm.interface_type == visa.constants.InterfaceType.gpib:
-      vals = self.sm.read_binary_values()
+      vals = self.sm.read_binary_values(data_points=nPoints*4)
     else:
       vals = self.sm.query_ascii_values(':read?')
     return vals
@@ -354,3 +354,51 @@ class k2400:
       q.append(measurement)
       cb(measurement)
     return q
+
+# testing code
+if __name__ == "__main__":
+  import pandas as pd
+
+  # connect to our instrument and use the front terminals
+  k = k2400(addressString='GPIB0::24::INSTR', front=True) # gpib address strings expect the thing to be configured for 488.1 comms
+  
+  # setup DC measurement
+  forceV = 0
+  k.setupDC(setPoint=forceV)
+
+  # this sets up the trigger/reading method we'll use below
+  k.write(':arm:source immediate') 
+  
+  # measure 
+  mTime = 3
+  q_dc = k.measureUntil(t_dwell=mTime)
+
+  # create a custom data type to hold our data
+  measurement_datatype = np.dtype({'names': ['voltage','current','time','status'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
+  
+  # convert the data to a numpy array
+  qa_dc = np.array([tuple(s) for s in q_dc], dtype=measurement_datatype)
+  #print (qa_dc)
+
+  # convert the data to a pandas dataframe and print it
+  qf_dc = pd.DataFrame(qa_dc)
+  print(f"===== DC V={forceV} for {mTime} seconds =====")
+  print(qf_dc.to_string())
+
+  # now for a 101 point voltage sweep from 0 --> 1V
+  numPoints = 101
+  startV = 0
+  endV = 1
+  k.setupSweep(compliance=0.01, nPoints=numPoints, start=startV, end=endV)  # set the sweep up
+  q_sw = k.measure(nPoints = numPoints) # make the measurement
+
+  # convert the result to a numpy array
+  qa_sw = np.array(list(zip(*[iter(q_sw)]*4)), dtype=measurement_datatype)
+
+  # convert the result to a pandas dataframe and print it
+  qf_sw = pd.DataFrame(qa_sw)
+  print(f"===== {numPoints} point sweep from V={startV} to V={endV} =====")
+  print(qf_sw.to_string())
+
+# shut off the output
+  k.outOn(False)

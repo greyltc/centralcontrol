@@ -152,7 +152,7 @@ This has been tested as working under Windows in a 32bit Anaconda 3.7 environmen
 
 ## Example Usage
 ```
-cantral-control --destination /home/labuser/data --pcb-address 10.42.0.54:23 --sm-address GPIB0::24::INSTR --rear false --four-wire on --light-address wavelabs://0.0.0.0:3334 --motion-address afms:///dev/ttyAMC0 --pixel-address A4B1 --sweep on --snaith on --mppt 37 --layout-index 0 -o labuser -r "buffalo thickness study" -p thickness 1.2m 2.4m -p "hair color" turquoise blond
+central-control --destination /home/labuser/data --pcb-address 10.42.0.54:23 --sm-address GPIB0::24::INSTR --rear false --four-wire on --light-address wavelabs://0.0.0.0:3334 --motion-address afms:///dev/ttyAMC0 --pixel-address A4B1 --sweep on --snaith on --mppt 37 --layout-index 0 -o labuser -r "buffalo thickness study" -p thickness 1.2m 2.4m -p "hair color" turquoise blond
 ```
 These options tell the program to take a series (or "run") of I-V measurements on various pixels and
 - save output data in the `/home/labuser/data` folder

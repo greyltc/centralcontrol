@@ -3,6 +3,7 @@
 import socket
 import os
 
+
 class pcb:
   """
   Interface for talking to my control PCB
@@ -36,7 +37,7 @@ class pcb:
 
     if not win:
       raise ValueError('Did not see welcome message from pcb')
-    
+
     print(f"Connected to control PCB running firmware version {self.get('v')}")
 
     substrates = self.substrateSearch()
@@ -102,6 +103,7 @@ class pcb:
       raise (ValueError, "Comms are out of sync with the PCB")
 
     return win
+
 
   # returns string, bool
   # the string is the response

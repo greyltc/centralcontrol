@@ -10,4 +10,6 @@ yay -Sy --needed \
 	python-pyftdi \
 	python-setuptools-scm-git-archive \
 	python-pyvisa-py-git \ # change this to non-git once a release is cut
-	python-pyvisa-git # change this to non-git once a release is cut
+	python-pyvisa \ # change this to non-git once a release is cut (actually -git is broken now)
+	linux-gpib-svn \
+	python-gpib-ctypes

@@ -1,8 +1,9 @@
 from central_control.afms import afms
+from central_control.native_motion import native_motion
 
 class motion:
   """
-  generic class for handling substrate movement under the light source
+  generic class for handling substrate movement
   """
   motion_engine = None
   
@@ -10,14 +11,20 @@ class motion:
   substrate_centers = [160, 140, 120, 100, 80, 60, 40, 20]  # mm from home to the centers of A, B, C, D, E, F, G, H substrates
   photodiode_location = 180  # mm  
 
-  def __init__(self, address=''):
+  def __init__(self, address='', pcb_object = None):
     """
     sets up communication to motion controller
     """
-    if address.startswith('afms'):
+    if address.startswith('afms'):  # adafruit motor shield
       self.motion_engine = afms(address=address)
       self.substrate_centers = self.motion_engine.substrate_centers
       self.photodiode_location = self.motion_engine.photodiode_location
+    elif address.startswith('us'):  # uStepperS via i2c via ethernet connected pcb
+      self.motion_engine = native_motion(address=address)
+      self.substrate_centers = self.motion_engine.substrate_centers
+      self.photodiode_location = self.motion_engine.photodiode_location
+
+
       
   def connect(self):
     """
