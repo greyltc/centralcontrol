@@ -162,6 +162,10 @@ class pcb:
         ret = answer
       elif cmd.startswith('p'):
         ret = int(answer)
+      elif cmd.startswith('l'):
+        ret = int(answer)
+      elif cmd.startswith('r'):
+        ret = int(answer)
       elif cmd.startswith('c'):
         ret = answer
       else:  # parse by answer

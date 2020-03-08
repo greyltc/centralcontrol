@@ -1,5 +1,5 @@
 from central_control.afms import afms
-from central_control.native_motion import native_motion
+from central_control.us import us
 
 class motion:
   """
@@ -15,35 +15,35 @@ class motion:
     """
     sets up communication to motion controller
     """
-    if address.startswith('afms'):  # adafruit motor shield
+    if address.startswith('afms://'):  # adafruit motor shield
       self.motion_engine = afms(address=address)
       self.substrate_centers = self.motion_engine.substrate_centers
       self.photodiode_location = self.motion_engine.photodiode_location
-    elif address.startswith('us'):  # uStepperS via i2c via ethernet connected pcb
-      self.motion_engine = native_motion(address=address)
+    elif address == 'us://':  # uStepperS via i2c via ethernet connected pcb
+      self.motion_engine = us(pcb_object)
       self.substrate_centers = self.motion_engine.substrate_centers
       self.photodiode_location = self.motion_engine.photodiode_location
 
 
-      
+
   def connect(self):
     """
     makes connection to motion controller, might home, blocking
     """
     return self.motion_engine.connect()
-    
+
   def move(self, mm):
     """
     moves mm mm direction, blocking, returns 0 on successful movement
     """
     return self.motion_engine.move(mm)
-    
-  def goto(self, step_value):
+
+  def goto(self, pos):
     """
     goes to an absolute mm position, blocking, reuturns 0 on success
     """
-    return self.motion_engine.goto(step_value)
-    
+    return self.motion_engine.goto(pos)
+
   def home(self, direction):
     """
     homes to a limit switch, blocking, reuturns 0 on success

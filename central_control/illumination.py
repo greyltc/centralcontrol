@@ -28,22 +28,21 @@ class illumination:
       self.light_engine = wavelabs(address=address)
     elif protocol.lower() == ('ftdi'):
       self.light_engine = Newport(address=address)
-      
+
   def connect(self):
     """
     makes connection to light source
     """
     self.light_engine.connect()
-    
+
   def on(self):
     """
     turns light on
     """
     self.light_engine.on()
-    
+
   def off(self):
     """
     turns light off
     """
     self.light_engine.off()
-      

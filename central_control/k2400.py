@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import sys
 import numpy as np
 import time
@@ -14,7 +16,7 @@ class k2400:
   quiet=False
   idn = ''
 
-  def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\n', serialBaud=57600, front=False, twoWire=False, quiet=False):
+  def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
     self.readyForAction = False
     self.rm = self._getResourceManager(visa_lib)
@@ -24,13 +26,12 @@ class k2400:
 
     self.addressString = addressString
     self.terminator = terminator
-    self.serialBaud = serialBaud     
+    self.serialBaud = serialBaud
     self.sm = self._getSourceMeter(self.rm)
     self._setupSourcemeter(front=front, twoWire=twoWire)
 
   def __del__(self):
     try:
-      pass
       g = self.sm.visalib.sessions[self.sm.session]
       g.close(g.interface.id)
       #self.sm.close()
@@ -58,7 +59,7 @@ class k2400:
       self.backend = 'pyvisa-py'
     else:
       self.backend = vLibPath
-    
+
     if not self.quiet:
       print("Using {:s} pyvisa backend.".format(self.backend))
     return rm
@@ -66,14 +67,20 @@ class k2400:
   def _getSourceMeter(self, rm):
     timeoutMS = 300 # initial comms timeout
     if 'ASRL' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator,'write_termination': self.terminator, 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF}
-      smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <LF> terminator and xon-xoff flow control."
+      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': self.terminator, 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF}
+      smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and xon-xoff flow control."
     elif 'GPIB' in self.addressString:
       openParams = {'resource_name': self.addressString, 'write_termination': self.terminator}# , 'io_protocol': visa.constants.VI_HS488
       addrParts = self.addressString.split('::')
       board = addrParts[0][4:]
       address = addrParts[1]
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nIs GPIB controller {:} correct?\nIs the sourcemeter configured to listen on address {:}?".format(board,address)
+    elif ('TCPIP' in self.addressString) and ('SOCKET' in self.addressString):
+      addrParts = self.addressString.split('::')
+      host = addrParts[1]
+      port = host = addrParts[2]
+      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': self.terminator}
+      smCommsMsg = f"ERROR: Can't talk to sourcemeter\nTried Ethernet<-->Serial link via {host}:{port}\nThe sourcemeter's comms parameters must match the Ethernet<-->Serial adapter's parameters\nand the terminator should be configured as <CR>"
     else:
       smCommsMsg = "ERROR: Can't talk to sourcemeter"
       openParams = {'resource_name': self.addressString}
@@ -116,13 +123,13 @@ class k2400:
     """ Do initial setup for sourcemeter
     """
     sm = self.sm
-    sm.timeout = 50000 #long enough to collect an entire sweep [ms]
+    sm.timeout = 50000  #long enough to collect an entire sweep [ms]
 
     sm.write(':status:preset')
     sm.write(':system:preset')
     sm.write(':trace:clear')
     sm.write(':output:smode himpedance')
-    
+
     warnings.filterwarnings("ignore")
     if sm.interface_type == visa.constants.InterfaceType.asrl:
       self.dataFormat = 'ascii'
@@ -197,7 +204,7 @@ class k2400:
     else:
       self.sm.write(':output off')
 
-  def setNPLC(self,nplc):
+  def setNPLC(self, nplc):
     self.sm.write(':sense:current:nplcycles {:}'.format(nplc))
     self.sm.write(':sense:voltage:nplcycles {:}'.format(nplc))
     if nplc < 1:
@@ -243,7 +250,7 @@ class k2400:
 
     sm.write(':system:azero once')
 
-  def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=0.005, start=0, end=1, streaming=False, senseRange='f'):
+  def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=0.005, start=0, end=1, senseRange='f'):
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
@@ -350,6 +357,7 @@ class k2400:
     q = deque()
     while (i < measurements) and (time.time() < t_end):
       i = i + 1
+      self.setOutput(0)
       measurement = self.measure()
       q.append(measurement)
       cb(measurement)
@@ -360,17 +368,21 @@ if __name__ == "__main__":
   import pandas as pd
 
   # connect to our instrument and use the front terminals
-  k = k2400(addressString='GPIB0::24::INSTR', front=True) # gpib address strings expect the thing to be configured for 488.1 comms
+  # for testing GPIB connections
+  #k = k2400(addressString='GPIB0::24::INSTR', front=True) # gpib address strings expect the thing to be configured for 488.1 comms
+  # for testing Ethernet <--> Serial adapter connections, in this case the adapter must be congigured properly via its web interface
+  k = k2400(addressString='TCPIP0::10.45.0.186::4000::SOCKET', front=True)
   
   # setup DC measurement
   forceV = 0
   k.setupDC(setPoint=forceV)
 
   # this sets up the trigger/reading method we'll use below
-  k.write(':arm:source immediate') 
+  k.write(':arm:source immediate')
   
   # measure 
-  mTime = 3
+  mTime = 10
+  k.setNPLC(0.01)
   q_dc = k.measureUntil(t_dwell=mTime)
 
   # create a custom data type to hold our data

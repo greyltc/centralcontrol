@@ -5,12 +5,12 @@ import logging
 def get_args(self):
     """Get CLI arguments and options"""
     parser = argparse.ArgumentParser(description='Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stdout. * denotes arguments that are remembered between calls.')
-    
+
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + central_control.__version__)
     parser.add_argument('-o', '--operator', type=str, required=True, help='Name of operator')
     parser.add_argument('-r', '--run-description', type=str, required=True, help='Words describing the measurements about to be taken')
     parser.add_argument('-p', '--experimental-parameter', type=str, nargs='+', action='append', required=True, help="Space separated experimental parameter name and values. Multiple parameters can be specified by additional uses of '-p'. Use one value per substrate measured. The first item given here is taken to be the parameter name and the rest of the items are taken to be the values for each substrate. eg. '-p Thickness 2m 3m 4m' would attach a Thickness attribute with values 2m 3m and 4m to the first, second and third substrate measured in this run respectively.")
-  
+
     measure = parser.add_argument_group('optional arguments for measurement configuration')
     measure.add_argument('-d', '--destination', help="*Directory in which to save the output data, '__tmp__' will use a system default temporary directory", type=self.is_dir, action=self.FullPaths)    
     measure.add_argument('-a', "--pixel-address", default=None, type=str, help='Hexadecimal bit mask for enabled pixels, also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"')
@@ -21,7 +21,7 @@ def get_args(self):
     measure.add_argument('--mppt-params', type=str, action=self.RecordPref, default='basic://7:10', help="*Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ")
     measure.add_argument('-i', '--layout-index', type=int, nargs='*', action=self.RecordPref, default=[], help="*Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(self.system_layouts_file_fullpath))
     measure.add_argument('--area', type=float, nargs='*', default=[], help="Override pixel areas taken from layout (given in cm^2)")
-    
+
     setup = parser.add_argument_group('optional arguments for setup configuration')
     setup.add_argument("--ignore-adapter-resistors", type=self.str2bool, default=True, action=self.RecordPref, const = True, help="*Don't consider the resistor value of adapter boards when determining device layouts")
     setup.add_argument("--light-address", type=str, action=self.RecordPref, default='wavelabs-relay://localhost:3335', help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'wavelabs-relay://127.0.0.1:3335' for connecting to a wavelabs-relay server")
