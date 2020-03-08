@@ -43,16 +43,23 @@ class us:
     """
     homes to the negative limit switch
     """
+    ret = 0
     for i in range(len(self.expected_length)):
       self.pcb.query(f"h{i}")
 
     # wait for the homings to complete
     for i in range(len(self.expected_length)):
-      while (self.pcb.get(f"l{i}") == -1):
+      stage_length = self.pcb.get(f"l{i}")
+      while (stage_length == -1):
         time.sleep(0.5)
+        stage_length = self.pcb.get(f"l{i}")
+      if (stage_length < self.expected_length[i]*0.95) or (stage_length > self.expected_length[i]*1.05):
+        ret = -1
+        raise ValueError("Move error")  #TODO: log movement error
+
       self.current_position[i] = self.pcb.get(f'r{i}')/self.steps_per_mm
 
-    return 0
+    return ret
 
 
   def move(self, mm):
