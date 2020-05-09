@@ -575,4 +575,3 @@ class fabric:
     """
         [v, i, t, status] = measurement
         print("At {:.6f}\t{:.6f}\t{:.6f}\t{:d}".format(t, v, i, int(status)))
-
