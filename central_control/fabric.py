@@ -7,6 +7,7 @@ import time
 import tempfile
 import inspect
 from collections import deque
+import warnings
 
 import central_control.virt as virt
 from central_control.k2400 import k2400
@@ -17,10 +18,14 @@ from central_control.motion import motion
 from central_control.put_ftp import put_ftp
 import central_control  # for __version__
 
+import sr830
+import sp2150
+import dp800
+import eqe
+
 
 class fabric:
-    """ this class contains the sourcemeter and pcb control logic
-  """
+    """ this class contains the sourcemeter and pcb control logic """
 
     outputFormatRevision = (
         "1.8.1"  # tells reader what format to expect for the output file
@@ -106,13 +111,17 @@ class fabric:
         pcbAddress="10.42.0.54:23",
         motionAddress=None,
         lightAddress=None,
+        liaAddress=None,
+        monoAddress=None,
+        psuAddress=None,
+        liaOutputInterface=0,
         visaTerminator="\n",
         visaBaud=57600,
         ignore_adapter_resistors=False,
     ):
         """Forms a connection to the PCB, the sourcemeter and the light engine
-    will form connections to dummy instruments if dummy=true
-    """
+        will form connections to dummy instruments if dummy=true
+        """
 
         if dummy:
             self.sm = virt.k2400()
@@ -142,6 +151,40 @@ class fabric:
         else:
             self.me = motion(address=motionAddress)
             self.me.connect()
+
+        # lock=in amplifier
+        if liaAddress is None:
+            self.lia = None
+            warnings.warn("No lock-in address specified and no dummy to fall back on")
+        else:
+            self.lia = sr830.sr830(return_int=True, check_errors=True)
+            # default liaOutputInterface is RS232
+            self.lia.connect(
+                resource_name=liaAddress,
+                output_interface=liaOutputInterface,
+                set_default_configuration=True,
+            )
+
+        # monochromator
+        if monoAddress is None:
+            self.mono = None
+            warnings.warn(
+                "No monochromator address specified and no dummy to fall back on"
+            )
+        else:
+            self.mono = sp2150.sp2150()
+            self.mono.connect(resource_name=monoAddress)
+            self.mono.set_scan_speed(1000)
+
+        # bias LED PSU
+        if psuAddress is None:
+            self.psu = None
+            warnings.warn(
+                "No bias LED PSU address specified and no dummy to fall back on"
+            )
+        else:
+            self.psu = dp800.dp800()
+            self.psu.connect(resource_name=psuAddress)
 
     def hardwareTest(self, substrates_to_test):
         self.le.on()
@@ -575,3 +618,59 @@ class fabric:
     """
         [v, i, t, status] = measurement
         print("At {:.6f}\t{:.6f}\t{:.6f}\t{:d}".format(t, v, i, int(status)))
+
+    def eqe(
+        self,
+        psu_ch1_voltage=0,
+        psu_ch1_current=0,
+        psu_ch2_voltage=0,
+        psu_ch2_current=0,
+        psu_ch3_voltage=0,
+        psu_ch3_current=0,
+        smu_voltage=0,
+        calibration=True,
+        ref_measurement_path=None,
+        ref_measurement_file_header=1,
+        ref_eqe_path=None,
+        ref_spectrum_path=None,
+        start_wl=350,
+        end_wl=1100,
+        num_points=76,
+        repeats=1,
+        grating_change_wls=None,
+        filter_change_wls=None,
+        auto_gain=True,
+        auto_gain_method="user",
+        data_handler=None,
+    ):
+        """Run EQE scan."""
+
+        data = eqe.scan(
+            self.lia,
+            self.mono,
+            self.psu,
+            self.sm,
+            psu_ch1_voltage,
+            psu_ch1_current,
+            psu_ch2_voltage,
+            psu_ch2_current,
+            psu_ch3_voltage,
+            psu_ch3_current,
+            smu_voltage,
+            calibration,
+            ref_measurement_path,
+            ref_measurement_file_header,
+            ref_eqe_path,
+            ref_spectrum_path,
+            start_wl,
+            end_wl,
+            num_points,
+            repeats,
+            grating_change_wls,
+            filter_change_wls,
+            auto_gain,
+            auto_gain_method,
+            data_handler,
+        )
+
+        return data
