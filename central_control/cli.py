@@ -228,6 +228,10 @@ class cli:
             lightAddress=args.light_address,
             motionAddress=args.motion_address,
             pcbAddress=args.pcb_address,
+            liaAddress=args.lia_address,
+            monoAddress=args.mono_address,
+            psuAddress=args.psu_address,
+            liaOutputInterface=args.lia_output_interface,
             ignore_adapter_resistors=args.ignore_adapter_resistors,
         )
 
@@ -292,7 +296,7 @@ class cli:
                 with open(self.config_file_fullpath, "w") as configfile:
                     config.write(configfile)
 
-            if args.sweep or args.snaith or args.mppt > 0:
+            if args.sweep or args.snaith or args.mppt or args.eqe > 0:
                 last_substrate = None
                 # scan through the pixels and do the requested measurements
                 for pixel in pixel_que:
@@ -441,6 +445,32 @@ class cli:
                                 args.mppt, message, extra=args.mppt_params
                             )
 
+                        if args.eqe > 0:
+                            message = f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"
+                            l.eqe(
+                                psu_ch1_voltage=args.psu_vs[0],
+                                psu_ch1_current=args.psu_is[0],
+                                psu_ch2_voltage=args.psu_vs[1],
+                                psu_ch2_current=args.psu_is[1],
+                                psu_ch3_voltage=args.psu_vs[2],
+                                psu_ch3_current=args.psu_is[2],
+                                smu_voltage=args.eqe_smu_v,
+                                calibration=args.calibrate_ref,
+                                ref_measurement_path=args.eqe_ref_meas_path,
+                                ref_measurement_file_header=args.eqe_ref_meas_header_len,
+                                ref_eqe_path=args.eqe_ref_cal_path,
+                                ref_spectrum_path=args.eqe_ref_spec_path,
+                                start_wl=args.eqe_start_wl,
+                                end_wl=args.eqe_end_wl,
+                                num_points=args.eqe_num_wls,
+                                repeats=args.eqe_repeats,
+                                grating_change_wls=args.eqe_grating_change_wls,
+                                filter_change_wls=args.eqe_filter_change_wls,
+                                auto_gain=not (args.eqe_autogain_off),
+                                auto_gain_method=args.eqe_autogain_method,
+                                data_handler=None,
+                            )
+
                         l.pixelComplete()
             l.runDone()
         l.sm.outOn(on=False)
@@ -531,6 +561,14 @@ class cli:
             action=self.RecordPref,
             default="basic://7:10",
             help="*Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ",
+        )
+        measure.add_argument(
+            "--eqe",
+            type=self.str2bool,
+            default=True,
+            action=self.RecordPref,
+            const=True,
+            help="*Do an EQE scan",
         )
         measure.add_argument(
             "-i",
@@ -684,6 +722,143 @@ class cli:
             default="http://127.0.0.1:51246",
             action=self.RecordPref,
             help="*protocol://host:port for the gui server",
+        )
+        setup.add_argument(
+            "--lia-address",
+            default="TCPIP::10.0.0.1:INSTR",
+            type=str,
+            action=self.RecordPref,
+            help="*VISA resource name for lock-in amplifier",
+        )
+        setup.add_argument(
+            "--lia-output-interface",
+            default=0,
+            type=int,
+            action=self.RecordPref,
+            help="Lock-in amplifier output inface: 0 = RS232 (default), 1 = GPIB",
+        )
+        setup.add_argument(
+            "--mono-address",
+            default="TCPIP::10.0.0.2:INSTR",
+            type=str,
+            action=self.RecordPref,
+            help="*VISA resource name for monochromator",
+        )
+        setup.add_argument(
+            "--psu-address",
+            default="TCPIP::10.0.0.3:INSTR",
+            type=str,
+            action=self.RecordPref,
+            help="*VISA resource name for bias LED PSU",
+        )
+        setup.add_argument(
+            "--psu-vs",
+            type=float,
+            action=self.RecordPref,
+            nargs=3,
+            default=[0, 0, 0],
+            help="*LED PSU channel voltages (V)",
+        )
+        setup.add_argument(
+            "--psu-is",
+            type=float,
+            action=self.RecordPref,
+            nargs=3,
+            default=[0, 0, 0],
+            help="*LED PSU channel currents (A)",
+        )
+        setup.add_argument(
+            "--eqe-smu-v",
+            type=float,
+            action=self.RecordPref,
+            default=0,
+            help="*Sourcemeter bias voltage during EQE scan",
+        )
+        setup.add_argument(
+            "--calibrate-eqe",
+            default=False,
+            action="store_true",
+            help="Calibrate EQE by measuring reference photodiode",
+        )
+        setup.add_argument(
+            "--eqe-ref-meas-path",
+            type=str,
+            action=self.RecordPref,
+            help="Path to EQE reference photodiode measurement data",
+        )
+        setup.add_argument(
+            "--eqe-ref-meas-header_len",
+            type=int,
+            action=self.RecordPref,
+            default=1,
+            help="Number of header rows in EQE ref photodiode measurement data file",
+        )
+        setup.add_argument(
+            "--eqe-ref-cal-path",
+            type=str,
+            action=self.RecordPref,
+            help="Path to EQE reference photodiode calibrated data",
+        )
+        setup.add_argument(
+            "--eqe-ref-spec-path",
+            type=str,
+            action=self.RecordPref,
+            help="Path to reference spectrum for integrated Jsc calculation",
+        )
+        setup.add_argument(
+            "--eqe-start-wl",
+            type=float,
+            action=self.RecordPref,
+            default=350,
+            help="Starting wavelength for EQE scan in nm",
+        )
+        setup.add_argument(
+            "--eqe-end-wl",
+            type=float,
+            action=self.RecordPref,
+            default=1100,
+            help="End wavelength for EQE scan in nm",
+        )
+        setup.add_argument(
+            "--eqe-num-wls",
+            type=float,
+            action=self.RecordPref,
+            default=76,
+            help="Number of wavelegnths to measure in EQE scan",
+        )
+        setup.add_argument(
+            "--eqe-repeats",
+            type=int,
+            action=self.RecordPref,
+            default=1,
+            help="Number of repeat measurements at each wavelength",
+        )
+        setup.add_argument(
+            "--eqe-grating-change wls",
+            type=float,
+            nargs="+",
+            default=None,
+            help="Wavelengths in nm at which to change gratings",
+        )
+        setup.add_argument(
+            "--eqe-filter-change wls",
+            type=float,
+            nargs="+",
+            default=None,
+            help="Wavelengths in nm at which to change filters",
+        )
+        setup.add_argument(
+            "--eqe-autogain-off",
+            default=False,
+            action="store_false",
+            help="Enable automatic gain setting",
+        )
+        setup.add_argument(
+            "--eqe-autogain-method",
+            type=str,
+            default="user",
+            action=self.RecordPref,
+            help="Method of automatically establishing gain setting",
         )
 
         testing = parser.add_argument_group("optional arguments for debugging/testing")
@@ -854,4 +1029,3 @@ class cli:
 if __name__ == "__main__":
     cli = cli()
     cli.run()
-
