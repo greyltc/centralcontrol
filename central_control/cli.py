@@ -5,6 +5,13 @@
 
 import central_control  # for __version__
 from central_control.fabric import fabric
+from central_control.handlers import (
+    VoltageDataHandler,
+    CurrentDataHandler,
+    IVDataHandler,
+    MPPTDataHandler,
+    EQEDataHandler,
+)
 
 import sys
 import argparse
@@ -297,6 +304,29 @@ class cli:
                     config.write(configfile)
 
             if args.sweep or args.snaith or args.mppt or args.eqe > 0:
+                # create mqtt data handlers
+                if args.mqtt_host != "":
+                    # mqtt publisher topics for each handler
+                    subtopics = []
+                    subtopics.append(f"plot/voltage")
+                    subtopics.append(f"plot/iv")
+                    subtopics.append(f"plot/mppt")
+                    subtopics.append(f"plot/current")
+                    subtopics.append(f"plot/eqe")
+
+                    # instantiate handlers
+                    vdh = VoltageDataHandler()
+                    ivdh = IVDataHandler()
+                    mdh = MPPTDataHandler()
+                    cdh = CurrentDataHandler()
+                    edh = EQEDataHandler()
+                    handlers = [vdh, ivdh, mdh, cdh, edh]
+
+                    # connect handlers to broker and start publisher threads
+                    for i, dh in enumerate(handlers):
+                        dh.connect(args.mqtt_host)
+                        dh.start_q(subtopics[i])
+
                 last_substrate = None
                 # scan through the pixels and do the requested measurements
                 for pixel in pixel_que:
@@ -307,6 +337,10 @@ class cli:
                             substrate, pix
                         )
                     )
+                    # add id str to handlers to display on plots
+                    for dh in handlers:
+                        dh.idn = f"substrate{substrate}_pixel{pix}"
+
                     if last_substrate != substrate:  # we have a new substrate
                         print('New substrate using "{:}" layout!'.format(pixel[3]))
                         last_substrate = substrate
@@ -320,11 +354,14 @@ class cli:
                             layout_name=pixel[3],
                         )
 
+                    # clear voc plot
+                    vdh.clear()
                     pixel_ready = l.pixelSetup(
                         pixel,
                         t_dwell_voc=args.t_prebias,
                         voltage_compliance=args.voltage_compliance_override,
-                    )  #  steady state Voc measured here
+                        handler=vdh,
+                    )  # steady state Voc measured here
                     if pixel_ready and substrate_ready:
 
                         if type(args.current_compliance_override) == float:
@@ -350,6 +387,8 @@ class cli:
                             message = "Sweeping voltage from {:.0f} mV to {:.0f} mV".format(
                                 start * 1000, end * 1000
                             )
+                            # clear iv plot
+                            ivdh.clear()
                             sv = l.sweep(
                                 sourceVoltage=True,
                                 compliance=compliance,
@@ -359,6 +398,7 @@ class cli:
                                 end=end,
                                 NPLC=args.scan_nplc,
                                 message=message,
+                                handler=ivdh,
                             )
                             l.registerMeasurements(sv, "Sweep")
 
@@ -376,6 +416,8 @@ class cli:
                             l.mppt.current_compliance = compliance
 
                         # steady state Isc measured here
+                        # clear isc plot
+                        cdh.clear()
                         iscs = l.steadyState(
                             t_dwell=args.t_prebias,
                             NPLC=10,
@@ -383,6 +425,7 @@ class cli:
                             compliance=compliance,
                             senseRange="a",
                             setPoint=0,
+                            handler=cdh,
                         )
                         l.registerMeasurements(iscs, "I_sc dwell")
 
@@ -426,6 +469,7 @@ class cli:
                                 end=end,
                                 NPLC=args.scan_nplc,
                                 message=message,
+                                handler=ivdh,
                             )
                             l.registerMeasurements(sv, "Snaith")
                             (
@@ -441,12 +485,16 @@ class cli:
                             message = "Tracking maximum power point for {:} seconds".format(
                                 args.mppt
                             )
+                            # clear mppt plot
+                            mdh.clear()
                             l.track_max_power(
-                                args.mppt, message, extra=args.mppt_params
+                                args.mppt, message, extra=args.mppt_params, handler=mdh
                             )
 
                         if args.eqe > 0:
                             message = f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"
+                            # clear eqe plot
+                            edh.clear()
                             l.eqe(
                                 psu_ch1_voltage=args.psu_vs[0],
                                 psu_ch1_current=args.psu_is[0],
@@ -468,7 +516,7 @@ class cli:
                                 filter_change_wls=args.eqe_filter_change_wls,
                                 auto_gain=not (args.eqe_autogain_off),
                                 auto_gain_method=args.eqe_autogain_method,
-                                data_handler=None,
+                                handler=edh,
                             )
 
                         l.pixelComplete()
@@ -524,6 +572,13 @@ class cli:
             default=None,
             type=str,
             help='Hexadecimal bit mask for enabled pixels, also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
+        )
+        measure.add_argument(
+            "--mqtt-host",
+            type=str,
+            action=self.RecordPref,
+            default="",
+            help="*IP address or hostname of mqtt broker",
         )
         measure.add_argument(
             "--sweep",

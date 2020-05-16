@@ -416,7 +416,7 @@ class fabric:
         else:
             return False
 
-    def pixelSetup(self, pixel, t_dwell_voc=10, voltage_compliance=2):
+    def pixelSetup(self, pixel, t_dwell_voc=10, voltage_compliance=2, handler=None):
         """Call this to switch to a new pixel"""
         self.pixel = str(pixel[0][1])
         if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
@@ -435,6 +435,7 @@ class fabric:
                 compliance=voltage_compliance,
                 senseRange="a",
                 setPoint=0,
+                handler=handler,
             )
             self.registerMeasurements(vocs, "V_oc dwell")
 
@@ -527,6 +528,7 @@ class fabric:
         compliance=0.04,
         setPoint=0,
         senseRange="f",
+        handler=None,
     ):
         """ makes steady state measurements for t_dwell seconds
     set NPLC to -1 to leave it unchanged
@@ -550,7 +552,7 @@ class fabric:
         self.sm.write(
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
-        q = self.sm.measureUntil(t_dwell=t_dwell)
+        q = self.sm.measureUntil(t_dwell=t_dwell, handler=handler)
         qa = np.array([tuple(s) for s in q], dtype=self.measurement_datatype)
         return qa
 
@@ -565,6 +567,7 @@ class fabric:
         end=0,
         NPLC=1,
         message=None,
+        handler=None,
     ):
         """ make a series of measurements while sweeping the sourcemeter along linearly progressing voltage or current setpoints
     """
@@ -591,14 +594,20 @@ class fabric:
         sweepValues = np.array(
             list(zip(*[iter(raw)] * 4)), dtype=self.measurement_datatype
         )
+        if handler is not None:
+            handler(sweepValues)
 
         return sweepValues
 
-    def track_max_power(self, duration=30, message=None, NPLC=-1, extra="basic://7:10"):
+    def track_max_power(
+        self, duration=30, message=None, NPLC=-1, extra="basic://7:10", handler=None
+    ):
         if message == None:
             message = "Tracking maximum power point for {:} seconds".format(duration)
         self.insertStatus(message)
-        raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra)
+        raw = self.mppt.launch_tracker(
+            duration=duration, NPLC=NPLC, extra=extra, handler=handler
+        )
         # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
         qa = np.array([tuple(s) for s in raw], dtype=self.measurement_datatype)
         self.registerMeasurements(qa, "MPPT")
@@ -641,7 +650,7 @@ class fabric:
         filter_change_wls=None,
         auto_gain=True,
         auto_gain_method="user",
-        data_handler=None,
+        handler=None,
     ):
         """Run EQE scan."""
 
@@ -670,7 +679,7 @@ class fabric:
             filter_change_wls,
             auto_gain,
             auto_gain_method,
-            data_handler,
+            handler,
         )
 
         return data
