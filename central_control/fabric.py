@@ -221,6 +221,7 @@ class fabric:
                 output_interface=liaOutputInterface,
                 set_default_configuration=True,
             )
+            self.lia_idn = self.lia.get_id()
 
         # monochromator
         if monoAddress is None:
@@ -242,6 +243,7 @@ class fabric:
         else:
             self.psu = dp800.dp800()
             self.psu.connect(resource_name=psuAddress)
+            self.psu_idn = self.psu.get_id()
 
     def hardwareTest(self, substrates_to_test):
         self.le.on()
@@ -404,6 +406,8 @@ class fabric:
         self.f.attrs["Format Revision"] = np.string_(self.outputFormatRevision)
         self.f.attrs["Run Description"] = np.string_(run_description)
         self.f.attrs["Sourcemeter"] = np.string_(self.sm_idn)
+        self.f.attrs["Lock-in amplifier"] = np.string_(self.lia_idn)
+        self.f.attrs["Power supply"] = np.string_(self.psu_idn)
 
         if not ignore_diodes:
             self.me.goto(self.me.photodiode_location)
