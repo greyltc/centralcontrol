@@ -50,6 +50,63 @@ class fabric:
         }
     )
 
+    # lockin measurement datatype in h5py file
+    eqe_datatype = np.dtype(
+        {
+            "names": [
+                "time",
+                "wavelength",
+                "x",
+                "y",
+                "r",
+                "phase",
+                "aux_in_1",
+                "aux_in_2",
+                "aux_in_3",
+                "aux_in_4",
+                "ref_frequency",
+                "ch1_display",
+                "ch2_display",
+                "eqe",
+                "integrated_jsc",
+            ],
+            "formats": [
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+                "f",
+            ],
+            "titles": [
+                "Time [s]",
+                "Wavelength [nm]",
+                "X [V]",
+                "Y [V]",
+                "R [V]",
+                "Phase [deg]",
+                "Aux In 1 [V]",
+                "Aux In 2 [V]",
+                "Aux In 3 [V]",
+                "Aux In 4 [V]",
+                "Ref Frequency [Hz]",
+                "CH1 display",
+                "CH2 display",
+                "EQE",
+                "Integrated Jsc [ma/cm^2]",
+            ],
+        }
+    )
+
     # this is the datatype for the status messages in the h5py file
     status_datatype = np.dtype(
         {
@@ -337,6 +394,7 @@ class fabric:
         save_file_full_path = os.path.join(
             destinationDir, "{:}{:}.h5".format(prefix, round(time.time()))
         )
+
         self.f = h5py.File(save_file_full_path, "x")
         print("Creating file {:}".format(self.f.filename))
         self.f.attrs["Operator"] = np.string_(operator)
@@ -346,6 +404,7 @@ class fabric:
         self.f.attrs["Format Revision"] = np.string_(self.outputFormatRevision)
         self.f.attrs["Run Description"] = np.string_(run_description)
         self.f.attrs["Sourcemeter"] = np.string_(self.sm_idn)
+
         if not ignore_diodes:
             self.me.goto(self.me.photodiode_location)
         self.le.on()
@@ -372,6 +431,10 @@ class fabric:
                 np.float(intensity[2]), np.float(intensity[3])
             )
         )
+
+        # init eqe attribute with empty array
+        self.eqe = np.array([], dtype=self.eqe_datatype)
+
         return intensity
 
     def runDone(self):
@@ -458,11 +521,15 @@ class fabric:
         self.f[self.position + "/" + self.pixel].create_dataset(
             "status_list", data=self.s, compression="gzip"
         )
+        self.f[self.position + "/" + self.pixel].create_dataset(
+            "eqe", data=self.eqe, compression="gzip"
+        )
         self.m = np.array(
             [], dtype=self.measurement_datatype
         )  # reset measurement storage
         self.s = np.array([], dtype=self.status_datatype)  # reset status storage
         self.r = np.array([], dtype=self.roi_datatype)  # reset region of interest
+        self.eqe = np.array([], dtype=self.eqe_datatype)  # reset eqe data
         self.Voc = None
         self.Isc = None
         self.mppt.reset()
@@ -654,7 +721,7 @@ class fabric:
     ):
         """Run EQE scan."""
 
-        data = eqe.scan(
+        eqe_data = eqe.scan(
             self.lia,
             self.mono,
             self.psu,
@@ -682,4 +749,12 @@ class fabric:
             handler,
         )
 
-        return data
+        eqe_data = np.array(eqe_data, dtype=self.eqe_datatype)
+        self.eqe = eqe_data  # added to data file when pixelComplete is called
+        if calibration is not True:
+            # add integrated Jsc attribute to data file
+            self.f[self.position + "/" + self.pixel].attrs["integrated_jsc"] = eqe_data[
+                -1, -1
+            ]
+
+        return eqe_data
