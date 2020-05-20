@@ -29,6 +29,8 @@ import xmlrpc.client  # here's how we get measurement data out as it's collected
 
 from collections import deque
 
+import numpy as np
+
 # for updating prefrences
 prefs = {}  # TODO: figure out how to un-global this
 
@@ -274,11 +276,20 @@ class cli:
                 diode_cal = True
             else:
                 diode_cal = args.diode_calibration_values
+
+            if args.wavelabs_spec_cal_path != "":
+                spectrum_cal = np.genfromtxt(
+                    args.wavelabs_spec_cal_path, skip_header=1, delimiter="\t"
+                )[:, 1]
+            else:
+                spectrum_cal = None
+
             intensity = l.runSetup(
                 args.operator,
                 diode_cal,
                 ignore_diodes=args.ignore_diodes,
                 run_description=args.run_description,
+                spectrum_cal=spectrum_cal,
             )
 
             # record all arguments into the run file
@@ -287,8 +298,8 @@ class cli:
                 l.f["args"].attrs[attr] = str(value)
 
             if args.calibrate_diodes == True:
-                d1_cal = intensity[0]
-                d2_cal = intensity[1]
+                d1_cal = intensity["diode_1_adc"]
+                d2_cal = intensity["diode_2_adc"]
                 print(
                     "Setting present intensity diode readings to be used as future 1.0 sun refrence values: [{:}, {:}]".format(
                         d1_cal, d2_cal
@@ -666,6 +677,13 @@ class cli:
             action=self.RecordPref,
             default="wavelabs-relay://localhost:3335",
             help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'wavelabs-relay://127.0.0.1:3335' for connecting to a wavelabs-relay server",
+        )
+        setup.add_argument(
+            "--wavelabs-spec-cal-path",
+            type=str,
+            action=self.RecordPref,
+            default="",
+            help="Path to Wavelabs spectrum calibration file",
         )
         setup.add_argument(
             "--motion-address",

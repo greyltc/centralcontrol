@@ -1,5 +1,7 @@
 import h5py
 import numpy as np
+import scipy as sp
+from scipy.integrate import simps
 import unicodedata
 import re
 import os
@@ -122,6 +124,14 @@ class fabric:
             "names": ["start_index", "end_index", "description"],
             "formats": ["u4", "u4", object],
             "titles": ["Start Index", "End Index", "Description"],
+        }
+    )
+
+    spectrum_datatype = np.dtype(
+        {
+            "names": ["wavelength", "irradiance"],
+            "formats": ["f", "f"],
+            "titles": ["Wavelength [nm]", "Spectral Irradiance [W/m^2/nm]"],
         }
     )
 
@@ -325,28 +335,82 @@ class fabric:
 
         self.le.off()
 
-    def measureIntensity(self, diode_cal):
+    def measureIntensity(self, diode_cal, ignore_diodes=False, spectrum_cal=None):
         """
     returns number of suns and ADC counts for both diodes
     takes diode calibration values in diode_cal
     if diode_cal is not a tuple with valid calibration values, sets intensity to 1.0 sun for both diodes
     """
-        ret = [self.pcb.get("p1"), self.pcb.get("p2"), 1.0, 1.0]
+        ret = {
+            "diode_1_adc": None,
+            "diode_2_adc": None,
+            "diode_1_suns": None,
+            "diode_2_suns": None,
+            "wavelabs_suns": None,
+        }
 
-        if type(diode_cal) == list or type(diode_cal) == tuple:
-            if diode_cal[0] <= 1:
-                print(
-                    "WARNING: No or bad intensity diode calibration values, assuming 1.0 suns"
-                )
+        if self.le.wavelabs is True:
+            # if using wavelabs light engine, use internal spectrometer to measure
+            # spectrum and intensity
+            old_duration = self.le.light_engine.getRecipeParam(param="Duration")
+            new_duration = 1
+            self.le.light_engine.setRecipeParam(
+                param="Duration", value=new_duration * 1000
+            )
+            run_ID = self.le.light_engine.on()
+            self.le.light_engine.waitForRunFinished(run_ID=run_ID)
+            self.le.light_engine.waitForResultAvailable(run_ID=run_ID)
+            spectra = self.le.light_engine.getDataSeries(run_ID=run_ID)
+            self.le.light_engine.setRecipeParam(param="Duration", value=old_duration)
+            spectrum = spectra[0]
+            wls = spectrum["data"]["Wavelenght"]
+            irr = spectrum["data"]["Irradiance"]
+            self.spectrum_raw = np.array(
+                [[w, i] for w, i in zip(wls, irr)], dtype=self.spectrum_datatype
+            )
+            if spectrum_cal is not None:
+                self.spectrum = self.spectrum_raw * spectrum_cal
+                ret["wavelabs_suns"] = (
+                    sp.integrare.simps(self.spectrum, wls) / 1000
+                )  # intensity in suns
             else:
-                ret[2] = ret[0] / diode_cal[0]
+                # if no calibration, assume 1 sun
+                ret["wavelabs_suns"] = 1.0
+                warnings.warn(
+                    "No spectral calibration supplied for Wavelabs simulator. Assuming intensity is 1 sun."
+                )
 
-            if diode_cal[1] <= 1:
-                print(
-                    "WARNING: No or bad intensity diode calibration values, assuming 1.0 suns"
-                )
-            else:
-                ret[3] = ret[1] / diode_cal[1]
+        if ignore_diodes is False:
+            self.me.goto(self.me.photodiode_location)
+            self.le.on()
+
+            # if this is a real solar sim (not a virtual one), wait half a sec before
+            # measuring intensity
+            if type(self.le) == illumination:
+                time.sleep(0.5)
+
+            # measure diode counts
+            ret["diode_1_adc"] = self.pcb.get("p1")
+            ret["diode_2_adc"] = self.pcb.get("p2")
+
+            self.le.off()
+
+            if type(diode_cal) == list or type(diode_cal) == tuple:
+                if diode_cal[0] <= 1:
+                    warnings.warn(
+                        "WARNING: No or bad intensity diode calibration values, assuming 1.0 suns"
+                    )
+                    ret["diode_1_suns"] = 1.0
+                else:
+                    ret["diode_1_suns"] = ret["diode_1_adc"] / diode_cal[0]
+
+                if diode_cal[1] <= 1:
+                    warnings.warn(
+                        "WARNING: No or bad intensity diode calibration values, assuming 1.0 suns"
+                    )
+                    ret["diode_2_suns"] = 1.0
+                else:
+                    ret["diode_2_suns"] = ret["diode_2_adc"] / diode_cal[1]
 
         return ret
 
@@ -361,14 +425,25 @@ class fabric:
             ret = True
         return ret
 
-    def runSetup(self, operator, diode_cal, ignore_diodes=False, run_description=""):
+    def runSetup(
+        self,
+        operator,
+        diode_cal,
+        ignore_diodes=False,
+        run_description="",
+        spectrum_cal=None,
+    ):
         """
     stuff that needs to be done at the start of a run
-    returns intensity tuple of length 4 where [0:1] are the raw ADC counts measured by the PCB's photodiodes
-    and [2:3] are the number of suns of intensity
-    if diode_cal == True, suns intensity will be assumed and reported as 1.0
-    if type(diode_cal) == list, diode_cal[0] and [1] will be used to calculate number of suns
-    if ignore_diodes == True, diode ADC values will not be read and intensity = (1, 1, 1.0 1.0) will be used and reported
+    if light engine is wavelabs, it's internal spectrometer measures the spectrum and
+    returns a single intensity value.
+    otherwise, returns intensity tuple of length 4 where [0:1] are the raw ADC counts
+    measured by the PCB's photodiodes and [2:3] are the number of suns of intensity.
+    if diode_cal == True, suns intensity will be assumed and reported as 1.0.
+    if type(diode_cal) == list, diode_cal[0] and [1] will be used to calculate number
+    of suns.
+    if ignore_diodes == True, diode ADC values will not be read and intensity =
+    (1, 1, 1.0 1.0) will be used and reported.
     """
         self.run_dir = self.slugify(operator) + "-" + time.strftime("%y-%m-%d")
 
@@ -409,34 +484,41 @@ class fabric:
         self.f.attrs["Lock-in amplifier"] = np.string_(self.lia_idn)
         self.f.attrs["Power supply"] = np.string_(self.psu_idn)
 
-        if not ignore_diodes:
-            self.me.goto(self.me.photodiode_location)
-        self.le.on()
-        if type(self.le) == illumination:
-            time.sleep(
-                0.5
-            )  # if this is a real solar sim (not a virtual one), wait half a sec before measuring intensity
-        if ignore_diodes == True:
-            intensity = (1, 1, 1.0, 1.0)
-        else:
-            intensity = self.measureIntensity(diode_cal)
-        self.f.attrs["Diode 1 intensity [ADC counts]"] = np.int(intensity[0])
-        self.f.attrs["Diode 2 intensity [ADC counts]"] = np.int(intensity[1])
-        if type(diode_cal) == list:
-            self.f.attrs["Diode 1 calibration [ADC counts]"] = np.int(diode_cal[0])
-            self.f.attrs["Diode 2 calibration [ADC counts]"] = np.int(diode_cal[1])
-        else:  #  we re-calibrated this run
-            self.f.attrs["Diode 1 calibration [ADC counts]"] = np.int(intensity[0])
-            self.f.attrs["Diode 2 calibration [ADC counts]"] = np.int(intensity[1])
-        self.f.attrs["Diode 1 intensity [suns]"] = np.float(intensity[2])
-        self.f.attrs["Diode 2 intensity [suns]"] = np.float(intensity[3])
-        print(
-            "Intensity = [{:0.4f} {:0.4f}] suns".format(
-                np.float(intensity[2]), np.float(intensity[3])
-            )
-        )
+        intensity = self.measureIntensity(diode_cal, ignore_diodes, spectrum_cal)
+        if self.le.wavelabs is True:
+            self.f.attrs["Wavelabs intensity [suns]"] = intensity["wavelabs_suns"]
 
-        # init eqe attribute with empty array
+        if ignore_diodes is False:
+            self.f.attrs["Diode 1 intensity [ADC counts]"] = np.int(
+                intensity["diode_1_adc"]
+            )
+            self.f.attrs["Diode 2 intensity [ADC counts]"] = np.int(
+                intensity["diode_2_adc"]
+            )
+            if type(diode_cal) == list:
+                self.f.attrs["Diode 1 calibration [ADC counts]"] = np.int(diode_cal[0])
+                self.f.attrs["Diode 2 calibration [ADC counts]"] = np.int(diode_cal[1])
+            else:
+                # we re-calibrated this run
+                self.f.attrs["Diode 1 calibration [ADC counts]"] = np.int(
+                    intensity["diode_1_adc"]
+                )
+                self.f.attrs["Diode 2 calibration [ADC counts]"] = np.int(
+                    intensity["diode_2_adc"]
+                )
+            self.f.attrs["Diode 1 intensity [suns]"] = np.float(
+                intensity["diode_1_suns"]
+            )
+            self.f.attrs["Diode 2 intensity [suns]"] = np.float(
+                intensity["diode_2_suns"]
+            )
+            print(
+                "Intensity = [{:0.4f} {:0.4f}] suns".format(
+                    np.float(intensity[2]), np.float(intensity[3])
+                )
+            )
+
+        # init eqe data attribute with empty array
         self.eqe = np.array([], dtype=self.eqe_datatype)
 
         return intensity
