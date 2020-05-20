@@ -520,6 +520,13 @@ class cli:
                             )
 
                         l.pixelComplete()
+
+                # clean up mqtt publishers
+                if args.mqtt_host != "":
+                    for dh in handlers:
+                        dh.end_q()
+                        dh.disconnect()
+
             l.runDone()
         l.sm.outOn(on=False)
         print("Program complete.")
