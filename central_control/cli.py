@@ -314,7 +314,7 @@ class cli:
                 with open(self.config_file_fullpath, "w") as configfile:
                     config.write(configfile)
 
-            if args.sweep or args.snaith or args.mppt or args.eqe > 0:
+            if args.t_prebias or args.sweep or args.snaith or args.mppt or args.eqe > 0:
                 # create mqtt data handlers
                 if args.mqtt_host != "":
                     # mqtt publisher topics for each handler
@@ -365,18 +365,29 @@ class cli:
                             layout_name=pixel[3],
                         )
 
-                    # clear voc plot
-                    vdh.clear()
-
-                    pixel_ready = l.pixelSetup(
-                        pixel,
-                        t_dwell_voc=args.t_prebias,
-                        voltage_compliance=args.voltage_compliance_override,
-                        NPLC=args.steadystate_nplc,
-                        stepDelay=args.steadystate_step_delay,
-                        handler=vdh,
-                    )  # steady state Voc measured here
+                    pixel_ready = l.pixelSetup(pixel)
                     if pixel_ready and substrate_ready:
+
+                        if args.t_prebias > 0:
+                            # steady state v@constant I measured here - usually Voc
+                            # clear v@constant I plot
+                            vdh.clear()
+
+                            vocs = l.steadyState(
+                                t_dwell=args.t_prebias,
+                                NPLC=args.steadystate_nplc,
+                                stepDelay=args.steadystate_step_delay,
+                                sourceVoltage=False,
+                                compliance=args.voltage_compliance_override,
+                                senseRange="a",
+                                setPoint=args.steadystate_i,
+                                handler=vdh,
+                            )
+                            l.registerMeasurements(vocs, "V_oc dwell")
+
+                            l.Voc = vocs[-1][0]  # take the last measurement to be Voc
+                            l.mppt.Voc = l.Voc
+                            l.f[l.position + "/" + l.pixel].attrs["Voc"] = l.Voc
 
                         if type(args.current_compliance_override) == float:
                             compliance = args.current_compliance_override
@@ -387,7 +398,7 @@ class cli:
                             # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
                         l.mppt.current_compliance = compliance
 
-                        if args.sweep:
+                        if args.sweep is True:
                             # now sweep from Voc --> Isc
                             if type(args.scan_high_override) == float:
                                 start = args.scan_high_override
@@ -430,24 +441,25 @@ class cli:
                                 )  # take the last measurement*2 to be our compliance limit
                             l.mppt.current_compliance = compliance
 
-                        # steady state Isc measured here
-                        # clear isc plot
-                        cdh.clear()
-                        iscs = l.steadyState(
-                            t_dwell=args.t_prebias,
-                            NPLC=args.steadystate_nplc,
-                            stepDelay=args.steadystate_step_delay,
-                            sourceVoltage=True,
-                            compliance=compliance,
-                            senseRange="a",
-                            setPoint=0,
-                            handler=cdh,
-                        )
-                        l.registerMeasurements(iscs, "I_sc dwell")
+                        if args.t_prebias > 0:
+                            # steady state I@constant V measured here - usually Isc
+                            # clear I@constant V plot
+                            cdh.clear()
+                            iscs = l.steadyState(
+                                t_dwell=args.t_prebias,
+                                NPLC=args.steadystate_nplc,
+                                stepDelay=args.steadystate_step_delay,
+                                sourceVoltage=True,
+                                compliance=compliance,
+                                senseRange="a",
+                                setPoint=args.steadystate_v,
+                                handler=cdh,
+                            )
+                            l.registerMeasurements(iscs, "I_sc dwell")
 
-                        l.Isc = iscs[-1][1]  # take the last measurement to be Isc
-                        l.f[l.position + "/" + l.pixel].attrs["Isc"] = l.Isc
-                        l.mppt.Isc = l.Isc
+                            l.Isc = iscs[-1][1]  # take the last measurement to be Isc
+                            l.f[l.position + "/" + l.pixel].attrs["Isc"] = l.Isc
+                            l.mppt.Isc = l.Isc
 
                         if type(args.current_compliance_override) == float:
                             compliance = args.current_compliance_override
@@ -625,11 +637,25 @@ class cli:
             help="*Do an I-V sweep from Isc --> Voc",
         )
         measure.add_argument(
+            "--steadystate-v",
+            type=float,
+            action=self.RecordPref,
+            default=0,
+            help="*Steady state value of V to measure I",
+        )
+        measure.add_argument(
+            "--steadystate-i",
+            type=float,
+            action=self.RecordPref,
+            default=0,
+            help="*Steady state value of I to measure V",
+        )
+        measure.add_argument(
             "--t-prebias",
             type=float,
             action=self.RecordPref,
             default=10.0,
-            help="*Number of seconds to measure to find steady state Voc and Isc",
+            help="*Number of seconds to measure to find steady state V and I",
         )
         measure.add_argument(
             "--mppt",

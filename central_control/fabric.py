@@ -565,15 +565,7 @@ class fabric:
         else:
             return False
 
-    def pixelSetup(
-        self,
-        pixel,
-        t_dwell_voc=10,
-        voltage_compliance=2,
-        NPLC=10,
-        stepDelay=0.005,
-        handler=None,
-    ):
+    def pixelSetup(self, pixel):
         """Call this to switch to a new pixel"""
         self.pixel = str(pixel[0][1])
         if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
@@ -584,23 +576,6 @@ class fabric:
             self.f[self.position + "/" + self.pixel].attrs["area"] = (
                 self.area * 1e-4
             )  # in m^2
-
-            vocs = self.steadyState(
-                t_dwell=t_dwell_voc,
-                NPLC=NPLC,
-                stepDelay=stepDelay,
-                sourceVoltage=False,
-                compliance=voltage_compliance,
-                senseRange="a",
-                setPoint=0,
-                handler=handler,
-            )
-            self.registerMeasurements(vocs, "V_oc dwell")
-
-            self.Voc = vocs[-1][0]  # take the last measurement to be Voc
-            self.mppt.Voc = self.Voc
-
-            self.f[self.position + "/" + self.pixel].attrs["Voc"] = self.Voc
             return True
         else:
             return False
