@@ -367,6 +367,7 @@ class cli:
 
                     # clear voc plot
                     vdh.clear()
+
                     pixel_ready = l.pixelSetup(
                         pixel,
                         t_dwell_voc=args.t_prebias,
@@ -431,7 +432,7 @@ class cli:
                         cdh.clear()
                         iscs = l.steadyState(
                             t_dwell=args.t_prebias,
-                            NPLC=10,
+                            NPLC=args.steadystate_nplc,
                             sourceVoltage=True,
                             compliance=compliance,
                             senseRange="a",
@@ -499,7 +500,11 @@ class cli:
                             # clear mppt plot
                             mdh.clear()
                             l.track_max_power(
-                                args.mppt, message, extra=args.mppt_params, handler=mdh
+                                args.mppt,
+                                message,
+                                NPLC=args.steadystate_nplc,
+                                extra=args.mppt_params,
+                                handler=mdh,
                             )
 
                         if args.eqe > 0:
@@ -739,7 +744,14 @@ class cli:
             type=float,
             action=self.RecordPref,
             default=1,
-            help="*Sourcemeter NPLC setting to use during I-V scans and max power point tracking",
+            help="*Sourcemeter NPLC setting to use during I-V scans",
+        )
+        setup.add_argument(
+            "--steadystate-nplc",
+            type=float,
+            action=self.RecordPref,
+            default=1,
+            help="*Sourcemeter NPLC setting to use during steady-state scans and max power point tracking",
         )
         setup.add_argument(
             "--sm-terminator",
