@@ -30,7 +30,7 @@ class fabric:
     """ this class contains the sourcemeter and pcb control logic """
 
     outputFormatRevision = (
-        "1.8.1"  # tells reader what format to expect for the output file
+        "1.8.2"  # tells reader what format to expect for the output file
     )
     ssVocDwell = 10  # [s] dwell time for steady state voc determination
     ssIscDwell = 10  # [s] dwell time for steady state isc determination
