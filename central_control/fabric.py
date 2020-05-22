@@ -565,7 +565,15 @@ class fabric:
         else:
             return False
 
-    def pixelSetup(self, pixel, t_dwell_voc=10, voltage_compliance=2, handler=None):
+    def pixelSetup(
+        self,
+        pixel,
+        t_dwell_voc=10,
+        voltage_compliance=2,
+        NPLC=10,
+        stepDelay=0.005,
+        handler=None,
+    ):
         """Call this to switch to a new pixel"""
         self.pixel = str(pixel[0][1])
         if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
@@ -579,7 +587,8 @@ class fabric:
 
             vocs = self.steadyState(
                 t_dwell=t_dwell_voc,
-                NPLC=10,
+                NPLC=NPLC,
+                stepDelay=stepDelay,
                 sourceVoltage=False,
                 compliance=voltage_compliance,
                 senseRange="a",
@@ -677,6 +686,7 @@ class fabric:
         self,
         t_dwell=10,
         NPLC=10,
+        stepDelay=0.005,
         sourceVoltage=True,
         compliance=0.04,
         setPoint=0,
@@ -696,6 +706,7 @@ class fabric:
         )
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
+        self.sm.setStepDelay(stepDelay)
         self.sm.setupDC(
             sourceVoltage=sourceVoltage,
             compliance=compliance,
@@ -726,11 +737,11 @@ class fabric:
     """
 
         self.sm.setNPLC(NPLC)
+        self.sm.setStepDelay(stepDelay)
         self.sm.setupSweep(
             sourceVoltage=sourceVoltage,
             compliance=compliance,
             nPoints=nPoints,
-            stepDelay=stepDelay,
             start=start,
             end=end,
             senseRange=senseRange,
@@ -753,7 +764,13 @@ class fabric:
         return sweepValues
 
     def track_max_power(
-        self, duration=30, message=None, NPLC=-1, extra="basic://7:10", handler=None
+        self,
+        duration=30,
+        message=None,
+        NPLC=-1,
+        stepDelay=-1,
+        extra="basic://7:10",
+        handler=None,
     ):
         if message == None:
             message = "Tracking maximum power point for {:} seconds".format(duration)

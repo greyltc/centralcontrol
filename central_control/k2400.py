@@ -240,7 +240,16 @@ class k2400:
         else:
             self.sm.write(":display:digits 7")
 
-    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f"):
+    def setStepDelay(self, stepDelay=-1):
+        if stepDelay == -1:
+            self.sm.write(":source:delay:auto on")  # this just sets delay to 1ms
+        else:
+            self.sm.write(":source:delay:auto off")
+            self.sm.write(":source:delay {:0.6f}".format(stepDelay))
+
+    def setupDC(
+        self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f",
+    ):
         """setup DC measurement operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
@@ -257,8 +266,6 @@ class k2400:
         sm.write(":source:function {:s}".format(src))
         sm.write(":source:{:s}:mode fixed".format(src))
         sm.write(":source:{:s} {:.8f}".format(src, setPoint))
-
-        sm.write(":source:delay:auto on")
 
         sm.write(":sense:{:s}:protection {:.8f}".format(snc, compliance))
 
@@ -283,7 +290,6 @@ class k2400:
         sourceVoltage=True,
         compliance=0.04,
         nPoints=101,
-        stepDelay=0.005,
         start=0,
         end=1,
         senseRange="f",
@@ -327,11 +333,6 @@ class k2400:
         sm.write(":output on")
         sm.write(":source:{:s}:mode sweep".format(src))
         sm.write(":source:sweep:spacing linear")
-        if stepDelay == -1:
-            sm.write(":source:delay:auto on")  # this just sets delay to 1ms
-        else:
-            sm.write(":source:delay:auto off")
-            sm.write(":source:delay {:0.6f}".format(stepDelay))
         sm.write(":trigger:count {:d}".format(nPoints))
         sm.write(":source:sweep:points {:d}".format(nPoints))
         sm.write(":source:{:s}:start {:.6f}".format(src, start))

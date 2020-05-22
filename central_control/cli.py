@@ -372,6 +372,8 @@ class cli:
                         pixel,
                         t_dwell_voc=args.t_prebias,
                         voltage_compliance=args.voltage_compliance_override,
+                        NPLC=args.steadystate_nplc,
+                        stepDelay=args.steadystate_step_delay,
                         handler=vdh,
                     )  # steady state Voc measured here
                     if pixel_ready and substrate_ready:
@@ -406,6 +408,7 @@ class cli:
                                 compliance=compliance,
                                 senseRange="a",
                                 nPoints=args.scan_points,
+                                stepDelay=args.scan_step_delay,
                                 start=start,
                                 end=end,
                                 NPLC=args.scan_nplc,
@@ -433,6 +436,7 @@ class cli:
                         iscs = l.steadyState(
                             t_dwell=args.t_prebias,
                             NPLC=args.steadystate_nplc,
+                            stepDelay=args.steadystate_step_delay,
                             sourceVoltage=True,
                             compliance=compliance,
                             senseRange="a",
@@ -503,6 +507,7 @@ class cli:
                                 args.mppt,
                                 message,
                                 NPLC=args.steadystate_nplc,
+                                stepDelay=args.steadystate_step_delay,
                                 extra=args.mppt_params,
                                 handler=mdh,
                             )
@@ -752,6 +757,20 @@ class cli:
             action=self.RecordPref,
             default=1,
             help="*Sourcemeter NPLC setting to use during steady-state scans and max power point tracking",
+        )
+        setup.add_argument(
+            "--scan-step-delay",
+            type=float,
+            action=self.RecordPref,
+            default=-1,
+            help="*Sourcemeter settling delay in seconds to use during I-V scans. -1 = auto",
+        )
+        setup.add_argument(
+            "--steadystate-step-delay",
+            type=float,
+            action=self.RecordPref,
+            default=-1,
+            help="*Sourcemeter settling delay in seconds to use during steady-state scans and max power point tracking. -1 = auto",
         )
         setup.add_argument(
             "--sm-terminator",

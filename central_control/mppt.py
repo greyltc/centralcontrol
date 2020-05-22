@@ -43,7 +43,13 @@ class mppt:
         return (Pmax, Vmpp, Impp, maxIndex)
 
     def launch_tracker(
-        self, duration=30, callback=None, NPLC=-1, extra="basic://7:10", handler=None
+        self,
+        duration=30,
+        callback=None,
+        NPLC=-1,
+        stepDelay=-1,
+        extra="basic://7:10",
+        handler=None,
     ):
         """
     general function to call begin a max power point tracking algorithm
@@ -68,6 +74,7 @@ class mppt:
 
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
+        self.sm.setStepDelay(stepDelay)
 
         # do initial mppt dwell before we start the actual algorithm
         print("Teleporting to Mpp!")
