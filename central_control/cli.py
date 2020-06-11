@@ -319,11 +319,11 @@ class cli:
                 if args.mqtt_host != "":
                     # mqtt publisher topics for each handler
                     subtopics = []
-                    subtopics.append(f"plot/voltage")
-                    subtopics.append(f"plot/iv")
-                    subtopics.append(f"plot/mppt")
-                    subtopics.append(f"plot/current")
-                    subtopics.append(f"plot/eqe")
+                    subtopics.append(f"data/voltage")
+                    subtopics.append(f"data/iv")
+                    subtopics.append(f"data/mppt")
+                    subtopics.append(f"data/current")
+                    subtopics.append(f"data/eqe")
 
                     # instantiate handlers
                     vdh = VoltageDataHandler()
