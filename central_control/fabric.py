@@ -23,6 +23,9 @@ import central_control  # for __version__
 import sr830
 import sp2150
 import dp800
+import virtual_sr830
+import virtual_sp2150
+import virtual_dp800
 import eqe
 
 
@@ -145,6 +148,9 @@ class fabric:
         [], dtype=roi_datatype
     )  # list defining regions of interest in the measurement list
 
+    # init eqe data attribute with empty array
+    eqe_data = np.array([], dtype=eqe_datatype)
+
     # function to use when sending ROIs to the GUI
     update_gui = None
 
@@ -221,39 +227,32 @@ class fabric:
 
         # lock=in amplifier
         if liaAddress is None:
-            self.lia = None
-            warnings.warn("No lock-in address specified and no dummy to fall back on")
+            self.lia = virtual_sr830.sr830(return_int=True)
         else:
             self.lia = sr830.sr830(return_int=True, check_errors=True)
             # default liaOutputInterface is RS232
-            self.lia.connect(
-                resource_name=liaAddress,
-                output_interface=liaOutputInterface,
-                set_default_configuration=True,
-            )
-            self.lia_idn = self.lia.get_id()
+        self.lia.connect(
+            resource_name=liaAddress,
+            output_interface=liaOutputInterface,
+            set_default_configuration=True,
+        )
+        self.lia_idn = self.lia.get_id()
 
         # monochromator
         if monoAddress is None:
-            self.mono = None
-            warnings.warn(
-                "No monochromator address specified and no dummy to fall back on"
-            )
+            self.mono = virtual_sp2150.sp2150()
         else:
             self.mono = sp2150.sp2150()
-            self.mono.connect(resource_name=monoAddress)
-            self.mono.set_scan_speed(1000)
+        self.mono.connect(resource_name=monoAddress)
+        self.mono.set_scan_speed(1000)
 
         # bias LED PSU
         if psuAddress is None:
-            self.psu = None
-            warnings.warn(
-                "No bias LED PSU address specified and no dummy to fall back on"
-            )
+            self.psu = virtual_dp800.dp800()
         else:
             self.psu = dp800.dp800()
-            self.psu.connect(resource_name=psuAddress)
-            self.psu_idn = self.psu.get_id()
+        self.psu.connect(resource_name=psuAddress)
+        self.psu_idn = self.psu.get_id()
 
     def hardwareTest(self, substrates_to_test):
         self.le.on()
@@ -518,9 +517,6 @@ class fabric:
                 )
             )
 
-        # init eqe data attribute with empty array
-        self.eqe = np.array([], dtype=self.eqe_datatype)
-
         return intensity
 
     def runDone(self):
@@ -599,7 +595,7 @@ class fabric:
         )  # reset measurement storage
         self.s = np.array([], dtype=self.status_datatype)  # reset status storage
         self.r = np.array([], dtype=self.roi_datatype)  # reset region of interest
-        self.eqe = np.array([], dtype=self.eqe_datatype)  # reset eqe data
+        self.eqe_data = np.array([], dtype=self.eqe_datatype)  # reset eqe data
         self.Voc = None
         self.Isc = None
         self.mppt.reset()
@@ -828,7 +824,7 @@ class fabric:
         )
 
         eqe_data = np.array(eqe_data, dtype=self.eqe_datatype)
-        self.eqe = eqe_data  # added to data file when pixelComplete is called
+        self.eqe_data = eqe_data  # added to data file when pixelComplete is called
         if calibration is not True:
             # add integrated Jsc attribute to data file
             self.f[self.position + "/" + self.pixel].attrs["integrated_jsc"] = eqe_data[
