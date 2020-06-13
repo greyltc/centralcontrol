@@ -6,11 +6,8 @@
 import central_control  # for __version__
 from central_control.fabric import fabric
 from central_control.handlers import (
-    VoltageDataHandler,
-    CurrentDataHandler,
-    IVDataHandler,
-    MPPTDataHandler,
-    EQEDataHandler,
+    DataHandler,
+    SettingsHandler,
 )
 
 import sys
@@ -218,6 +215,12 @@ class cli:
         l = fabric(saveDir=args.destination, archive_address=self.archive_address)
         self.l = l
 
+        # tell save client where to save data
+        settings_handler = SettingsHandler()
+        settings_handler.connect(args.mqtt_host)
+        settings_handler.start_q("data/saver")
+        settings_handler.update_folder(args.destination)
+
         # connect update gui function to the gui server's "drop" function
         s = xmlrpc.client.ServerProxy(args.gui_address)
         try:
@@ -319,18 +322,18 @@ class cli:
                 if args.mqtt_host != "":
                     # mqtt publisher topics for each handler
                     subtopics = []
-                    subtopics.append(f"data/voltage")
+                    subtopics.append(f"data/vt")
                     subtopics.append(f"data/iv")
                     subtopics.append(f"data/mppt")
-                    subtopics.append(f"data/current")
+                    subtopics.append(f"data/it")
                     subtopics.append(f"data/eqe")
 
                     # instantiate handlers
-                    vdh = VoltageDataHandler()
-                    ivdh = IVDataHandler()
-                    mdh = MPPTDataHandler()
-                    cdh = CurrentDataHandler()
-                    edh = EQEDataHandler()
+                    vdh = DataHandler()
+                    ivdh = DataHandler()
+                    mdh = DataHandler()
+                    cdh = DataHandler()
+                    edh = DataHandler()
                     handlers = [vdh, ivdh, mdh, cdh, edh]
 
                     # connect handlers to broker and start publisher threads
@@ -441,38 +444,6 @@ class cli:
                                 )  # take the last measurement*2 to be our compliance limit
                             l.mppt.current_compliance = compliance
 
-                        if args.t_prebias > 0:
-                            # steady state I@constant V measured here - usually Isc
-                            # clear I@constant V plot
-                            cdh.clear()
-                            iscs = l.steadyState(
-                                t_dwell=args.t_prebias,
-                                NPLC=args.steadystate_nplc,
-                                stepDelay=args.steadystate_step_delay,
-                                sourceVoltage=True,
-                                compliance=compliance,
-                                senseRange="a",
-                                setPoint=args.steadystate_v,
-                                handler=cdh,
-                            )
-                            l.registerMeasurements(iscs, "I_sc dwell")
-
-                            l.Isc = iscs[-1][1]  # take the last measurement to be Isc
-                            l.f[l.position + "/" + l.pixel].attrs["Isc"] = l.Isc
-                            l.mppt.Isc = l.Isc
-
-                        if type(args.current_compliance_override) == float:
-                            compliance = args.current_compliance_override
-                        else:
-                            # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
-                            # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
-                            # otherwise, set it to be 2x of Isc
-                            if abs(l.Isc) < 0.000005:
-                                compliance = 0.00001
-                            else:
-                                compliance = abs(l.Isc * 2)
-                        l.mppt.current_compliance = compliance
-
                         if args.snaith:
                             # "snaithing" is a sweep from Isc --> Voc * (1+ l.percent_beyond_voc)
                             if type(args.scan_low_override) == float:
@@ -523,6 +494,38 @@ class cli:
                                 extra=args.mppt_params,
                                 handler=mdh,
                             )
+
+                        if args.t_prebias > 0:
+                            # steady state I@constant V measured here - usually Isc
+                            # clear I@constant V plot
+                            cdh.clear()
+                            iscs = l.steadyState(
+                                t_dwell=args.t_prebias,
+                                NPLC=args.steadystate_nplc,
+                                stepDelay=args.steadystate_step_delay,
+                                sourceVoltage=True,
+                                compliance=compliance,
+                                senseRange="a",
+                                setPoint=args.steadystate_v,
+                                handler=cdh,
+                            )
+                            l.registerMeasurements(iscs, "I_sc dwell")
+
+                            l.Isc = iscs[-1][1]  # take the last measurement to be Isc
+                            l.f[l.position + "/" + l.pixel].attrs["Isc"] = l.Isc
+                            l.mppt.Isc = l.Isc
+
+                        if type(args.current_compliance_override) == float:
+                            compliance = args.current_compliance_override
+                        else:
+                            # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
+                            # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
+                            # otherwise, set it to be 2x of Isc
+                            if abs(l.Isc) < 0.000005:
+                                compliance = 0.00001
+                            else:
+                                compliance = abs(l.Isc * 2)
+                        l.mppt.current_compliance = compliance
 
                         if args.eqe > 0:
                             message = f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"

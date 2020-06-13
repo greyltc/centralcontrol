@@ -5,6 +5,66 @@ import json
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
 
 
+class DataHandler(MQTTQueuePublisher):
+    """Publish list of data with MQTT client."""
+
+    def __init__(self, idn=""):
+        """Construct MQTT queue publisher.
+
+        Parameters
+        ----------
+        idn : str
+            Identity string to send with data.
+        """
+        super().__init__()
+        self.idn = idn
+
+    def handle_data(self, data):
+        """Perform tasks with data.
+
+        Parameters
+        ----------
+        data : list
+            List of data.
+        """
+        payload = {
+            "data": data,
+            "clear": False,
+            "id": self.idn,
+        }
+        # turn dict into string that mqtt can send
+        payload = json.dumps(payload)
+        self.append_payload(payload)
+
+    def clear(self):
+        """Clear plot."""
+        payload = {"clear": True, "id": self.idn}
+        payload = json.dumps(payload)
+        self.append_payload(payload)
+
+
+class SettingsHandler(MQTTQueuePublisher):
+    """Publish settings with MQTT client."""
+
+    def __init__(self):
+        """Construct MQTT queue publisher."""
+        super().__init__()
+
+    def update_folder(self, folder):
+        """Update save folder.
+
+        Parameters
+        ----------
+        folder : str
+            Folder where data is saved.
+        """
+        payload = {"folder": folder}
+
+        # turn dict into string that mqtt can send
+        payload = json.dumps(payload)
+        self.append_payload(payload)
+
+
 class VoltageDataHandler(MQTTQueuePublisher):
     """Publish voltage vs. time data with MQTT client."""
 

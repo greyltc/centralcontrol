@@ -730,7 +730,7 @@ class fabric:
             list(zip(*[iter(raw)] * 4)), dtype=self.measurement_datatype
         )
         if handler is not None:
-            handler(sweepValues)
+            handler(raw)
 
         return sweepValues
 
