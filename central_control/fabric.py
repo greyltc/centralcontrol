@@ -367,17 +367,13 @@ class fabric:
             self.spectrum_raw = np.array(
                 [[w, i] for w, i in zip(wls, irr)], dtype=self.spectrum_datatype
             )
-            if spectrum_cal is not None:
-                self.spectrum = self.spectrum_raw * spectrum_cal
-                ret["wavelabs_suns"] = (
-                    sp.integrare.simps(self.spectrum, wls) / 1000
-                )  # intensity in suns
-            else:
-                # if no calibration, assume 1 sun
-                ret["wavelabs_suns"] = 1.0
-                warnings.warn(
-                    "No spectral calibration supplied for Wavelabs simulator. Assuming intensity is 1 sun."
-                )
+            if spectrum_cal is None:
+                spectrum_cal = np.ones(len(self.spectrum_raw))
+                warnings.warn("No spectral calibration supplied for Wavelabs simulator")
+            self.spectrum = self.spectrum_raw * spectrum_cal
+            ret["wavelabs_suns"] = (
+                sp.integrare.simps(self.spectrum, wls) / 1000
+            )  # intensity in suns
 
         if ignore_diodes is False:
             self.me.goto(self.me.photodiode_location)

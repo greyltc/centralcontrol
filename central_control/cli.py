@@ -222,13 +222,13 @@ class cli:
         settings_handler.update_folder(args.destination)
 
         # connect update gui function to the gui server's "drop" function
-        s = xmlrpc.client.ServerProxy(args.gui_address)
-        try:
-            server_methods = s.system.listMethods()
-            if "drop" in server_methods:
-                l.update_gui = s.drop
-        except:
-            pass  # there's probably just no server gui running
+        # s = xmlrpc.client.ServerProxy(args.gui_address)
+        # try:
+        #     server_methods = s.system.listMethods()
+        #     if "drop" in server_methods:
+        #         l.update_gui = s.drop
+        # except:
+        #     pass  # there's probably just no server gui running
 
         # connect to PCB and sourcemeter
         l.connect(
@@ -248,7 +248,8 @@ class cli:
         )
 
         if args.dummy:
-            args.pixel_address = "A1"
+            args.iv_pixel_address = "A1"
+            args.eqe_pixel_address = "A1"
         else:
             if args.rear == False:
                 l.sm.setTerminals(front=True)
@@ -256,18 +257,23 @@ class cli:
                 l.sm.setWires(twoWire=True)
 
         # build up the queue of pixels to run through
-        if args.pixel_address is not None:
-            pixel_que = self.buildQ(args.pixel_address)
+        if args.iv_pixel_address is not None:
+            iv_pixel_queue = self.buildQ(args.iv_pixel_address)
         else:
-            pixel_que = []
+            iv_pixel_queue = []
+
+        if args.eqe_pixel_address is not None:
+            eqe_pixel_queue = self.buildQ(args.eqe_pixel_address)
+        else:
+            eqe_pixel_queue = []
 
         if args.test_hardware:
-            if pixel_que is []:
+            if (iv_pixel_queue == []) & (eqe_pixel_queue == []):
                 holders_to_test = l.pcb.substratesConnected
             else:
                 # turn the address que into a string of substrates
                 mash = ""
-                for pix in pixel_que:
+                for pix in set(iv_pixel_queue + eqe_pixel_queue):
                     mash = mash + pix[0][0]
                 # delete the numbers
                 # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
@@ -317,7 +323,14 @@ class cli:
                 with open(self.config_file_fullpath, "w") as configfile:
                     config.write(configfile)
 
-            if args.t_prebias or args.sweep or args.snaith or args.mppt or args.eqe > 0:
+            if (
+                args.v_t
+                or args.i_t
+                or args.sweep_1
+                or args.sweep_2
+                or args.mppt_t
+                or args.eqe > 0
+            ):
                 # create mqtt data handlers
                 if args.mqtt_host != "":
                     # mqtt publisher topics for each handler
@@ -343,7 +356,7 @@ class cli:
 
                 last_substrate = None
                 # scan through the pixels and do the requested measurements
-                for pixel in pixel_que:
+                for pixel in iv_pixel_queue:
                     substrate = pixel[0][0].upper()
                     pix = pixel[0][1]
                     print(
@@ -371,13 +384,13 @@ class cli:
                     pixel_ready = l.pixelSetup(pixel)
                     if pixel_ready and substrate_ready:
 
-                        if args.t_prebias > 0:
+                        if args.v_t > 0:
                             # steady state v@constant I measured here - usually Voc
                             # clear v@constant I plot
                             vdh.clear()
 
                             vocs = l.steadyState(
-                                t_dwell=args.t_prebias,
+                                t_dwell=args.v_t,
                                 NPLC=args.steadystate_nplc,
                                 stepDelay=args.steadystate_step_delay,
                                 sourceVoltage=False,
@@ -401,14 +414,14 @@ class cli:
                             # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
                         l.mppt.current_compliance = compliance
 
-                        if args.sweep is True:
+                        if args.sweep_1 is True:
                             # now sweep from Voc --> Isc
-                            if type(args.scan_high_override) == float:
-                                start = args.scan_high_override
+                            if type(args.scan_start_override_1) == float:
+                                start = args.scan_start_override_1
                             else:
                                 start = l.Voc
-                            if type(args.scan_low_override) == float:
-                                end = args.scan_low_override
+                            if type(args.scan_end_override_1) == float:
+                                end = args.scan_end_override_1
                             else:
                                 end = 0
 
@@ -444,14 +457,14 @@ class cli:
                                 )  # take the last measurement*2 to be our compliance limit
                             l.mppt.current_compliance = compliance
 
-                        if args.snaith:
+                        if args.sweep_2:
                             # "snaithing" is a sweep from Isc --> Voc * (1+ l.percent_beyond_voc)
-                            if type(args.scan_low_override) == float:
-                                start = args.scan_low_override
+                            if type(args.scan_start_override_2) == float:
+                                start = args.scan_start_override_2
                             else:
                                 start = 0
-                            if type(args.scan_high_override) == float:
-                                end = args.scan_high_override
+                            if type(args.scan_end_override_2) == float:
+                                end = args.scan_end_override_2
                             else:
                                 end = l.Voc * ((100 + l.percent_beyond_voc) / 100)
 
@@ -480,14 +493,14 @@ class cli:
                             if abs(Pmax_snaith) > abs(Pmax_sweep):
                                 l.mppt.Vmpp = Vmpp
 
-                        if args.mppt > 0:
+                        if args.mppt_t > 0:
                             message = "Tracking maximum power point for {:} seconds".format(
-                                args.mppt
+                                args.mppt_t
                             )
                             # clear mppt plot
                             mdh.clear()
                             l.track_max_power(
-                                args.mppt,
+                                args.mppt_t,
                                 message,
                                 NPLC=args.steadystate_nplc,
                                 stepDelay=args.steadystate_step_delay,
@@ -495,12 +508,12 @@ class cli:
                                 handler=mdh,
                             )
 
-                        if args.t_prebias > 0:
+                        if args.i_t > 0:
                             # steady state I@constant V measured here - usually Isc
                             # clear I@constant V plot
                             cdh.clear()
                             iscs = l.steadyState(
-                                t_dwell=args.t_prebias,
+                                t_dwell=args.i_t,
                                 NPLC=args.steadystate_nplc,
                                 stepDelay=args.steadystate_step_delay,
                                 sourceVoltage=True,
@@ -526,6 +539,34 @@ class cli:
                             else:
                                 compliance = abs(l.Isc * 2)
                         l.mppt.current_compliance = compliance
+
+                for pixel in eqe_pixel_queue:
+                    substrate = pixel[0][0].upper()
+                    pix = pixel[0][1]
+                    print(
+                        "\nOperating on substrate {:s}, pixel {:s}...".format(
+                            substrate, pix
+                        )
+                    )
+                    # add id str to handlers to display on plots
+                    for dh in handlers:
+                        dh.idn = f"substrate{substrate}_pixel{pix}"
+
+                    if last_substrate != substrate:  # we have a new substrate
+                        print('New substrate using "{:}" layout!'.format(pixel[3]))
+                        last_substrate = substrate
+                        variable_pairs = []
+                        for key, value in self.args.experimental_parameter.items():
+                            variable_pairs.append([key, value.pop()])
+
+                        substrate_ready = l.substrateSetup(
+                            position=substrate,
+                            variable_pairs=variable_pairs,
+                            layout_name=pixel[3],
+                        )
+
+                    pixel_ready = l.pixelSetup(pixel)
+                    if pixel_ready and substrate_ready:
 
                         if args.eqe > 0:
                             message = f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"
@@ -611,10 +652,17 @@ class cli:
         )
         measure.add_argument(
             "-a",
-            "--pixel-address",
+            "--iv-pixel-address",
             default=None,
             type=str,
-            help='Hexadecimal bit mask for enabled pixels, also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
+            help='Hexadecimal bit mask for enabled pixels for I-V-t measurements. Also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
+        )
+        measure.add_argument(
+            "-a",
+            "--eqe-pixel-address",
+            default=None,
+            type=str,
+            help='Hexadecimal bit mask for enabled pixels for EQE measurements. Also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
         )
         measure.add_argument(
             "--mqtt-host",
@@ -624,7 +672,7 @@ class cli:
             help="*IP address or hostname of mqtt broker",
         )
         measure.add_argument(
-            "--sweep",
+            "--sweep-1",
             type=self.str2bool,
             default=True,
             action=self.RecordPref,
@@ -632,7 +680,7 @@ class cli:
             help="*Do an I-V sweep from Voc --> Isc",
         )
         measure.add_argument(
-            "--snaith",
+            "--sweep-2",
             type=self.str2bool,
             default=True,
             action=self.RecordPref,
@@ -654,14 +702,21 @@ class cli:
             help="*Steady state value of I to measure V",
         )
         measure.add_argument(
-            "--t-prebias",
+            "--i-t",
             type=float,
             action=self.RecordPref,
             default=10.0,
-            help="*Number of seconds to measure to find steady state V and I",
+            help="*Number of seconds to measure to find steady state I@constant V",
         )
         measure.add_argument(
-            "--mppt",
+            "--v-t",
+            type=float,
+            action=self.RecordPref,
+            default=10.0,
+            help="*Number of seconds to measure to find steady state V@constant I",
+        )
+        measure.add_argument(
+            "--mppt-t",
             type=float,
             action=self.RecordPref,
             default=37.0,
@@ -718,6 +773,13 @@ class cli:
             help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'wavelabs-relay://127.0.0.1:3335' for connecting to a wavelabs-relay server",
         )
         setup.add_argument(
+            "--light-recipe",
+            type=str,
+            action=self.RecordPref,
+            default="AM1.5_1.0SUN",
+            help="Recipe name for Wavelabs to load",
+        )
+        setup.add_argument(
             "--wavelabs-spec-cal-path",
             type=str,
             action=self.RecordPref,
@@ -757,14 +819,24 @@ class cli:
             help="Override current compliance value used during I-V scans",
         )
         setup.add_argument(
-            "--scan-low-override",
+            "--scan-start-override-1",
             type=float,
-            help="Override the sweep voltage limit on the Jsc side",
+            help="Override the start sweep voltage limit for sweep-1",
         )
         setup.add_argument(
-            "--scan-high-override",
+            "--scan-end-override-1",
             type=float,
-            help="Override the scan voltage limit on the Voc side",
+            help="Override the end sweep voltage limit for sweep-1",
+        )
+        setup.add_argument(
+            "--scan-start-override-2",
+            type=float,
+            help="Override the start sweep voltage limit for sweep-2",
+        )
+        setup.add_argument(
+            "--scan-end-override-2",
+            type=float,
+            help="Override the end sweep voltage limit for sweep-2",
         )
         setup.add_argument(
             "--scan-points",
@@ -908,6 +980,13 @@ class cli:
             help="*LED PSU channel currents (A)",
         )
         setup.add_argument(
+            "--eqe-integration-time",
+            type=int,
+            action=self.RecordPref,
+            default=8,
+            help="*Lock-in amplifier integration time",
+        )
+        setup.add_argument(
             "--eqe-smu-v",
             type=float,
             action=self.RecordPref,
@@ -974,14 +1053,14 @@ class cli:
             help="Number of repeat measurements at each wavelength",
         )
         setup.add_argument(
-            "--eqe-grating-change wls",
+            "--eqe-grating-change-wls",
             type=float,
             nargs="+",
             default=None,
             help="Wavelengths in nm at which to change gratings",
         )
         setup.add_argument(
-            "--eqe-filter-change wls",
+            "--eqe-filter-change-wls",
             type=float,
             nargs="+",
             default=None,
