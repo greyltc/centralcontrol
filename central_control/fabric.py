@@ -825,6 +825,7 @@ class fabric:
         filter_change_wls=None,
         auto_gain=True,
         auto_gain_method="user",
+        integration_time=8,
         handler=None,
     ):
         """Run EQE scan."""
@@ -854,6 +855,7 @@ class fabric:
             filter_change_wls,
             auto_gain,
             auto_gain_method,
+            integration_time,
             handler,
         )
 

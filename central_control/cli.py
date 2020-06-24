@@ -604,6 +604,7 @@ class cli:
                                 filter_change_wls=args.eqe_filter_change_wls,
                                 auto_gain=not (args.eqe_autogain_off),
                                 auto_gain_method=args.eqe_autogain_method,
+                                integration_time=args.eqe_integration_time,
                                 handler=edh,
                             )
 
@@ -995,7 +996,7 @@ class cli:
             type=int,
             action=self.RecordPref,
             default=8,
-            help="*Lock-in amplifier integration time",
+            help="*Lock-in amplifier integration time setting (integer corresponding to a time)",
         )
         setup.add_argument(
             "--eqe-smu-v",
