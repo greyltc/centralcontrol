@@ -298,6 +298,7 @@ class cli:
                 diode_cal,
                 ignore_diodes=args.ignore_diodes,
                 run_description=args.run_description,
+                recipe=args.light_recipe,
                 spectrum_cal=spectrum_cal,
             )
 

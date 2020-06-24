@@ -334,11 +334,38 @@ class fabric:
 
         self.le.off()
 
-    def measureIntensity(self, diode_cal, ignore_diodes=False, spectrum_cal=None):
-        """
-    returns number of suns and ADC counts for both diodes
-    takes diode calibration values in diode_cal
-    if diode_cal is not a tuple with valid calibration values, sets intensity to 1.0 sun for both diodes
+    def measureIntensity(
+        self, diode_cal, ignore_diodes=False, recipe=None, spectrum_cal=None
+    ):
+        """Measure the equivalent solar intensity of the light source.
+
+        Uses either reference calibration diodes on the sample stage and/or the light
+        source's own internal calibration sensor.
+
+        The function can return the number of suns and ADC counts for two stage-mounted
+        diodes using diode calibration values in diode_cal (if diode_cal is not a tuple
+        with valid calibration values, sets intensity to 1.0 sun for both diodes.)
+
+        This function will try to calculate the equivalent solar intensity based on a
+        measurement of the spectral irradiance if supported by the light source. To
+        obtain the correct units and relative scaling for the spectral irradiance
+        calibration data must be supplied as an argument to the function call. If
+        calibration data is not supplied the raw measurement will be returned and the
+        intensity is assumed to be 1.0 sun equivalent.
+
+        Parameters
+        ----------
+        diode_cal : tuple
+            ADC counts for 2 diodes corresponding to 1 sun equivalent illumination
+            intensity.
+        ignore_diodes : bool
+            Choose whether or not to ignore measurement of stage mounted reference
+            photodiodes, i.e. if they are not mounted, set this to True.
+        recipe : str
+            Name of the spectrum recipe for the light source to load.
+        spectrum_cal : array-like
+            Calibration data for the light source's internal spectrometer used to
+            convert the raw measurement to units of spectral irradiance.
     """
         ret = {
             "diode_1_adc": None,
@@ -351,6 +378,8 @@ class fabric:
         if self.le.wavelabs is True:
             # if using wavelabs light engine, use internal spectrometer to measure
             # spectrum and intensity
+            if recipe is not None:
+                self.le.light_engine.activateRecipe(recipe)
             old_duration = self.le.light_engine.getRecipeParam(param="Duration")
             new_duration = 1
             self.le.light_engine.setRecipeParam(
@@ -368,12 +397,16 @@ class fabric:
                 [[w, i] for w, i in zip(wls, irr)], dtype=self.spectrum_datatype
             )
             if spectrum_cal is None:
-                spectrum_cal = np.ones(len(self.spectrum_raw))
-                warnings.warn("No spectral calibration supplied for Wavelabs simulator")
-            self.spectrum = self.spectrum_raw * spectrum_cal
-            ret["wavelabs_suns"] = (
-                sp.integrare.simps(self.spectrum, wls) / 1000
-            )  # intensity in suns
+                self.spectrum = self.spectrum_raw
+                ret["wavelabs_suns"] = 1
+                warnings.warn(
+                    "No spectral calibration supplied for Wavelabs simulator. Assuming 1.0 suns."
+                )
+            else:
+                self.spectrum = self.spectrum_raw * spectrum_cal
+                ret["wavelabs_suns"] = (
+                    sp.integrare.simps(self.spectrum, wls) / 1000
+                )  # intensity in suns
 
         if ignore_diodes is False:
             self.me.goto(self.me.photodiode_location)
@@ -426,6 +459,7 @@ class fabric:
         diode_cal,
         ignore_diodes=False,
         run_description="",
+        recipe=None,
         spectrum_cal=None,
     ):
         """
@@ -479,7 +513,9 @@ class fabric:
         self.f.attrs["Lock-in amplifier"] = np.string_(self.lia_idn)
         self.f.attrs["Power supply"] = np.string_(self.psu_idn)
 
-        intensity = self.measureIntensity(diode_cal, ignore_diodes, spectrum_cal)
+        intensity = self.measureIntensity(
+            diode_cal, ignore_diodes, recipe, spectrum_cal
+        )
         if self.le.wavelabs is True:
             self.f.attrs["Wavelabs intensity [suns]"] = intensity["wavelabs_suns"]
 
