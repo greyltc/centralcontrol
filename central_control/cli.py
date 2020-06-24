@@ -267,7 +267,8 @@ class cli:
         else:
             eqe_pixel_queue = []
 
-        if args.test_hardware:
+        # either test hardware, calibrate LED PSU, or scan devices
+        if args.test_hardware is True:
             if (iv_pixel_queue == []) & (eqe_pixel_queue == []):
                 holders_to_test = l.pcb.substratesConnected
             else:
@@ -279,7 +280,15 @@ class cli:
                 # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
                 holders_to_test = "".join(sorted(set(mash)))  # remove dupes
             l.hardwareTest(holders_to_test.upper())
-        else:  # if we do the hardware test, don't then scan pixels
+        elif args.calibrate_psu is True:
+            pdh = DataHandler()
+            pdh.connect(args.mqtt_host)
+            pdh.start_q("data/psu")
+            pdh.idn = "psu_calibration"
+            l.calibrate_psu(args.calibrate_psu_ch, handler=pdh)
+            pdh.end_q()
+            pdh.disconnect()
+        else:
             #  do run setup things now like diode calibration and opening the data storage file
             if args.calibrate_diodes == True:
                 diode_cal = True
@@ -591,7 +600,7 @@ class cli:
                                 psu_ch3_voltage=args.psu_vs[2],
                                 psu_ch3_current=args.psu_is[2],
                                 smu_voltage=args.eqe_smu_v,
-                                calibration=args.calibrate_ref,
+                                calibration=args.calibrate_eqe,
                                 ref_measurement_path=args.eqe_ref_meas_path,
                                 ref_measurement_file_header=args.eqe_ref_meas_header_len,
                                 ref_eqe_path=args.eqe_ref_cal_path,
@@ -1007,9 +1016,8 @@ class cli:
         )
         setup.add_argument(
             "--calibrate-eqe",
-            default=False,
             action="store_true",
-            help="Calibrate EQE by measuring reference photodiode",
+            help="Measure spectral response of reference photodiode",
         )
         setup.add_argument(
             "--eqe-ref-meas-path",
@@ -1080,9 +1088,8 @@ class cli:
         )
         setup.add_argument(
             "--eqe-autogain-off",
-            default=False,
-            action="store_false",
-            help="Enable automatic gain setting",
+            action="store_true",
+            help="Disable automatic gain setting",
         )
         setup.add_argument(
             "--eqe-autogain-method",
@@ -1090,6 +1097,18 @@ class cli:
             default="user",
             action=self.RecordPref,
             help="Method of automatically establishing gain setting",
+        )
+        setup.add_argument(
+            "--calibrate-psu",
+            action="store_true",
+            help="Calibrate PSU current to LEDs measuring reference photodiode",
+        )
+        setup.add_argument(
+            "--calibrate-psu-ch",
+            type=int,
+            action=self.RecordPref,
+            default=1,
+            help="PSU channel to calibrate: 1, 2, or 3",
         )
 
         testing = parser.add_argument_group("optional arguments for debugging/testing")

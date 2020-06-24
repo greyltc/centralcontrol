@@ -829,7 +829,6 @@ class fabric:
         handler=None,
     ):
         """Run EQE scan."""
-
         eqe_data = eqe.scan(
             self.lia,
             self.mono,
@@ -868,3 +867,45 @@ class fabric:
             ]
 
         return eqe_data
+
+    def calibrate_psu(self, channel=1, handler=None):
+        """Calibrate the LED PSU.
+
+        Measure the short-circuit current of a photodiode generated upon illumination
+        with an LED powered by the PSU as function of PSU current.
+
+        Parameters
+        ----------
+        channel : {1, 2, 3}
+            PSU channel.
+        """
+        currents = np.linspace(0, 1, 11, endpoint=True)
+
+        # open all mux relays
+        self.pcb.write("s")
+
+        # set smu to short circuit and enable output
+        self.sm.setupDC(
+            sourceVoltage=True, compliance=0.1, setPoint=0, senseRange="a",
+        )
+        self.sm.outOn(True)
+
+        # set up PSU
+        self.psu.set_apply(channel=channel, voltage="MAX", current=0)
+        self.psu.set_output_enable(True, channel)
+
+        for current in currents:
+            self.psu.set_apply(channel=channel, voltage="MAX", current=current)
+            time.sleep(1)
+            data = self.sm.measure()
+            data.append(current)
+            if handler is not None:
+                handler.handle_data(data)
+
+        # disable PSU
+        self.psu.set_apply(channel=channel, voltage="MAX", current=0)
+        self.psu.set_output_enable(False, channel)
+
+        # disable smu
+        self.sm.outOn(False)
+
