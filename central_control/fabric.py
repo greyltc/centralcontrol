@@ -375,6 +375,8 @@ class fabric:
             "wavelabs_suns": None,
         }
 
+        self.spectrum = None
+
         if self.le.wavelabs is True:
             # if using wavelabs light engine, use internal spectrometer to measure
             # spectrum and intensity

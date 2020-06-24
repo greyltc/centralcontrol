@@ -302,6 +302,16 @@ class cli:
                 spectrum_cal=spectrum_cal,
             )
 
+            # save spectrum
+            if l.spectrum is not None:
+                sdh = DataHandler()
+                sdh.connect(args.mqtt_host)
+                sdh.start_q("data/spectrum")
+                sdh.idn = "spectrum"
+                sdh.handle_data(l.spectrum)
+                sdh.end_q()
+                sdh.disconnect()
+
             # record all arguments into the run file
             l.f.create_group("args")
             for attr, value in args.__dict__.items():
