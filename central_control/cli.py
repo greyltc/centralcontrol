@@ -285,7 +285,9 @@ class cli:
             pdh.connect(args.mqtt_host)
             pdh.start_q("data/psu")
             pdh.idn = "psu_calibration"
-            l.calibrate_psu(args.calibrate_psu_ch, handler=pdh)
+            l.calibrate_psu(
+                args.calibrate_psu_ch, loc=args.position_override, handler=pdh
+            )
             pdh.end_q()
             pdh.disconnect()
         else:
@@ -560,64 +562,70 @@ class cli:
                                 compliance = abs(l.Isc * 2)
                         l.mppt.current_compliance = compliance
 
+                    l.pixelComplete()
+
                 for pixel in eqe_pixel_queue:
-                    substrate = pixel[0][0].upper()
-                    pix = pixel[0][1]
-                    print(
-                        "\nOperating on substrate {:s}, pixel {:s}...".format(
-                            substrate, pix
+                    if args.calibrate_eqe is False:
+                        substrate = pixel[0][0].upper()
+                        pix = pixel[0][1]
+                        print(
+                            "\nOperating on substrate {:s}, pixel {:s}...".format(
+                                substrate, pix
+                            )
                         )
-                    )
-                    # add id str to handlers to display on plots
-                    for dh in handlers:
-                        dh.idn = f"substrate{substrate}_pixel{pix}"
+                        # add id str to handlers to display on plots
+                        edh.idn = f"substrate{substrate}_pixel{pix}"
 
-                    if last_substrate != substrate:  # we have a new substrate
-                        print('New substrate using "{:}" layout!'.format(pixel[3]))
-                        last_substrate = substrate
-                        variable_pairs = []
-                        for key, value in self.args.experimental_parameter.items():
-                            variable_pairs.append([key, value.pop()])
+                        if last_substrate != substrate:  # we have a new substrate
+                            print('New substrate using "{:}" layout!'.format(pixel[3]))
+                            last_substrate = substrate
+                            variable_pairs = []
+                            for key, value in self.args.experimental_parameter.items():
+                                variable_pairs.append([key, value.pop()])
 
-                        substrate_ready = l.substrateSetup(
-                            position=substrate,
-                            variable_pairs=variable_pairs,
-                            layout_name=pixel[3],
-                        )
-
-                    pixel_ready = l.pixelSetup(pixel)
-                    if pixel_ready and substrate_ready:
-
-                        if args.eqe > 0:
-                            message = f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"
-                            # clear eqe plot
-                            edh.clear()
-                            l.eqe(
-                                psu_ch1_voltage=args.psu_vs[0],
-                                psu_ch1_current=args.psu_is[0],
-                                psu_ch2_voltage=args.psu_vs[1],
-                                psu_ch2_current=args.psu_is[1],
-                                psu_ch3_voltage=args.psu_vs[2],
-                                psu_ch3_current=args.psu_is[2],
-                                smu_voltage=args.eqe_smu_v,
-                                calibration=args.calibrate_eqe,
-                                ref_measurement_path=args.eqe_ref_meas_path,
-                                ref_measurement_file_header=args.eqe_ref_meas_header_len,
-                                ref_eqe_path=args.eqe_ref_cal_path,
-                                ref_spectrum_path=args.eqe_ref_spec_path,
-                                start_wl=args.eqe_start_wl,
-                                end_wl=args.eqe_end_wl,
-                                num_points=args.eqe_num_wls,
-                                repeats=args.eqe_repeats,
-                                grating_change_wls=args.eqe_grating_change_wls,
-                                filter_change_wls=args.eqe_filter_change_wls,
-                                auto_gain=not (args.eqe_autogain_off),
-                                auto_gain_method=args.eqe_autogain_method,
-                                integration_time=args.eqe_integration_time,
-                                handler=edh,
+                            substrate_ready = l.substrateSetup(
+                                position=substrate,
+                                variable_pairs=variable_pairs,
+                                layout_name=pixel[3],
                             )
 
-                        l.pixelComplete()
+                        pixel_ready = l.pixelSetup(pixel)
+                    else:
+                        # move to eqe calibration photodiode
+                        self.l.me.goto(args.position_override)
+                        pixel_ready = True
+                        substrate_ready = True
+
+                    if pixel_ready and substrate_ready:
+                        message = f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"
+                        # clear eqe plot
+                        edh.clear()
+                        l.eqe(
+                            psu_ch1_voltage=args.psu_vs[0],
+                            psu_ch1_current=args.psu_is[0],
+                            psu_ch2_voltage=args.psu_vs[1],
+                            psu_ch2_current=args.psu_is[1],
+                            psu_ch3_voltage=args.psu_vs[2],
+                            psu_ch3_current=args.psu_is[2],
+                            smu_voltage=args.eqe_smu_v,
+                            calibration=args.calibrate_eqe,
+                            ref_measurement_path=args.eqe_ref_meas_path,
+                            ref_measurement_file_header=args.eqe_ref_meas_header_len,
+                            ref_eqe_path=args.eqe_ref_cal_path,
+                            ref_spectrum_path=args.eqe_ref_spec_path,
+                            start_wl=args.eqe_start_wl,
+                            end_wl=args.eqe_end_wl,
+                            num_points=args.eqe_num_wls,
+                            repeats=args.eqe_repeats,
+                            grating_change_wls=args.eqe_grating_change_wls,
+                            filter_change_wls=args.eqe_filter_change_wls,
+                            auto_gain=not (args.eqe_autogain_off),
+                            auto_gain_method=args.eqe_autogain_method,
+                            integration_time=args.eqe_integration_time,
+                            handler=edh,
+                        )
+
+                    l.pixelComplete()
 
                 # clean up mqtt publishers
                 if args.mqtt_host != "":
@@ -1109,6 +1117,13 @@ class cli:
             action=self.RecordPref,
             default=1,
             help="PSU channel to calibrate: 1, 2, or 3",
+        )
+        setup.add_argument(
+            "--position-override",
+            type=float,
+            nargs="+",
+            default=None,
+            help="Override position given by pixel selection and use these coordinates instead",
         )
 
         testing = parser.add_argument_group("optional arguments for debugging/testing")

@@ -829,6 +829,11 @@ class fabric:
         handler=None,
     ):
         """Run EQE scan."""
+
+        # open all mux relays if calibrating
+        if calibration is True:
+            self.pcb.write("s")
+
         eqe_data = eqe.scan(
             self.lia,
             self.mono,
@@ -868,7 +873,7 @@ class fabric:
 
         return eqe_data
 
-    def calibrate_psu(self, channel=1, handler=None):
+    def calibrate_psu(self, channel=1, loc=None, handler=None):
         """Calibrate the LED PSU.
 
         Measure the short-circuit current of a photodiode generated upon illumination
@@ -878,8 +883,16 @@ class fabric:
         ----------
         channel : {1, 2, 3}
             PSU channel.
+        loc : list
+            Position of calibration photodiode.
+        handler : DataHandler
+            Handler to process data.
         """
         currents = np.linspace(0, 1, 11, endpoint=True)
+
+        # move to photodiode
+        if loc is not None:
+            self.me.goto(loc)
 
         # open all mux relays
         self.pcb.write("s")
