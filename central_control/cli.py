@@ -648,9 +648,6 @@ class cli:
             substrates = [x[0] for x in q]
             substrates = sorted(set(substrates))
 
-            # we have this many substrates
-            n = len(substrates)
-
             for substrate in substrates:
                 r_value = self.l.pcb.resistors[substrate]
                 valid_layouts = {}
@@ -664,13 +661,15 @@ class cli:
                         ):
                             valid_layouts[key] = value
                             break
-                user_layout = user_layouts[
-                    0
-                ]  # here's the layout the user selected for this substrate
-                user_layouts.rotate(-1)  # rotate the deque
+
+                # here's the layout the user selected for this substrate
+                user_layout = user_layouts[0]
+
+                # rotate the deque
+                user_layouts.rotate(-1)
+
                 if user_layout in valid_layouts:
                     using_layouts[substrate] = valid_layouts[user_layout]
-                    this_layout = valid_layouts[user_layout]
                 elif len(valid_layouts) == 1:
                     using_layouts[substrate] = valid_layouts.popitem()[1]
                 else:
@@ -680,7 +679,8 @@ class cli:
                         )
                     )
 
-            user_areas = deque(self.args.area)  # device areas given to us by the user
+            # device areas given to us by the user
+            user_areas = deque(self.args.area)
             for pxad in q:
                 this_substrate = pxad[0]
                 this_pixel = int(pxad[1])
