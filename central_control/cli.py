@@ -121,33 +121,17 @@ class cli:
             else:
                 self.args.__setattr__(key, config.get(self.config_section, key))
 
-        # layouts.ini file search order: 1=cwd, 2=source/config, 3=sys.prefix, 4=central_control.__path__
-        cwd_layouts_file_fullpath = os.getcwd() + os.path.sep + self.layouts_file_name
-        layouts_file_possible_locations = []
-        layouts_file_possible_locations.append(cwd_layouts_file_fullpath)
-        layouts_file_possible_locations.append(self.source_layouts_file_fullpath)
-        layouts_file_possible_locations.append(self.system_layouts_file_fullpath)
-        layouts_file_possible_locations.append(self.module_layouts_file_fullpath)
-
-        self.layouts_file_used = None
-        for layouts_file in layouts_file_possible_locations:
-            if os.path.exists(layouts_file):
-                self.layouts_file_used = layouts_file
-                break
-
-        if self.layouts_file_used == None:
-            places_searched = [
-                os.path.split(fullpath)[0]
-                for fullpath in layouts_file_possible_locations
-            ]
-            raise ValueError(
-                "Unable to find layouts.ini file in any of the following palces: {:}".format(
-                    str(places_searched)
-                )
-            )
-
+        # read layouts config path if running from command line
         layouts_config = configparser.ConfigParser()
-        layouts_config.read(self.layouts_file_used)
+        if args.mqtt_mode is False:
+            if args.layouts != "":
+                self.layouts_file_used = self.args.layouts_config
+                layouts_config.read(self.layouts_file_used)
+            else:
+                raise ValueError("Layouts config file not specified. See CLI help.")
+        else:
+            layouts_config.read_string(self.args.layouts_config)
+
         self.layouts = {}
         for layout in layouts_config.sections():
             this_layout = dict(layouts_config[layout])
@@ -629,30 +613,30 @@ class cli:
         print("Program complete.")
 
     def buildQ(self, pixel_address_string, areas=None):
+        """Generates a queue containing pixels we'll run through.
+
+        Each element of the queue is a tuple: (address_string, area, position, layout_name)
+        address_string is a string like A1
+        area is the pixel area in cm^2
+        position is the mm location for the center of the pixel
+
+        inputs are
+        pixel_address_string, which can just be a list like A1A2B3...or a hex bitmask
+        substrate_definitions, this is a list of dictionaries with keys: 'name', 'areas', 'positions'
+
+        if pixel_address_string starts with 0x, decode it as a hex value where
+        a 1 in a position means that pixel is enabled
+        the leftmost byte here is for substrate A
+        the leftmost bit is for pixel one
         """
-    Generates a queue containing pixels we'll run through.
-    Each element of the queue is a tuple: (address_string, area, position, layout_name)
-    address_string is a string like A1
-    area is the pixel area in cm^2
-    position is the mm location for the center of the pixel
-    
-    inputs are
-    pixel_address_string, which can just be a list like A1A2B3...or a hex bitmask
-    substrate_definitions, this is a list of dictionaries with keys: 'name', 'areas', 'positions'
-    
-    if pixel_address_string starts with 0x, decode it as a hex value where
-    a 1 in a position means that pixel is enabled
-    the leftmost byte here is for substrate A
-    the leftmost bit is for pixel one
-    """
+        # read pixel address string
         q = []
         if pixel_address_string[0:2] == "0x":
             bitmask = bytearray.fromhex(pixel_address_string[2:])
             for substrate_index, byte in enumerate(bitmask):
                 substrate = chr(substrate_index + ord("A"))
-                if (
-                    substrate in self.l.pcb.substratesConnected
-                ):  #  only put good pixels in the queue
+                #  only put good pixels in the queue
+                if substrate in self.l.pcb.substratesConnected:
                     for i in range(8):
                         mask = 128 >> i
                         if byte & mask:
@@ -668,26 +652,32 @@ class cli:
                 pixel_in_q = False
                 if len(pixel) == 2:
                     pixel_int = int(pixel[1])
+                    #  only put good pixels in the queue
                     if (pixel[0] in self.l.pcb.substratesConnected) and (
                         pixel_int >= 1 and pixel_int <= 8
                     ):
-                        q.append(pixel)  #  only put good pixels in the queue
+                        q.append(pixel)
                         pixel_in_q = True
-                if pixel_in_q == False:
+                if pixel_in_q is False:
                     print("WARNING! Discarded bad pixel address: {:}".format(pixel))
 
         # now we have a list of pixel addresses, q
         ret = []
         if len(q) > 0:
             using_layouts = {}
-            user_layouts = deque(
-                self.args.layout_index
-            )  # layout indicies given to us by the user
+
+            # layout indicies given to us by the user
+            user_layouts = deque(self.args.layout_index)
+
             substrates = [x[0] for x in q]
             substrates = sorted(set(substrates))
-            n = len(substrates)  # we have this many substrates
+
+            # we have this many substrates
+            n = len(substrates)
+
             for key, val in self.args.experimental_parameter.items():
-                p = len(val)  # we got this many values for the key variable
+                # we got this many values for the key variable
+                p = len(val)
                 if p != n:
                     raise ValueError(
                         '{:} Values were given for experimental parameter "{:}", but we are measuring {:} substrate(s).'.format(
@@ -801,7 +791,10 @@ def get_args():
     )
 
     parser.add_argument(
-        "--mqtt-mode", action="store_true", help="Run as an mqtt client",
+        "-m", "--mqtt-mode", action="store_true", help="Run as an MQTT client",
+    )
+    parser.add_argument(
+        "-l", "--layouts-config", default="", help="Path to layouts configuration file",
     )
     parser.add_argument(
         "-v",
