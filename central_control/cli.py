@@ -31,9 +31,6 @@ from collections import deque
 import numpy as np
 import paho.mqtt.client as mqtt
 
-# for updating prefrences
-prefs = {}  # TODO: figure out how to un-global this
-
 
 class cli:
     """the command line interface"""
@@ -71,31 +68,18 @@ class cli:
 
     archive_address = None  # for archival data backup
 
-    class FullPaths(argparse.Action):
-        """Expand user- and relative-paths and save pref arg parse action"""
+    def __init__(self, args, preferences):
+        """Get arguments and handle preferences.
 
-        def __call__(self, parser, namespace, values, option_string=None):
-            value = os.path.abspath(os.path.expanduser(values))
-            setattr(namespace, self.dest, value)
-            prefs[self.dest] = value
-
-    class RecordPref(argparse.Action):
-        """save pref arg parse action"""
-
-        def __call__(self, parser, namespace, values, option_string=None):
-            setattr(namespace, self.dest, values)
-            if values != None:  # don't save None params to prefs
-                prefs[self.dest] = values
-
-    def __init__(self, args=None):
-        """Get arguments and handle preference file.
-        
         Parameters
         ----------
         args : argparse.Namespace or SimpleNamespace
             Collection of arguments parsed from command line or otherwise.
+        preferences : dict
+            Preferences to record from args.
         """
         self.args = args
+        self.prefs = preferences
 
         # for saving config
         config_path = pathlib.Path(self.config_file_fullpath)
@@ -105,9 +89,9 @@ class cli:
 
         # take command line args and put them in to prefrences
         if self.config_section not in config:
-            config[self.config_section] = prefs
+            config[self.config_section] = self.prefs
         else:
-            for key, val in prefs.items():
+            for key, val in self.prefs.items():
                 config[self.config_section][key] = str(val)
 
         # save the prefrences file
@@ -773,20 +757,45 @@ class cli:
 
         return deque(ret)
 
-    def is_dir(self, dirname):
-        """Checks if a path is an actual directory"""
-        if (not os.path.isdir(dirname)) and dirname != "__tmp__":
-            msg = "{0} is not a directory".format(dirname)
-            raise argparse.ArgumentTypeError(msg)
-        else:
-            return dirname
 
-    def str2bool(self, v):
-        return bool(distutils.util.strtobool(v))
+# for updating prefrences
+prefs = {}  # TODO: figure out how to un-global this
+
+
+class FullPaths(argparse.Action):
+    """Expand user- and relative-paths and save pref arg parse action."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        value = os.path.abspath(os.path.expanduser(values))
+        setattr(namespace, self.dest, value)
+        prefs[self.dest] = value
+
+
+class RecordPref(argparse.Action):
+    """Save pref arg parse action."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        if values != None:  # don't save None params to prefs
+            prefs[self.dest] = values
+
+
+def is_dir(dirname):
+    """Checks if a path is an actual directory"""
+    if (not os.path.isdir(dirname)) and dirname != "__tmp__":
+        msg = "{0} is not a directory".format(dirname)
+        raise argparse.ArgumentTypeError(msg)
+    else:
+        return dirname
+
+
+def str2bool(v):
+    """Convert str to bool."""
+    return bool(distutils.util.strtobool(v))
 
 
 def get_args():
-    """Get CLI arguments and options"""
+    """Get CLI arguments and options."""
     parser = argparse.ArgumentParser(
         description="Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stdout. * denotes arguments that are remembered between calls."
     )
@@ -827,8 +836,8 @@ def get_args():
         "-d",
         "--destination",
         help="*Directory in which to save the output data, '__tmp__' will use a system default temporary directory",
-        type=self.is_dir,
-        action=self.FullPaths,
+        type=is_dir,
+        action=FullPaths,
     )
     measure.add_argument(
         "-a",
@@ -847,73 +856,73 @@ def get_args():
     measure.add_argument(
         "--mqtt-host",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="",
         help="*IP address or hostname of mqtt broker",
     )
     measure.add_argument(
         "--sweep-1",
-        type=self.str2bool,
+        type=str2bool,
         default=True,
-        action=self.RecordPref,
+        action=RecordPref,
         const=True,
         help="*Do an I-V sweep from Voc --> Isc",
     )
     measure.add_argument(
         "--sweep-2",
-        type=self.str2bool,
+        type=str2bool,
         default=True,
-        action=self.RecordPref,
+        action=RecordPref,
         const=True,
         help="*Do an I-V sweep from Isc --> Voc",
     )
     measure.add_argument(
         "--steadystate-v",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=0,
         help="*Steady state value of V to measure I",
     )
     measure.add_argument(
         "--steadystate-i",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=0,
         help="*Steady state value of I to measure V",
     )
     measure.add_argument(
         "--i-t",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=10.0,
         help="*Number of seconds to measure to find steady state I@constant V",
     )
     measure.add_argument(
         "--v-t",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=10.0,
         help="*Number of seconds to measure to find steady state V@constant I",
     )
     measure.add_argument(
         "--mppt-t",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=37.0,
         help="*Do maximum power point tracking for this many seconds",
     )
     measure.add_argument(
         "--mppt-params",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="basic://7:10",
         help="*Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ",
     )
     measure.add_argument(
         "--eqe",
-        type=self.str2bool,
+        type=str2bool,
         default=True,
-        action=self.RecordPref,
+        action=RecordPref,
         const=True,
         help="*Do an EQE scan",
     )
@@ -922,11 +931,9 @@ def get_args():
         "--layout-index",
         type=int,
         nargs="*",
-        action=self.RecordPref,
+        action=RecordPref,
         default=[],
-        help="*Substrate layout(s) to use for finding pixel areas, read from layouts.ini file in CWD or {:}".format(
-            self.system_layouts_file_fullpath
-        ),
+        help="*Substrate layout(s) to use for finding pixel areas, read from layouts.ini file",
     )
     measure.add_argument(
         "--area",
@@ -939,52 +946,52 @@ def get_args():
     setup = parser.add_argument_group("optional arguments for setup configuration")
     setup.add_argument(
         "--ignore-adapter-resistors",
-        type=self.str2bool,
+        type=str2bool,
         default=True,
-        action=self.RecordPref,
+        action=RecordPref,
         const=True,
         help="*Don't consider the resistor value of adapter boards when determining device layouts",
     )
     setup.add_argument(
         "--light-address",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="wavelabs-relay://localhost:3335",
         help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'wavelabs-relay://127.0.0.1:3335' for connecting to a wavelabs-relay server",
     )
     setup.add_argument(
         "--light-recipe",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="AM1.5_1.0SUN",
         help="Recipe name for Wavelabs to load",
     )
     setup.add_argument(
         "--wavelabs-spec-cal-path",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="",
         help="Path to Wavelabs spectrum calibration file",
     )
     setup.add_argument(
         "--motion-address",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="none",
         help="*protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0, 'env://FTDI_DEVICE' to read the address from an environment variable named FTDI_DEVICE",
     )
     setup.add_argument(
         "--rear",
-        type=self.str2bool,
+        type=str2bool,
         default=True,
-        action=self.RecordPref,
+        action=RecordPref,
         help="*Use the rear terminals",
     )
     setup.add_argument(
         "--four-wire",
-        type=self.str2bool,
+        type=str2bool,
         default=True,
-        action=self.RecordPref,
+        action=RecordPref,
         help="*Use four wire mode (the default)",
     )
     setup.add_argument(
@@ -1021,49 +1028,49 @@ def get_args():
     setup.add_argument(
         "--scan-points",
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         default=101,
         help="*Number of measurement points in I-V curve",
     )
     setup.add_argument(
         "--scan-nplc",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=1,
         help="*Sourcemeter NPLC setting to use during I-V scans",
     )
     setup.add_argument(
         "--steadystate-nplc",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=1,
         help="*Sourcemeter NPLC setting to use during steady-state scans and max power point tracking",
     )
     setup.add_argument(
         "--scan-step-delay",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=-1,
         help="*Sourcemeter settling delay in seconds to use during I-V scans. -1 = auto",
     )
     setup.add_argument(
         "--steadystate-step-delay",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=-1,
         help="*Sourcemeter settling delay in seconds to use during steady-state scans and max power point tracking. -1 = auto",
     )
     setup.add_argument(
         "--sm-terminator",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="0A",
         help="*Visa comms read & write terminator (enter in hex)",
     )
     setup.add_argument(
         "--sm-baud",
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         default=57600,
         help="*Visa serial comms baud rate",
     )
@@ -1071,14 +1078,14 @@ def get_args():
         "--sm-address",
         default="GPIB0::24::INSTR",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="*VISA resource name for sourcemeter",
     )
     setup.add_argument(
         "--pcb-address",
         type=str,
         default="10.42.0.54:23",
-        action=self.RecordPref,
+        action=RecordPref,
         help="*host:port for PCB comms",
     )
     setup.add_argument(
@@ -1091,7 +1098,7 @@ def get_args():
         "--diode-calibration-values",
         type=int,
         nargs=2,
-        action=self.RecordPref,
+        action=RecordPref,
         default=(1, 1),
         help="*Calibration ADC counts for diodes D1 and D2 that correspond to 1.0 sun intensity",
     )
@@ -1104,7 +1111,7 @@ def get_args():
     setup.add_argument(
         "--visa-lib",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         default="@py",
         help="*Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll",
     )
@@ -1112,41 +1119,41 @@ def get_args():
         "--gui-address",
         type=str,
         default="http://127.0.0.1:51246",
-        action=self.RecordPref,
+        action=RecordPref,
         help="*protocol://host:port for the gui server",
     )
     setup.add_argument(
         "--lia-address",
         default="TCPIP::10.0.0.1:INSTR",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="*VISA resource name for lock-in amplifier",
     )
     setup.add_argument(
         "--lia-output-interface",
         default=0,
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         help="Lock-in amplifier output inface: 0 = RS232 (default), 1 = GPIB",
     )
     setup.add_argument(
         "--mono-address",
         default="TCPIP::10.0.0.2:INSTR",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="*VISA resource name for monochromator",
     )
     setup.add_argument(
         "--psu-address",
         default="TCPIP::10.0.0.3:INSTR",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="*VISA resource name for bias LED PSU",
     )
     setup.add_argument(
         "--psu-vs",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         nargs=3,
         default=[0, 0, 0],
         help="*LED PSU channel voltages (V)",
@@ -1154,7 +1161,7 @@ def get_args():
     setup.add_argument(
         "--psu-is",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         nargs=3,
         default=[0, 0, 0],
         help="*LED PSU channel currents (A)",
@@ -1162,14 +1169,14 @@ def get_args():
     setup.add_argument(
         "--eqe-integration-time",
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         default=8,
         help="*Lock-in amplifier integration time setting (integer corresponding to a time)",
     )
     setup.add_argument(
         "--eqe-smu-v",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=0,
         help="*Sourcemeter bias voltage during EQE scan",
     )
@@ -1181,53 +1188,53 @@ def get_args():
     setup.add_argument(
         "--eqe-ref-meas-path",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="Path to EQE reference photodiode measurement data",
     )
     setup.add_argument(
         "--eqe-ref-meas-header_len",
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         default=1,
         help="Number of header rows in EQE ref photodiode measurement data file",
     )
     setup.add_argument(
         "--eqe-ref-cal-path",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="Path to EQE reference photodiode calibrated data",
     )
     setup.add_argument(
         "--eqe-ref-spec-path",
         type=str,
-        action=self.RecordPref,
+        action=RecordPref,
         help="Path to reference spectrum for integrated Jsc calculation",
     )
     setup.add_argument(
         "--eqe-start-wl",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=350,
         help="Starting wavelength for EQE scan in nm",
     )
     setup.add_argument(
         "--eqe-end-wl",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=1100,
         help="End wavelength for EQE scan in nm",
     )
     setup.add_argument(
         "--eqe-num-wls",
         type=float,
-        action=self.RecordPref,
+        action=RecordPref,
         default=76,
         help="Number of wavelegnths to measure in EQE scan",
     )
     setup.add_argument(
         "--eqe-repeats",
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         default=1,
         help="Number of repeat measurements at each wavelength",
     )
@@ -1254,7 +1261,7 @@ def get_args():
         "--eqe-autogain-method",
         type=str,
         default="user",
-        action=self.RecordPref,
+        action=RecordPref,
         help="Method of automatically establishing gain setting",
     )
     setup.add_argument(
@@ -1265,7 +1272,7 @@ def get_args():
     setup.add_argument(
         "--calibrate-psu-ch",
         type=int,
-        action=self.RecordPref,
+        action=RecordPref,
         default=1,
         help="PSU channel to calibrate: 1, 2, or 3",
     )
@@ -1304,8 +1311,8 @@ def get_args():
 
 def on_message(mqttc, obj, msg):
     """Create CLI with args received over MQTT."""
-    args = types.SimpleNamespace(**json.loads(msg.payload))
-    cli = cli(args)
+    mqtt_args = types.SimpleNamespace(**json.loads(msg.payload))
+    cli = cli(mqtt_args, {})
     cli.run()
     mqttc.loop_stop()
     mqttc.disconnect()
@@ -1321,6 +1328,6 @@ if __name__ == "__main__":
         mqttc.subscribe("gui", qos=2)
         mqttc.loop_start()
     else:
-        cli = cli(args)
+        cli = cli(args, prefs)
         cli.run()
 
