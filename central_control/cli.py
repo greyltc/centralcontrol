@@ -166,20 +166,6 @@ class cli:
         if self.args.layout_index == []:
             self.args.layout_index = [None]
 
-        # this puts each of the the experimental_parameters the user gave
-        # into a dict with the keys being the parameter names and the values being
-        # deques that we can pop() off the correct values as we go through substrates
-        exps = {}
-        for i, pset in enumerate(self.args.experimental_parameter):
-            tionary = {}
-            variable_name = pset[0]
-            del pset[0]
-            pq = deque(pset)
-            pq.reverse()
-            exps[variable_name] = pq
-            self.args.experimental_parameter[i] = pq
-        self.args.experimental_parameter = exps
-
     def run(self):
         """
     Does the measurements
@@ -368,14 +354,9 @@ class cli:
                     if last_substrate != substrate:  # we have a new substrate
                         print('New substrate using "{:}" layout!'.format(pixel[3]))
                         last_substrate = substrate
-                        variable_pairs = []
-                        for key, value in self.args.experimental_parameter.items():
-                            variable_pairs.append([key, value.pop()])
 
                         substrate_ready = l.substrateSetup(
-                            position=substrate,
-                            variable_pairs=variable_pairs,
-                            layout_name=pixel[3],
+                            position=substrate, layout_name=pixel[3],
                         )
 
                     pixel_ready = l.pixelSetup(pixel)
@@ -554,14 +535,9 @@ class cli:
                         if last_substrate != substrate:  # we have a new substrate
                             print('New substrate using "{:}" layout!'.format(pixel[3]))
                             last_substrate = substrate
-                            variable_pairs = []
-                            for key, value in self.args.experimental_parameter.items():
-                                variable_pairs.append([key, value.pop()])
 
                             substrate_ready = l.substrateSetup(
-                                position=substrate,
-                                variable_pairs=variable_pairs,
-                                layout_name=pixel[3],
+                                position=substrate, layout_name=pixel[3],
                             )
 
                         pixel_ready = l.pixelSetup(pixel)
@@ -675,15 +651,6 @@ class cli:
             # we have this many substrates
             n = len(substrates)
 
-            for key, val in self.args.experimental_parameter.items():
-                # we got this many values for the key variable
-                p = len(val)
-                if p != n:
-                    raise ValueError(
-                        '{:} Values were given for experimental parameter "{:}", but we are measuring {:} substrate(s).'.format(
-                            p, key, n
-                        )
-                    )
             for substrate in substrates:
                 r_value = self.l.pcb.resistors[substrate]
                 valid_layouts = {}
@@ -811,15 +778,6 @@ def get_args():
         type=str,
         required=True,
         help="Words describing the measurements about to be taken",
-    )
-    parser.add_argument(
-        "-p",
-        "--experimental-parameter",
-        type=str,
-        nargs="+",
-        action="append",
-        required=True,
-        help="Space separated experimental parameter name and values. Multiple parameters can be specified by additional uses of '-p'. Use one value per substrate measured. The first item given here is taken to be the parameter name and the rest of the items are taken to be the values for each substrate. eg. '-p Thickness 2m 3m 4m' would attach a Thickness attribute with values 2m 3m and 4m to the first, second and third substrate measured in this run respectively.",
     )
 
     measure = parser.add_argument_group(

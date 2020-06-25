@@ -569,7 +569,7 @@ class fabric:
             else:
                 print("WARNING: Could not understand archive url")
 
-    def substrateSetup(self, position, suid="", variable_pairs=[], layout_name=""):
+    def substrateSetup(self, position, suid="", layout_name=""):
         self.position = position
         if self.pcb.pix_picker(position, 0):
             self.f.create_group(position)
@@ -580,16 +580,6 @@ class fabric:
                 "Sample Adapter Board Resistor Value"
             ] = self.pcb.resistors[position]
             self.f[position].attrs["Sample Layout Name"] = np.string_(layout_name)
-            for (
-                pair
-            ) in (
-                variable_pairs
-            ):  # attach the user defined name-value pairs to each substrate
-                parameter_name = pair[0]
-                parameter_value = pair[1]
-                self.f[position].attrs["User_" + parameter_name] = np.string_(
-                    parameter_value
-                )
 
             return True
         else:
