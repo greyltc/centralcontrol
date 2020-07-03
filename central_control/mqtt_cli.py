@@ -12,23 +12,23 @@ from central_control.cli import cli
 class CLIMQTT(mqtt.Client):
     """MQTT client that controls how the CLI is run from the GUI."""
 
-    def __init__(self, MQTTHOST):
-        """MQTT client constructor.
+    def __init__(self, MQTTHOST="172.0.0.1", topic="gui/#"):
+        """Construct object.
 
-        Connect the MQTT client to the broker, subscribe to the GUI topic, start the
-        client loop, and initialise a process attribute.
+        Connect the MQTT client to the broker, subscribe to the GUI topic, and create
+        process attribute (for storing cli process).
 
         Parameters
         ----------
         MQTTHOST : str
             IP address or host name of the MQTT broker.
+        topic : str
+            Topic to subscribe to.
         """
         # connect MQTT client to broker
         self.connect(MQTTHOST)
         # subscribe to everything in the GUI topic
-        self.subscribe("gui/#")
-        # start the MQTT client loop
-        self.loop_start()
+        self.subscribe(topic)
 
         # psutils process object
         self.proc = None
@@ -105,12 +105,20 @@ class CLIMQTT(mqtt.Client):
         else:
             pass
 
-"""Create CLI with args received over MQTT."""
-    mqtt_args = types.SimpleNamespace(**json.loads(msg.payload))
-    cli = cli(mqtt_args, {})
-    cli.run()
-    mqttc.loop_stop()
-    mqttc.disconnect()
 
 if __name__ == "__main__":
-    with CLIMQTT() as mqttc:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mqtthost",
+        default="172.0.0.1",
+        help="IP address or hostname of MQTT broker.",
+    )
+    parser.add_argument(
+        "--topic", default="gui/#", help="Topic for MQTT client to subscribe to.",
+    )
+    args = parser.parse_args()
+
+    with CLIMQTT(args.mqtthost, args.topic) as mqttc:
+        mqttc.loop_forever()
