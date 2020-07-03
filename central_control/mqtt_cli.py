@@ -9,9 +9,27 @@ import central_control
 from central_control.cli import cli
 
 
-class CLIMQTT:
+class CLIMQTT(mqtt.Client):
+    """MQTT client that controls how the CLI is run from the GUI."""
 
-    def __init__(self):
+    def __init__(self, MQTTHOST):
+        """MQTT client constructor.
+
+        Connect the MQTT client to the broker, subscribe to the GUI topic, start the
+        client loop, and initialise a process attribute.
+
+        Parameters
+        ----------
+        MQTTHOST : str
+            IP address or host name of the MQTT broker.
+        """
+        # connect MQTT client to broker
+        self.connect(MQTTHOST)
+        # subscribe to everything in the GUI topic
+        self.subscribe("gui/#")
+        # start the MQTT client loop
+        self.loop_start()
+
         # psutils process object
         self.proc = None
 
@@ -24,22 +42,24 @@ class CLIMQTT:
         self.disconnect()
 
     def on_message(self, mqttc, obj, msg):
-        message = json.loads(msg.payload)
+        """Act on an MQTT message."""
+        m = json.loads(msg.payload)
 
-        if message["button"] == "run":
-            self._run(message["cmd"])
-        elif message["button"] == "pause":
-            self._pause(message["cmd"])
-        elif message["button"] == "stop":
-            self._stop(message["cmd"])
-        elif message["button"] == "cal_eqe":
-            self._cal_eqe(message["cmd"])
-        elif message["button"] == "cal_psu":
-            self._cal_psu(message["cmd"])
-        elif message["button"] == "home":
-            self._home(message["cmd"])
+        # perform action depending on which button generated the message
+        if (button := msg.topic.split("/")[-1]) == "run":
+            self._run(m)
+        elif button == "pause":
+            self._pause(m)
+        elif button == "stop":
+            self._stop(m)
+        elif button == "cal_eqe":
+            self._cal_eqe(m)
+        elif button == "cal_psu":
+            self._cal_psu(m)
+        elif button == "home":
+            self._home(m)
 
-    def _run(self, cmd):
+    def _run(self, msg):
         if (self.proc is None) or (status := self.proc.status()) == "dead":
             args = 
             p = subprocess.Popen(["python", "cli.py", ])
@@ -61,7 +81,7 @@ class CLIMQTT:
         else:
             pass
 
-    def _cal_eqe(self, cmd):
+    def _cal_eqe(self, msg):
         if (self.proc is None) or (self.proc.status() == "dead"):
             args = 
             p = subprocess.Popen(["python", "cli.py", ])
@@ -69,7 +89,7 @@ class CLIMQTT:
         else:
             pass
 
-    def _cal_psu(self, cmd):
+    def _cal_psu(self, msg):
         if (self.proc is None) or (self.proc.status() == "dead"):
             args = 
             p = subprocess.Popen(["python", "cli.py", ])
@@ -77,7 +97,7 @@ class CLIMQTT:
         else:
             pass
 
-    def _home(self, cmd):
+    def _home(self, msg):
         if (self.proc is None) or (self.proc.status() == "dead"):
             args = 
             p = subprocess.Popen(["python", "cli.py", ])
