@@ -1,18 +1,16 @@
 """Client for running the CLI based on MQTT messages."""
 
+import json
 import subprocess
 
 import paho.mqtt.client as mqtt
 import psutil
 
-import central_control
-from central_control.cli import cli
-
 
 class CLIMQTT(mqtt.Client):
     """MQTT client that controls how the CLI is run from the GUI."""
 
-    def __init__(self, MQTTHOST="172.0.0.1", topic="gui/#"):
+    def __init__(self, MQTTHOST="127.0.0.1", topic="gui/#"):
         """Construct object.
 
         Connect the MQTT client to the broker, subscribe to the GUI topic, and create
@@ -103,7 +101,7 @@ class CLIMQTT(mqtt.Client):
         self.proc = psutil.Process(p.pid)
 
     def _format_run_msg(self, msg):
-        """Convert msg from GUI to CLI list for subprocess.
+        """Convert run msg from GUI to CLI list for subprocess.
 
         Parameters
         ----------
@@ -128,10 +126,11 @@ class CLIMQTT(mqtt.Client):
         msg : dict
             Dictionary of settings sent from the GUI.
         """
-        args = _format_run_msg(msg)
+        args = self._format_run_msg(msg)
         self._start_or_resume_subprocess(args)
 
     def _pause(self):
+        """Pause a running subprocess."""
         # check if a process may still be running
         if self.proc is not None:
             try:
@@ -145,6 +144,7 @@ class CLIMQTT(mqtt.Client):
             pass
 
     def _stop(self):
+        """Terminate a subprocess."""
         # check if a process may still be running
         if self.proc is not None:
             try:
@@ -156,29 +156,74 @@ class CLIMQTT(mqtt.Client):
         else:
             pass
 
+    def _format_cal_eqe_msg(self, msg):
+        """Convert calibrate EQE msg from GUI to CLI list for subprocess.
+
+        Parameters
+        ----------
+        msg : dict
+            Dictionary of settings sent from the GUI.
+
+        Returns
+        -------
+        args : list
+            List of command line arguments to parse to CLI.
+        """
+        # TODO: format run msg dict into args
+        args = msg
+
+        return args
+
     def _cal_eqe(self, msg):
-        if (self.proc is None) or (self.proc.status() == "dead"):
-            args = 
-            p = subprocess.Popen(["python", "cli.py", ])
-            self.proc = psutil.Process(p.pid)
-        else:
-            pass
+        """Measure the EQE reference photodiode."""
+        args = self._format_cal_eqe_msg(msg)
+        self._start_or_resume_subprocess(args)
+
+    def _format_cal_psu_msg(self, msg):
+        """Convert calibrate PSU msg from GUI to CLI list for subprocess.
+
+        Parameters
+        ----------
+        msg : dict
+            Dictionary of settings sent from the GUI.
+
+        Returns
+        -------
+        args : list
+            List of command line arguments to parse to CLI.
+        """
+        # TODO: format run msg dict into args
+        args = msg
+
+        return args
 
     def _cal_psu(self, msg):
-        if (self.proc is None) or (self.proc.status() == "dead"):
-            args = 
-            p = subprocess.Popen(["python", "cli.py", ])
-            self.proc = psutil.Process(p.pid)
-        else:
-            pass
+        """Measure the reference photodiode as a funtcion of LED current."""
+        args = self._format_cal_psu_msg(msg)
+        self._start_or_resume_subprocess(args)
+
+    def _format_home_msg(self, msg):
+        """Convert stage home msg from GUI to CLI list for subprocess.
+
+        Parameters
+        ----------
+        msg : dict
+            Dictionary of settings sent from the GUI.
+
+        Returns
+        -------
+        args : list
+            List of command line arguments to parse to CLI.
+        """
+        # TODO: format run msg dict into args
+        args = msg
+
+        return args
 
     def _home(self, msg):
-        if (self.proc is None) or (self.proc.status() == "dead"):
-            args = 
-            p = subprocess.Popen(["python", "cli.py", ])
-            self.proc = psutil.Process(p.pid)
-        else:
-            pass
+        """Home the stage."""
+        args = self._format_home_msg(msg)
+        self._start_or_resume_subprocess(args)
 
 
 if __name__ == "__main__":
@@ -187,7 +232,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mqtthost",
-        default="172.0.0.1",
+        default="127.0.0.1",
         help="IP address or hostname of MQTT broker.",
     )
     parser.add_argument(
