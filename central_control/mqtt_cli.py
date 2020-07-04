@@ -55,25 +55,41 @@ class CLIMQTT(mqtt.Client):
         if (button := msg.topic.split("/")[-1]) == "run":
             self._run(m)
         elif button == "pause":
-            self._pause(m)
+            self._pause()
         elif button == "stop":
-            self._stop(m)
+            self._stop()
         elif button == "cal_eqe":
             self._cal_eqe(m)
         elif button == "cal_psu":
             self._cal_psu(m)
         elif button == "home":
-            self._home(m)
+            self._home()
 
     def _run(self, msg):
-        if (self.proc is None) or (status := self.proc.status()) == "dead":
-            args = 
-            p = subprocess.Popen(["python", "cli.py", ])
-            self.proc = psutil.Process(p.pid)
-        elif status == "suspended":
-            self.proc.resume()
+        # start process if there is none
+        if self.proc is None:
+            self._run_subprocess(msg)
         else:
-            pass
+            try:
+                # try to resume the process if it's paused
+                if self.proc.status() == "stopped":
+                    self.proc.resume()
+                else:
+                    pass
+            except ProcessLookupError:
+                # process was run but has finished so start a new one
+                self._run_subprocess(msg)
+
+    def _run_subprocess(self, msg):
+        """Run the CLI as a subprocess.
+
+        Parameters
+        ----------
+        msg : dict
+            Information to parse to CLI from GUI.
+        """
+        p = subprocess.Popen(["python", "cli.py"])
+        self.proc = psutil.Process(p.pid)
 
     def _pause(self):
         if (self.proc is not None) & (self.proc.status() == "running"):
