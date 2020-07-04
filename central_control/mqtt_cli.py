@@ -65,10 +65,20 @@ class CLIMQTT(mqtt.Client):
         elif button == "home":
             self._home()
 
-    def _run(self, msg):
+    def _start_or_resume_subprocess(self, args):
+        """Start or resume a subprocess.
+
+        Start a new subprocess is there isn't one running or resume a subprocess if one
+        is paused.
+
+        Parameters
+        ----------
+        args : list
+            List of command line arguments to parse to CLI.
+        """
         # start process if there is none
         if self.proc is None:
-            self._run_subprocess(msg)
+            self._start_subprocess(args)
         else:
             try:
                 # try to resume the process if it's paused
@@ -78,28 +88,71 @@ class CLIMQTT(mqtt.Client):
                     pass
             except ProcessLookupError:
                 # process was run but has finished so start a new one
-                self._run_subprocess(msg)
+                self._start_subprocess(args)
 
-    def _run_subprocess(self, msg):
+    def _start_subprocess(self, args):
         """Run the CLI as a subprocess.
 
         Parameters
         ----------
-        msg : dict
-            Information to parse to CLI from GUI.
+        args : list
+            List of command line arguments to parse to CLI.
         """
-        p = subprocess.Popen(["python", "cli.py"])
+        cli_args = ["python", "cli.py"] + args
+        p = subprocess.Popen(cli_args)
         self.proc = psutil.Process(p.pid)
 
+    def _format_run_msg(self, msg):
+        """Convert msg from GUI to CLI list for subprocess.
+
+        Parameters
+        ----------
+        msg : dict
+            Dictionary of settings sent from the GUI.
+
+        Returns
+        -------
+        args : list
+            List of command line arguments to parse to CLI.
+        """
+        # TODO: format run msg dict into args
+        args = msg
+
+        return args
+
+    def _run(self, msg):
+        """Run an experiment.
+
+        Parameters
+        ----------
+        msg : dict
+            Dictionary of settings sent from the GUI.
+        """
+        args = _format_run_msg(msg)
+        self._start_or_resume_subprocess(args)
+
     def _pause(self):
-        if (self.proc is not None) & (self.proc.status() == "running"):
-            self.proc.suspend()
+        # check if a process may still be running
+        if self.proc is not None:
+            try:
+                # try to pause the process if it's running
+                if self.proc.status() == "running":
+                    self.proc.suspend()
+            except ProcessLookupError:
+                # process was run but has now finished
+                self.proc = None
         else:
             pass
 
     def _stop(self):
-        if (self.proc is not None) & (self.proc.status() != "dead"):
-            self.proc.kill()
+        # check if a process may still be running
+        if self.proc is not None:
+            try:
+                self.proc.terminate()
+            except ProcessLookupError:
+                # process was run but has now finished
+                pass
+            self.proc = None
         else:
             pass
 
