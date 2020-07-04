@@ -50,8 +50,8 @@ class SettingsHandler(MQTTQueuePublisher):
         """Construct MQTT queue publisher."""
         super().__init__()
 
-    def update_folder(self, folder):
-        """Update save folder.
+    def update_settings(self, folder, archive):
+        """Update save settings.
 
         Parameters
         ----------

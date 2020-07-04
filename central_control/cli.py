@@ -54,120 +54,66 @@ class cli:
         if self.log_dir.exists() is False:
             self.log_dir.mkdir()
 
+    def _save_prefs(self):
+        """Save argparse preferences to cache."""
+        # configparser doesn't like to write `None` values in dicts so convert to str
+        prefs_dict = {}
+        for key, value in vars(self.args).items():
+            if value is None:
+                value = str(None)
+            prefs_dict[key] = value
+
+        prefs = configparser.ConfigParser()
+        prefs["Preferences"] = prefs_dict
+        with open(self.cache.joinpath("preferences.ini"), "w") as f:
+            prefs.write(f)
+
+    def _load_config(self):
+        """Find and load config file."""
+        self.config = configparser.ConfigParser()
+        cached_config_path = self.cache.joinpath("measurement_config.ini")
+        if self.args.config_file is not None:
+            # priority 1: CLI
+            self.config.read(self.args.config_file)
+        elif cached_config_path.exists() is True:
+            # priority 2: cache dir
+            self.config.read(cached_config_path)
+        else:
+            raise Exception(
+                f"Config file path not found in CLI or at {cached_config_path}."
+            )
+
+    def _format_args(self):
+        """Re-format argparse arguments as needed."""
+        self.args.sm_terminator = bytearray.fromhex(self.args.sm_terminator).decode()
+        if self.args.light_address.upper() == "NONE":
+            self.args.light_address = None
+        if self.args.motion_address.upper() == "NONE":
+            self.args.motion_address = None
+
     def run(self):
         """Act on command line instructions."""
         self.args = self.get_args()
 
-        # save argparse preferences to cache
-        prefs = configparser.ConfigParser()
-        prefs["Preferences"] = vars(self.args)
-        with open(self.cache.joinpath("preferences.ini"), "w") as f:
-            prefs.write(f)
+        # save argparse prefs to cache
+        self._save_prefs()
 
-        # for saving config
-        config_path = pathlib.Path(self.config_file_fullpath)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config = configparser.ConfigParser()
-        config.read(self.config_file_fullpath)
+        # find and load config
+        self._load_config()
 
-        # take command line args and put them in to prefrences
-        if self.config_section not in config:
-            config[self.config_section] = self.prefs
-        else:
-            for key, val in self.prefs.items():
-                config[self.config_section][key] = str(val)
-
-        # save the prefrences file
-        with open(self.config_file_fullpath, "w") as configfile:
-            config.write(configfile)
-
-        # now read back the new prefs
-        config.read(self.config_file_fullpath)
-
-        # TODO: display to user what args are being taken from the command line,
-        # and which ones are being taken from the saved prefrences file
-
-        # apply prefrences to argparse
-        for key, val in config[self.config_section].items():
-            if type(self.args.__getattribute__(key)) == int:
-                self.args.__setattr__(key, config.getint(self.config_section, key))
-            elif type(self.args.__getattribute__(key)) == float:
-                self.args.__setattr__(key, config.getfloat(self.config_section, key))
-            elif type(self.args.__getattribute__(key)) == bool:
-                self.args.__setattr__(key, config.getboolean(self.config_section, key))
-            elif (
-                type(self.args.__getattribute__(key)) == list
-                or type(self.args.__getattribute__(key)) == tuple
-            ):
-                v = config.get(self.config_section, key)
-                self.args.__setattr__(key, ast.literal_eval(v))
-            else:
-                self.args.__setattr__(key, config.get(self.config_section, key))
-
-        # read layouts config path if running from command line
-        layouts_config = configparser.ConfigParser()
-        if self.args.mqtt_mode is False:
-            if self.args.layouts != "":
-                self.layouts_file_used = self.args.layouts_config
-                layouts_config.read(self.layouts_file_used)
-            else:
-                raise ValueError("Layouts config file not specified. See CLI help.")
-        else:
-            layouts_config.read_string(self.args.layouts_config)
-
-        self.layouts = {}
-        for layout in layouts_config.sections():
-            this_layout = dict(layouts_config[layout])
-            this_layout["name"] = layout
-            for key, value in this_layout.items():
-                if value.startswith("["):
-                    this_layout[key] = ast.literal_eval(value)  #  turn lists into lists
-            for key, value in this_layout.items():
-                if key.startswith("pixel") and len(value) < 8:
-                    n_padding = 8 - len(value)
-                    this_layout[key] = (
-                        value + [0.0] * n_padding
-                    )  # pad with zeros up to 8 pixels
-            index = int(this_layout["index"])
-            del this_layout["index"]
-            self.layouts[index] = this_layout
-
-        #  attach ARCHIVE settings for data archiving
-        if "ARCHIVE" in config:
-            self.archive_address = config["ARCHIVE"][
-                "address"
-            ]  # an address string where to archive data to as we collect it, like "ftp://epozz:21/drop/"
-
-        self.args.sm_terminator = bytearray.fromhex(self.args.sm_terminator).decode()
-
-        if self.args.light_address.upper() == "NONE":
-            self.args.light_address = None
-
-        if self.args.motion_address.upper() == "NONE":
-            self.args.motion_address = None
-
-        if self.args.layout_index == []:
-            self.args.layout_index = [None]
+        # re-format argparse arguments as needed
+        self._format_args()
 
         # create the control entity
-        self.l = fabric(
-            saveDir=self.args.destination, archive_address=self.archive_address
-        )
+        self.l = fabric()
 
         # tell save client where to save data
         settings_handler = SettingsHandler()
         settings_handler.connect(self.args.mqtt_host)
         settings_handler.start_q("data/saver")
-        settings_handler.update_folder(self.args.destination)
-
-        # connect update gui function to the gui server's "drop" function
-        # s = xmlrpc.client.ServerProxy(self.args.gui_address)
-        # try:
-        #     server_methods = s.system.listMethods()
-        #     if "drop" in server_methods:
-        #         l.update_gui = s.drop
-        # except:
-        #     pass  # there's probably just no server gui running
+        settings_handler.update_settings(
+            self.args.destination, self.config["network"]["archive"]
+        )
 
         # connect to PCB and sourcemeter
         l.connect(
@@ -730,10 +676,10 @@ class cli:
             "-m", "--mqtt-mode", action="store_true", help="Run as an MQTT client",
         )
         parser.add_argument(
-            "-l",
-            "--layouts-config",
-            default="",
-            help="Path to layouts configuration file",
+            "-c",
+            "--config-file",
+            action=self.FullPaths,
+            help="Path to configuration file",
         )
         parser.add_argument(
             "-v",
@@ -760,7 +706,7 @@ class cli:
             "--destination",
             help="*Directory in which to save the output data, '__tmp__' will use a system default temporary directory",
             type=self.is_dir,
-            action=FullPaths,
+            action=self.FullPaths,
         )
         measure.add_argument(
             "-a",
