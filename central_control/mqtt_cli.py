@@ -34,9 +34,14 @@ class CLIMQTT(mqtt.Client):
         self.proc = None
 
     def __enter__(self):
-        pass
+        """Enter the runtime context related to this object."""
+        return self
 
     def __exit__(self):
+        """Exit the runtime context related to this object.
+
+        Make sure everything gets cleaned up properly.
+        """
         self._stop()
         self.loop_stop()
         self.disconnect()

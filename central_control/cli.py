@@ -38,7 +38,7 @@ class cli:
     appname = "central_control"
     config_section = "PREFERENCES"
     prefs_file_name = "prefs.ini"
-    config_file_fullpath = (
+    config_file_fullpath = ( 
         appdirs.user_config_dir(appname) + os.path.sep + prefs_file_name
     )
 
@@ -1260,25 +1260,9 @@ def get_args():
     return args
 
 
-def on_message(mqttc, obj, msg):
-    """Create CLI with args received over MQTT."""
-    mqtt_args = types.SimpleNamespace(**json.loads(msg.payload))
-    cli = cli(mqtt_args, {})
-    cli.run()
-    mqttc.loop_stop()
-    mqttc.disconnect()
-
-
 if __name__ == "__main__":
     args = get_args()
 
-    if args.mqtt_mode is True:
-        mqttc = mqtt.Client()
-        mqttc.on_message = on_message
-        mqttc.connect(args.mqtt_host)
-        mqttc.subscribe("gui", qos=2)
-        mqttc.loop_start()
-    else:
-        cli = cli(args, prefs)
-        cli.run()
+    cli = cli(args, prefs)
+    cli.run()
 
