@@ -6,6 +6,8 @@ import subprocess
 import paho.mqtt.client as mqtt
 import psutil
 
+import central_control
+
 
 class CLIMQTT(mqtt.Client):
     """MQTT client that controls how the CLI is run from the GUI."""
@@ -50,18 +52,32 @@ class CLIMQTT(mqtt.Client):
         m = json.loads(msg.payload)
 
         # perform action depending on which button generated the message
-        if (button := msg.topic.split("/")[-1]) == "run":
+        if (subtopic := msg.topic.split("/")[-1]) == "config":
+            self._save_config(m)
+        elif subtopic == "run":
             self._run(m)
-        elif button == "pause":
+        elif subtopic == "pause":
             self._pause()
-        elif button == "stop":
+        elif subtopic == "stop":
             self._stop()
-        elif button == "cal_eqe":
+        elif subtopic == "cal_eqe":
             self._cal_eqe(m)
-        elif button == "cal_psu":
+        elif subtopic == "cal_psu":
             self._cal_psu(m)
-        elif button == "home":
+        elif subtopic == "home":
             self._home()
+
+    def _save_config(self, msg):
+        """Save config string to cached file so CLI can use it.
+
+        Parameters
+        ----------
+        msg : str
+            Configuration file as a string.
+        """
+        self.cli = central_control.cli.cli()
+        with open(self.cli.cache.joinpath("measurement_config.ini"), "w") as f:
+            f.wrtie(msg)
 
     def _start_or_resume_subprocess(self, args):
         """Start or resume a subprocess.
