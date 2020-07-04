@@ -37,7 +37,7 @@ class CLIMQTT(mqtt.Client):
         """Enter the runtime context related to this object."""
         return self
 
-    def __exit__(self):
+    def __exit__(self, exc_type, exc_value, traceback):
         """Exit the runtime context related to this object.
 
         Make sure everything gets cleaned up properly.
