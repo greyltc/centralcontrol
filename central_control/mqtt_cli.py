@@ -76,7 +76,8 @@ class CLIMQTT(mqtt.Client):
             Configuration file as a string.
         """
         self.cli = central_control.cli.cli()
-        with open(self.cli.cache.joinpath("measurement_config.ini"), "w") as f:
+        self.config_file_path = self.cli.cache.joinpath("measurement_config.ini")
+        with open(self.config_file_path, "w") as f:
             f.wrtie(msg)
 
     def _start_or_resume_subprocess(self, args):
