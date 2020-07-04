@@ -25,6 +25,7 @@ class CLIMQTT(mqtt.Client):
         topic : str
             Topic to subscribe to.
         """
+        super().__init__()
         # connect MQTT client to broker
         self.connect(MQTTHOST)
         # subscribe to everything in the GUI topic
