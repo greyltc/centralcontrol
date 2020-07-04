@@ -202,27 +202,10 @@ class CLIMQTT(mqtt.Client):
         args = self._format_cal_psu_msg(msg)
         self._start_or_resume_subprocess(args)
 
-    def _format_home_msg(self, msg):
-        """Convert stage home msg from GUI to CLI list for subprocess.
-
-        Parameters
-        ----------
-        msg : dict
-            Dictionary of settings sent from the GUI.
-
-        Returns
-        -------
-        args : list
-            List of command line arguments to parse to CLI.
-        """
-        # TODO: format run msg dict into args
-        args = msg
-
-        return args
-
-    def _home(self, msg):
+    def _home(self):
         """Home the stage."""
-        args = self._format_home_msg(msg)
+        # TODO: format args for homing stage
+        args = None
         self._start_or_resume_subprocess(args)
 
 
