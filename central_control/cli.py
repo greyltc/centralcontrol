@@ -54,6 +54,18 @@ class cli:
         if self.log_dir.exists() is False:
             self.log_dir.mkdir()
 
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context related to this object.
+
+        Make sure everything gets cleaned up properly.
+        """
+        # TODO: add cleanup
+        pass
+
     def _save_prefs(self):
         """Save argparse preferences to cache."""
         # configparser doesn't like to write `None` values in dicts so convert to str
@@ -1177,6 +1189,6 @@ class cli:
 
 
 if __name__ == "__main__":
-    cli = cli()
-    cli.run()
+    with cli() as cli:
+        cli.run()
 

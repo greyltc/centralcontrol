@@ -1,7 +1,10 @@
 """Client for running the CLI based on MQTT messages."""
 
 import json
+import os
+import signal
 import subprocess
+import warnings
 
 import paho.mqtt.client as mqtt
 import psutil
@@ -34,6 +37,11 @@ class CLIMQTT(mqtt.Client):
         # psutils process object
         self.proc = None
 
+        self.os_name = os.name
+
+        if self.os_name != "posix":
+            warnings.warn("The CLI cannot be stopped gracefully on this OS.")
+
     def __enter__(self):
         """Enter the runtime context related to this object."""
         return self
@@ -43,7 +51,11 @@ class CLIMQTT(mqtt.Client):
 
         Make sure everything gets cleaned up properly.
         """
-        self._stop()
+        try:
+            self._stop()
+        except psutil.NoSuchProcess:
+            # subprocess has already stopped
+            pass
         self.loop_stop()
         self.disconnect()
 
@@ -165,7 +177,17 @@ class CLIMQTT(mqtt.Client):
         # check if a process may still be running
         if self.proc is not None:
             try:
-                self.proc.terminate()
+                if self.os_name == "posix":
+                    # posix systems have a keyboard interrupt signal that allows the
+                    # subprocess to be cleaned up gracefully if the running function
+                    # is in a context manager.
+                    self.proc.send_signal(signal.SIGINT)
+                else:
+                    # no graceful way to interrupt a subprocess on windows so this
+                    # kills it without cleanup.
+                    # not sure what happens on other os's so this method is probably
+                    # least likely to have undesirable side-effects.
+                    self.proc.terminate()
             except ProcessLookupError:
                 # process was run but has now finished
                 pass
