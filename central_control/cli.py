@@ -548,23 +548,102 @@ class cli:
         self.logic.sm.outOn(on=False)
         print("Program complete.")
 
-    def buildQ(self, pixel_address_string, areas=None):
-        """Generates a queue containing pixels we'll run through.
+    def buildQ(self, pixel_address_string, experiment):
+        """Generate a queue of pixels we'll run through.
 
-        Each element of the queue is a tuple: (address_string, area, position, layout_name)
-        address_string is a string like A1
-        area is the pixel area in cm^2
-        position is the mm location for the center of the pixel
+        Parameters
+        ----------
+        pixel_address_string : str
+            Hexadecimal bitmask string.
+        experiment : str
+            Name used to look up the experiment centre stage position from the config
+            file.
 
-        inputs are
-        pixel_address_string, which can just be a list like A1A2B3...or a hex bitmask
-        substrate_definitions, this is a list of dictionaries with keys: 'name', 'areas', 'positions'
-
-        if pixel_address_string starts with 0x, decode it as a hex value where
-        a 1 in a position means that pixel is enabled
-        the leftmost byte here is for substrate A
-        the leftmost bit is for pixel one
+        Returns
+        -------
+        pixel_q : deque
         """
+        # get stage location for experiment centre
+        experiment_centre = [int(x) for x in self.config["experiment_positions"][experiment].split(",")]
+
+        # look up and calculate substrate centre info relative to experiment centre
+        substrate_rows_cols = [int(x) for x in self.config[substrates]["number"].split(",")]
+        substrate_rows = substrate_rows_cols[0]
+        try:
+            substrate_cols = substrate_rows_cols[1]
+        except IndexError:
+            # single column only
+            substrate_cols = 1
+
+        substrate_number = 1
+        for x in substrate_rows_cols:
+            substrate_number = substrate_number * x
+
+        substrate_spacing = [int(x) for x in self.config[substrates]["spacing"].split(",")]
+
+        substrate_centres = []
+        for i in range(substrate_number):
+            # TODO: finish getting substrate centres
+            # TODO: add absolute calc
+
+        # TODO: return support for inferring layout from pcb adapter resistors
+
+        # make sure as many layouts as labels were given
+        if (l1 := len(self.args.layouts)) != (l2 := len(self.args.labels)):
+            raise ValueError(
+                f"Lists of layouts and labels must have the same length. Layouts list has length {l1} and labels list has length {l2}."
+            )
+
+        # create a substrate queue where each element is a dictionary of info about the
+        # layout from the config file
+        substrate_q = []
+        for layout, label in zip(self.args.layouts, self.args.labels):
+            # get pcb adapter info from config file
+            pcb_name = self.config[layout]["pcb_name"]
+
+            # read in pixel positions from layout in config file
+            config_pos = self.config[layout]["positions"].split(",")
+            pixel_positions = []
+            for i in range(0, len(config_pos), 2):
+                pixel_positions.append(tuple(config_pos[i : i + 2]))
+
+            substrate_dict = {
+                "label": label,
+                "layout": layout,
+                "pcb_name": pcb_name,
+                "pcb_contact_pads": self.config[pcb_name]["pcb_contact_pads"],
+                "pcb_resistor": self.config[pcb_name]["pcb_resistor"],
+                "pixels": self.config[layout]["pixels"].split(","),
+                "pixel_positions": pixel_positions,
+                "areas": self.config[layout]["areas"].split(","),
+            }
+            substrate_q.append(substrate_dict)
+
+        # TODO: return support for pixel strings that aren't hex bitmasks
+
+        # convert hex bitmask string into bit list where 1's and 0's represent whether
+        # a pixel should be measured or not, respectively
+        bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
+
+        # build pixel queue
+        pixel_q = deque()
+        for substrate in substrate_q:
+            # git bitmask for the substrate pcb
+            sub_bitmask = [
+                bitmask.pop(-1) for i in range(substrate["pcb_contact_pads"])
+            ].reverse()
+            # select pixels to measure from layout
+            for pixel in substrate["pixels"]:
+                if sub_bitmask[pixel - 1] == 1:
+                    # TODO: get absolute pixel position
+                    pixel_dict = {
+                        "label": substrate["label"],
+                        "pixel": pixel,
+                        "position": substrate["pixel_positions"][pixel - 1],
+                        "area": substrate["areas"][pixel - 1],
+                    }
+                    pixel_q.append(pixel_dict)
+
         # read pixel address string
         q = []
         if pixel_address_string[0:2] == "0x":
@@ -764,6 +843,16 @@ class cli:
             help='Hexadecimal bit mask for enabled pixels for EQE measurements. Also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
         )
         measure.add_argument(
+            "-i",
+            "--layouts",
+            type=int,
+            nargs="*",
+            help="*List of substrate layout names to use for finding pixel informatio from the configuration file",
+        )
+        measure.add_argument(
+            "--labels", nargs="*", help="*List of Substrate labels",
+        )
+        measure.add_argument(
             "--mqtt-host",
             type=str,
             action=self.RecordPref,
@@ -835,22 +924,6 @@ class cli:
             action=self.RecordPref,
             const=True,
             help="*Do an EQE scan",
-        )
-        measure.add_argument(
-            "-i",
-            "--layout-index",
-            type=int,
-            nargs="*",
-            action=self.RecordPref,
-            default=[],
-            help="*Substrate layout(s) to use for finding pixel areas, read from layouts.ini file",
-        )
-        measure.add_argument(
-            "--area",
-            type=float,
-            nargs="*",
-            default=[],
-            help="Override pixel areas taken from layout (given in cm^2)",
         )
 
         setup = parser.add_argument_group("optional arguments for setup configuration")
