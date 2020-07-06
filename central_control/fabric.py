@@ -180,78 +180,144 @@ class fabric:
         self,
         dummy=False,
         visa_lib="@py",
-        visaAddress="GPIB0::24::INSTR",
-        pcbAddress="10.42.0.54:23",
-        motionAddress=None,
-        lightAddress=None,
-        liaAddress=None,
-        monoAddress=None,
-        psuAddress=None,
-        liaOutputInterface=0,
-        visaTerminator="\n",
-        visaBaud=57600,
-        ignore_adapter_resistors=False,
+        smu_address=None,
+        smu_terminator="\n",
+        smu_baud=57600,
+        mux_address=None,
+        stage_address=None,
+        light_address=None,
+        lia_address=None,
+        lia_terminator="\r",
+        lia_baud=9600,
+        lia_output_interface=0,
+        mono_address=None,
+        mono_terminator="\r",
+        mono_baud=9600,
+        psu_address=None,
+        psu_terminator="\r",
+        psu_baud=9600,
+        ignore_adapter_resistors=True,
     ):
-        """Forms a connection to the PCB, the sourcemeter and the light engine
-        will form connections to dummy instruments if dummy=true
-        """
+        """Connect to instruments.
 
-        if dummy:
+        If any instrument addresses are `None`, virtual (fake) instruments are
+        "connected" instead.
+
+        Parameters
+        ----------
+        visa_lib : str
+            PyVISA backend.
+        smu_address : str
+            VISA resource name for the source-measure unit. If `None` is given a
+            virtual instrument is created.
+        smu_terminator : str
+            Termination character for communication with the source-measure unit.
+        smu_baud : int
+            Baud rate for serial communication with the source-measure unit.
+        mux_address : str
+            VISA resource name for the multiplexor. If `None` is given a virtual
+            instrument is created.
+        stage_address : str
+            VISA resource name for the translation stage. If `None` is given a virtual
+            instrument is created.
+        light_address : str
+            VISA resource name for the light engine. If `None` is given a virtual
+            instrument is created.
+        lia_address : str
+            VISA resource name for the lock-in amplifier. If `None` is given a virtual
+            instrument is created.
+        lia_terminator : str
+            Termination character for communication with the lock-in amplifier.
+        lia_baud : int
+            Baud rate for serial communication with the lock-in amplifier.
+        lia_output_interface : int
+            Communication interface on the lock-in amplifier rear panel used to read
+            instrument responses. This does not need to match the VISA resource
+            interface type if, for example, an interface adapter is used between the
+            control computer and the instrument. Valid output communication interfaces:
+                * 0 : RS232
+                * 1 : GPIB
+        mono_address : str
+            VISA resource name for the monochromator. If `None` is given a virtual
+            instrument is created.
+        mono_terminator : str
+            Termination character for communication with the monochromator.
+        mono_baud : int
+            Baud rate for serial communication with the monochromator.
+        psu_address : str
+            VISA resource name for the LED power supply unit. If `None` is given a
+            virtual instrument is created.
+        psu_terminator : str
+            Termination character for communication with the power supply unit.
+        psu_baud : int
+            Baud rate for serial communication with the power supply unit.
+        ignore_adapter_resistors : bool
+            Choose whether or not to measure the substrate pcb adapter resistors.
+        """
+        # source measure unit
+        if smu_address is None:
             self.sm = virt.k2400()
-            self.pcb = virt.pcb()
         else:
             self.sm = k2400(
                 visa_lib=visa_lib,
-                terminator=visaTerminator,
-                addressString=visaAddress,
-                serialBaud=visaBaud,
-            )
-            self.pcb = pcb(
-                address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors
+                terminator=smu_terminator,
+                addressString=smu_address,
+                serialBaud=smu_baud,
             )
         self.sm_idn = self.sm.idn
 
+        # instantiate max-power tracker object based on smu
         self.mppt = mppt(self.sm)
 
-        if lightAddress == None:
+        # multiplexor
+        if mux_address is None:
+            self.pcb = virt.pcb()
+        else:
+            self.pcb = pcb(
+                address=mux_address, ignore_adapter_resistors=ignore_adapter_resistors
+            )
+
+        # light engine
+        if light_address is None:
             self.le = virt.illumination()
         else:
-            self.le = illumination(address=lightAddress)
+            self.le = illumination(address=light_address)
             self.le.connect()
 
-        if motionAddress == None:
+        # translation stage
+        if stage_address is None:
             self.me = virt.motion()
         else:
-            self.me = motion(address=motionAddress)
+            self.me = motion(address=stage_address)
             self.me.connect()
 
         # lock=in amplifier
-        if liaAddress is None:
+        if lia_address is None:
             self.lia = virtual_sr830.sr830(return_int=True)
         else:
             self.lia = sr830.sr830(return_int=True, check_errors=True)
-            # default liaOutputInterface is RS232
+            # default lia_output_interface is RS232
         self.lia.connect(
-            resource_name=liaAddress,
-            output_interface=liaOutputInterface,
+            resource_name=lia_address,
+            output_interface=lia_output_interface,
             set_default_configuration=True,
         )
         self.lia_idn = self.lia.get_id()
 
         # monochromator
-        if monoAddress is None:
+        if mono_address is None:
             self.mono = virtual_sp2150.sp2150()
         else:
             self.mono = sp2150.sp2150()
-        self.mono.connect(resource_name=monoAddress)
+        self.mono.connect(resource_name=mono_address)
         self.mono.set_scan_speed(1000)
 
         # bias LED PSU
-        if psuAddress is None:
+        if psu_address is None:
             self.psu = virtual_dp800.dp800()
         else:
             self.psu = dp800.dp800()
-        self.psu.connect(resource_name=psuAddress)
+        self.psu.connect(resource_name=psu_address)
         self.psu_idn = self.psu.get_id()
 
     def hardwareTest(self, substrates_to_test):

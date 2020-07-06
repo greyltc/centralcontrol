@@ -112,6 +112,7 @@ class cli:
 
     def run(self):
         """Act on command line instructions."""
+        # get arguments parsed to the command line
         self.args = self.get_args()
 
         if self.args.repeat is True:
@@ -121,13 +122,13 @@ class cli:
             # save argparse prefs to cache
             self._save_prefs()
 
-        # find and load config
+        # find and load config file
         self._load_config()
 
         # re-format argparse arguments as needed
         self._format_args()
 
-        # create the control entity
+        # create the control logic entity
         self.logic = fabric()
 
         # tell save client where to save data
@@ -142,16 +143,16 @@ class cli:
         self.logic.connect(
             dummy=self.args.dummy,
             visa_lib=self.args.visa_lib,
-            visaAddress=self.args.sm_address,
-            visaTerminator=self.args.sm_terminator,
-            visaBaud=self.args.sm_baud,
-            lightAddress=self.args.light_address,
-            motionAddress=self.args.motion_address,
-            pcbAddress=self.args.pcb_address,
-            liaAddress=self.args.lia_address,
-            monoAddress=self.args.mono_address,
-            psuAddress=self.args.psu_address,
-            liaOutputInterface=self.args.lia_output_interface,
+            smu_address=self.args.sm_address,
+            smu_terminator=self.args.sm_terminator,
+            smu_baud=self.args.sm_baud,
+            light_address=self.args.light_address,
+            stage_address=self.args.motion_address,
+            mux_address=self.args.pcb_address,
+            lia_address=self.args.lia_address,
+            mono_address=self.args.mono_address,
+            psu_address=self.args.psu_address,
+            lia_output_interface=self.args.lia_output_interface,
             ignore_adapter_resistors=self.args.ignore_adapter_resistors,
         )
 
