@@ -205,6 +205,9 @@ class fabric:
 
         Parameters
         ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
         visa_lib : str
             PyVISA backend.
         smu_address : str
@@ -255,7 +258,7 @@ class fabric:
             Choose whether or not to measure the substrate pcb adapter resistors.
         """
         # source measure unit
-        if smu_address is None:
+        if (smu_address is None) or (dummy is True):
             self.sm = virt.k2400()
         else:
             self.sm = k2400(
@@ -270,7 +273,7 @@ class fabric:
         self.mppt = mppt(self.sm)
 
         # multiplexor
-        if mux_address is None:
+        if (mux_address is None) or (dummy is True):
             self.pcb = virt.pcb()
         else:
             self.pcb = pcb(
@@ -278,21 +281,21 @@ class fabric:
             )
 
         # light engine
-        if light_address is None:
+        if (light_address is None) or (dummy is True):
             self.le = virt.illumination()
         else:
             self.le = illumination(address=light_address)
             self.le.connect()
 
         # translation stage
-        if stage_address is None:
+        if (stage_address is None) or (dummy is True):
             self.me = virt.motion()
         else:
             self.me = motion(address=stage_address)
             self.me.connect()
 
         # lock=in amplifier
-        if lia_address is None:
+        if (lia_address is None) or (dummy is True):
             self.lia = virtual_sr830.sr830(return_int=True)
         else:
             self.lia = sr830.sr830(return_int=True, check_errors=True)
@@ -305,7 +308,7 @@ class fabric:
         self.lia_idn = self.lia.get_id()
 
         # monochromator
-        if mono_address is None:
+        if (mono_address is None) or (dummy is True):
             self.mono = virtual_sp2150.sp2150()
         else:
             self.mono = sp2150.sp2150()
@@ -313,7 +316,7 @@ class fabric:
         self.mono.set_scan_speed(1000)
 
         # bias LED PSU
-        if psu_address is None:
+        if (psu_address is None) or (dummy is True):
             self.psu = virtual_dp800.dp800()
         else:
             self.psu = dp800.dp800()
