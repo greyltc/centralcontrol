@@ -11,16 +11,16 @@ from central_control.handlers import (
 )
 
 import argparse
-import os
-import distutils.util
-
-import appdirs
 import configparser
-import ast
+import distutils.util
+import json
+import os
 import pathlib
+import types
 
 from collections import deque
 
+import appdirs
 import numpy as np
 
 
@@ -33,6 +33,8 @@ class cli:
 
     Perform system actions using settings from the command line and a config file.
     """
+
+    prefs_file = "preferences.ini"
 
     def __init__(self, appname="central-control"):
         """Construct object.
@@ -68,17 +70,22 @@ class cli:
 
     def _save_prefs(self):
         """Save argparse preferences to cache."""
-        # configparser doesn't like to write `None` values in dicts so convert to str
-        prefs_dict = {}
-        for key, value in vars(self.args).items():
-            if value is None:
-                value = str(None)
-            prefs_dict[key] = value
+        with open(self.cache.joinpath(self.prefs_file), "w") as f:
+            json.dump(vars(self.args), f)
 
-        prefs = configparser.ConfigParser()
-        prefs["Preferences"] = prefs_dict
-        with open(self.cache.joinpath("preferences.ini"), "w") as f:
-            prefs.write(f)
+    def _load_prefs(self):
+        """Load argparse preferences from cache.
+
+        Returns
+        -------
+        args : types.SimpleNamespace
+            Arguments loaded from file in a type that can accessed in the same way as
+            an argparse namespace.    
+        """
+        with open(self.cache.joinpath(self.prefs_file), "r") as f:
+            args = json.load(f)
+
+        return types.SimpleNamespace(**args)
 
     def _load_config(self):
         """Find and load config file."""
@@ -107,8 +114,12 @@ class cli:
         """Act on command line instructions."""
         self.args = self.get_args()
 
-        # save argparse prefs to cache
-        self._save_prefs()
+        if self.args.repeat is True:
+            # retreive args from cached preferences
+            self.args = self._load_prefs()
+        else:
+            # save argparse prefs to cache
+            self._save_prefs()
 
         # find and load config
         self._load_config()
@@ -685,6 +696,11 @@ class cli:
         )
 
         parser.add_argument(
+            "--repeat",
+            action="store_true",
+            help="Repeat the last user-defined run action.",
+        )
+        parser.add_argument(
             "-m", "--mqtt-mode", action="store_true", help="Run as an MQTT client",
         )
         parser.add_argument(
@@ -728,7 +744,7 @@ class cli:
             help='Hexadecimal bit mask for enabled pixels for I-V-t measurements. Also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
         )
         measure.add_argument(
-            "-a",
+            "-b",
             "--eqe-pixel-address",
             default=None,
             type=str,
