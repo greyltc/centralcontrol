@@ -154,7 +154,7 @@ class fabric:
     # function to use when sending ROIs to the GUI
     update_gui = None
 
-    def __init__(self, saveDir, archive_address=None):
+    def __init__(self, saveDir=None, archive_address=None):
         self.saveDir = saveDir
         self.archive_address = archive_address
 
