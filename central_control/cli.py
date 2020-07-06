@@ -128,7 +128,7 @@ class cli:
         self._format_args()
 
         # create the control entity
-        self.l = fabric()
+        self.logic = fabric()
 
         # tell save client where to save data
         settings_handler = SettingsHandler()
@@ -139,7 +139,7 @@ class cli:
         )
 
         # connect to PCB and sourcemeter
-        l.connect(
+        self.logic.connect(
             dummy=self.args.dummy,
             visa_lib=self.args.visa_lib,
             visaAddress=self.args.sm_address,
@@ -160,9 +160,9 @@ class cli:
             self.args.eqe_pixel_address = "A1"
         else:
             if self.args.rear == False:
-                l.sm.setTerminals(front=True)
+                self.logic.sm.setTerminals(front=True)
             if self.args.four_wire == False:
-                l.sm.setWires(twoWire=True)
+                self.logic.sm.setWires(twoWire=True)
 
         # build up the queue of pixels to run through
         if self.args.iv_pixel_address is not None:
@@ -178,7 +178,7 @@ class cli:
         # either test hardware, calibrate LED PSU, or scan devices
         if self.args.test_hardware is True:
             if (iv_pixel_queue == []) & (eqe_pixel_queue == []):
-                holders_to_test = l.pcb.substratesConnected
+                holders_to_test = self.logic.pcb.substratesConnected
             else:
                 # turn the address que into a string of substrates
                 mash = ""
@@ -187,13 +187,13 @@ class cli:
                 # delete the numbers
                 # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
                 holders_to_test = "".join(sorted(set(mash)))  # remove dupes
-            l.hardwareTest(holders_to_test.upper())
+            self.logic.hardwareTest(holders_to_test.upper())
         elif self.args.calibrate_psu is True:
             pdh = DataHandler()
             pdh.connect(self.args.mqtt_host)
             pdh.start_q("data/psu")
             pdh.idn = "psu_calibration"
-            l.calibrate_psu(
+            self.logic.calibrate_psu(
                 self.args.calibrate_psu_ch, loc=self.args.position_override, handler=pdh
             )
             pdh.end_q()
@@ -212,7 +212,7 @@ class cli:
             else:
                 spectrum_cal = None
 
-            intensity = l.runSetup(
+            intensity = self.logic.runSetup(
                 self.args.operator,
                 diode_cal,
                 ignore_diodes=self.args.ignore_diodes,
@@ -222,19 +222,19 @@ class cli:
             )
 
             # save spectrum
-            if l.spectrum is not None:
+            if self.logic.spectrum is not None:
                 sdh = DataHandler()
                 sdh.connect(self.args.mqtt_host)
                 sdh.start_q("data/spectrum")
                 sdh.idn = "spectrum"
-                sdh.handle_data(l.spectrum)
+                sdh.handle_data(self.logic.spectrum)
                 sdh.end_q()
                 sdh.disconnect()
 
             # record all arguments into the run file
-            l.f.create_group("args")
+            self.logic.f.create_group("args")
             for attr, value in self.args.__dict__.items():
-                l.f["args"].attrs[attr] = str(value)
+                self.logic.f["args"].attrs[attr] = str(value)
 
             if self.args.calibrate_diodes == True:
                 d1_cal = intensity["diode_1_adc"]
@@ -302,11 +302,11 @@ class cli:
                         print('New substrate using "{:}" layout!'.format(pixel[3]))
                         last_substrate = substrate
 
-                        substrate_ready = l.substrateSetup(
+                        substrate_ready = self.logic.substrateSetup(
                             position=substrate, layout_name=pixel[3],
                         )
 
-                    pixel_ready = l.pixelSetup(pixel)
+                    pixel_ready = self.logic.pixelSetup(pixel)
                     if pixel_ready and substrate_ready:
 
                         if self.args.v_t > 0:
@@ -314,7 +314,7 @@ class cli:
                             # clear v@constant I plot
                             vdh.clear()
 
-                            vocs = l.steadyState(
+                            vocs = self.logic.steadyState(
                                 t_dwell=self.args.v_t,
                                 NPLC=self.args.steadystate_nplc,
                                 stepDelay=self.args.steadystate_step_delay,
@@ -324,27 +324,31 @@ class cli:
                                 setPoint=self.args.steadystate_i,
                                 handler=vdh,
                             )
-                            l.registerMeasurements(vocs, "V_oc dwell")
+                            self.logic.registerMeasurements(vocs, "V_oc dwell")
 
-                            l.Voc = vocs[-1][0]  # take the last measurement to be Voc
-                            l.mppt.Voc = l.Voc
-                            l.f[l.position + "/" + l.pixel].attrs["Voc"] = l.Voc
+                            self.logic.Voc = vocs[-1][
+                                0
+                            ]  # take the last measurement to be Voc
+                            self.logic.mppt.Voc = self.logic.Voc
+                            self.logic.f[
+                                self.logic.position + "/" + self.logic.pixel
+                            ].attrs["Voc"] = self.logic.Voc
 
                         if type(self.args.current_compliance_override) == float:
                             compliance = self.args.current_compliance_override
                         else:
                             compliance = (
-                                l.compliance_guess
+                                self.logic.compliance_guess
                             )  # we have to just guess what the current complaince should be here
                             # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
-                        l.mppt.current_compliance = compliance
+                        self.logic.mppt.current_compliance = compliance
 
                         if self.args.sweep_1 is True:
                             # now sweep from Voc --> Isc
                             if type(self.args.scan_start_override_1) == float:
                                 start = self.args.scan_start_override_1
                             else:
-                                start = l.Voc
+                                start = self.logic.Voc
                             if type(self.args.scan_end_override_1) == float:
                                 end = self.args.scan_end_override_1
                             else:
@@ -355,7 +359,7 @@ class cli:
                             )
                             # clear iv plot
                             ivdh.clear()
-                            sv = l.sweep(
+                            sv = self.logic.sweep(
                                 sourceVoltage=True,
                                 compliance=compliance,
                                 senseRange="a",
@@ -367,12 +371,15 @@ class cli:
                                 message=message,
                                 handler=ivdh,
                             )
-                            l.registerMeasurements(sv, "Sweep")
+                            self.logic.registerMeasurements(sv, "Sweep")
 
-                            (Pmax_sweep, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(
-                                sv
-                            )
-                            l.mppt.Vmpp = Vmpp
+                            (
+                                Pmax_sweep,
+                                Vmpp,
+                                Impp,
+                                maxIndex,
+                            ) = self.logic.mppt.which_max_power(sv)
+                            self.logic.mppt.Vmpp = Vmpp
 
                             if type(self.args.current_compliance_override) == float:
                                 compliance = self.args.current_compliance_override
@@ -380,10 +387,9 @@ class cli:
                                 compliance = abs(
                                     sv[-1][1] * 2
                                 )  # take the last measurement*2 to be our compliance limit
-                            l.mppt.current_compliance = compliance
+                            self.logic.mppt.current_compliance = compliance
 
                         if self.args.sweep_2:
-                            # "snaithing" is a sweep from Isc --> Voc * (1+ l.percent_beyond_voc)
                             if type(self.args.scan_start_override_2) == float:
                                 start = self.args.scan_start_override_2
                             else:
@@ -391,13 +397,15 @@ class cli:
                             if type(self.args.scan_end_override_2) == float:
                                 end = self.args.scan_end_override_2
                             else:
-                                end = l.Voc * ((100 + l.percent_beyond_voc) / 100)
+                                end = self.logic.Voc * (
+                                    (100 + self.logic.percent_beyond_voc) / 100
+                                )
 
                             message = "Snaithing voltage from {:.0f} mV to {:.0f} mV".format(
                                 start * 1000, end * 1000
                             )
 
-                            sv = l.sweep(
+                            sv = self.logic.sweep(
                                 sourceVoltage=True,
                                 senseRange="f",
                                 compliance=compliance,
@@ -408,15 +416,15 @@ class cli:
                                 message=message,
                                 handler=ivdh,
                             )
-                            l.registerMeasurements(sv, "Snaith")
+                            self.logic.registerMeasurements(sv, "Snaith")
                             (
                                 Pmax_snaith,
                                 Vmpp,
                                 Impp,
                                 maxIndex,
-                            ) = l.mppt.which_max_power(sv)
+                            ) = self.logic.mppt.which_max_power(sv)
                             if abs(Pmax_snaith) > abs(Pmax_sweep):
-                                l.mppt.Vmpp = Vmpp
+                                self.logic.mppt.Vmpp = Vmpp
 
                         if self.args.mppt_t > 0:
                             message = "Tracking maximum power point for {:} seconds".format(
@@ -424,7 +432,7 @@ class cli:
                             )
                             # clear mppt plot
                             mdh.clear()
-                            l.track_max_power(
+                            self.logic.track_max_power(
                                 self.args.mppt_t,
                                 message,
                                 NPLC=self.args.steadystate_nplc,
@@ -437,7 +445,7 @@ class cli:
                             # steady state I@constant V measured here - usually Isc
                             # clear I@constant V plot
                             cdh.clear()
-                            iscs = l.steadyState(
+                            iscs = self.logic.steadyState(
                                 t_dwell=self.args.i_t,
                                 NPLC=self.args.steadystate_nplc,
                                 stepDelay=self.args.steadystate_step_delay,
@@ -447,11 +455,15 @@ class cli:
                                 setPoint=self.args.steadystate_v,
                                 handler=cdh,
                             )
-                            l.registerMeasurements(iscs, "I_sc dwell")
+                            self.logic.registerMeasurements(iscs, "I_sc dwell")
 
-                            l.Isc = iscs[-1][1]  # take the last measurement to be Isc
-                            l.f[l.position + "/" + l.pixel].attrs["Isc"] = l.Isc
-                            l.mppt.Isc = l.Isc
+                            self.logic.Isc = iscs[-1][
+                                1
+                            ]  # take the last measurement to be Isc
+                            self.logic.f[
+                                self.logic.position + "/" + self.logic.pixel
+                            ].attrs["Isc"] = self.logic.Isc
+                            self.logic.mppt.Isc = self.logic.Isc
 
                         if type(self.args.current_compliance_override) == float:
                             compliance = self.args.current_compliance_override
@@ -459,13 +471,13 @@ class cli:
                             # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
                             # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
                             # otherwise, set it to be 2x of Isc
-                            if abs(l.Isc) < 0.000005:
+                            if abs(self.logic.Isc) < 0.000005:
                                 compliance = 0.00001
                             else:
-                                compliance = abs(l.Isc * 2)
-                        l.mppt.current_compliance = compliance
+                                compliance = abs(self.logic.Isc * 2)
+                        self.logic.mppt.current_compliance = compliance
 
-                    l.pixelComplete()
+                    self.logic.pixelComplete()
 
                 for pixel in eqe_pixel_queue:
                     if self.args.calibrate_eqe is False:
@@ -483,14 +495,14 @@ class cli:
                             print('New substrate using "{:}" layout!'.format(pixel[3]))
                             last_substrate = substrate
 
-                            substrate_ready = l.substrateSetup(
+                            substrate_ready = self.logic.substrateSetup(
                                 position=substrate, layout_name=pixel[3],
                             )
 
-                        pixel_ready = l.pixelSetup(pixel)
+                        pixel_ready = self.logic.pixelSetup(pixel)
                     else:
                         # move to eqe calibration photodiode
-                        self.l.me.goto(self.args.position_override)
+                        self.logic.me.goto(self.args.position_override)
                         pixel_ready = True
                         substrate_ready = True
 
@@ -498,7 +510,7 @@ class cli:
                         message = f"Scanning EQE from {self.args.eqe_start_wl} nm to {self.args.eqe_end_wl} nm"
                         # clear eqe plot
                         edh.clear()
-                        l.eqe(
+                        self.logic.eqe(
                             psu_ch1_voltage=self.args.psu_vs[0],
                             psu_ch1_current=self.args.psu_is[0],
                             psu_ch2_voltage=self.args.psu_vs[1],
@@ -523,7 +535,7 @@ class cli:
                             handler=edh,
                         )
 
-                    l.pixelComplete()
+                    self.logic.pixelComplete()
 
                 # clean up mqtt publishers
                 if self.args.mqtt_host != "":
@@ -531,8 +543,8 @@ class cli:
                         dh.end_q()
                         dh.disconnect()
 
-            l.runDone()
-        l.sm.outOn(on=False)
+            self.logic.runDone()
+        self.logic.sm.outOn(on=False)
         print("Program complete.")
 
     def buildQ(self, pixel_address_string, areas=None):
@@ -559,7 +571,7 @@ class cli:
             for substrate_index, byte in enumerate(bitmask):
                 substrate = chr(substrate_index + ord("A"))
                 #  only put good pixels in the queue
-                if substrate in self.l.pcb.substratesConnected:
+                if substrate in self.logic.pcb.substratesConnected:
                     for i in range(8):
                         mask = 128 >> i
                         if byte & mask:
@@ -576,7 +588,7 @@ class cli:
                 if len(pixel) == 2:
                     pixel_int = int(pixel[1])
                     #  only put good pixels in the queue
-                    if (pixel[0] in self.l.pcb.substratesConnected) and (
+                    if (pixel[0] in self.logic.pcb.substratesConnected) and (
                         pixel_int >= 1 and pixel_int <= 8
                     ):
                         q.append(pixel)
@@ -596,7 +608,7 @@ class cli:
             substrates = sorted(set(substrates))
 
             for substrate in substrates:
-                r_value = self.l.pcb.resistors[substrate]
+                r_value = self.logic.pcb.resistors[substrate]
                 valid_layouts = {}
                 for key, value in self.layouts.items():
                     targets = value["adapterboardresistor"]
@@ -635,7 +647,7 @@ class cli:
 
                 # absolute position for this pixel
                 position = (
-                    self.l.me.substrate_centers[ord(this_substrate) - ord("A")]
+                    self.logic.me.substrate_centers[ord(this_substrate) - ord("A")]
                     + using_layouts[this_substrate]["pixelpositions"][this_pixel - 1]
                 )
                 if len(user_areas) > 0:
