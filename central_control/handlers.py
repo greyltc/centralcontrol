@@ -57,8 +57,34 @@ class SettingsHandler(MQTTQueuePublisher):
         ----------
         folder : str
             Folder where data is saved.
+        achive : str
+            Network address where data can be backed up.
         """
-        payload = {"folder": folder}
+        payload = {"folder": folder, "archive": archive}
+
+        # turn dict into string that mqtt can send
+        payload = json.dumps(payload)
+        self.append_payload(payload)
+
+
+class CacheHandler(MQTTQueuePublisher):
+    """Publish cached files with MQTT client."""
+
+    def __init__(self):
+        """Construct MQTT queue publisher."""
+        super().__init__()
+
+    def save_cache(self, filename, contents):
+        """Send data from cache.
+
+        Parameters
+        ----------
+        finename : str
+            Name of cached file.
+        contents : str
+            Contents of cached file.
+        """
+        payload = {"filename": filename, "contents": contents}
 
         # turn dict into string that mqtt can send
         payload = json.dumps(payload)

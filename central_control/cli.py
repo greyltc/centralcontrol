@@ -8,6 +8,7 @@ from central_control.fabric import fabric
 from central_control.handlers import (
     DataHandler,
     SettingsHandler,
+    CacheHandler,
 )
 
 import argparse
@@ -139,6 +140,15 @@ class cli:
         settings_handler.update_settings(
             self.args.destination, self.config["network"]["archive"]
         )
+
+        # add cached files to save directory
+        cache_handler = CacheHandler()
+        cache_handler.connect(self.args.mqtt_host)
+        cache_handler.start_q("data/cache")
+        for file in self.cache.iterdir():
+            with open(self.cache.joinpath(file), "r") as f:
+                contents = f.read()
+            cache_handler.save_cache(file, contents)
 
         # connect to insturments
         self.logic.connect(
