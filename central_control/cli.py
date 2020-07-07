@@ -140,7 +140,7 @@ class cli:
             self.args.destination, self.config["network"]["archive"]
         )
 
-        # connect to PCB and sourcemeter
+        # connect to insturments
         self.logic.connect(
             dummy=self.args.dummy,
             visa_lib=self.args.visa_lib,
@@ -157,23 +157,25 @@ class cli:
             ignore_adapter_resistors=self.args.ignore_adapter_resistors,
         )
 
-        if self.args.dummy:
-            self.args.iv_pixel_address = "A1"
-            self.args.eqe_pixel_address = "A1"
+        if self.args.dummy is True:
+            self.args.iv_pixel_address = "0x1"
+            self.args.eqe_pixel_address = "0x1"
         else:
-            if self.args.rear == False:
+            if self.args.rear is False:
                 self.logic.sm.setTerminals(front=True)
-            if self.args.four_wire == False:
+            if self.args.four_wire is False:
                 self.logic.sm.setWires(twoWire=True)
 
         # build up the queue of pixels to run through
         if self.args.iv_pixel_address is not None:
-            iv_pixel_queue = self.buildQ(self.args.iv_pixel_address)
+            iv_pixel_queue = self.buildQ(
+                self.args.iv_pixel_address, experiment="solarsim"
+            )
         else:
             iv_pixel_queue = []
 
         if self.args.eqe_pixel_address is not None:
-            eqe_pixel_queue = self.buildQ(self.args.eqe_pixel_address)
+            eqe_pixel_queue = self.buildQ(self.args.eqe_pixel_address, experiment="eqe")
         else:
             eqe_pixel_queue = []
 
