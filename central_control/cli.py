@@ -13,6 +13,7 @@ from central_control.handlers import (
 import argparse
 import configparser
 import distutils.util
+import itertools
 import json
 import os
 import pathlib
@@ -548,6 +549,72 @@ class cli:
         self.logic.sm.outOn(on=False)
         print("Program complete.")
 
+    def _get_substrate_positions(self, experiment):
+        """Calculate absolute positions of all substrate centres.
+
+        Read in info from config file.
+
+        Parameters
+        ----------
+        experiment : str
+            Name used to look up the experiment centre stage position from the config
+            file.
+
+        Returns
+        -------
+        substrate_centres : list of lists
+            Absolute substrate centre co-ordinates. Each sublist contains the positions
+            along each axis.
+        """
+        # get stage location in steps for experiment centre
+        experiment_centre = [
+            int(x) for x in self.config["experiment_positions"][experiment].split(",")
+        ]
+
+        # get number of stage axes
+        self.axes = len(experiment_centre)
+
+        # read in number substrates in the array along each axis
+        substrate_number = [
+            int(x) for x in self.config["substrates"]["number"].split(",")
+        ]
+
+        # get number of substrate centres between the centre and the edge of the
+        # substrate array along each axis, e.g. if there are 4 rows, there are 1.5
+        # substrate centres to the outermost substrate
+        substrate_offsets = []
+        substrate_total = 1
+        for number in substrate_number:
+            if number % 2 == 0:
+                offset = number / 2 - 0.5
+            else:
+                offset = np.floor(number / 2)
+            substrate_offsets.append(offset)
+            substrate_total = substrate_total * number
+
+        self.substrate_total = substrate_total
+
+        # read in substrate spacing in mm along each axis into a list
+        substrate_spacing = [
+            int(x) for x in self.config["substrates"]["spacing"].split(",")
+        ]
+
+        # read in step length in steps/mm
+        self.steplength = float(self.config["stage"]["steplength"])
+
+        # get absolute substrate centres along each axis
+        axis_pos = []
+        for offset, spacing, number, centre in zip(
+            substrate_offsets, substrate_spacing, substrate_number, experiment_centre
+        ):
+            abs_offset = offset * (spacing / self.steplength) + centre
+            axis_pos.append(np.linspace(-abs_offset, abs_offset, number))
+
+        # create array of positions
+        substrate_centres = list(itertools.product(*axis_pos))
+
+        return substrate_centres
+
     def buildQ(self, pixel_address_string, experiment):
         """Generate a queue of pixels we'll run through.
 
@@ -563,49 +630,36 @@ class cli:
         -------
         pixel_q : deque
         """
-        # get stage location for experiment centre
-        experiment_centre = [int(x) for x in self.config["experiment_positions"][experiment].split(",")]
-
-        # look up and calculate substrate centre info relative to experiment centre
-        substrate_rows_cols = [int(x) for x in self.config[substrates]["number"].split(",")]
-        substrate_rows = substrate_rows_cols[0]
-        try:
-            substrate_cols = substrate_rows_cols[1]
-        except IndexError:
-            # single column only
-            substrate_cols = 1
-
-        substrate_number = 1
-        for x in substrate_rows_cols:
-            substrate_number = substrate_number * x
-
-        substrate_spacing = [int(x) for x in self.config[substrates]["spacing"].split(",")]
-
-        substrate_centres = []
-        for i in range(substrate_number):
-            # TODO: finish getting substrate centres
-            # TODO: add absolute calc
-
         # TODO: return support for inferring layout from pcb adapter resistors
 
+        # get substrate centres
+        substrate_centres = self._get_substrate_positions(experiment)
+
         # make sure as many layouts as labels were given
-        if (l1 := len(self.args.layouts)) != (l2 := len(self.args.labels)):
+        if ((l1 := len(self.args.layouts)) != self.substrate_total) or (
+            (l2 := len(self.args.labels)) != self.substrate_total
+        ):
             raise ValueError(
-                f"Lists of layouts and labels must have the same length. Layouts list has length {l1} and labels list has length {l2}."
+                f"Lists of layouts and labels must match number of substrates in the array: {self.substrate_total}. Layouts list has length {l1} and labels list has length {l2}."
             )
 
         # create a substrate queue where each element is a dictionary of info about the
         # layout from the config file
         substrate_q = []
-        for layout, label in zip(self.args.layouts, self.args.labels):
+        for layout, label, centre in zip(
+            self.args.layouts, self.args.labels, substrate_centres
+        ):
             # get pcb adapter info from config file
             pcb_name = self.config[layout]["pcb_name"]
 
             # read in pixel positions from layout in config file
-            config_pos = self.config[layout]["positions"].split(",")
+            config_pos = [int(x) for x in self.config[layout]["positions"].split(",")]
             pixel_positions = []
-            for i in range(0, len(config_pos), 2):
-                pixel_positions.append(tuple(config_pos[i : i + 2]))
+            for i in range(0, len(config_pos), self.axes):
+                abs_pixel_position = [
+                    int(x + y) for x, y in zip(config_pos[i : i + self.axes], centre)
+                ]
+                pixel_positions.append(abs_pixel_position)
 
             substrate_dict = {
                 "label": label,
@@ -620,7 +674,6 @@ class cli:
             substrate_q.append(substrate_dict)
 
         # TODO: return support for pixel strings that aren't hex bitmasks
-
         # convert hex bitmask string into bit list where 1's and 0's represent whether
         # a pixel should be measured or not, respectively
         bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
@@ -635,7 +688,6 @@ class cli:
             # select pixels to measure from layout
             for pixel in substrate["pixels"]:
                 if sub_bitmask[pixel - 1] == 1:
-                    # TODO: get absolute pixel position
                     pixel_dict = {
                         "label": substrate["label"],
                         "pixel": pixel,
@@ -644,114 +696,7 @@ class cli:
                     }
                     pixel_q.append(pixel_dict)
 
-        # read pixel address string
-        q = []
-        if pixel_address_string[0:2] == "0x":
-            bitmask = bytearray.fromhex(pixel_address_string[2:])
-            for substrate_index, byte in enumerate(bitmask):
-                substrate = chr(substrate_index + ord("A"))
-                #  only put good pixels in the queue
-                if substrate in self.logic.pcb.substratesConnected:
-                    for i in range(8):
-                        mask = 128 >> i
-                        if byte & mask:
-                            q.append(substrate + str(i + 1))
-                else:
-                    print("WARNING! Substrate {:} could not be found".format(substrate))
-        else:
-            pixels = [
-                pixel_address_string[i : i + 2]
-                for i in range(0, len(pixel_address_string), 2)
-            ]
-            for pixel in pixels:
-                pixel_in_q = False
-                if len(pixel) == 2:
-                    pixel_int = int(pixel[1])
-                    #  only put good pixels in the queue
-                    if (pixel[0] in self.logic.pcb.substratesConnected) and (
-                        pixel_int >= 1 and pixel_int <= 8
-                    ):
-                        q.append(pixel)
-                        pixel_in_q = True
-                if pixel_in_q is False:
-                    print("WARNING! Discarded bad pixel address: {:}".format(pixel))
-
-        # now we have a list of pixel addresses, q
-        ret = []
-        if len(q) > 0:
-            using_layouts = {}
-
-            # layout indicies given to us by the user
-            user_layouts = deque(self.args.layout_index)
-
-            substrates = [x[0] for x in q]
-            substrates = sorted(set(substrates))
-
-            for substrate in substrates:
-                r_value = self.logic.pcb.resistors[substrate]
-                valid_layouts = {}
-                for key, value in self.layouts.items():
-                    targets = value["adapterboardresistor"]
-                    for target in targets:
-                        if (
-                            fabric.isWithinPercent(target, r_value)
-                            or self.args.ignore_adapter_resistors
-                            or target == 0
-                        ):
-                            valid_layouts[key] = value
-                            break
-
-                # here's the layout the user selected for this substrate
-                user_layout = user_layouts[0]
-
-                # rotate the deque
-                user_layouts.rotate(-1)
-
-                if user_layout in valid_layouts:
-                    using_layouts[substrate] = valid_layouts[user_layout]
-                elif len(valid_layouts) == 1:
-                    using_layouts[substrate] = valid_layouts.popitem()[1]
-                else:
-                    raise ValueError(
-                        "Could not determine the layout for substrate {:}. Use the -i argument with one of the following values {:}".format(
-                            substrate, list(valid_layouts.keys())
-                        )
-                    )
-
-            # device areas given to us by the user
-            user_areas = deque(self.args.area)
-            for pxad in q:
-                this_substrate = pxad[0]
-                this_pixel = int(pxad[1])
-                area = using_layouts[this_substrate]["pixelareas"][this_pixel - 1]
-
-                # absolute position for this pixel
-                position = (
-                    self.logic.me.substrate_centers[ord(this_substrate) - ord("A")]
-                    + using_layouts[this_substrate]["pixelpositions"][this_pixel - 1]
-                )
-                if len(user_areas) > 0:
-                    print(
-                        "WARNING: Overriding pixel {:}'s area value with {:} cm^2".format(
-                            pxad, user_areas[0]
-                        )
-                    )
-                    area = user_areas[
-                        0
-                    ]  # here's the area the user selected for this pixel
-                    user_areas.rotate(-1)  # rotate the deque
-                if area == 0:
-                    print("INFO: Skipping zero area pixel: {:}".format(pxad))
-                else:
-                    final_element = (
-                        pxad,
-                        area,
-                        position,
-                        using_layouts[this_substrate]["name"],
-                    )
-                    ret.append(final_element)
-
-        return deque(ret)
+        return pixel_q
 
     class FullPaths(argparse.Action):
         """Expand user- and relative-paths and save pref arg parse action."""
