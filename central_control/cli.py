@@ -173,6 +173,14 @@ class cli:
             if self.args.four_wire is False:
                 self.logic.sm.setWires(twoWire=True)
 
+        # home the stage
+        if self.args.home is True:
+            # look up experiment centres to initialise axes attribute
+            self._get_experiment_centre()
+            for i in range(self.axes):
+                # axes are 1-indexed
+                self.logic.controller.home(i + 1)
+
         # build up the queue of pixels to run through
         if self.args.iv_pixel_address is not None:
             iv_pixel_queue = self.buildQ(
@@ -547,6 +555,18 @@ class cli:
         self.logic.sm.outOn(on=False)
         print("Program complete.")
 
+    def _get_experiment_centre(self):
+        """Look up experiment centre and number of axes."""
+        # get stage location in steps for experiment centre
+        experiment_centre = [
+            int(x) for x in self.config["experiment_positions"][experiment].split(",")
+        ]
+
+        # get number of stage axes
+        self.axes = len(experiment_centre)
+
+        return experiment_centre
+
     def _get_substrate_positions(self, experiment):
         """Calculate absolute positions of all substrate centres.
 
@@ -564,13 +584,7 @@ class cli:
             Absolute substrate centre co-ordinates. Each sublist contains the positions
             along each axis.
         """
-        # get stage location in steps for experiment centre
-        experiment_centre = [
-            int(x) for x in self.config["experiment_positions"][experiment].split(",")
-        ]
-
-        # get number of stage axes
-        self.axes = len(experiment_centre)
+        experiment_centre = self._get_experiment_centre()
 
         # read in number substrates in the array along each axis
         self.substrate_number = [
@@ -1019,6 +1033,12 @@ class cli:
             default="10.42.0.54:23",
             action=self.RecordPref,
             help="*host:port for mux and stage controller comms",
+        )
+        setup.add_argument(
+            "--home",
+            default=False,
+            action="store_true",
+            help="Home the stage along each axis",
         )
         setup.add_argument(
             "--calibrate-diodes",
