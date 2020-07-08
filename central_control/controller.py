@@ -58,8 +58,8 @@ class controller:
 
         # query the version
         self.tn.send_cmd("v")
-        version_message = self.tn.read_response(timeout=2)
-        print(f"Got version request response: {version_message}")
+        self.version_message = self.tn.read_response(timeout=2)
+        print(f"Got version request response: {self.version_message}")
 
     def home(self, axis, timeout=80, length_poll_sleep=0.1):
         """Home the stage.

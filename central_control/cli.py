@@ -109,8 +109,6 @@ class cli:
         self.args.sm_terminator = bytearray.fromhex(self.args.sm_terminator).decode()
         if self.args.light_address.upper() == "NONE":
             self.args.light_address = None
-        if self.args.motion_address.upper() == "NONE":
-            self.args.motion_address = None
 
     def run(self):
         """Act on command line instructions."""
@@ -158,8 +156,7 @@ class cli:
             smu_terminator=self.args.sm_terminator,
             smu_baud=self.args.sm_baud,
             light_address=self.args.light_address,
-            stage_address=self.args.motion_address,
-            mux_address=self.args.pcb_address,
+            controller_address=self.args.controller_address,
             lia_address=self.args.lia_address,
             mono_address=self.args.mono_address,
             psu_address=self.args.psu_address,
@@ -189,20 +186,8 @@ class cli:
         else:
             eqe_pixel_queue = []
 
-        # either test hardware, calibrate LED PSU, or scan devices
-        if self.args.test_hardware is True:
-            if (iv_pixel_queue == []) & (eqe_pixel_queue == []):
-                holders_to_test = self.logic.pcb.substratesConnected
-            else:
-                # turn the address que into a string of substrates
-                mash = ""
-                for pix in set(iv_pixel_queue + eqe_pixel_queue):
-                    mash = mash + pix[0][0]
-                # delete the numbers
-                # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
-                holders_to_test = "".join(sorted(set(mash)))  # remove dupes
-            self.logic.hardwareTest(holders_to_test.upper())
-        elif self.args.calibrate_psu is True:
+        # either calibrate LED PSU, or scan devices
+        if self.args.calibrate_psu is True:
             pdh = DataHandler()
             pdh.connect(self.args.mqtt_host)
             pdh.start_q("data/psu")
@@ -516,7 +501,8 @@ class cli:
                         pixel_ready = self.logic.pixelSetup(pixel)
                     else:
                         # move to eqe calibration photodiode
-                        self.logic.me.goto(self.args.position_override)
+                        for i, pos in self.args.position_override:
+                            self.logic.controller.goto(i + 1, pos)
                         pixel_ready = True
                         substrate_ready = True
 
@@ -587,7 +573,7 @@ class cli:
         self.axes = len(experiment_centre)
 
         # read in number substrates in the array along each axis
-        substrate_number = [
+        self.substrate_number = [
             int(x) for x in self.config["substrates"]["number"].split(",")
         ]
 
@@ -596,7 +582,7 @@ class cli:
         # substrate centres to the outermost substrate
         substrate_offsets = []
         substrate_total = 1
-        for number in substrate_number:
+        for number in self.substrate_number:
             if number % 2 == 0:
                 offset = number / 2 - 0.5
             else:
@@ -617,7 +603,10 @@ class cli:
         # get absolute substrate centres along each axis
         axis_pos = []
         for offset, spacing, number, centre in zip(
-            substrate_offsets, substrate_spacing, substrate_number, experiment_centre
+            substrate_offsets,
+            substrate_spacing,
+            self.substrate_number,
+            experiment_centre,
         ):
             abs_offset = offset * (spacing / self.steplength) + centre
             axis_pos.append(np.linspace(-abs_offset, abs_offset, number))
@@ -658,6 +647,7 @@ class cli:
         # create a substrate queue where each element is a dictionary of info about the
         # layout from the config file
         substrate_q = []
+        i = 0
         for layout, label, centre in zip(
             self.args.layouts, self.args.labels, substrate_centres
         ):
@@ -673,8 +663,14 @@ class cli:
                 ]
                 pixel_positions.append(abs_pixel_position)
 
+            # find co-ordinate of substrate in the array
+            _substrates = np.linspace(1, self.substrate_total, self.substrate_total)
+            _array = np.reshape(_substrates, self.substrate_number)
+            array_loc = [int(ix) + 1 for ix in np.where(_array == i)]
+
             substrate_dict = {
                 "label": label,
+                "array_loc": array_loc,
                 "layout": layout,
                 "pcb_name": pcb_name,
                 "pcb_contact_pads": self.config[pcb_name]["pcb_contact_pads"],
@@ -684,6 +680,8 @@ class cli:
                 "areas": self.config[layout]["areas"].split(","),
             }
             substrate_q.append(substrate_dict)
+
+            i += 1
 
         # TODO: return support for pixel strings that aren't hex bitmasks
         # convert hex bitmask string into bit list where 1's and 0's represent whether
@@ -702,6 +700,7 @@ class cli:
                 if sub_bitmask[pixel - 1] == 1:
                     pixel_dict = {
                         "label": substrate["label"],
+                        "array_loc": substrate["array_loc"],
                         "pixel": pixel,
                         "position": substrate["pixel_positions"][pixel - 1],
                         "area": substrate["areas"][pixel - 1],
@@ -914,13 +913,6 @@ class cli:
             help="Path to Wavelabs spectrum calibration file",
         )
         setup.add_argument(
-            "--motion-address",
-            type=str,
-            action=self.RecordPref,
-            default="none",
-            help="*protocol://hostname:port for communication with the motion controller, 'none' for no motion, 'afms:///dev/ttyAMC0' for an Adafruit Arduino motor shield on /dev/ttyAMC0, 'env://FTDI_DEVICE' to read the address from an environment variable named FTDI_DEVICE",
-        )
-        setup.add_argument(
             "--rear",
             type=self.str2bool,
             default=True,
@@ -1022,11 +1014,11 @@ class cli:
             help="*VISA resource name for sourcemeter",
         )
         setup.add_argument(
-            "--pcb-address",
+            "--controller-address",
             type=str,
             default="10.42.0.54:23",
             action=self.RecordPref,
-            help="*host:port for PCB comms",
+            help="*host:port for mux and stage controller comms",
         )
         setup.add_argument(
             "--calibrate-diodes",
@@ -1221,7 +1213,7 @@ class cli:
             type=float,
             nargs="+",
             default=None,
-            help="Override position given by pixel selection and use these coordinates instead",
+            help="Override position given by pixel selection and use this list of coordinates (position along each axis) instead",
         )
 
         testing = parser.add_argument_group("optional arguments for debugging/testing")

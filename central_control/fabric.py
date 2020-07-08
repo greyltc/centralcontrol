@@ -13,10 +13,9 @@ import warnings
 
 import central_control.virt as virt
 from central_control.k2400 import k2400
-from central_control.pcb import pcb
+from central_control.controller import controller
 from central_control.mppt import mppt
 from central_control.illumination import illumination
-from central_control.motion import motion
 from central_control.put_ftp import put_ftp
 import central_control  # for __version__
 
@@ -30,7 +29,7 @@ import eqe
 
 
 class fabric:
-    """ this class contains the sourcemeter and pcb control logic """
+    """Experiment control logic."""
 
     outputFormatRevision = (
         "1.8.2"  # tells reader what format to expect for the output file
@@ -183,8 +182,7 @@ class fabric:
         smu_address=None,
         smu_terminator="\n",
         smu_baud=57600,
-        mux_address=None,
-        stage_address=None,
+        controller_address=None,
         light_address=None,
         lia_address=None,
         lia_terminator="\r",
@@ -196,7 +194,6 @@ class fabric:
         psu_address=None,
         psu_terminator="\r",
         psu_baud=9600,
-        ignore_adapter_resistors=True,
     ):
         """Connect to instruments.
 
@@ -217,12 +214,9 @@ class fabric:
             Termination character for communication with the source-measure unit.
         smu_baud : int
             Baud rate for serial communication with the source-measure unit.
-        mux_address : str
-            VISA resource name for the multiplexor. If `None` is given a virtual
-            instrument is created.
-        stage_address : str
-            VISA resource name for the translation stage. If `None` is given a virtual
-            instrument is created.
+        controller_address : str
+            VISA resource name for the multiplexor and stage controller. If `None` is
+            given a virtual instrument is created.
         light_address : str
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
@@ -254,8 +248,6 @@ class fabric:
             Termination character for communication with the power supply unit.
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
-        ignore_adapter_resistors : bool
-            Choose whether or not to measure the substrate pcb adapter resistors.
         """
         # source measure unit
         if (smu_address is None) or (dummy is True):
@@ -273,26 +265,18 @@ class fabric:
         self.mppt = mppt(self.sm)
 
         # multiplexor
-        if (mux_address is None) or (dummy is True):
-            self.pcb = virt.pcb()
+        if (controller_address is None) or (dummy is True):
+            self.controller = virt.controller()
         else:
-            self.pcb = pcb(
-                address=mux_address, ignore_adapter_resistors=ignore_adapter_resistors
-            )
+            self.controller = controller(address=controller_address)
+        self.controller.connect()
 
         # light engine
         if (light_address is None) or (dummy is True):
             self.le = virt.illumination()
         else:
             self.le = illumination(address=light_address)
-            self.le.connect()
-
-        # translation stage
-        if (stage_address is None) or (dummy is True):
-            self.me = virt.motion()
-        else:
-            self.me = motion(address=stage_address)
-            self.me.connect()
+        self.le.connect()
 
         # lock=in amplifier
         if (lia_address is None) or (dummy is True):
@@ -324,88 +308,9 @@ class fabric:
         self.psu_idn = self.psu.get_id()
 
     def hardwareTest(self, substrates_to_test):
-        self.le.on()
+        pass
 
-        n_adc_channels = 8
-
-        for chan in range(n_adc_channels):
-            print(
-                "ADC channel {:} Counts: {:}".format(chan, self.pcb.getADCCounts(chan))
-            )
-
-        chan = 2
-        counts = self.pcb.getADCCounts(chan)
-        print("{:d}\t<-- D1 Diode ADC counts (TP3, AIN{:d})".format(counts, chan))
-
-        chan = 3
-        counts = self.pcb.getADCCounts(chan)
-        print("{:d}\t<-- D2 Diode ADC counts (TP4, AIN{:d})".format(counts, chan))
-
-        chan = 0
-        for substrate in substrates_to_test:
-            r = self.pcb.get("d" + substrate)
-            print(
-                "{:s}\t<-- Substrate {:s} adapter resistor value in ohms (AIN{:d})".format(
-                    r, substrate, chan
-                )
-            )
-
-        print("LED test mode active on substrate(s) {:s}".format(substrates_to_test))
-        print(
-            "Every pixel should get an LED pulse IV sweep now, plus the light should turn on"
-        )
-        for substrate in substrates_to_test:
-            sweepHigh = 0.01  # amps
-            sweepLow = 0.0001  # amps
-
-            ready_to_sweep = False
-
-            # move to center of substrate
-            self.me.goto(self.me.substrate_centers[ord(substrate) - ord("A")])
-
-            for pix in range(8):
-                pixel_addr = substrate + str(pix + 1)
-                print(pixel_addr)
-                if self.pcb.pix_picker(substrate, pix + 1):
-
-                    if (
-                        not ready_to_sweep
-                    ):  # setup the sourcemeter if this is our first pixel
-                        self.sm.setNPLC(0.01)
-                        self.sm.setupSweep(
-                            sourceVoltage=False,
-                            compliance=2.5,
-                            nPoints=101,
-                            start=sweepLow,
-                            end=sweepHigh,
-                        )
-                        self.sm.write(
-                            ":arm:source bus"
-                        )  # this allows for the trigger style we'll use here
-                        ready_to_sweep = True
-
-                    self.sm.updateSweepStart(sweepLow)
-                    self.sm.updateSweepStop(sweepHigh)
-                    self.sm.arm()
-                    self.sm.trigger()
-                    self.sm.opc()
-
-                    self.sm.updateSweepStart(sweepHigh)
-                    self.sm.updateSweepStop(sweepLow)
-                    self.sm.arm()
-                    self.sm.trigger()
-                    self.sm.opc()
-
-            self.sm.outOn(False)
-
-            # deselect all pixels
-            self.pcb.pix_picker(substrate, 0)
-
-        self.le.off()
-
-    def measureIntensity(
-        self, diode_cal, ignore_diodes=False, recipe=None, spectrum_cal=None
-    ):
+    def measureIntensity(self, recipe=None, spectrum_cal=None):
         """Measure the equivalent solar intensity of the light source.
 
         Uses either reference calibration diodes on the sample stage and/or the light
@@ -424,18 +329,18 @@ class fabric:
 
         Parameters
         ----------
-        diode_cal : tuple
-            ADC counts for 2 diodes corresponding to 1 sun equivalent illumination
-            intensity.
-        ignore_diodes : bool
-            Choose whether or not to ignore measurement of stage mounted reference
-            photodiodes, i.e. if they are not mounted, set this to True.
         recipe : str
             Name of the spectrum recipe for the light source to load.
         spectrum_cal : array-like
             Calibration data for the light source's internal spectrometer used to
             convert the raw measurement to units of spectral irradiance.
-    """
+
+        Returns
+        -------
+        ret : dict
+            Dictionary of intensity measurements, i.e. diode readings and/or Wavelabs
+            integrated intensity.
+        """
         ret = {
             "diode_1_adc": None,
             "diode_2_adc": None,
@@ -450,7 +355,11 @@ class fabric:
             # if using wavelabs light engine, use internal spectrometer to measure
             # spectrum and intensity
             if recipe is not None:
+                # choose the recipe
                 self.le.light_engine.activateRecipe(recipe)
+
+            # edit the recipe for the intensity measurement but store old values so it
+            # can be changed back after
             old_duration = self.le.light_engine.getRecipeParam(param="Duration")
             new_duration = 1
             self.le.light_engine.setRecipeParam(
@@ -464,52 +373,15 @@ class fabric:
             spectrum = spectra[0]
             wls = spectrum["data"]["Wavelenght"]
             irr = spectrum["data"]["Irradiance"]
-            self.spectrum_raw = np.array(
-                [[w, i] for w, i in zip(wls, irr)], dtype=self.spectrum_datatype
-            )
+            self.spectrum_raw = np.array([[w, i] for w, i in zip(wls, irr)])
             if spectrum_cal is None:
                 self.spectrum = self.spectrum_raw
                 ret["wavelabs_suns"] = 1
-                warnings.warn(
-                    "No spectral calibration supplied for Wavelabs simulator. Assuming 1.0 suns."
-                )
+                warnings.warn("Spectral calibration not provided. Assuming 1.0 suns.")
             else:
                 self.spectrum = self.spectrum_raw * spectrum_cal
-                ret["wavelabs_suns"] = (
-                    sp.integrare.simps(self.spectrum, wls) / 1000
-                )  # intensity in suns
-
-        if ignore_diodes is False:
-            self.me.goto(self.me.photodiode_location)
-            self.le.on()
-
-            # if this is a real solar sim (not a virtual one), wait half a sec before
-            # measuring intensity
-            if type(self.le) == illumination:
-                time.sleep(0.5)
-
-            # measure diode counts
-            ret["diode_1_adc"] = self.pcb.get("p1")
-            ret["diode_2_adc"] = self.pcb.get("p2")
-
-            self.le.off()
-
-            if type(diode_cal) == list or type(diode_cal) == tuple:
-                if diode_cal[0] <= 1:
-                    warnings.warn(
-                        "WARNING: No or bad intensity diode calibration values, assuming 1.0 suns"
-                    )
-                    ret["diode_1_suns"] = 1.0
-                else:
-                    ret["diode_1_suns"] = ret["diode_1_adc"] / diode_cal[0]
-
-                if diode_cal[1] <= 1:
-                    warnings.warn(
-                        "WARNING: No or bad intensity diode calibration values, assuming 1.0 suns"
-                    )
-                    ret["diode_2_suns"] = 1.0
-                else:
-                    ret["diode_2_suns"] = ret["diode_2_adc"] / diode_cal[1]
+                # calculate intensity in suns
+                ret["wavelabs_suns"] = sp.integrare.simps(self.spectrum, wls) / 1000
 
         return ret
 
@@ -525,26 +397,22 @@ class fabric:
         return ret
 
     def runSetup(
-        self,
-        operator,
-        diode_cal,
-        ignore_diodes=False,
-        run_description="",
-        recipe=None,
-        spectrum_cal=None,
+        self, operator="", run_description="", recipe=None, spectrum_cal=None,
     ):
+        """Setup a run.
+
+        Parameters
+        ----------
+        operator : str
+            Operator name.
+        run_description : str
+            Run description.
+        recipe : str
+            Name of the spectrum recipe for the light source to load.
+        spectrum_cal : array-like
+            Calibration data for the light source's internal spectrometer used to
+            convert the raw measurement to units of spectral irradiance.
         """
-    stuff that needs to be done at the start of a run
-    if light engine is wavelabs, it's internal spectrometer measures the spectrum and
-    returns a single intensity value.
-    otherwise, returns intensity tuple of length 4 where [0:1] are the raw ADC counts
-    measured by the PCB's photodiodes and [2:3] are the number of suns of intensity.
-    if diode_cal == True, suns intensity will be assumed and reported as 1.0.
-    if type(diode_cal) == list, diode_cal[0] and [1] will be used to calculate number
-    of suns.
-    if ignore_diodes == True, diode ADC values will not be read and intensity =
-    (1, 1, 1.0 1.0) will be used and reported.
-    """
         self.run_dir = self.slugify(operator) + "-" + time.strftime("%y-%m-%d")
 
         if self.saveDir == None or self.saveDir == "__tmp__":
@@ -576,7 +444,9 @@ class fabric:
         print("Creating file {:}".format(self.f.filename))
         self.f.attrs["Operator"] = np.string_(operator)
         self.f.attrs["Timestamp"] = time.time()
-        self.f.attrs["PCB Firmware Hash"] = np.string_(self.pcb.get("v"))
+        self.f.attrs["Controller Firmware Hash"] = np.string_(
+            self.controller.version_message
+        )
         self.f.attrs["Control Software Revision"] = np.string_(self.software_revision)
         self.f.attrs["Format Revision"] = np.string_(self.outputFormatRevision)
         self.f.attrs["Run Description"] = np.string_(run_description)
@@ -584,41 +454,9 @@ class fabric:
         self.f.attrs["Lock-in amplifier"] = np.string_(self.lia_idn)
         self.f.attrs["Power supply"] = np.string_(self.psu_idn)
 
-        intensity = self.measureIntensity(
-            diode_cal, ignore_diodes, recipe, spectrum_cal
-        )
+        intensity = self.measureIntensity(recipe, spectrum_cal)
         if self.le.wavelabs is True:
             self.f.attrs["Wavelabs intensity [suns]"] = intensity["wavelabs_suns"]
-
-        if ignore_diodes is False:
-            self.f.attrs["Diode 1 intensity [ADC counts]"] = np.int(
-                intensity["diode_1_adc"]
-            )
-            self.f.attrs["Diode 2 intensity [ADC counts]"] = np.int(
-                intensity["diode_2_adc"]
-            )
-            if type(diode_cal) == list:
-                self.f.attrs["Diode 1 calibration [ADC counts]"] = np.int(diode_cal[0])
-                self.f.attrs["Diode 2 calibration [ADC counts]"] = np.int(diode_cal[1])
-            else:
-                # we re-calibrated this run
-                self.f.attrs["Diode 1 calibration [ADC counts]"] = np.int(
-                    intensity["diode_1_adc"]
-                )
-                self.f.attrs["Diode 2 calibration [ADC counts]"] = np.int(
-                    intensity["diode_2_adc"]
-                )
-            self.f.attrs["Diode 1 intensity [suns]"] = np.float(
-                intensity["diode_1_suns"]
-            )
-            self.f.attrs["Diode 2 intensity [suns]"] = np.float(
-                intensity["diode_2_suns"]
-            )
-            print(
-                "Intensity = [{:0.4f} {:0.4f}] suns".format(
-                    np.float(intensity[2]), np.float(intensity[3])
-                )
-            )
 
         return intensity
 
@@ -638,40 +476,26 @@ class fabric:
             else:
                 print("WARNING: Could not understand archive url")
 
-    def substrateSetup(self, position, suid="", layout_name=""):
-        self.position = position
-        if self.pcb.pix_picker(position, 0):
-            self.f.create_group(position)
+    def pixel_setup(self, pixel):
+        """Move to pixel and connect it with mux.
 
-            self.f[position].attrs["Sample Unique Identifier"] = np.string_(suid)
+        Parameters
+        ----------
+        pixel : dict
+            Pixel information
+        """
+        # move to pixel position
+        for i, pos in enumerate(pixel["position"]):
+            # goto is 1-indexed
+            self.controller.goto(i + 1, pos)
 
-            self.f[position].attrs[
-                "Sample Adapter Board Resistor Value"
-            ] = self.pcb.resistors[position]
-            self.f[position].attrs["Sample Layout Name"] = np.string_(layout_name)
-
-            return True
-        else:
-            return False
-
-    def pixelSetup(self, pixel):
-        """Call this to switch to a new pixel"""
-        self.pixel = str(pixel[0][1])
-        if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
-            self.me.goto(pixel[2])  # move stage here
-            self.area = pixel[1]
-
-            self.f[self.position].create_group(self.pixel)
-            self.f[self.position + "/" + self.pixel].attrs["area"] = (
-                self.area * 1e-4
-            )  # in m^2
-            return True
-        else:
-            return False
+        # connect pixel
+        row = pixel["array_loc"][0]
+        col = pixel["array_loc"][1]
+        self.controller.set_mux(row, col, pixel["pixel"])
 
     def pixelComplete(self):
         """Call this when all measurements for a pixel are complete"""
-        self.pcb.pix_picker(self.position, 0)
         m = self.f[self.position + "/" + self.pixel].create_dataset(
             "all_measurements", data=self.m, compression="gzip"
         )
@@ -891,7 +715,7 @@ class fabric:
 
         # open all mux relays if calibrating
         if calibration is True:
-            self.pcb.write("s")
+            self.controller.clear_mux()
 
         eqe_data = eqe.scan(
             self.lia,
@@ -943,7 +767,7 @@ class fabric:
         channel : {1, 2, 3}
             PSU channel.
         loc : list
-            Position of calibration photodiode.
+            Position of calibration photodiode along each axis.
         handler : DataHandler
             Handler to process data.
         """
@@ -951,10 +775,11 @@ class fabric:
 
         # move to photodiode
         if loc is not None:
-            self.me.goto(loc)
+            for i, l in loc:
+                self.controller.goto(i + 1, l)
 
         # open all mux relays
-        self.pcb.write("s")
+        self.controller.clear_mux()
 
         # set smu to short circuit and enable output
         self.sm.setupDC(
