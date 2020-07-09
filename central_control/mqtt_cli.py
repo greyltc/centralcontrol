@@ -96,24 +96,27 @@ class CLIMQTT(mqtt.Client):
         with open(self.config_file_path, "w") as f:
             f.wrtie(msg)
 
-    def _start_or_resume_subprocess(self, args):
+    def _start_or_resume_subprocess(self, args, subtopic=""):
         """Start or resume a subprocess.
 
         Start a new subprocess is there isn't one running or resume a subprocess if one
-        is paused.
+        is paused and run has been pressed.
 
         Parameters
         ----------
         args : list
             List of command line arguments to parse to CLI.
+        subtopic : str
+            Message subtopic. This is used to determine whether a paused process should
+            be resumed.
         """
         # start process if there is none
         if self.proc is None:
             self._start_subprocess(args)
         else:
             try:
-                # try to resume the process if it's paused
-                if self.proc.status() == "stopped":
+                # try to resume the process if run pressed and it's paused
+                if (self.proc.status() == "stopped") & (subtopic == "run"):
                     self.proc.resume()
                 else:
                     pass
@@ -160,7 +163,7 @@ class CLIMQTT(mqtt.Client):
             Dictionary of settings sent from the GUI.
         """
         args = self._format_run_msg(msg)
-        self._start_or_resume_subprocess(args)
+        self._start_or_resume_subprocess(args, subtopic="run")
 
     def _pause(self):
         """Pause a running subprocess."""
