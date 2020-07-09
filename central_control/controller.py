@@ -112,7 +112,7 @@ class controller:
 
         return ret_val
 
-    def read_pos(self, axis):
+    def read_pos(self, axis, handler=None):
         """Read the current stage position along a given axis.
 
         Parameters
@@ -127,7 +127,9 @@ class controller:
         """
         self.tn.send_cmd(f"r{axis}")
 
-        return int(self.tn.read_response(timeout=self.read_timeout))
+        steps = int(self.tn.read_response(timeout=self.read_timeout))
+
+        return steps
 
     def goto(self, axis, position, timeout=20, retries=5, position_poll_sleep=0.5):
         """Go to stage position in steps.

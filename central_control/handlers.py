@@ -91,6 +91,26 @@ class CacheHandler(MQTTQueuePublisher):
         self.append_payload(payload)
 
 
+class StageHandler(MQTTQueuePublisher):
+    """Publish list of data with MQTT client."""
+
+    def __init__(self):
+        """Construct MQTT queue publisher."""
+        super().__init__()
+
+    def handle_data(self, steps):
+        """Perform tasks with data.
+
+        Parameters
+        ----------
+        steps : list
+            List of positions (steps) along each axis.
+        """
+        # turn dict into string that mqtt can send
+        payload = json.dumps(steps)
+        self.append_payload(payload)
+
+
 class VoltageDataHandler(MQTTQueuePublisher):
     """Publish voltage vs. time data with MQTT client."""
 

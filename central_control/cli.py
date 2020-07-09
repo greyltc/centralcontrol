@@ -9,6 +9,7 @@ from central_control.handlers import (
     DataHandler,
     SettingsHandler,
     CacheHandler,
+    StageHandler,
 )
 
 import argparse
@@ -140,10 +141,15 @@ class cli:
     def _get_stage_position(self):
         """Read the stage position and report it."""
         # get experiment centre to initialise axes attribute
-        self._get_experiment_centre(self)
+        self._get_experiment_centre()
         loc = []
         for axis in range(1, self.axes + 1, 1):
             loc.append(self.logic.controller.read_pos(axis))
+
+        with StageHandler() as sh:
+            sh.connect(self.args.mqtt_host)
+            sh.start_q("data/stage")
+            sh.handle_data(loc)
 
         return loc
 
