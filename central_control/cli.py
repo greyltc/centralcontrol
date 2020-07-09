@@ -206,6 +206,12 @@ class cli:
         if self.args.read_stage is True:
             self._get_stage_position()
 
+        # goto stage position
+        if self.args.goto is not None:
+            for i, pos in enumerate(self.args.goto):
+                self.logic.controller.goto(i + 1, pos)
+            self._get_stage_position()
+
         # add cached files to save directory
         self._save_cache()
 
@@ -1083,6 +1089,13 @@ class cli:
             default=False,
             action="store_true",
             help="Read the current stage position",
+        )
+        setup.add_argument(
+            "--goto",
+            type=float,
+            nargs="+",
+            default=None,
+            help="Go to stage position. Input is a list of positions in steps along each available axis in order",
         )
         setup.add_argument(
             "--calibrate-diodes",

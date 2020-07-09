@@ -250,20 +250,17 @@ class CLIMQTT(mqtt.Client):
 
     def _home(self):
         """Home the stage."""
-        # TODO: format args for homing stage
-        args = None
+        args = ["--home"]
         self._start_or_resume_subprocess(args)
 
     def _goto(self, msg):
         """Go to a stage position."""
-        # TODO: format args for goto
-        args = None
+        args = ["--goto"] + msg
         self._start_or_resume_subprocess(args)
 
     def _read_stage(self):
         """Read the stage position."""
-        # TODO: format args for read
-        args = None
+        args = ["--read-stage"]
         self._start_or_resume_subprocess(args)
 
 
