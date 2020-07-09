@@ -203,6 +203,8 @@ class cli:
                 self.logic.controller.home(i + 1)
 
         # read stage position
+        if self.args.read_stage is True:
+            self._get_stage_position()
 
         # add cached files to save directory
         self._save_cache()
