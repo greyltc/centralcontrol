@@ -175,8 +175,7 @@ class controller:
                 # periodically poll for position
                 while (loc != position) and (now <= attempt_timeout):
                     # ask for current position
-                    self.tn.send_cmd(f"r{axis}")
-                    loc = int(self.tn.read_response(timeout=self.read_timeout))
+                    loc = self.read_pos(axis)
                     # for debugging
                     print(f"Location = {loc}")
                     time.sleep(position_poll_sleep)

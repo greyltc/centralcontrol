@@ -137,6 +137,16 @@ class cli:
                     contents = f.read()
                     ch.save_cache(file, contents)
 
+    def _get_stage_position(self):
+        """Read the stage position and report it."""
+        # get experiment centre to initialise axes attribute
+        self._get_experiment_centre(self)
+        loc = []
+        for axis in range(1, self.axes + 1, 1):
+            loc.append(self.logic.controller.read_pos(axis))
+
+        return loc
+
     def run(self):
         """Act on command line instructions."""
         # get arguments parsed to the command line
@@ -185,6 +195,8 @@ class cli:
             for i in range(self.axes):
                 # axes are 1-indexed
                 self.logic.controller.home(i + 1)
+
+        # read stage position
 
         # add cached files to save directory
         self._save_cache()
@@ -1057,6 +1069,12 @@ class cli:
             default=False,
             action="store_true",
             help="Home the stage along each axis",
+        )
+        setup.add_argument(
+            "--read-stage",
+            default=False,
+            action="store_true",
+            help="Read the current stage position",
         )
         setup.add_argument(
             "--calibrate-diodes",
