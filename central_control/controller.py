@@ -44,6 +44,9 @@ class MyTelnet(Telnet):
 class controller:
     """Mux and stage controller."""
 
+    # standard read timeout in s
+    read_timeout = 1
+
     def __init__(self, address=default_host):
         """Contrust object."""
         self.address = address
@@ -87,7 +90,7 @@ class controller:
         ret_val = -2
         print("HOMING!")
         self.tn.send_cmd(f"h{axis}")
-        response = self.tn.read_response(timeout)
+        response = self.tn.read_response(timeout=self.read_timeout)
 
         if response != "":
             raise (ValueError(f"Homing the stage failed: {response}"))
@@ -101,7 +104,7 @@ class controller:
                 while dt < timeout:
                     time.sleep(length_poll_sleep)
                     self.tn.send_cmd(f"l{axis}")
-                    ret_val = int(self.tn.read_response())
+                    ret_val = int(self.tn.read_response(timeout=self.read_timeout))
                     if ret_val > 0:
                         # axis length has been returned
                         break
@@ -124,7 +127,7 @@ class controller:
         """
         self.tn.send_cmd(f"r{axis}")
 
-        return int(self.tn.read_response(timeout=1))
+        return int(self.tn.read_response(timeout=self.read_timeout))
 
     def goto(self, axis, position, timeout=20, retries=5, position_poll_sleep=0.5):
         """Go to stage position in steps.
@@ -163,7 +166,7 @@ class controller:
 
         while retries > 0:
             self.tn.send_cmd(f"g{axis}{position:.0f}")
-            resp = self.tn.read_response(timeout=1)
+            resp = self.tn.read_response(timeout=self.read_timeout)
             if resp == "":
                 # goto command accepted
                 loc = None
@@ -173,7 +176,7 @@ class controller:
                 while (loc != position) and (now <= attempt_timeout):
                     # ask for current position
                     self.tn.send_cmd(f"r{axis}")
-                    loc = int(self.tn.read_response(timeout=1))
+                    loc = int(self.tn.read_response(timeout=self.read_timeout))
                     # for debugging
                     print(f"Location = {loc}")
                     time.sleep(position_poll_sleep)
@@ -217,12 +220,12 @@ class controller:
 
         # connect relay
         self.tn.send_cmd(f"s{row}{col}{pixel}")
-        self.tn.read_response(timeout=0.5)
+        self.tn.read_response(timeout=self.read_timeout)
 
     def clear_mux(self):
         """Open all multiplexor relays."""
         self.tn.send_cmd("s")
-        self.tn.read_response(timeout=0.5)
+        self.tn.read_response(timeout=self.read_timeout)
 
     def get_port_expanders(self):
         """Check which port expanders are available.
@@ -234,4 +237,4 @@ class controller:
         """
         self.tn.send_cmd("c")
 
-        return self.tn.read_response(timeout=0.5)
+        return self.tn.read_response(timeout=self.read_timeout)
