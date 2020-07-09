@@ -110,6 +110,33 @@ class cli:
         if self.args.light_address.upper() == "NONE":
             self.args.light_address = None
 
+    def _update_save_settings(self, folder, archive):
+        """Tell saver MQTT client where to save and backup data.
+
+        Parameters
+        ----------
+        folder : str
+            Experiment folder name.
+        archive : str
+            Network address used to back up data files when an experiment completes.
+        """
+        # context manager handles disconnect
+        with SettingsHandler() as sh:
+            sh.connect(self.args.mqtt_host)
+            # publish to data saver settings topic
+            sh.start_q("data/saver")
+            sh.update_settings(folder, archive)
+
+    def _save_cache(self):
+        """Send cached data to saver MQTT client."""
+        with CacheHandler() as ch:
+            ch.connect(self.args.mqtt_host)
+            ch.start_q("data/cache")
+            for file in self.cache.iterdir():
+                with open(self.cache.joinpath(file), "r") as f:
+                    contents = f.read()
+                    ch.save_cache(file, contents)
+
     def run(self):
         """Act on command line instructions."""
         # get arguments parsed to the command line
@@ -131,23 +158,6 @@ class cli:
         # create the control logic entity
         self.logic = fabric()
 
-        # tell save client where to save data
-        settings_handler = SettingsHandler()
-        settings_handler.connect(self.args.mqtt_host)
-        settings_handler.start_q("data/saver")
-        settings_handler.update_settings(
-            self.args.destination, self.config["network"]["archive"]
-        )
-
-        # add cached files to save directory
-        cache_handler = CacheHandler()
-        cache_handler.connect(self.args.mqtt_host)
-        cache_handler.start_q("data/cache")
-        for file in self.cache.iterdir():
-            with open(self.cache.joinpath(file), "r") as f:
-                contents = f.read()
-            cache_handler.save_cache(file, contents)
-
         # connect to insturments
         self.logic.connect(
             dummy=self.args.dummy,
@@ -161,17 +171,12 @@ class cli:
             mono_address=self.args.mono_address,
             psu_address=self.args.psu_address,
             lia_output_interface=self.args.lia_output_interface,
-            ignore_adapter_resistors=self.args.ignore_adapter_resistors,
         )
 
-        if self.args.dummy is True:
-            self.args.iv_pixel_address = "0x1"
-            self.args.eqe_pixel_address = "0x1"
-        else:
-            if self.args.rear is False:
-                self.logic.sm.setTerminals(front=True)
-            if self.args.four_wire is False:
-                self.logic.sm.setWires(twoWire=True)
+        # tell mqtt data saver where to save
+        self._update_save_settings(
+            self.args.destination, self.config["network"]["archive"]
+        )
 
         # home the stage
         if self.args.home is True:
@@ -180,6 +185,19 @@ class cli:
             for i in range(self.axes):
                 # axes are 1-indexed
                 self.logic.controller.home(i + 1)
+
+        # add cached files to save directory
+        self._save_cache()
+
+        # set varaibles if dummy run requested
+        if self.args.dummy is True:
+            self.args.iv_pixel_address = "0x1"
+            self.args.eqe_pixel_address = "0x1"
+        else:
+            if self.args.rear is False:
+                self.logic.sm.setTerminals(front=True)
+            if self.args.four_wire is False:
+                self.logic.sm.setWires(twoWire=True)
 
         # build up the queue of pixels to run through
         if self.args.iv_pixel_address is not None:

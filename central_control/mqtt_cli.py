@@ -78,6 +78,10 @@ class CLIMQTT(mqtt.Client):
             self._cal_psu(m)
         elif subtopic == "home":
             self._home()
+        elif subtopic == "goto":
+            self._goto(m)
+        elif subtopic == "read_stage":
+            self._read_stage()
 
     def _save_config(self, msg):
         """Save config string to cached file so CLI can use it.
@@ -244,6 +248,18 @@ class CLIMQTT(mqtt.Client):
     def _home(self):
         """Home the stage."""
         # TODO: format args for homing stage
+        args = None
+        self._start_or_resume_subprocess(args)
+
+    def _goto(self, msg):
+        """Go to a stage position."""
+        # TODO: format args for goto
+        args = None
+        self._start_or_resume_subprocess(args)
+
+    def _read_stage(self):
+        """Read the stage position."""
+        # TODO: format args for read
         args = None
         self._start_or_resume_subprocess(args)
 
