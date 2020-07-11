@@ -581,10 +581,32 @@ class fabric:
         senseRange="f",
         handler=None,
     ):
-        """ makes steady state measurements for t_dwell seconds
-    set NPLC to -1 to leave it unchanged
-    returns array of measurements
-    """
+        """Make steady state measurements.
+
+        for t_dwell seconds
+        set NPLC to -1 to leave it unchanged returns array of measurements.
+
+        Parameters
+        ----------
+        t_dwell : float
+            Dwell time in seconds.
+        NPLC : float
+            Number of power line cycles to integrate over.
+        stepDelay : float
+            Step delay in seconds.
+        sourceVoltage : bool
+            Choose whether or to dwell at constant voltage (True) or constant current
+            (False).
+        compliance : float
+            Compliance voltage (in V, if sourcing current) or current (in A, if
+            sourcing voltage).
+        setPoint : float
+            Constant or voltage or current to source.
+        senseRange : "a" or "f"
+            Range setting: "a" for autorange, "f" for follow compliance.
+        handler : handler object
+            Handler to process data.
+        """
         self.insertStatus(
             "Measuring steady state {:s} at {:.0f} m{:s}".format(
                 "current" if sourceVoltage else "voltage",
@@ -621,8 +643,8 @@ class fabric:
         message=None,
         handler=None,
     ):
-        """ make a series of measurements while sweeping the sourcemeter along linearly progressing voltage or current setpoints
-    """
+        """Make a series of measurements while sweeping the sourcemeter along linearly
+        progressing voltage or current setpoints."""
 
         self.sm.setNPLC(NPLC)
         self.sm.setStepDelay(stepDelay)
