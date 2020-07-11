@@ -16,7 +16,6 @@ from central_control.k2400 import k2400
 from central_control.controller import controller
 from central_control.mppt import mppt
 from central_control.illumination import illumination
-from central_control.put_ftp import put_ftp
 import central_control  # for __version__
 
 import sr830
@@ -45,118 +44,10 @@ class fabric:
     # guess at what the current limit should be set to (in amps) if we have no other way to determine it
     compliance_guess = 0.04
 
-    # this is the datatype for the measurement in the h5py file
-    measurement_datatype = np.dtype(
-        {
-            "names": ["voltage", "current", "time", "status"],
-            "formats": ["f", "f", "f", "u4"],
-            "titles": ["Voltage [V]", "Current [A]", "Time [s]", "Status bitmask"],
-        }
-    )
-
-    # lockin measurement datatype in h5py file
-    eqe_datatype = np.dtype(
-        {
-            "names": [
-                "time",
-                "wavelength",
-                "x",
-                "y",
-                "r",
-                "phase",
-                "aux_in_1",
-                "aux_in_2",
-                "aux_in_3",
-                "aux_in_4",
-                "ref_frequency",
-                "ch1_display",
-                "ch2_display",
-                "eqe",
-                "integrated_jsc",
-            ],
-            "formats": [
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-                "f",
-            ],
-            "titles": [
-                "Time [s]",
-                "Wavelength [nm]",
-                "X [V]",
-                "Y [V]",
-                "R [V]",
-                "Phase [deg]",
-                "Aux In 1 [V]",
-                "Aux In 2 [V]",
-                "Aux In 3 [V]",
-                "Aux In 4 [V]",
-                "Ref Frequency [Hz]",
-                "CH1 display",
-                "CH2 display",
-                "EQE",
-                "Integrated Jsc [ma/cm^2]",
-            ],
-        }
-    )
-
-    # this is the datatype for the status messages in the h5py file
-    status_datatype = np.dtype(
-        {
-            "names": ["index", "message"],
-            "formats": ["u4", h5py.special_dtype(vlen=str)],
-            "titles": ["Index", "Message"],
-        }
-    )
-
-    # this is an internal datatype to store the region of interest info
-    roi_datatype = np.dtype(
-        {
-            "names": ["start_index", "end_index", "description"],
-            "formats": ["u4", "u4", object],
-            "titles": ["Start Index", "End Index", "Description"],
-        }
-    )
-
-    spectrum_datatype = np.dtype(
-        {
-            "names": ["wavelength", "irradiance"],
-            "formats": ["f", "f"],
-            "titles": ["Wavelength [nm]", "Spectral Irradiance [W/m^2/nm]"],
-        }
-    )
-
-    m = np.array(
-        [], dtype=measurement_datatype
-    )  # measurement list: columns = v, i, timestamp, status
-    s = np.array(
-        [], dtype=status_datatype
-    )  # status list: columns = corresponding measurement index, status message
-    r = np.array(
-        [], dtype=roi_datatype
-    )  # list defining regions of interest in the measurement list
-
-    # init eqe data attribute with empty array
-    eqe_data = np.array([], dtype=eqe_datatype)
-
     # function to use when sending ROIs to the GUI
     update_gui = None
 
-    def __init__(self, saveDir=None, archive_address=None):
-        self.saveDir = saveDir
-        self.archive_address = archive_address
-
+    def __init__(self):
         self.software_revision = central_control.__version__
         print("Software revision: {:s}".format(self.software_revision))
 
@@ -396,85 +287,9 @@ class fabric:
             ret = True
         return ret
 
-    def runSetup(
-        self, operator="", run_description="", recipe=None, spectrum_cal=None,
-    ):
-        """Setup a run.
-
-        Parameters
-        ----------
-        operator : str
-            Operator name.
-        run_description : str
-            Run description.
-        recipe : str
-            Name of the spectrum recipe for the light source to load.
-        spectrum_cal : array-like
-            Calibration data for the light source's internal spectrometer used to
-            convert the raw measurement to units of spectral irradiance.
-        """
-        self.run_dir = self.slugify(operator) + "-" + time.strftime("%y-%m-%d")
-
-        if self.saveDir == None or self.saveDir == "__tmp__":
-            td = tempfile.mkdtemp(suffix="_iv_data")
-            # self.saveDir = td.name
-            self.saveDir = td
-            print("Using {:} as data storage location".format(self.saveDir))
-
-        destinationDir = os.path.join(self.saveDir, self.run_dir)
-        if not os.path.exists(destinationDir):
-            os.makedirs(destinationDir)
-
-        i = 0  # file name run integer
-        save_file_prefix = "Run"
-        # find the next unused run number
-        files_here = os.listdir(destinationDir)
-        while True:
-            prefix = "{:}_{:}_".format(save_file_prefix, i)
-            prefix_match = any([file.startswith(prefix) for file in files_here])
-            if prefix_match:
-                i += 1
-            else:
-                break
-        save_file_full_path = os.path.join(
-            destinationDir, "{:}{:}.h5".format(prefix, round(time.time()))
-        )
-
-        self.f = h5py.File(save_file_full_path, "x")
-        print("Creating file {:}".format(self.f.filename))
-        self.f.attrs["Operator"] = np.string_(operator)
-        self.f.attrs["Timestamp"] = time.time()
-        self.f.attrs["Controller Firmware Hash"] = np.string_(
-            self.controller.version_message
-        )
-        self.f.attrs["Control Software Revision"] = np.string_(self.software_revision)
-        self.f.attrs["Format Revision"] = np.string_(self.outputFormatRevision)
-        self.f.attrs["Run Description"] = np.string_(run_description)
-        self.f.attrs["Sourcemeter"] = np.string_(self.sm_idn)
-        self.f.attrs["Lock-in amplifier"] = np.string_(self.lia_idn)
-        self.f.attrs["Power supply"] = np.string_(self.psu_idn)
-
-        intensity = self.measureIntensity(recipe, spectrum_cal)
-        if self.le.wavelabs is True:
-            self.f.attrs["Wavelabs intensity [suns]"] = intensity["wavelabs_suns"]
-
-        return intensity
-
     def runDone(self):
+        """Turn off light engine."""
         self.le.off()
-        print("\nClosing {:s}".format(self.f.filename))
-        this_filename = self.f.filename
-        self.f.close()
-        if self.archive_address is not None:
-            if self.archive_address.startswith("ftp://"):
-                with put_ftp(
-                    self.archive_address + self.run_dir + "/", pasv=True
-                ) as ftp:
-                    with open(this_filename, "rb") as fp:
-                        ftp.uploadFile(fp)
-
-            else:
-                print("WARNING: Could not understand archive url")
 
     def pixel_setup(self, pixel):
         """Move to pixel and connect it with mux.
@@ -493,29 +308,6 @@ class fabric:
         row = pixel["array_loc"][0]
         col = pixel["array_loc"][1]
         self.controller.set_mux(row, col, pixel["pixel"])
-
-    def pixelComplete(self):
-        """Call this when all measurements for a pixel are complete"""
-        m = self.f[self.position + "/" + self.pixel].create_dataset(
-            "all_measurements", data=self.m, compression="gzip"
-        )
-        for i in range(len(self.r)):
-            m.attrs[self.r[i][2]] = m.regionref[self.r[i][0] : self.r[i][1]]
-        self.f[self.position + "/" + self.pixel].create_dataset(
-            "status_list", data=self.s, compression="gzip"
-        )
-        self.f[self.position + "/" + self.pixel].create_dataset(
-            "eqe", data=self.eqe, compression="gzip"
-        )
-        self.m = np.array(
-            [], dtype=self.measurement_datatype
-        )  # reset measurement storage
-        self.s = np.array([], dtype=self.status_datatype)  # reset status storage
-        self.r = np.array([], dtype=self.roi_datatype)  # reset region of interest
-        self.eqe_data = np.array([], dtype=self.eqe_datatype)  # reset eqe data
-        self.Voc = None
-        self.Isc = None
-        self.mppt.reset()
 
     def slugify(self, value, allow_unicode=False):
         """
@@ -540,35 +332,6 @@ class fabric:
         print(message)
         s = np.array((len(self.m), message), dtype=self.status_datatype)
         self.s = np.append(self.s, s)
-
-    def registerMeasurements(self, measurements, description):
-        """adds an array of measurements to the master list and creates an ROI for them
-    takes new measurement numpy array and description of them"""
-        roi = {}
-        roi["v"] = [float(e[0]) for e in measurements]
-        roi["i"] = [float(e[1]) for e in measurements]
-        roi["t"] = [float(e[2]) for e in measurements]
-        roi["s"] = [float(e[3]) for e in measurements]
-        roi["message"] = description
-        roi["area"] = self.area
-        try:
-            self.update_gui(roi)  # send the new region of interest data to the GUI
-        except:
-            pass  # probably no gui server to send data to, NBD
-        self.m = np.append(self.m, measurements)
-        length = len(measurements)
-        if length > 0:
-            stop = len(self.m) - 1
-            start = stop - length + 1
-            print(
-                "New region of interest: [{:},{:}]\t{:s}".format(
-                    start, stop, description
-                )
-            )
-            r = np.array((start, stop, description), dtype=self.roi_datatype)
-            self.r = np.append(self.r, r)
-        else:
-            print("WARNING: Non-positive ROI length")
 
     def steadyState(
         self,
@@ -690,16 +453,6 @@ class fabric:
         )
         # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
         qa = np.array([tuple(s) for s in raw], dtype=self.measurement_datatype)
-        self.registerMeasurements(qa, "MPPT")
-
-        if self.mppt.Vmpp != None:
-            self.f[self.position + "/" + self.pixel].attrs["Vmpp"] = self.mppt.Vmpp
-        if self.mppt.Impp != None:
-            self.f[self.position + "/" + self.pixel].attrs["Impp"] = self.mppt.Impp
-        if (self.mppt.Impp != None) and (self.mppt.Vmpp != None):
-            self.f[self.position + "/" + self.pixel].attrs["ssPmax"] = abs(
-                self.mppt.Impp * self.mppt.Vmpp
-            )
 
     def mpptCB(measurement):
         """Callback function for max power point tracker
@@ -770,11 +523,6 @@ class fabric:
 
         eqe_data = np.array(eqe_data, dtype=self.eqe_datatype)
         self.eqe_data = eqe_data  # added to data file when pixelComplete is called
-        if calibration is not True:
-            # add integrated Jsc attribute to data file
-            self.f[self.position + "/" + self.pixel].attrs["integrated_jsc"] = eqe_data[
-                -1, -1
-            ]
 
         return eqe_data
 

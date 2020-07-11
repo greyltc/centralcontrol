@@ -250,8 +250,9 @@ class cli:
             pdh.end_q()
             pdh.disconnect()
         else:
-            #  do run setup things now like diode calibration and opening the data storage file
-            if self.args.calibrate_diodes == True:
+            # do run setup things now like diode calibration and opening the data
+            # storage file
+            if self.args.calibrate_diodes is True:
                 diode_cal = True
             else:
                 diode_cal = self.args.diode_calibration_values
@@ -263,15 +264,6 @@ class cli:
             else:
                 spectrum_cal = None
 
-            intensity = self.logic.runSetup(
-                self.args.operator,
-                diode_cal,
-                ignore_diodes=self.args.ignore_diodes,
-                run_description=self.args.run_description,
-                recipe=self.args.light_recipe,
-                spectrum_cal=spectrum_cal,
-            )
-
             # save spectrum
             if self.logic.spectrum is not None:
                 sdh = DataHandler()
@@ -281,28 +273,6 @@ class cli:
                 sdh.handle_data(self.logic.spectrum)
                 sdh.end_q()
                 sdh.disconnect()
-
-            # record all arguments into the run file
-            self.logic.f.create_group("args")
-            for attr, value in self.args.__dict__.items():
-                self.logic.f["args"].attrs[attr] = str(value)
-
-            if self.args.calibrate_diodes == True:
-                d1_cal = intensity["diode_1_adc"]
-                d2_cal = intensity["diode_2_adc"]
-                print(
-                    "Setting present intensity diode readings to be used as future 1.0 sun refrence values: [{:}, {:}]".format(
-                        d1_cal, d2_cal
-                    )
-                )
-                # save the newly read diode calibraion values to the prefs file
-                config = configparser.ConfigParser()
-                config.read(self.config_file_fullpath)
-                config[self.config_section]["diode_calibration_values"] = str(
-                    [d1_cal, d2_cal]
-                )
-                with open(self.config_file_fullpath, "w") as configfile:
-                    config.write(configfile)
 
             if (
                 self.args.v_t
@@ -375,23 +345,21 @@ class cli:
                                 setPoint=self.args.steadystate_i,
                                 handler=vdh,
                             )
-                            self.logic.registerMeasurements(vocs, "V_oc dwell")
 
                             self.logic.Voc = vocs[-1][
                                 0
                             ]  # take the last measurement to be Voc
                             self.logic.mppt.Voc = self.logic.Voc
-                            self.logic.f[
-                                self.logic.position + "/" + self.logic.pixel
-                            ].attrs["Voc"] = self.logic.Voc
 
                         if type(self.args.current_compliance_override) == float:
                             compliance = self.args.current_compliance_override
                         else:
-                            compliance = (
-                                self.logic.compliance_guess
-                            )  # we have to just guess what the current complaince should be here
-                            # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
+                            # we have to just guess what the current complaince should
+                            # be here
+                            # TODO: probably need the user to tell us when it's a dark
+                            # scan to get the sensativity we need in that case
+                            compliance = self.logic.compliance_guess
+
                         self.logic.mppt.current_compliance = compliance
 
                         if self.args.sweep_1 is True:
@@ -422,7 +390,6 @@ class cli:
                                 message=message,
                                 handler=ivdh,
                             )
-                            self.logic.registerMeasurements(sv, "Sweep")
 
                             (
                                 Pmax_sweep,
@@ -467,7 +434,7 @@ class cli:
                                 message=message,
                                 handler=ivdh,
                             )
-                            self.logic.registerMeasurements(sv, "Snaith")
+
                             (
                                 Pmax_snaith,
                                 Vmpp,
@@ -506,14 +473,9 @@ class cli:
                                 setPoint=self.args.steadystate_v,
                                 handler=cdh,
                             )
-                            self.logic.registerMeasurements(iscs, "I_sc dwell")
 
-                            self.logic.Isc = iscs[-1][
-                                1
-                            ]  # take the last measurement to be Isc
-                            self.logic.f[
-                                self.logic.position + "/" + self.logic.pixel
-                            ].attrs["Isc"] = self.logic.Isc
+                            # take the last measurement to be Isc
+                            self.logic.Isc = iscs[-1][1]
                             self.logic.mppt.Isc = self.logic.Isc
 
                         if type(self.args.current_compliance_override) == float:
@@ -599,8 +561,14 @@ class cli:
         self.logic.sm.outOn(on=False)
         print("Program complete.")
 
-    def _get_experiment_centre(self):
-        """Look up experiment centre and number of axes."""
+    def _get_experiment_centre(self, experiment):
+        """Look up experiment centre and number of axes.
+        
+        Parameters
+        ----------
+        experiment : str
+            Experiment name. Used to read data in from config file.
+        """
         # get stage location in steps for experiment centre
         experiment_centre = [
             int(x) for x in self.config["experiment_positions"][experiment].split(",")
@@ -628,7 +596,7 @@ class cli:
             Absolute substrate centre co-ordinates. Each sublist contains the positions
             along each axis.
         """
-        experiment_centre = self._get_experiment_centre()
+        experiment_centre = self._get_experiment_centre(experiment)
 
         # read in number substrates in the array along each axis
         self.substrate_number = [
@@ -1317,6 +1285,6 @@ class cli:
 
 
 if __name__ == "__main__":
-    with cli() as cli:
-        cli.run()
+    with cli() as c:
+        c.run()
 
