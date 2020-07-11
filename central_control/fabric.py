@@ -30,41 +30,30 @@ import eqe
 class fabric:
     """Experiment control logic."""
 
-    outputFormatRevision = (
-        "1.8.2"  # tells reader what format to expect for the output file
-    )
-    ssVocDwell = 10  # [s] dwell time for steady state voc determination
-    ssIscDwell = 10  # [s] dwell time for steady state isc determination
-
-    # start/end sweeps this many percentage points beyond Voc
-    # bigger numbers here give better fitting for series resistance
-    # at an incresed danger of pushing too much current through the device
-    percent_beyond_voc = 50
-
-    # guess at what the current limit should be set to (in amps) if we have no other way to determine it
-    compliance_guess = 0.04
-
-    # function to use when sending ROIs to the GUI
-    update_gui = None
-
     def __init__(self):
         self.software_revision = central_control.__version__
         print("Software revision: {:s}".format(self.software_revision))
 
-    def __setattr__(self, attr, value):
-        """here we can override what happends when we set an attribute"""
-        if attr == "Voc":
-            self.__dict__[attr] = value
-            if value != None:
-                print("V_oc is {:.4f}mV".format(value * 1000))
+    def compliance_current_guess(self, area):
+        """Guess what the compliance current should be for i-v-t measurements.
 
-        elif attr == "Isc":
-            self.__dict__[attr] = value
-            if value != None:
-                print("I_sc is {:.4f}mA".format(value * 1000))
+        Parameters
+        ----------
+        area : float
+            Device area in cm^2.
+        """
+        # set maximum current density (in mA/cm^2) slightly higher than an ideal Si
+        # cell
+        max_j = 50
 
-        else:
-            self.__dict__[attr] = value
+        # calculate equivalent current in A for given device area
+        # multiply by 5 to allow more data to be taken in forward bias (useful for
+        # equivalent circuit fitting)
+        # reduce to maximum compliance of keithley 2400 if too high
+        if (compliance_i := 5 * max_j * area / 1000) > 1:
+            compliance_i = 1
+
+        return compliance_i
 
     def connect(
         self,
@@ -290,6 +279,7 @@ class fabric:
     def runDone(self):
         """Turn off light engine."""
         self.le.off()
+        self.sm.outOn(on=False)
 
     def pixel_setup(self, pixel):
         """Move to pixel and connect it with mux.
@@ -326,12 +316,6 @@ class fabric:
             )
         value = re.sub(r"[^\w\s-]", "", value).strip().lower()
         return re.sub(r"[-\s]+", "-", value)
-
-    def insertStatus(self, message):
-        """adds status message to the status message list"""
-        print(message)
-        s = np.array((len(self.m), message), dtype=self.status_datatype)
-        self.s = np.append(self.s, s)
 
     def steadyState(
         self,
@@ -403,12 +387,13 @@ class fabric:
         start=1,
         end=0,
         NPLC=1,
-        message=None,
         handler=None,
     ):
-        """Make a series of measurements while sweeping the sourcemeter along linearly
-        progressing voltage or current setpoints."""
+        """Perform I-V measurement sweep.
 
+        Make a series of measurements while sweeping the sourcemeter along linearly
+        progressing voltage or current setpoints.
+        """
         self.sm.setNPLC(NPLC)
         self.sm.setStepDelay(stepDelay)
         self.sm.setupSweep(
@@ -420,21 +405,12 @@ class fabric:
             senseRange=senseRange,
         )
 
-        if message == None:
-            word = "current" if sourceVoltage else "voltage"
-            abv = "V" if sourceVoltage else "A"
-            message = "Sweeping {:s} from {:.0f} m{:s} to {:.0f} m{:s}".format(
-                word, start, abv, end, abv
-            )
-        self.insertStatus(message)
         raw = self.sm.measure()
-        sweepValues = np.array(
-            list(zip(*[iter(raw)] * 4)), dtype=self.measurement_datatype
-        )
+
         if handler is not None:
             handler(raw)
 
-        return sweepValues
+        return raw
 
     def track_max_power(
         self,

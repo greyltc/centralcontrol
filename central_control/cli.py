@@ -105,12 +105,6 @@ class cli:
                 f"Config file path not found in CLI or at {cached_config_path}."
             )
 
-    def _format_args(self):
-        """Re-format argparse arguments as needed."""
-        self.args.sm_terminator = bytearray.fromhex(self.args.sm_terminator).decode()
-        if self.args.light_address.upper() == "NONE":
-            self.args.light_address = None
-
     def _update_save_settings(self, folder, archive):
         """Tell saver MQTT client where to save and backup data.
 
@@ -138,10 +132,14 @@ class cli:
                     contents = f.read()
                     ch.save_cache(file, contents)
 
+    def _get_axes(self):
+        """Look up number of stage axes from config file and init attribute."""
+        self.stage_lengths = [int(x) for x in self.config["stage"]["length"].split(",")]
+        # get number of stage axes
+        self.axes = len(self.stage_lengths)
+
     def _get_stage_position(self):
         """Read the stage position and report it."""
-        # get experiment centre to initialise axes attribute
-        self._get_experiment_centre()
         loc = []
         for axis in range(1, self.axes + 1, 1):
             loc.append(self.logic.controller.read_pos(axis))
@@ -152,432 +150,6 @@ class cli:
             sh.handle_data(loc)
 
         return loc
-
-    def run(self):
-        """Act on command line instructions."""
-        # get arguments parsed to the command line
-        self.args = self.get_args()
-
-        if self.args.repeat is True:
-            # retreive args from cached preferences
-            self.args = self._load_prefs()
-        else:
-            # save argparse prefs to cache
-            self._save_prefs()
-
-        # find and load config file
-        self._load_config()
-
-        # re-format argparse arguments as needed
-        self._format_args()
-
-        # create the control logic entity
-        self.logic = fabric()
-
-        # connect to insturments
-        self.logic.connect(
-            dummy=self.args.dummy,
-            visa_lib=self.args.visa_lib,
-            smu_address=self.args.sm_address,
-            smu_terminator=self.args.sm_terminator,
-            smu_baud=self.args.sm_baud,
-            light_address=self.args.light_address,
-            controller_address=self.args.controller_address,
-            lia_address=self.args.lia_address,
-            mono_address=self.args.mono_address,
-            psu_address=self.args.psu_address,
-            lia_output_interface=self.args.lia_output_interface,
-        )
-
-        # tell mqtt data saver where to save
-        self._update_save_settings(
-            self.args.destination, self.config["network"]["archive"]
-        )
-
-        # home the stage
-        if self.args.home is True:
-            # look up experiment centres to initialise axes attribute
-            self._get_experiment_centre()
-            for i in range(self.axes):
-                # axes are 1-indexed
-                self.logic.controller.home(i + 1)
-
-        # read stage position
-        if self.args.read_stage is True:
-            self._get_stage_position()
-
-        # goto stage position
-        if self.args.goto is not None:
-            for i, pos in enumerate(self.args.goto):
-                self.logic.controller.goto(i + 1, pos)
-            self._get_stage_position()
-
-        # add cached files to save directory
-        self._save_cache()
-
-        # set varaibles if dummy run requested
-        if self.args.dummy is True:
-            self.args.iv_pixel_address = "0x1"
-            self.args.eqe_pixel_address = "0x1"
-        else:
-            if self.args.rear is False:
-                self.logic.sm.setTerminals(front=True)
-            if self.args.four_wire is False:
-                self.logic.sm.setWires(twoWire=True)
-
-        # build up the queue of pixels to run through
-        if self.args.iv_pixel_address is not None:
-            iv_pixel_queue = self.buildQ(
-                self.args.iv_pixel_address, experiment="solarsim"
-            )
-        else:
-            iv_pixel_queue = []
-
-        if self.args.eqe_pixel_address is not None:
-            eqe_pixel_queue = self.buildQ(self.args.eqe_pixel_address, experiment="eqe")
-        else:
-            eqe_pixel_queue = []
-
-        # either calibrate LED PSU, or scan devices
-        if self.args.calibrate_psu is True:
-            pdh = DataHandler()
-            pdh.connect(self.args.mqtt_host)
-            pdh.start_q("data/psu")
-            pdh.idn = "psu_calibration"
-            self.logic.calibrate_psu(
-                self.args.calibrate_psu_ch, loc=self.args.position_override, handler=pdh
-            )
-            pdh.end_q()
-            pdh.disconnect()
-        else:
-            # do run setup things now like diode calibration and opening the data
-            # storage file
-            if self.args.calibrate_diodes is True:
-                diode_cal = True
-            else:
-                diode_cal = self.args.diode_calibration_values
-
-            if self.args.wavelabs_spec_cal_path != "":
-                spectrum_cal = np.genfromtxt(
-                    self.args.wavelabs_spec_cal_path, skip_header=1, delimiter="\t"
-                )[:, 1]
-            else:
-                spectrum_cal = None
-
-            # save spectrum
-            if self.logic.spectrum is not None:
-                sdh = DataHandler()
-                sdh.connect(self.args.mqtt_host)
-                sdh.start_q("data/spectrum")
-                sdh.idn = "spectrum"
-                sdh.handle_data(self.logic.spectrum)
-                sdh.end_q()
-                sdh.disconnect()
-
-            if (
-                self.args.v_t
-                or self.args.i_t
-                or self.args.sweep_1
-                or self.args.sweep_2
-                or self.args.mppt_t
-                or self.args.eqe > 0
-            ):
-                # create mqtt data handlers
-                if self.args.mqtt_host != "":
-                    # mqtt publisher topics for each handler
-                    subtopics = []
-                    subtopics.append(f"data/vt")
-                    subtopics.append(f"data/iv")
-                    subtopics.append(f"data/mppt")
-                    subtopics.append(f"data/it")
-                    subtopics.append(f"data/eqe")
-
-                    # instantiate handlers
-                    vdh = DataHandler()
-                    ivdh = DataHandler()
-                    mdh = DataHandler()
-                    cdh = DataHandler()
-                    edh = DataHandler()
-                    handlers = [vdh, ivdh, mdh, cdh, edh]
-
-                    # connect handlers to broker and start publisher threads
-                    for i, dh in enumerate(handlers):
-                        dh.connect(self.args.mqtt_host)
-                        dh.start_q(subtopics[i])
-
-                last_substrate = None
-                # scan through the pixels and do the requested measurements
-                for pixel in iv_pixel_queue:
-                    substrate = pixel[0][0].upper()
-                    pix = pixel[0][1]
-                    print(
-                        "\nOperating on substrate {:s}, pixel {:s}...".format(
-                            substrate, pix
-                        )
-                    )
-                    # add id str to handlers to display on plots
-                    for dh in handlers:
-                        dh.idn = f"substrate{substrate}_pixel{pix}"
-
-                    if last_substrate != substrate:  # we have a new substrate
-                        print('New substrate using "{:}" layout!'.format(pixel[3]))
-                        last_substrate = substrate
-
-                        substrate_ready = self.logic.substrateSetup(
-                            position=substrate, layout_name=pixel[3],
-                        )
-
-                    pixel_ready = self.logic.pixelSetup(pixel)
-                    if pixel_ready and substrate_ready:
-
-                        if self.args.v_t > 0:
-                            # steady state v@constant I measured here - usually Voc
-                            # clear v@constant I plot
-                            vdh.clear()
-
-                            vocs = self.logic.steadyState(
-                                t_dwell=self.args.v_t,
-                                NPLC=self.args.steadystate_nplc,
-                                stepDelay=self.args.steadystate_step_delay,
-                                sourceVoltage=False,
-                                compliance=self.args.voltage_compliance_override,
-                                senseRange="a",
-                                setPoint=self.args.steadystate_i,
-                                handler=vdh,
-                            )
-
-                            self.logic.Voc = vocs[-1][
-                                0
-                            ]  # take the last measurement to be Voc
-                            self.logic.mppt.Voc = self.logic.Voc
-
-                        if type(self.args.current_compliance_override) == float:
-                            compliance = self.args.current_compliance_override
-                        else:
-                            # we have to just guess what the current complaince should
-                            # be here
-                            # TODO: probably need the user to tell us when it's a dark
-                            # scan to get the sensativity we need in that case
-                            compliance = self.logic.compliance_guess
-
-                        self.logic.mppt.current_compliance = compliance
-
-                        if self.args.sweep_1 is True:
-                            # now sweep from Voc --> Isc
-                            if type(self.args.scan_start_override_1) == float:
-                                start = self.args.scan_start_override_1
-                            else:
-                                start = self.logic.Voc
-                            if type(self.args.scan_end_override_1) == float:
-                                end = self.args.scan_end_override_1
-                            else:
-                                end = 0
-
-                            message = "Sweeping voltage from {:.0f} mV to {:.0f} mV".format(
-                                start * 1000, end * 1000
-                            )
-                            # clear iv plot
-                            ivdh.clear()
-                            sv = self.logic.sweep(
-                                sourceVoltage=True,
-                                compliance=compliance,
-                                senseRange="a",
-                                nPoints=self.args.scan_points,
-                                stepDelay=self.args.scan_step_delay,
-                                start=start,
-                                end=end,
-                                NPLC=self.args.scan_nplc,
-                                message=message,
-                                handler=ivdh,
-                            )
-
-                            (
-                                Pmax_sweep,
-                                Vmpp,
-                                Impp,
-                                maxIndex,
-                            ) = self.logic.mppt.which_max_power(sv)
-                            self.logic.mppt.Vmpp = Vmpp
-
-                            if type(self.args.current_compliance_override) == float:
-                                compliance = self.args.current_compliance_override
-                            else:
-                                compliance = abs(
-                                    sv[-1][1] * 2
-                                )  # take the last measurement*2 to be our compliance limit
-                            self.logic.mppt.current_compliance = compliance
-
-                        if self.args.sweep_2:
-                            if type(self.args.scan_start_override_2) == float:
-                                start = self.args.scan_start_override_2
-                            else:
-                                start = 0
-                            if type(self.args.scan_end_override_2) == float:
-                                end = self.args.scan_end_override_2
-                            else:
-                                end = self.logic.Voc * (
-                                    (100 + self.logic.percent_beyond_voc) / 100
-                                )
-
-                            message = "Snaithing voltage from {:.0f} mV to {:.0f} mV".format(
-                                start * 1000, end * 1000
-                            )
-
-                            sv = self.logic.sweep(
-                                sourceVoltage=True,
-                                senseRange="f",
-                                compliance=compliance,
-                                nPoints=self.args.scan_points,
-                                start=start,
-                                end=end,
-                                NPLC=self.args.scan_nplc,
-                                message=message,
-                                handler=ivdh,
-                            )
-
-                            (
-                                Pmax_snaith,
-                                Vmpp,
-                                Impp,
-                                maxIndex,
-                            ) = self.logic.mppt.which_max_power(sv)
-                            if abs(Pmax_snaith) > abs(Pmax_sweep):
-                                self.logic.mppt.Vmpp = Vmpp
-
-                        if self.args.mppt_t > 0:
-                            message = "Tracking maximum power point for {:} seconds".format(
-                                self.args.mppt_t
-                            )
-                            # clear mppt plot
-                            mdh.clear()
-                            self.logic.track_max_power(
-                                self.args.mppt_t,
-                                message,
-                                NPLC=self.args.steadystate_nplc,
-                                stepDelay=self.args.steadystate_step_delay,
-                                extra=self.args.mppt_params,
-                                handler=mdh,
-                            )
-
-                        if self.args.i_t > 0:
-                            # steady state I@constant V measured here - usually Isc
-                            # clear I@constant V plot
-                            cdh.clear()
-                            iscs = self.logic.steadyState(
-                                t_dwell=self.args.i_t,
-                                NPLC=self.args.steadystate_nplc,
-                                stepDelay=self.args.steadystate_step_delay,
-                                sourceVoltage=True,
-                                compliance=compliance,
-                                senseRange="a",
-                                setPoint=self.args.steadystate_v,
-                                handler=cdh,
-                            )
-
-                            # take the last measurement to be Isc
-                            self.logic.Isc = iscs[-1][1]
-                            self.logic.mppt.Isc = self.logic.Isc
-
-                        if type(self.args.current_compliance_override) == float:
-                            compliance = self.args.current_compliance_override
-                        else:
-                            # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
-                            # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
-                            # otherwise, set it to be 2x of Isc
-                            if abs(self.logic.Isc) < 0.000005:
-                                compliance = 0.00001
-                            else:
-                                compliance = abs(self.logic.Isc * 2)
-                        self.logic.mppt.current_compliance = compliance
-
-                    self.logic.pixelComplete()
-
-                for pixel in eqe_pixel_queue:
-                    if self.args.calibrate_eqe is False:
-                        substrate = pixel[0][0].upper()
-                        pix = pixel[0][1]
-                        print(
-                            "\nOperating on substrate {:s}, pixel {:s}...".format(
-                                substrate, pix
-                            )
-                        )
-                        # add id str to handlers to display on plots
-                        edh.idn = f"substrate{substrate}_pixel{pix}"
-
-                        if last_substrate != substrate:  # we have a new substrate
-                            print('New substrate using "{:}" layout!'.format(pixel[3]))
-                            last_substrate = substrate
-
-                            substrate_ready = self.logic.substrateSetup(
-                                position=substrate, layout_name=pixel[3],
-                            )
-
-                        pixel_ready = self.logic.pixelSetup(pixel)
-                    else:
-                        # move to eqe calibration photodiode
-                        for i, pos in self.args.position_override:
-                            self.logic.controller.goto(i + 1, pos)
-                        pixel_ready = True
-                        substrate_ready = True
-
-                    if pixel_ready and substrate_ready:
-                        message = f"Scanning EQE from {self.args.eqe_start_wl} nm to {self.args.eqe_end_wl} nm"
-                        # clear eqe plot
-                        edh.clear()
-                        self.logic.eqe(
-                            psu_ch1_voltage=self.args.psu_vs[0],
-                            psu_ch1_current=self.args.psu_is[0],
-                            psu_ch2_voltage=self.args.psu_vs[1],
-                            psu_ch2_current=self.args.psu_is[1],
-                            psu_ch3_voltage=self.args.psu_vs[2],
-                            psu_ch3_current=self.args.psu_is[2],
-                            smu_voltage=self.args.eqe_smu_v,
-                            calibration=self.args.calibrate_eqe,
-                            ref_measurement_path=self.args.eqe_ref_meas_path,
-                            ref_measurement_file_header=self.args.eqe_ref_meas_header_len,
-                            ref_eqe_path=self.args.eqe_ref_cal_path,
-                            ref_spectrum_path=self.args.eqe_ref_spec_path,
-                            start_wl=self.args.eqe_start_wl,
-                            end_wl=self.args.eqe_end_wl,
-                            num_points=self.args.eqe_num_wls,
-                            repeats=self.args.eqe_repeats,
-                            grating_change_wls=self.args.eqe_grating_change_wls,
-                            filter_change_wls=self.args.eqe_filter_change_wls,
-                            auto_gain=not (self.args.eqe_autogain_off),
-                            auto_gain_method=self.args.eqe_autogain_method,
-                            integration_time=self.args.eqe_integration_time,
-                            handler=edh,
-                        )
-
-                    self.logic.pixelComplete()
-
-                # clean up mqtt publishers
-                if self.args.mqtt_host != "":
-                    for dh in handlers:
-                        dh.end_q()
-                        dh.disconnect()
-
-            self.logic.runDone()
-        self.logic.sm.outOn(on=False)
-        print("Program complete.")
-
-    def _get_experiment_centre(self, experiment):
-        """Look up experiment centre and number of axes.
-        
-        Parameters
-        ----------
-        experiment : str
-            Experiment name. Used to read data in from config file.
-        """
-        # get stage location in steps for experiment centre
-        experiment_centre = [
-            int(x) for x in self.config["experiment_positions"][experiment].split(",")
-        ]
-
-        # get number of stage axes
-        self.axes = len(experiment_centre)
-
-        return experiment_centre
 
     def _get_substrate_positions(self, experiment):
         """Calculate absolute positions of all substrate centres.
@@ -596,7 +168,9 @@ class cli:
             Absolute substrate centre co-ordinates. Each sublist contains the positions
             along each axis.
         """
-        experiment_centre = self._get_experiment_centre(experiment)
+        experiment_centre = [
+            int(x) for x in self.config["experiment_positions"][experiment].split(",")
+        ]
 
         # read in number substrates in the array along each axis
         self.substrate_number = [
@@ -642,7 +216,7 @@ class cli:
 
         return substrate_centres
 
-    def buildQ(self, pixel_address_string, experiment):
+    def _build_q(self, pixel_address_string, experiment):
         """Generate a queue of pixels we'll run through.
 
         Parameters
@@ -726,6 +300,7 @@ class cli:
                 if sub_bitmask[pixel - 1] == 1:
                     pixel_dict = {
                         "label": substrate["label"],
+                        "layout": substrate["layout"],
                         "array_loc": substrate["array_loc"],
                         "pixel": pixel,
                         "position": substrate["pixel_positions"][pixel - 1],
@@ -734,6 +309,446 @@ class cli:
                     pixel_q.append(pixel_dict)
 
         return pixel_q
+
+    def _connect_instruments(self):
+        """Init fabric object and connect instruments.
+
+        Determine which instruments are connected and their settings from the config
+        file.
+        """
+        if self.args.dummy is False:
+            visa_lib = self.config["visa"]["visa_lib"]
+            smu_address = self.config["smu"]["address"]
+            smu_terminator = self.config["smu"]["terminator"]
+            smu_baud = self.config["smu"]["baud"]
+            light_address = self.config["solarsim"]["address"]
+            controller_address = self.config["controller"]["address"]
+            lia_address = self.config["lia"]["address"]
+            lia_output_interface = self.config["lia"]["output_interface"]
+            mono_address = self.config["mono"]["address"]
+            psu_address = self.config["psu"]["address"]
+        else:
+            visa_lib = None
+            smu_address = None
+            smu_terminator = None
+            smu_baud = None
+            light_address = None
+            controller_address = None
+            lia_address = None
+            lia_output_interface = None
+            mono_address = None
+            psu_address = None
+
+        # connect to insturments
+        self.logic.connect(
+            dummy=self.args.dummy,
+            visa_lib=visa_lib,
+            smu_address=smu_address,
+            smu_terminator=smu_terminator,
+            smu_baud=smu_baud,
+            light_address=light_address,
+            controller_address=controller_address,
+            lia_address=lia_address,
+            lia_output_interface=lia_output_interface,
+            mono_address=mono_address,
+            psu_address=psu_address,
+        )
+
+        # set up smu terminals
+        self.logic.sm.setTerminals(
+            front=self.config.getboolean("smu", "front_terminals")
+        )
+        self.logic.sm.setWires(twoWire=self.config.getboolean("smu", "two_wire"))
+
+    def _set_experiment_relay(self, experiment):
+        """Set the experiment relay configuration.
+
+        Parameters
+        ----------
+        experiment : str
+            Experiment being performed.
+        """
+        if experiment == "solarsim":
+            # TODO: add relay config func
+            pass
+        elif experiment == "eqe":
+            # TODO: add relay config func
+            pass
+        else:
+            raise ValueError(f"Experiment '{experiment}' not supported.")
+
+    def _ivt(self):
+        """Run through pixel queue of i-v-t measurements."""
+        self._set_experiment_relay("solarsim")
+
+        # create mqtt data handlers for i-v-t measurements
+        # mqtt publisher topics for each handler
+        subtopics = []
+        subtopics.append(f"data/vt")
+        subtopics.append(f"data/iv")
+        subtopics.append(f"data/mppt")
+        subtopics.append(f"data/it")
+
+        # instantiate handlers
+        vdh = DataHandler()
+        ivdh = DataHandler()
+        mdh = DataHandler()
+        cdh = DataHandler()
+        handlers = [vdh, ivdh, mdh, cdh]
+
+        # connect handlers to broker and start publisher threads
+        for i, dh in enumerate(handlers):
+            dh.connect(self.args.mqtt_host)
+            dh.start_q(subtopics[i])
+
+        last_label = None
+        # scan through the pixels and do the requested measurements
+        while len(self.iv_pixel_queue) > 0:
+            pixel = self.iv_pixel_queue.popleft()
+            label = pixel["label"]
+            pix = pixel["pixel"]
+            print(f"\nOperating on substrate {label}, pixel {pix}...")
+
+            # add id str to handlers to display on plots
+            for dh in handlers:
+                dh.idn = f"{label}_pixel{pix}"
+
+            # we have a new substrate
+            if last_label != label:
+                print(f"New substrate using '{pixel['layout']}' layout!")
+                last_label = label
+
+            # move to pixel
+            for i, ax_pos in enumerate(pixel["position"]):
+                self.logic.controller.goto(i + 1, ax_pos)
+
+            # init parameters derived from steadystate measurements
+            ssvoc = None
+            ssisc = None
+
+            # get or estimate compliance current
+            if type(self.args.current_compliance_override) == float:
+                compliance_i = self.args.current_compliance_override
+            else:
+                # estimate compliance current based on area
+                compliance_i = self.logic.compliance_current_guess(pixel["area"])
+
+            # steady state v@constant I measured here - usually Voc
+            if self.args.v_t > 0:
+                # clear v@constant I plot
+                vdh.clear()
+
+                vt = self.logic.steadyState(
+                    t_dwell=self.args.v_t,
+                    NPLC=self.args.steadystate_nplc,
+                    stepDelay=self.args.steadystate_step_delay,
+                    sourceVoltage=False,
+                    compliance=self.args.voltage_compliance_override,
+                    senseRange="a",
+                    setPoint=self.args.steadystate_i,
+                    handler=vdh,
+                )
+
+                # if this was at Voc, use the last measurement as estimate of Voc
+                if self.args.steadystate_i == 0:
+                    ssvoc = vt[-1]
+                    self.logic.mppt.Voc = ssvoc
+
+            # TODO: add support for dark measurement, has to use autorange
+            if self.args.sweep_1 is True:
+                # determine sweep start voltage
+                if type(self.args.scan_start_override_1) == float:
+                    start = self.args.scan_start_override_1
+                elif ssvoc is not None:
+                    start = ssvoc * (
+                        1 + (self.config.getfloat("iv", "percent_beyond_voc") / 100)
+                    )
+                else:
+                    raise ValueError(
+                        f"Start voltage wasn't given and couldn't be inferred."
+                    )
+
+                # determine sweep end voltage
+                if type(self.args.scan_end_override_1) == float:
+                    end = self.args.scan_end_override_1
+                else:
+                    end = (
+                        -1
+                        * np.sign(ssvoc)
+                        * self.config.getfloat("iv", "voltage_beyond_isc")
+                    )
+
+                print(f"Sweeping voltage from {start} V to {end} V")
+
+                # clear iv plot
+                ivdh.clear()
+                iv1 = self.logic.sweep(
+                    sourceVoltage=True,
+                    compliance=compliance_i,
+                    senseRange="f",
+                    nPoints=self.args.scan_points,
+                    stepDelay=self.args.scan_step_delay,
+                    start=start,
+                    end=end,
+                    NPLC=self.args.scan_nplc,
+                    handler=ivdh,
+                )
+
+                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = self.logic.mppt.which_max_power(iv1)
+
+            if self.args.sweep_2 is True:
+                # sweep the opposite way to sweep 1
+                start = end
+                end = start
+
+                print(f"Sweeping voltage from {start} V to {end} V")
+
+                iv2 = self.logic.sweep(
+                    sourceVoltage=True,
+                    senseRange="f",
+                    compliance=compliance_i,
+                    nPoints=self.args.scan_points,
+                    start=start,
+                    end=end,
+                    NPLC=self.args.scan_nplc,
+                    handler=ivdh,
+                )
+
+                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = self.logic.mppt.which_max_power(iv2)
+
+            # determine Vmpp and current compliance for mppt
+            if (self.args.sweep_1 is True) & (self.args.sweep_2 is True):
+                if abs(Pmax_sweep1) > abs(Pmax_sweep2):
+                    Vmpp = Vmpp1
+                    compliance_i = Impp1 * 5
+                else:
+                    Vmpp = Vmpp2
+                    compliance_i = Impp2 * 5
+            elif self.args.sweep_1 is True:
+                Vmpp = Vmpp1
+                compliance_i = Impp1 * 5
+            else:
+                # no sweeps have been measured so max power tracker will estimate Vmpp
+                # based on Voc (or measure it if also no Voc) and will use initial
+                # compliance set before any measurements were taken.
+                Vmpp = None
+            self.logic.mppt.Vmpp = Vmpp
+            self.logic.mppt.current_compliance = compliance_i
+
+            if self.args.mppt_t > 0:
+                print(f"Tracking maximum power point for {self.args.mppt_t} seconds")
+
+                # clear mppt plot
+                mdh.clear()
+                self.logic.track_max_power(
+                    self.args.mppt_t,
+                    NPLC=self.args.steadystate_nplc,
+                    stepDelay=self.args.steadystate_step_delay,
+                    extra=self.args.mppt_params,
+                    handler=mdh,
+                )
+
+            if self.args.i_t > 0:
+                # steady state I@constant V measured here - usually Isc
+                # clear I@constant V plot
+                cdh.clear()
+                it = self.logic.steadyState(
+                    t_dwell=self.args.i_t,
+                    NPLC=self.args.steadystate_nplc,
+                    stepDelay=self.args.steadystate_step_delay,
+                    sourceVoltage=True,
+                    compliance=compliance_i,
+                    senseRange="a",
+                    setPoint=self.args.steadystate_v,
+                    handler=cdh,
+                )
+
+        # clean up mqtt publishers
+        for dh in handlers:
+            dh.end_q()
+            dh.disconnect()
+
+        self.logic.runDone()
+
+    def _eqe(self):
+        """Run through pixel queue of EQE measurements."""
+        self._set_experiment_relay("eqe")
+
+        # create mqtt data handler for eqe
+        edh = DataHandler()
+        edh.connect(self.args.mqtt_host)
+        edh.start_q("data/eqe")
+
+        while len(self.eqe_pixel_queue) > 0:
+            pixel = self.eqe_pixel_queue.popleft()
+            label = pixel["label"]
+            pix = pixel["pixel"]
+            print(f"\nOperating on substrate {label}, pixel {pix}...")
+
+            # add id str to handlers to display on plots
+            edh.idn = f"{label}_pixel{pix}"
+
+            # we have a new substrate
+            if last_label != label:
+                print(f"New substrate using '{pixel['layout']}' layout!")
+                last_label = label
+
+            # move to pixel
+            for i, ax_pos in enumerate(pixel["position"]):
+                self.logic.controller.goto(i + 1, ax_pos)
+
+            print(
+                f"Scanning EQE from {self.args.eqe_start_wl} nm to {self.args.eqe_end_wl} nm"
+            )
+
+            # clear eqe plot
+            edh.clear()
+            self.logic.eqe(
+                psu_ch1_voltage=self.config.getfloat("psu", "ch1_voltage"),
+                psu_ch1_current=self.args.psu_is[0],
+                psu_ch2_voltage=self.config.getfloat("psu", "ch2_voltage"),
+                psu_ch2_current=self.args.psu_is[1],
+                psu_ch3_voltage=self.config.getfloat("psu", "ch3_voltage"),
+                psu_ch3_current=self.args.psu_is[2],
+                smu_voltage=self.args.eqe_smu_v,
+                calibration=self.args.calibrate_eqe,
+                ref_measurement_path=self.args.eqe_ref_meas_path,
+                ref_measurement_file_header=self.args.eqe_ref_meas_header_len,
+                ref_eqe_path=self.args.eqe_ref_cal_path,
+                ref_spectrum_path=self.args.eqe_ref_spec_path,
+                start_wl=self.args.eqe_start_wl,
+                end_wl=self.args.eqe_end_wl,
+                num_points=self.args.eqe_num_wls,
+                repeats=self.args.eqe_repeats,
+                grating_change_wls=self.args.eqe_grating_change_wls,
+                filter_change_wls=self.args.eqe_filter_change_wls,
+                auto_gain=not (self.args.eqe_autogain_off),
+                auto_gain_method=self.args.eqe_autogain_method,
+                integration_time=self.args.eqe_integration_time,
+                handler=edh,
+            )
+
+        # clean up mqtt publishers
+        edh.end_q()
+        edh.disconnect()
+
+    def run(self):
+        """Act on command line instructions."""
+        # get arguments parsed to the command line
+        self.args = self._get_args()
+
+        if self.args.repeat is True:
+            # retreive args from cached preferences
+            self.args = self._load_prefs()
+        else:
+            # save argparse prefs to cache
+            self._save_prefs()
+
+        # find and load config file
+        self._load_config()
+
+        # look up number of stage axes from config and init attribute
+        self._get_axes()
+
+        # create the control logic entity and connect instruments
+        self.logic = fabric()
+        self._connect_instruments()
+
+        # tell mqtt data saver where to save
+        self._update_save_settings(
+            self.args.destination, self.config["network"]["archive"]
+        )
+
+        # home the stage
+        if self.args.home is True:
+            for i in range(self.axes):
+                # axes are 1-indexed
+                self.logic.controller.home(i + 1)
+
+        # goto stage position
+        if self.args.goto is not None:
+            for i, pos in enumerate(self.args.goto):
+                self.logic.controller.goto(i + 1, pos)
+
+        # read stage position
+        if self.args.read_stage is True:
+            self._get_stage_position()
+
+        # calibrate LED PSU if required
+        if self.args.calibrate_psu is True:
+            pdh = DataHandler()
+            pdh.connect(self.args.mqtt_host)
+            pdh.start_q("data/psu")
+            pdh.idn = "psu_calibration"
+            self._set_experiment_relay("eqe")
+            self.logic.calibrate_psu(
+                self.args.calibrate_psu_ch, loc=self.args.position_override, handler=pdh
+            )
+            pdh.end_q()
+            pdh.disconnect()
+
+        # measure EQE calibration diode if required
+        if self.args.calibrate_eqe is True:
+            self._set_experiment_relay("eqe")
+            # TODO: add calibrate EQE func
+
+        # perform solar sim calibration measurement
+        if self.calibrate_solarsim is True:
+            # TODO; add calibrate solar sim func
+            self._set_experiment_relay("solarsim")
+
+            if self.args.wavelabs_spec_cal_path != "":
+                spectrum_cal = np.genfromtxt(
+                    self.args.wavelabs_spec_cal_path, skip_header=1, delimiter="\t"
+                )[:, 1]
+            else:
+                spectrum_cal = None
+
+            # save spectrum
+            if self.logic.spectrum is not None:
+                sdh = DataHandler()
+                sdh.connect(self.args.mqtt_host)
+                sdh.start_q("data/spectrum")
+                sdh.idn = "spectrum"
+                sdh.handle_data(self.logic.spectrum)
+                sdh.end_q()
+                sdh.disconnect()
+
+        # calibration data is saved to cache so copy those files to save directory now
+        self._save_cache()
+
+        # build up the queue of pixels to run through
+        if self.args.dummy is True:
+            self.args.iv_pixel_address = "0x1"
+            self.args.eqe_pixel_address = "0x1"
+
+        if self.args.iv_pixel_address is not None:
+            self.iv_pixel_queue = self._build_q(
+                self.args.iv_pixel_address, experiment="solarsim"
+            )
+        else:
+            self.iv_pixel_queue = []
+
+        if self.args.eqe_pixel_address is not None:
+            self.eqe_pixel_queue = self._build_q(
+                self.args.eqe_pixel_address, experiment="eqe"
+            )
+        else:
+            self.eqe_pixel_queue = []
+
+        # measure i-v-t
+        if (
+            self.args.v_t
+            or self.args.i_t
+            or self.args.sweep_1
+            or self.args.sweep_2
+            or self.args.mppt_t > 0
+        ) & len(self.iv_pixel_queue) > 0:
+            self._ivt()
+
+        # measure eqe
+        if (self.args.eqe is True) & (len(self.eqe_pixel_queue) > 0):
+            self._eqe()
 
     class FullPaths(argparse.Action):
         """Expand user- and relative-paths and save pref arg parse action."""
@@ -763,7 +778,7 @@ class cli:
         """Convert str to bool."""
         return bool(distutils.util.strtobool(v))
 
-    def get_args(self):
+    def _get_args(self):
         """Get CLI arguments and options."""
         parser = argparse.ArgumentParser(
             description="Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stdout. * denotes arguments that are remembered between calls."
@@ -829,7 +844,7 @@ class cli:
             "--layouts",
             type=int,
             nargs="*",
-            help="*List of substrate layout names to use for finding pixel informatio from the configuration file",
+            help="*List of substrate layout names to use for finding pixel information from the configuration file",
         )
         measure.add_argument(
             "--labels", nargs="*", help="*List of Substrate labels",
@@ -916,13 +931,6 @@ class cli:
             action=self.RecordPref,
             const=True,
             help="*Don't consider the resistor value of adapter boards when determining device layouts",
-        )
-        setup.add_argument(
-            "--light-address",
-            type=str,
-            action=self.RecordPref,
-            default="wavelabs-relay://localhost:3335",
-            help="*protocol://hostname:port for communication with the solar simulator, 'none' for no light, 'wavelabs://0.0.0.0:3334' for starting a wavelabs server on port 3334, 'wavelabs-relay://127.0.0.1:3335' for connecting to a wavelabs-relay server",
         )
         setup.add_argument(
             "--light-recipe",
@@ -1033,20 +1041,6 @@ class cli:
             help="*Visa serial comms baud rate",
         )
         setup.add_argument(
-            "--sm-address",
-            default="GPIB0::24::INSTR",
-            type=str,
-            action=self.RecordPref,
-            help="*VISA resource name for sourcemeter",
-        )
-        setup.add_argument(
-            "--controller-address",
-            type=str,
-            default="10.42.0.54:23",
-            action=self.RecordPref,
-            help="*host:port for mux and stage controller comms",
-        )
-        setup.add_argument(
             "--home",
             default=False,
             action="store_true",
@@ -1084,48 +1078,6 @@ class cli:
             default=False,
             action="store_true",
             help="Ignore intensity diode readings and assume 1.0 sun illumination",
-        )
-        setup.add_argument(
-            "--visa-lib",
-            type=str,
-            action=self.RecordPref,
-            default="@py",
-            help="*Path to visa library in case pyvisa can't find it, try C:\\Windows\\system32\\visa64.dll",
-        )
-        setup.add_argument(
-            "--gui-address",
-            type=str,
-            default="http://127.0.0.1:51246",
-            action=self.RecordPref,
-            help="*protocol://host:port for the gui server",
-        )
-        setup.add_argument(
-            "--lia-address",
-            default="TCPIP::10.0.0.1:INSTR",
-            type=str,
-            action=self.RecordPref,
-            help="*VISA resource name for lock-in amplifier",
-        )
-        setup.add_argument(
-            "--lia-output-interface",
-            default=0,
-            type=int,
-            action=self.RecordPref,
-            help="Lock-in amplifier output inface: 0 = RS232 (default), 1 = GPIB",
-        )
-        setup.add_argument(
-            "--mono-address",
-            default="TCPIP::10.0.0.2:INSTR",
-            type=str,
-            action=self.RecordPref,
-            help="*VISA resource name for monochromator",
-        )
-        setup.add_argument(
-            "--psu-address",
-            default="TCPIP::10.0.0.3:INSTR",
-            type=str,
-            action=self.RecordPref,
-            help="*VISA resource name for bias LED PSU",
         )
         setup.add_argument(
             "--psu-vs",
