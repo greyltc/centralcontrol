@@ -82,7 +82,7 @@ class cli:
         -------
         args : types.SimpleNamespace
             Arguments loaded from file in a type that can accessed in the same way as
-            an argparse namespace.    
+            an argparse namespace.
         """
         with open(self.cache.joinpath(self.prefs_file), "r") as f:
             args = json.load(f)
@@ -440,7 +440,7 @@ class cli:
                 # clear v@constant I plot
                 vdh.clear()
 
-                vt = self.logic.steadyState(
+                vt = self.logic.steady_state(
                     t_dwell=self.args.v_t,
                     NPLC=self.args.steadystate_nplc,
                     stepDelay=self.args.steadystate_step_delay,
@@ -542,7 +542,7 @@ class cli:
 
                 # clear mppt plot
                 mdh.clear()
-                self.logic.track_max_power(
+                mt = self.logic.track_max_power(
                     self.args.mppt_t,
                     NPLC=self.args.steadystate_nplc,
                     stepDelay=self.args.steadystate_step_delay,
@@ -554,7 +554,7 @@ class cli:
                 # steady state I@constant V measured here - usually Isc
                 # clear I@constant V plot
                 cdh.clear()
-                it = self.logic.steadyState(
+                it = self.logic.steady_state(
                     t_dwell=self.args.i_t,
                     NPLC=self.args.steadystate_nplc,
                     stepDelay=self.args.steadystate_step_delay,
@@ -565,7 +565,7 @@ class cli:
                     handler=cdh,
                 )
 
-        self.logic.runDone()
+        self.logic.run_done()
 
     def _eqe(self):
         """Run through pixel queue of EQE measurements."""

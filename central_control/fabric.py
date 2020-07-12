@@ -1,3 +1,5 @@
+"""High level experiment functions."""
+
 import h5py
 import numpy as np
 import scipy as sp
@@ -31,6 +33,7 @@ class fabric:
     """Experiment control logic."""
 
     def __init__(self):
+        """Get software revision."""
         self.software_revision = central_control.__version__
         print("Software revision: {:s}".format(self.software_revision))
 
@@ -187,7 +190,8 @@ class fabric:
         self.psu.connect(resource_name=psu_address)
         self.psu_idn = self.psu.get_id()
 
-    def hardwareTest(self, substrates_to_test):
+    def hardware_test(self, substrates_to_test):
+        """Test hardware."""
         pass
 
     def measureIntensity(self, recipe=None, spectrum_cal=None):
@@ -261,23 +265,12 @@ class fabric:
             else:
                 self.spectrum = self.spectrum_raw * spectrum_cal
                 # calculate intensity in suns
-                ret["wavelabs_suns"] = sp.integrare.simps(self.spectrum, wls) / 1000
+                ret["wavelabs_suns"] = sp.integrate.simps(self.spectrum, wls) / 1000
 
         return ret
 
-    def isWithinPercent(target, value, percent=10):
-        """
-    returns true if value is within percent percent of target, otherwise returns false
-    """
-        lb = target * (100 - percent) / 100
-        ub = target * (100 + percent) / 100
-        ret = False
-        if lb <= value and value <= ub:
-            ret = True
-        return ret
-
-    def runDone(self):
-        """Turn off light engine."""
+    def run_done(self):
+        """Turn off light engine and smu."""
         self.le.off()
         self.sm.outOn(on=False)
 
@@ -300,11 +293,17 @@ class fabric:
         self.controller.set_mux(row, col, pixel["pixel"])
 
     def slugify(self, value, allow_unicode=False):
+        """Convert string to slug.
+
+        Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.
+        Remove characters that aren't alphanumerics, underscores, or hyphens.
+        Convert to lowercase. Also strip leading and trailing whitespace.
+
+        Parameters
+        ----------
+        value : str
+            String to slugify.
         """
-    Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.
-    Remove characters that aren't alphanumerics, underscores, or hyphens.
-    Convert to lowercase. Also strip leading and trailing whitespace.
-    """
         value = str(value)
         if allow_unicode:
             value = unicodedata.normalize("NFKC", value)
@@ -315,9 +314,10 @@ class fabric:
                 .decode("ascii")
             )
         value = re.sub(r"[^\w\s-]", "", value).strip().lower()
+
         return re.sub(r"[-\s]+", "-", value)
 
-    def steadyState(
+    def steady_state(
         self,
         t_dwell=10,
         NPLC=10,
@@ -354,13 +354,6 @@ class fabric:
         handler : handler object
             Handler to process data.
         """
-        self.insertStatus(
-            "Measuring steady state {:s} at {:.0f} m{:s}".format(
-                "current" if sourceVoltage else "voltage",
-                setPoint * 1000,
-                "V" if sourceVoltage else "A",
-            )
-        )
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
         self.sm.setStepDelay(stepDelay)
@@ -374,8 +367,8 @@ class fabric:
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
         q = self.sm.measureUntil(t_dwell=t_dwell, handler=handler)
-        qa = np.array([tuple(s) for s in q], dtype=self.measurement_datatype)
-        return qa
+
+        return q
 
     def sweep(
         self,
@@ -413,29 +406,34 @@ class fabric:
         return raw
 
     def track_max_power(
-        self,
-        duration=30,
-        message=None,
-        NPLC=-1,
-        stepDelay=-1,
-        extra="basic://7:10",
-        handler=None,
+        self, duration=30, NPLC=-1, step_delay=-1, extra="basic://7:10", handler=None,
     ):
-        if message == None:
-            message = "Tracking maximum power point for {:} seconds".format(duration)
-        self.insertStatus(message)
-        raw = self.mppt.launch_tracker(
-            duration=duration, NPLC=NPLC, extra=extra, handler=handler
-        )
-        # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
-        qa = np.array([tuple(s) for s in raw], dtype=self.measurement_datatype)
+        """Track maximum power point.
 
-    def mpptCB(measurement):
-        """Callback function for max power point tracker
-    (for live tracking)
-    """
-        [v, i, t, status] = measurement
-        print("At {:.6f}\t{:.6f}\t{:.6f}\t{:d}".format(t, v, i, int(status)))
+        Parameters
+        ----------
+        duration : float or int
+            Length of time to track max power for in seconds.
+        NPLC : float or int
+            Number of power line cycles. If -1, keep using previous setting.
+        step_delay : float or int
+            Settling delay. If -1, set to auto.
+        extra : str
+            Extra protocol settings to pass to mppt.
+        handler : handler object
+            Handler with handle_data method to process data.
+        """
+        message = "Tracking maximum power point for {:} seconds".format(duration)
+
+        raw = self.mppt.launch_tracker(
+            duration=duration,
+            NPLC=NPLC,
+            step_delay=step_delay,
+            extra=extra,
+            handler=handler,
+        )
+
+        return raw
 
     def eqe(
         self,
@@ -463,7 +461,7 @@ class fabric:
         handler=None,
     ):
         """Run EQE scan."""
-
+        # TODO: don't always need this
         # open all mux relays if calibrating
         if calibration is True:
             self.controller.clear_mux()
@@ -496,9 +494,6 @@ class fabric:
             integration_time,
             handler,
         )
-
-        eqe_data = np.array(eqe_data, dtype=self.eqe_datatype)
-        self.eqe_data = eqe_data  # added to data file when pixelComplete is called
 
         return eqe_data
 
@@ -719,4 +714,4 @@ def round_sf(x, sig_fig):
     y : float
         Rounded number
     """
-    return round(x, sigfig - int(np.floor(np.log10(abs(x)))) - 1)
+    return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
