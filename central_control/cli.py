@@ -59,6 +59,10 @@ class cli:
         if self.log_dir.exists() is False:
             self.log_dir.mkdir()
 
+        # append MQTT handlers to this as they're created so they can be all easily
+        # cleaned up by context manager
+        self.handlers = deque()
+
     def __enter__(self):
         """Enter the runtime context related to this object."""
         return self
@@ -68,8 +72,7 @@ class cli:
 
         Make sure everything gets cleaned up properly.
         """
-        # TODO: add cleanup
-        pass
+        self._disconnect_all()
 
     def _save_prefs(self):
         """Save argparse preferences to cache."""
@@ -115,7 +118,7 @@ class cli:
         archive : str
             Network address used to back up data files when an experiment completes.
         """
-        # context manager handles disconnect
+        # context manager handles disconnect, no need to add to self.handlers
         with SettingsHandler() as sh:
             sh.connect(self.MQTTHOST)
             # publish to data saver settings topic
@@ -347,6 +350,14 @@ class cli:
         )
         self.logic.sm.setWires(twoWire=self.config.getboolean("smu", "two_wire"))
 
+    def _disconnect_all(self):
+        """Disconnect all MQTT clients."""
+        # end all open MQTT clients
+        for i in range(len(self.handlers)):
+            h = self.handlers.popleft()
+            h.end_q()
+            h.disconnect()
+
     def _set_experiment_relay(self, experiment):
         """Set the experiment relay configuration.
 
@@ -385,6 +396,7 @@ class cli:
 
         # connect handlers to broker and start publisher threads
         for i, dh in enumerate(handlers):
+            self.handlers.append(dh)
             dh.connect(self.MQTTHOST)
             dh.start_q(subtopics[i])
 
@@ -549,11 +561,6 @@ class cli:
                     handler=cdh,
                 )
 
-        # clean up mqtt publishers
-        for dh in handlers:
-            dh.end_q()
-            dh.disconnect()
-
         self.logic.runDone()
 
     def _eqe(self):
@@ -562,6 +569,7 @@ class cli:
 
         # create mqtt data handler for eqe
         edh = DataHandler()
+        self.handlers.append(edh)
         edh.connect(self.MQTTHOST)
         edh.start_q("data/eqe")
 
@@ -618,10 +626,6 @@ class cli:
                 handler=edh,
             )
 
-        # clean up mqtt publishers
-        edh.end_q()
-        edh.disconnect()
-
     def run(self):
         """Act on command line instructions."""
         # get arguments parsed to the command line
@@ -664,6 +668,7 @@ class cli:
 
         # create handler for reporting stage position
         self.sh = StageHandler()
+        self.handlers.append(self.sh)
         self.sh.connect(self.MQTTHOST)
         self.sh.start_q("data/stage")
 
@@ -682,6 +687,7 @@ class cli:
         # calibrate LED PSU if required
         if self.args.calibrate_psu is True:
             pdh = DataHandler()
+            self.handlers.append(pdh)
             pdh.connect(self.MQTTHOST)
             pdh.start_q("data/psu")
             pdh.idn = "psu_calibration"
@@ -690,8 +696,6 @@ class cli:
             self.logic.calibrate_psu(
                 self.args.calibrate_psu_ch, loc=, handler=pdh
             )
-            pdh.end_q()
-            pdh.disconnect()
 
         # measure EQE calibration diode if required
         if self.args.calibrate_eqe is True:
@@ -713,12 +717,11 @@ class cli:
             # save spectrum
             if self.logic.spectrum is not None:
                 sdh = DataHandler()
+                self.handlers.append(sdh)
                 sdh.connect(self.MQTTHOST)
                 sdh.start_q("data/spectrum")
                 sdh.idn = "spectrum"
                 sdh.handle_data(self.logic.spectrum)
-                sdh.end_q()
-                sdh.disconnect()
 
         # calibration data is saved to cache so copy those files to save directory now
         self._save_cache()
@@ -750,9 +753,8 @@ class cli:
         if len(self.eqe_pixel_queue) > 0:
             self._eqe()
 
-        # close stage handler
-        self.sh.end_q()
-        self.sh.disconnect()
+        # disconnect MQTT handlers
+        self._disconnect_all()
 
     class FullPaths(argparse.Action):
         """Expand user- and relative-paths and save pref arg parse action."""
