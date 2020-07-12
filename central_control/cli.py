@@ -117,7 +117,7 @@ class cli:
         """
         # context manager handles disconnect
         with SettingsHandler() as sh:
-            sh.connect(self.args.mqtt_host)
+            sh.connect(self.MQTTHOST)
             # publish to data saver settings topic
             sh.start_q("data/saver")
             sh.update_settings(folder, archive)
@@ -125,7 +125,7 @@ class cli:
     def _save_cache(self):
         """Send cached data to saver MQTT client."""
         with CacheHandler() as ch:
-            ch.connect(self.args.mqtt_host)
+            ch.connect(self.MQTTHOST)
             ch.start_q("data/cache")
             for file in self.cache.iterdir():
                 with open(self.cache.joinpath(file), "r") as f:
@@ -145,7 +145,7 @@ class cli:
             loc.append(self.logic.controller.read_pos(axis))
 
         with StageHandler() as sh:
-            sh.connect(self.args.mqtt_host)
+            sh.connect(self.MQTTHOST)
             sh.start_q("data/stage")
             sh.handle_data(loc)
 
@@ -398,7 +398,7 @@ class cli:
 
         # connect handlers to broker and start publisher threads
         for i, dh in enumerate(handlers):
-            dh.connect(self.args.mqtt_host)
+            dh.connect(self.MQTTHOST)
             dh.start_q(subtopics[i])
 
         last_label = None
@@ -576,8 +576,12 @@ class cli:
 
         # create mqtt data handler for eqe
         edh = DataHandler()
-        edh.connect(self.args.mqtt_host)
+        edh.connect(self.MQTTHOST)
         edh.start_q("data/eqe")
+
+        # look up settings from config
+        grating_change_wls = [float(x) for x in self.config["monochromator"]["grating_change_wls"].split(",")]
+        filter_change_wls = [float(x) for x in self.config["monochromator"]["filter_change_wls"].split(",")]
 
         while len(self.eqe_pixel_queue) > 0:
             pixel = self.eqe_pixel_queue.popleft()
@@ -602,6 +606,7 @@ class cli:
             )
 
             # clear eqe plot
+            # TODO: fill in paths
             edh.clear()
             self.logic.eqe(
                 psu_ch1_voltage=self.config.getfloat("psu", "ch1_voltage"),
@@ -611,17 +616,17 @@ class cli:
                 psu_ch3_voltage=self.config.getfloat("psu", "ch3_voltage"),
                 psu_ch3_current=self.args.psu_is[2],
                 smu_voltage=self.args.eqe_smu_v,
-                calibration=self.args.calibrate_eqe,
-                ref_measurement_path=self.args.eqe_ref_meas_path,
-                ref_measurement_file_header=self.args.eqe_ref_meas_header_len,
-                ref_eqe_path=self.args.eqe_ref_cal_path,
-                ref_spectrum_path=self.args.eqe_ref_spec_path,
+                calibration=False,
+                ref_measurement_path=,
+                ref_measurement_file_header=,
+                ref_eqe_path=,
+                ref_spectrum_path=,
                 start_wl=self.args.eqe_start_wl,
                 end_wl=self.args.eqe_end_wl,
                 num_points=self.args.eqe_num_wls,
                 repeats=self.args.eqe_repeats,
-                grating_change_wls=self.args.eqe_grating_change_wls,
-                filter_change_wls=self.args.eqe_filter_change_wls,
+                grating_change_wls=grating_change_wls,
+                filter_change_wls=filter_change_wls,
                 auto_gain=not (self.args.eqe_autogain_off),
                 auto_gain_method=self.args.eqe_autogain_method,
                 integration_time=self.args.eqe_integration_time,
@@ -637,6 +642,9 @@ class cli:
         # get arguments parsed to the command line
         self.args = self._get_args()
 
+        # get mqtt host name
+        self.MQTTHOST = self.config["network"]["MQTTHOST"]
+
         if self.args.repeat is True:
             # retreive args from cached preferences
             self.args = self._load_prefs()
@@ -650,9 +658,19 @@ class cli:
         # look up number of stage axes from config and init attribute
         self._get_axes()
 
+        # scan for VISA resource names
+        if args.scan_visa is True:
+            # TODO: add scan get resource names func
+            pass
+
         # create the control logic entity and connect instruments
         self.logic = fabric()
         self._connect_instruments()
+
+        # test hardware
+        if args.test_hardware is True:
+            # TODO: add hardware test func
+            pass
 
         # tell mqtt data saver where to save
         self._update_save_settings(
@@ -677,12 +695,13 @@ class cli:
         # calibrate LED PSU if required
         if self.args.calibrate_psu is True:
             pdh = DataHandler()
-            pdh.connect(self.args.mqtt_host)
+            pdh.connect(self.MQTTHOST)
             pdh.start_q("data/psu")
             pdh.idn = "psu_calibration"
             self._set_experiment_relay("eqe")
+            # TODO: look up diode location from calibration file
             self.logic.calibrate_psu(
-                self.args.calibrate_psu_ch, loc=self.args.position_override, handler=pdh
+                self.args.calibrate_psu_ch, loc=, handler=pdh
             )
             pdh.end_q()
             pdh.disconnect()
@@ -707,7 +726,7 @@ class cli:
             # save spectrum
             if self.logic.spectrum is not None:
                 sdh = DataHandler()
-                sdh.connect(self.args.mqtt_host)
+                sdh.connect(self.MQTTHOST)
                 sdh.start_q("data/spectrum")
                 sdh.idn = "spectrum"
                 sdh.handle_data(self.logic.spectrum)
@@ -737,17 +756,11 @@ class cli:
             self.eqe_pixel_queue = []
 
         # measure i-v-t
-        if (
-            self.args.v_t
-            or self.args.i_t
-            or self.args.sweep_1
-            or self.args.sweep_2
-            or self.args.mppt_t > 0
-        ) & len(self.iv_pixel_queue) > 0:
+        if len(self.iv_pixel_queue) > 0:
             self._ivt()
 
         # measure eqe
-        if (self.args.eqe is True) & (len(self.eqe_pixel_queue) > 0):
+        if len(self.eqe_pixel_queue) > 0:
             self._eqe()
 
     class FullPaths(argparse.Action):
@@ -788,9 +801,6 @@ class cli:
             "--repeat",
             action="store_true",
             help="Repeat the last user-defined run action.",
-        )
-        parser.add_argument(
-            "-m", "--mqtt-mode", action="store_true", help="Run as an MQTT client",
         )
         parser.add_argument(
             "-c",
@@ -842,7 +852,6 @@ class cli:
         measure.add_argument(
             "-i",
             "--layouts",
-            type=int,
             nargs="*",
             help="*List of substrate layout names to use for finding pixel information from the configuration file",
         )
@@ -850,19 +859,12 @@ class cli:
             "--labels", nargs="*", help="*List of Substrate labels",
         )
         measure.add_argument(
-            "--mqtt-host",
-            type=str,
-            action=self.RecordPref,
-            default="",
-            help="*IP address or hostname of mqtt broker",
-        )
-        measure.add_argument(
             "--sweep-1",
             type=self.str2bool,
             default=True,
             action=self.RecordPref,
             const=True,
-            help="*Do an I-V sweep from Voc --> Isc",
+            help="*Do the first I-V sweep",
         )
         measure.add_argument(
             "--sweep-2",
@@ -870,7 +872,7 @@ class cli:
             default=True,
             action=self.RecordPref,
             const=True,
-            help="*Do an I-V sweep from Isc --> Voc",
+            help="*Do the second I-V sweep",
         )
         measure.add_argument(
             "--steadystate-v",
@@ -914,24 +916,8 @@ class cli:
             default="basic://7:10",
             help="*Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ",
         )
-        measure.add_argument(
-            "--eqe",
-            type=self.str2bool,
-            default=True,
-            action=self.RecordPref,
-            const=True,
-            help="*Do an EQE scan",
-        )
 
         setup = parser.add_argument_group("optional arguments for setup configuration")
-        setup.add_argument(
-            "--ignore-adapter-resistors",
-            type=self.str2bool,
-            default=True,
-            action=self.RecordPref,
-            const=True,
-            help="*Don't consider the resistor value of adapter boards when determining device layouts",
-        )
         setup.add_argument(
             "--light-recipe",
             type=str,
@@ -940,29 +926,8 @@ class cli:
             help="Recipe name for Wavelabs to load",
         )
         setup.add_argument(
-            "--wavelabs-spec-cal-path",
-            type=str,
-            action=self.RecordPref,
-            default="",
-            help="Path to Wavelabs spectrum calibration file",
-        )
-        setup.add_argument(
-            "--rear",
-            type=self.str2bool,
-            default=True,
-            action=self.RecordPref,
-            help="*Use the rear terminals",
-        )
-        setup.add_argument(
-            "--four-wire",
-            type=self.str2bool,
-            default=True,
-            action=self.RecordPref,
-            help="*Use four wire mode (the default)",
-        )
-        setup.add_argument(
             "--voltage-compliance-override",
-            default=2,
+            default=3,
             type=float,
             help="Override voltage complaince setting used during Voc measurement",
         )
@@ -1027,20 +992,6 @@ class cli:
             help="*Sourcemeter settling delay in seconds to use during steady-state scans and max power point tracking. -1 = auto",
         )
         setup.add_argument(
-            "--sm-terminator",
-            type=str,
-            action=self.RecordPref,
-            default="0A",
-            help="*Visa comms read & write terminator (enter in hex)",
-        )
-        setup.add_argument(
-            "--sm-baud",
-            type=int,
-            action=self.RecordPref,
-            default=57600,
-            help="*Visa serial comms baud rate",
-        )
-        setup.add_argument(
             "--home",
             default=False,
             action="store_true",
@@ -1060,40 +1011,9 @@ class cli:
             help="Go to stage position. Input is a list of positions in steps along each available axis in order",
         )
         setup.add_argument(
-            "--calibrate-diodes",
-            default=False,
+            "--calibrate-eqe",
             action="store_true",
-            help="Read diode ADC counts now and store those as corresponding to 1.0 sun intensity",
-        )
-        setup.add_argument(
-            "--diode-calibration-values",
-            type=int,
-            nargs=2,
-            action=self.RecordPref,
-            default=(1, 1),
-            help="*Calibration ADC counts for diodes D1 and D2 that correspond to 1.0 sun intensity",
-        )
-        setup.add_argument(
-            "--ignore-diodes",
-            default=False,
-            action="store_true",
-            help="Ignore intensity diode readings and assume 1.0 sun illumination",
-        )
-        setup.add_argument(
-            "--psu-vs",
-            type=float,
-            action=self.RecordPref,
-            nargs=3,
-            default=[0, 0, 0],
-            help="*LED PSU channel voltages (V)",
-        )
-        setup.add_argument(
-            "--psu-is",
-            type=float,
-            action=self.RecordPref,
-            nargs=3,
-            default=[0, 0, 0],
-            help="*LED PSU channel currents (A)",
+            help="Measure spectral response of reference photodiode",
         )
         setup.add_argument(
             "--eqe-integration-time",
@@ -1108,36 +1028,6 @@ class cli:
             action=self.RecordPref,
             default=0,
             help="*Sourcemeter bias voltage during EQE scan",
-        )
-        setup.add_argument(
-            "--calibrate-eqe",
-            action="store_true",
-            help="Measure spectral response of reference photodiode",
-        )
-        setup.add_argument(
-            "--eqe-ref-meas-path",
-            type=str,
-            action=self.RecordPref,
-            help="Path to EQE reference photodiode measurement data",
-        )
-        setup.add_argument(
-            "--eqe-ref-meas-header_len",
-            type=int,
-            action=self.RecordPref,
-            default=1,
-            help="Number of header rows in EQE ref photodiode measurement data file",
-        )
-        setup.add_argument(
-            "--eqe-ref-cal-path",
-            type=str,
-            action=self.RecordPref,
-            help="Path to EQE reference photodiode calibrated data",
-        )
-        setup.add_argument(
-            "--eqe-ref-spec-path",
-            type=str,
-            action=self.RecordPref,
-            help="Path to reference spectrum for integrated Jsc calculation",
         )
         setup.add_argument(
             "--eqe-start-wl",
@@ -1168,20 +1058,6 @@ class cli:
             help="Number of repeat measurements at each wavelength",
         )
         setup.add_argument(
-            "--eqe-grating-change-wls",
-            type=float,
-            nargs="+",
-            default=None,
-            help="Wavelengths in nm at which to change gratings",
-        )
-        setup.add_argument(
-            "--eqe-filter-change-wls",
-            type=float,
-            nargs="+",
-            default=None,
-            help="Wavelengths in nm at which to change filters",
-        )
-        setup.add_argument(
             "--eqe-autogain-off",
             action="store_true",
             help="Disable automatic gain setting",
@@ -1206,11 +1082,18 @@ class cli:
             help="PSU channel to calibrate: 1, 2, or 3",
         )
         setup.add_argument(
-            "--position-override",
+            "--psu-is",
             type=float,
-            nargs="+",
-            default=None,
-            help="Override position given by pixel selection and use this list of coordinates (position along each axis) instead",
+            action=self.RecordPref,
+            nargs=3,
+            default=[0, 0, 0],
+            help="*LED PSU channel currents (A)",
+        )
+        setup.add_argument(
+            "--calibrate-solarsim",
+            default=False,
+            action="store_true",
+            help="Read diode ADC counts now and store those as corresponding to 1.0 sun intensity",
         )
 
         testing = parser.add_argument_group("optional arguments for debugging/testing")
@@ -1221,7 +1104,7 @@ class cli:
             help="Run in dummy mode (doesn't need sourcemeter, generates simulated device data)",
         )
         testing.add_argument(
-            "--scan",
+            "--scan-visa",
             default=False,
             action="store_true",
             help="Scan for obvious VISA resource names, print them and exit",
@@ -1239,4 +1122,3 @@ class cli:
 if __name__ == "__main__":
     with cli() as c:
         c.run()
-
