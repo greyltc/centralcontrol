@@ -518,30 +518,45 @@ class cli:
 
                 Pmax_sweep2, Vmpp2, Impp2, maxIx2 = self.logic.mppt.which_max_power(iv2)
 
-            # determine Vmpp and current compliance for mppt
-            if (self.args.sweep_1 is True) & (self.args.sweep_2 is True):
-                if abs(Pmax_sweep1) > abs(Pmax_sweep2):
-                    Vmpp = Vmpp1
-                    compliance_i = Impp1 * 5
-                else:
-                    Vmpp = Vmpp2
-                    compliance_i = Impp2 * 5
-            elif self.args.sweep_1 is True:
-                Vmpp = Vmpp1
-                compliance_i = Impp1 * 5
-            else:
-                # no sweeps have been measured so max power tracker will estimate Vmpp
-                # based on Voc (or measure it if also no Voc) and will use initial
-                # compliance set before any measurements were taken.
-                Vmpp = None
-            self.logic.mppt.Vmpp = Vmpp
+            # TODO: read and interpret parameters for smart mode
+            # # determine Vmpp and current compliance for mppt
+            # if (self.args.sweep_1 is True) & (self.args.sweep_2 is True):
+            #     if abs(Pmax_sweep1) > abs(Pmax_sweep2):
+            #         Vmpp = Vmpp1
+            #         compliance_i = Impp1 * 5
+            #     else:
+            #         Vmpp = Vmpp2
+            #         compliance_i = Impp2 * 5
+            # elif self.args.sweep_1 is True:
+            #     Vmpp = Vmpp1
+            #     compliance_i = Impp1 * 5
+            # else:
+            #     # no sweeps have been measured so max power tracker will estimate Vmpp
+            #     # based on Voc (or measure it if also no Voc) and will use initial
+            #     # compliance set before any measurements were taken.
+            #     Vmpp = None
+            # self.logic.mppt.Vmpp = Vmpp
             self.logic.mppt.current_compliance = compliance_i
 
             if self.args.mppt_t > 0:
-                print(f"Tracking maximum power point for {self.args.mppt_t} seconds")
+                print(f"Tracking maximum power point for {self.args.mppt_t} seconds.")
 
                 # clear mppt plot
                 mdh.clear()
+
+                # measure voc for 1s to initialise mppt
+                vt = self.logic.steady_state(
+                    t_dwell=1,
+                    NPLC=self.args.steadystate_nplc,
+                    stepDelay=self.args.steadystate_step_delay,
+                    sourceVoltage=False,
+                    compliance=self.args.voltage_compliance_override,
+                    senseRange="a",
+                    setPoint=0,
+                    handler=mdh,
+                )
+                self.logic.mppt.Voc = vt[-1]
+
                 mt = self.logic.track_max_power(
                     self.args.mppt_t,
                     NPLC=self.args.steadystate_nplc,

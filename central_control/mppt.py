@@ -13,20 +13,20 @@ class mppt:
     Vmpp = None  # voltage at max power point
     Impp = None  # current at max power point
 
-    currentCompliance = None
+    current_compliance = None
     t0 = None  # the time we started the mppt algorithm
 
     def __init__(self, sm):
         self.sm = sm
 
     def reset(self):
-        Voc = None
-        Isc = None
-        Vmpp = None  # voltage at max power point
-        Impp = None  # current at max power point
+        self.Voc = None
+        self.Isc = None
+        self.Vmpp = None  # voltage at max power point
+        self.Impp = None  # current at max power point
 
-        current_compliance = None
-        t0 = None  # the time we started the mppt algorithm
+        self.current_compliance = None
+        self.t0 = None  # the time we started the mppt algorithm
 
     def which_max_power(self, vector):
         """
@@ -51,24 +51,34 @@ class mppt:
         extra="basic://7:10",
         handler=None,
     ):
+        """Launch maxiumum power point tracker.
+
+        General function to call begin a max power point tracking algorithm duration
+        given in seconds, optionally calling callback function on each measurement
+        point.
         """
-    general function to call begin a max power point tracking algorithm
-    duration given in seconds, optionally calling callback function on each measurement point
-    """
-        if self.Voc == None:
+        if self.Voc is None:
             print("WARNING: Not doing power point tracking. Voc not known.")
             return []
-        self.t0 = time.time()  # start the mppt timer
 
-        if self.Vmpp == None:
-            self.Vmpp = (
-                0.7 * self.Voc
-            )  # start at 70% of Voc if nobody told us otherwise
-
-        if self.current_compliance == None:
-            current_compliance = (
-                0.04  # assume 40mA compliance if nobody told us otherwise
+        # check formatting of extra algorithm string, stop if invalid
+        try:
+            extra.index("://")
+        except ValueError:
+            raise ValueError(
+                f"Invalid MPPT configuration string. Must be of the form [algorithm]://[arg1]:[arg2]:..."
             )
+
+        # start the mppt timer
+        self.t0 = time.time()
+
+        if self.Vmpp is None:
+            # start at 70% of Voc if nobody told us otherwise
+            self.Vmpp = 0.7 * self.Voc
+
+        if self.current_compliance is None:
+            # assume 40mA compliance if nobody told us otherwise
+            current_compliance = 0.04
         else:
             current_compliance = self.current_compliance
 
@@ -84,11 +94,11 @@ class mppt:
             setPoint=self.Vmpp,
             senseRange="a",
         )
-        self.sm.write(
-            ":arm:source immediate"
-        )  # this sets up the trigger/reading method we'll use below
+        # this sets up the trigger/reading method we'll use below
+        self.sm.write(":arm:source immediate")
         if duration <= 10:
-            # if the user only wants to mppt for 20 or less seconds, shorten the initial dwell
+            # if the user only wants to mppt for 20 or less seconds, shorten the
+            # initial dwell
             initial_soak = duration * 0.2
         else:
             initial_soak = 10
@@ -97,11 +107,12 @@ class mppt:
                 self.Vmpp * 1000, initial_soak
             )
         )
-        q = self.sm.measureUntil(t_dwell=initial_soak)
-        self.Impp = q[-1][1]  # use most recent current measurement as Impp
-        if self.current_compliance == None:
+        q = self.sm.measureUntil(t_dwell=initial_soak, handler=handler)
+        # use most recent current measurement as Impp
+        self.Impp = q[-1][1]
+        if self.current_compliance is None:
             self.current_compliance = abs(self.Impp * 2)
-        if self.Isc == None:
+        if self.Isc is None:
             # if nobody told us otherwise, assume Isc is 10% higher than Impp
             self.Isc = self.Impp * 1.1
 
@@ -111,7 +122,8 @@ class mppt:
         params = extra_split[1]
         pptv = []
         if algo == "basic":
-            if len(params) == 0:  #  use defaults
+            if len(params) == 0:
+                # use defaults
                 pptv = self.really_dumb_tracker(duration, callback, handler=handler)
             else:
                 params = params.split(":")
@@ -130,7 +142,8 @@ class mppt:
                     handler=handler,
                 )
         elif algo == "gradient_descent":
-            if len(params) == 0:  #  use defaults
+            # use defaults
+            if len(params) == 0:
                 pptv = self.gradient_descent(duration, callback, handler=handler)
             else:
                 params = params.split(":")
@@ -151,23 +164,18 @@ class mppt:
                 )
         else:
             print(
-                "WARNING: MPPT algorithm {:} not understood, not doing max power point tracking".format(
-                    algo
-                )
+                f"WARNING: MPPT algorithm '{algo}' not understood, not doing max power point tracking"
             )
 
         q.extend(pptv)
         run_time = time.time() - self.t0
         print(
-            "Final value seen by the max power point tracker after running for {:.1f} seconds is".format(
-                run_time
-            )
+            f"Final value seen by the max power point tracker after running for {run_time} seconds is"
         )
         print(
-            "{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA".format(
-                self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000
-            )
+            f"{self.Vmpp * self.Impp * 1000 * -1} mW @ {self.Vmpp * 1000} mV and {self.Impp * 1000} mA"
         )
+
         return q
 
     def gradient_descent(
