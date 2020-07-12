@@ -27,10 +27,6 @@ import appdirs
 import numpy as np
 
 
-# for updating prefrences
-prefs = {}  # TODO: figure out how to un-global this
-
-
 class cli:
     """The command line interface.
 
@@ -118,12 +114,20 @@ class cli:
         archive : str
             Network address used to back up data files when an experiment completes.
         """
+        # create absolute folder path for save directory
+        abs_folder = pathlib.Path(self.config["paths"]["save_folder"]).joinpath(folder)
+
         # context manager handles disconnect, no need to add to self.handlers
         with SettingsHandler() as sh:
             sh.connect(self.MQTTHOST)
             # publish to data saver settings topic
             sh.start_q("data/saver")
-            sh.update_settings(folder, archive)
+            sh.update_settings(str(abs_folder), archive)
+
+    def _verify_save_client(self):
+        """Verify the MQTT client for saving data is running."""
+        # TODO: at verification method.
+        pass
 
     def _save_cache(self):
         """Send cached data to saver MQTT client."""
@@ -661,6 +665,9 @@ class cli:
             # TODO: add hardware test func
             pass
 
+        # verify the save client is available
+        self._verify_save_client()
+
         # tell mqtt data saver where to save
         self._update_save_settings(
             self.args.destination, self.config["network"]["archive"]
@@ -756,38 +763,10 @@ class cli:
         # disconnect MQTT handlers
         self._disconnect_all()
 
-    class FullPaths(argparse.Action):
-        """Expand user- and relative-paths and save pref arg parse action."""
-
-        def __call__(self, parser, namespace, values, option_string=None):
-            value = os.path.abspath(os.path.expanduser(values))
-            setattr(namespace, self.dest, value)
-            prefs[self.dest] = value
-
-    class RecordPref(argparse.Action):
-        """Save pref arg parse action."""
-
-        def __call__(self, parser, namespace, values, option_string=None):
-            setattr(namespace, self.dest, values)
-            if values is not None:  # don't save None params to prefs
-                prefs[self.dest] = values
-
-    def is_dir(self, dirname):
-        """Checks if a path is an actual directory"""
-        if (not os.path.isdir(dirname)) and dirname != "__tmp__":
-            msg = "{0} is not a directory".format(dirname)
-            raise argparse.ArgumentTypeError(msg)
-        else:
-            return dirname
-
-    def str2bool(self, v):
-        """Convert str to bool."""
-        return bool(distutils.util.strtobool(v))
-
     def _get_args(self):
         """Get CLI arguments and options."""
         parser = argparse.ArgumentParser(
-            description="Automated solar cell IV curve collector using a Keithley 24XX sourcemeter. Data is written to HDF5 files and human readable messages are written to stdout. * denotes arguments that are remembered between calls."
+            description="Automated solar cell I-V-t and EQE measurement."
         )
 
         parser.add_argument(
@@ -798,7 +777,6 @@ class cli:
         parser.add_argument(
             "-c",
             "--config-file",
-            action=self.FullPaths,
             help="Path to configuration file",
         )
         parser.add_argument(
@@ -824,9 +802,7 @@ class cli:
         measure.add_argument(
             "-d",
             "--destination",
-            help="*Directory in which to save the output data, '__tmp__' will use a system default temporary directory",
-            type=self.is_dir,
-            action=self.FullPaths,
+            help="Directory name (relative) in which to save the output data",
         )
         measure.add_argument(
             "-a",
@@ -846,75 +822,64 @@ class cli:
             "-i",
             "--layouts",
             nargs="*",
-            help="*List of substrate layout names to use for finding pixel information from the configuration file",
+            help="List of substrate layout names to use for finding pixel information from the configuration file",
         )
         measure.add_argument(
-            "--labels", nargs="*", help="*List of Substrate labels",
+            "--labels", nargs="*", help="List of Substrate labels",
         )
         measure.add_argument(
             "--sweep-1",
-            type=self.str2bool,
-            default=True,
-            action=self.RecordPref,
-            const=True,
-            help="*Do the first I-V sweep",
+            default=False,
+            action="store_true",
+            help="Do the first I-V sweep",
         )
         measure.add_argument(
             "--sweep-2",
-            type=self.str2bool,
-            default=True,
-            action=self.RecordPref,
-            const=True,
-            help="*Do the second I-V sweep",
+            default=False,
+            action="store_true",
+            help="Do the second I-V sweep",
         )
         measure.add_argument(
             "--steadystate-v",
             type=float,
-            action=self.RecordPref,
             default=0,
-            help="*Steady state value of V to measure I",
+            help="Steady state value of V to measure I",
         )
         measure.add_argument(
             "--steadystate-i",
             type=float,
-            action=self.RecordPref,
             default=0,
-            help="*Steady state value of I to measure V",
+            help="Steady state value of I to measure V",
         )
         measure.add_argument(
             "--i-t",
             type=float,
-            action=self.RecordPref,
             default=10.0,
-            help="*Number of seconds to measure to find steady state I@constant V",
+            help="Number of seconds to measure to find steady state I@constant V",
         )
         measure.add_argument(
             "--v-t",
             type=float,
-            action=self.RecordPref,
             default=10.0,
-            help="*Number of seconds to measure to find steady state V@constant I",
+            help="Number of seconds to measure to find steady state V@constant I",
         )
         measure.add_argument(
             "--mppt-t",
             type=float,
-            action=self.RecordPref,
             default=37.0,
-            help="*Do maximum power point tracking for this many seconds",
+            help="Do maximum power point tracking for this many seconds",
         )
         measure.add_argument(
             "--mppt-params",
             type=str,
-            action=self.RecordPref,
             default="basic://7:10",
-            help="*Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ",
+            help="Extra configuration parameters for the maximum power point tracker, see https://git.io/fjfrZ",
         )
 
         setup = parser.add_argument_group("optional arguments for setup configuration")
         setup.add_argument(
             "--light-recipe",
             type=str,
-            action=self.RecordPref,
             default="AM1.5_1.0SUN",
             help="Recipe name for Wavelabs to load",
         )
@@ -952,37 +917,32 @@ class cli:
         setup.add_argument(
             "--scan-points",
             type=int,
-            action=self.RecordPref,
             default=101,
-            help="*Number of measurement points in I-V curve",
+            help="Number of measurement points in I-V curve",
         )
         setup.add_argument(
             "--scan-nplc",
             type=float,
-            action=self.RecordPref,
             default=1,
-            help="*Sourcemeter NPLC setting to use during I-V scans",
+            help="Sourcemeter NPLC setting to use during I-V scans",
         )
         setup.add_argument(
             "--steadystate-nplc",
             type=float,
-            action=self.RecordPref,
             default=1,
-            help="*Sourcemeter NPLC setting to use during steady-state scans and max power point tracking",
+            help="Sourcemeter NPLC setting to use during steady-state scans and max power point tracking",
         )
         setup.add_argument(
             "--scan-step-delay",
             type=float,
-            action=self.RecordPref,
             default=-1,
-            help="*Sourcemeter settling delay in seconds to use during I-V scans. -1 = auto",
+            help="Sourcemeter settling delay in seconds to use during I-V scans. -1 = auto",
         )
         setup.add_argument(
             "--steadystate-step-delay",
             type=float,
-            action=self.RecordPref,
             default=-1,
-            help="*Sourcemeter settling delay in seconds to use during steady-state scans and max power point tracking. -1 = auto",
+            help="Sourcemeter settling delay in seconds to use during steady-state scans and max power point tracking. -1 = auto",
         )
         setup.add_argument(
             "--home",
@@ -1005,53 +965,49 @@ class cli:
         )
         setup.add_argument(
             "--calibrate-eqe",
+            default=False,
             action="store_true",
             help="Measure spectral response of reference photodiode",
         )
         setup.add_argument(
             "--eqe-integration-time",
             type=int,
-            action=self.RecordPref,
             default=8,
-            help="*Lock-in amplifier integration time setting (integer corresponding to a time)",
+            help="Lock-in amplifier integration time setting (integer corresponding to a time)",
         )
         setup.add_argument(
             "--eqe-smu-v",
             type=float,
-            action=self.RecordPref,
             default=0,
-            help="*Sourcemeter bias voltage during EQE scan",
+            help="Sourcemeter bias voltage during EQE scan",
         )
         setup.add_argument(
             "--eqe-start-wl",
             type=float,
-            action=self.RecordPref,
             default=350,
             help="Starting wavelength for EQE scan in nm",
         )
         setup.add_argument(
             "--eqe-end-wl",
             type=float,
-            action=self.RecordPref,
             default=1100,
             help="End wavelength for EQE scan in nm",
         )
         setup.add_argument(
             "--eqe-num-wls",
             type=float,
-            action=self.RecordPref,
             default=76,
             help="Number of wavelegnths to measure in EQE scan",
         )
         setup.add_argument(
             "--eqe-repeats",
             type=int,
-            action=self.RecordPref,
             default=1,
             help="Number of repeat measurements at each wavelength",
         )
         setup.add_argument(
             "--eqe-autogain-off",
+            default=False,
             action="store_true",
             help="Disable automatic gain setting",
         )
@@ -1059,28 +1015,26 @@ class cli:
             "--eqe-autogain-method",
             type=str,
             default="user",
-            action=self.RecordPref,
             help="Method of automatically establishing gain setting",
         )
         setup.add_argument(
             "--calibrate-psu",
+            default=False,
             action="store_true",
             help="Calibrate PSU current to LEDs measuring reference photodiode",
         )
         setup.add_argument(
             "--calibrate-psu-ch",
             type=int,
-            action=self.RecordPref,
             default=1,
             help="PSU channel to calibrate: 1, 2, or 3",
         )
         setup.add_argument(
             "--psu-is",
             type=float,
-            action=self.RecordPref,
             nargs=3,
             default=[0, 0, 0],
-            help="*LED PSU channel currents (A)",
+            help="LED PSU channel currents (A)",
         )
         setup.add_argument(
             "--calibrate-solarsim",
