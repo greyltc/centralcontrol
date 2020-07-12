@@ -809,14 +809,14 @@ class cli:
             "--iv-pixel-address",
             default=None,
             type=str,
-            help='Hexadecimal bit mask for enabled pixels for I-V-t measurements. Also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
+            help='Hexadecimal bit mask for enabled pixels for I-V-t measurements',
         )
         measure.add_argument(
             "-b",
             "--eqe-pixel-address",
             default=None,
             type=str,
-            help='Hexadecimal bit mask for enabled pixels for EQE measurements. Also takes letter-number pixel addresses "0xFC == A1A2A3A4A5A6"',
+            help='Hexadecimal bit mask for enabled pixels for EQE measurements',
         )
         measure.add_argument(
             "-i",
