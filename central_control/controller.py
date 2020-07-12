@@ -1,15 +1,12 @@
 """Multiplexor and stage controller."""
 
 from telnetlib import Telnet
-import time
 
 # the firmware's prompt
 PROMPT = b">>> "
 
 # client-->server transmission line ending the firmware expects
 EOL = b"\r\n"
-
-default_host = "10.46.0.233"
 
 
 class MyTelnet(Telnet):
@@ -44,12 +41,18 @@ class MyTelnet(Telnet):
 class controller:
     """Mux and stage controller."""
 
-    # standard read timeout in s
-    read_timeout = 1
+    def __init__(self, address="10.46.0.233", read_timeout=1):
+        """Contrust object.
 
-    def __init__(self, address=default_host):
-        """Contrust object."""
+        Parameters
+        ----------
+        address : str
+            Resource address.
+        read_timeout : float
+            Read timeout in seconds.
+        """
         self.address = address
+        self.read_timeout = read_timeout
 
     def connect(self):
         """Connect to the controller using Telnet."""
@@ -64,55 +67,41 @@ class controller:
         self.version_message = self.tn.read_response(timeout=2)
         print(f"Got version request response: {self.version_message}")
 
-    def home(self, axis, timeout=80, length_poll_sleep=0.1):
-        """Home the stage.
+    def home(self, axis):
+        """Send a home command to the stage.
 
         Parameters
         ----------
         axis : {1,2,3}
             Stage axis 1, 2, or 3 (x, y, and z).
-        timeout : float
-            Timeout in seconds. Raise an error if it takes longer than expected to home
-            the stage.
-        length_poll_sleep : float
-            Time to wait in s before polling the current length of the stage to
-            determine whether homing has finished.
 
         Returns
         -------
-        ret_val : int
-            The length of the stage along the given axis in steps for a successful
-            home. If there was a problem an error code is returned:
-
-                * -1 : Timeout error.
-                * -2 : Programming error.
+        response : str
+            Response to home command.
         """
-        ret_val = -2
-        print("HOMING!")
         self.tn.send_cmd(f"h{axis}")
-        response = self.tn.read_response(timeout=self.read_timeout)
 
-        if response != "":
-            raise (ValueError(f"Homing the stage failed: {response}"))
-        else:
-            if self.tn.empty_response is True:
-                # we never got the prompt back
-                ret_val = -2
-            else:
-                t0 = time.time()
-                dt = 0
-                while dt < timeout:
-                    time.sleep(length_poll_sleep)
-                    self.tn.send_cmd(f"l{axis}")
-                    ret_val = int(self.tn.read_response(timeout=self.read_timeout))
-                    if ret_val > 0:
-                        # axis length has been returned
-                        break
-                    dt = time.time() - t0
+        return self.tn.read_response(timeout=self.read_timeout)
 
-        return ret_val
+    def get_length(self, axis):
+        """Query the stage length along an axis.
 
-    def read_pos(self, axis, handler=None):
+        Parameters
+        ----------
+        axis : {1,2,3}
+            Stage axis 1, 2, or 3 (x, y, and z).
+
+        Returns
+        -------
+        length : int
+            Length of stage in steps.
+        """
+        self.tn.send_cmd(f"l{axis}")
+
+        return int(self.tn.read_response(timeout=self.read_timeout))
+
+    def get_position(self, axis):
         """Read the current stage position along a given axis.
 
         Parameters
@@ -127,14 +116,10 @@ class controller:
         """
         self.tn.send_cmd(f"r{axis}")
 
-        steps = int(self.tn.read_response(timeout=self.read_timeout))
+        return int(self.tn.read_response(timeout=self.read_timeout))
 
-        return steps
-
-    def goto(self, axis, position, timeout=20, retries=5, position_poll_sleep=0.5):
+    def goto(self, axis, position):
         """Go to stage position in steps.
-
-        Uses polling to determine when stage motion is complete.
 
         Parameters
         ----------
@@ -142,61 +127,15 @@ class controller:
             Stage axis 1, 2, or 3 (x, y, and z).
         position : int
             Number of steps along stage to move to.
-        timeout : float
-            Timeout in seconds. Raise an error if it takes longer than expected to
-            reach the required position.
-        retries : int
-            Number of attempts to send command before failing. The command will be sent
-            this many times within the timeout period.
-        position_poll_sleep : float
-            Time to wait in s before polling the current position of the stage to
-            determine whether the required position has been reached.
 
         Returns
         -------
-        ret_val : int
-            Return value:
-
-                * 0 : Reached position successfully.
-                * -1 : Command not accepted. Stage probably isn't homed / has stalled.
-                * -2 : Max retries / timeout exceeded.
-                * -3 : Programming error.
+        response : str
+            Response to goto command.
         """
-        # must be a whole number of steps
-        position = round(position)
-        attempt_timeout = timeout / retries
+        self.tn.send_cmd(f"g{axis}{position:.0f}")
 
-        while retries > 0:
-            self.tn.send_cmd(f"g{axis}{position:.0f}")
-            resp = self.tn.read_response(timeout=self.read_timeout)
-            if resp == "":
-                # goto command accepted
-                loc = None
-                t0 = time.time()
-                now = 0
-                # periodically poll for position
-                while (loc != position) and (now <= attempt_timeout):
-                    # ask for current position
-                    loc = self.read_pos(axis)
-                    # for debugging
-                    print(f"Location = {loc}")
-                    time.sleep(position_poll_sleep)
-                    now = time.time() - t0
-                # exited above loop because of microtimeout, retry
-                if now > attempt_timeout:
-                    ret_val = -2
-                    retries = retries - 1
-                else:
-                    # we got there
-                    ret_val = 0
-                    break
-            else:
-                # goto command fail. this likely means the stage is unhomed either
-                # because it stalled or it just powered on
-                ret_val = -1
-                break
-
-        return ret_val
+        return self.tn.read_response(timeout=self.read_timeout)
 
     def set_mux(self, row, col, pixel):
         """Close a multiplexor relay.
@@ -211,6 +150,11 @@ class controller:
             Column position of substrate, 1-indexed.
         pixel : int
             Pixel on substrate, 1-indexed.
+
+        Return
+        ------
+        response : str
+            Response to select mux relay command.
         """
         # break all connections
         self.clear_mux()
@@ -221,12 +165,20 @@ class controller:
 
         # connect relay
         self.tn.send_cmd(f"s{row}{col}{pixel}")
-        self.tn.read_response(timeout=self.read_timeout)
+
+        return self.tn.read_response(timeout=self.read_timeout)
 
     def clear_mux(self):
-        """Open all multiplexor relays."""
+        """Open all multiplexor relays.
+
+        Returns
+        -------
+        response : str
+            Response to deselect all mux relays command.
+        """
         self.tn.send_cmd("s")
-        self.tn.read_response(timeout=self.read_timeout)
+
+        return self.tn.read_response(timeout=self.read_timeout)
 
     def get_port_expanders(self):
         """Check which port expanders are available.

@@ -552,3 +552,171 @@ class fabric:
         # disable smu
         self.sm.outOn(False)
 
+    def home_stage(self, expected_lengths, timeout=80, length_poll_sleep=0.1):
+        """Home the stage.
+
+        Parameters
+        ----------
+        expected_lengths : list of int
+            Expected lengths of each stage in steps.
+        timeout : float
+            Timeout in seconds. Raise an error if it takes longer than expected to home
+            the stage.
+        length_poll_sleep : float
+            Time to wait in seconds before polling the current length of the stage to
+            determine whether homing has finished.
+
+        Returns
+        -------
+        lengths : list of int
+            The lengths of the stages along each available axis in steps for a
+            successful home. If there was a problem an error code is returned:
+
+                * -1 : Timeout error.
+                * -2 : Programming error.
+                * -3 : Unexpected axis length. Probably stalled during homing.
+        """
+        ret_val = [0 for x in range(len(expected_lengths))]
+        print("Homing the stage...")
+        for i, l in enumerate(expected_lengths):
+            r = self.controller.home(i + 1)
+            if r != "":
+                raise (ValueError(f"Homing the stage failed: {r}"))
+            elif self.controller.tn.empty_response is True:
+                ret_val[i] = -2
+                break
+
+        if all([rv == 0 for rv in ret_val]):
+            t0 = time.time()
+            dt = 0
+            while dt < timeout:
+                time.sleep(length_poll_sleep)
+                for i, l in enumerate(expected_lengths):
+                    ret_val[i] = self.controller.get_length(i + 1)
+                    if (ret_val[i] > 0) & (round_sf(ret_val[i], 1) != round_sf(l, 1)):
+                        # if a stage length is returned but it's unexpected there was
+                        # probably a stall
+                        ret_val[i] = -3
+                if all([rv > 0 for rv in ret_val]):
+                    # axis lengths have been returned for all axes
+                    break
+                elif any([rv == -3 for rv in ret_val]):
+                    # at least one axis returned an unexpected length
+                    break
+                dt = time.time() - t0
+
+        return ret_val
+
+    def read_stage_position(self, axes, handler=None):
+        """Read the current stage position along all available axes.
+
+        Parameters
+        ----------
+        axes : int
+            Number of available stage axes.
+        handler : handler object
+            Handler with handle_data method to process stage position data.
+
+        Returns
+        -------
+        loc : list of int
+            Stage position in steps along each axis.
+        """
+        loc = []
+        for axis in range(1, axes + 1, 1):
+            loc.append(self.controller.get_position(axis))
+
+        if handler is not None:
+            handler.handle_data(loc)
+
+        return loc
+
+    def goto_stage_position(
+        self, position, timeout=20, retries=5, position_poll_sleep=0.5, handler=None,
+    ):
+        """Go to stage position in steps.
+
+        Uses polling to determine when stage motion is complete.
+
+        Parameters
+        ----------
+        position : list of int
+            Number of steps along each available stage to move to.
+        timeout : float
+            Timeout in seconds. Raise an error if it takes longer than expected to
+            reach the required position.
+        retries : int
+            Number of attempts to send command before failing. The command will be sent
+            this many times within the timeout period.
+        position_poll_sleep : float
+            Time to wait in s before polling the current position of the stage to
+            determine whether the required position has been reached.
+        handler : handler object
+            Handler to pass to read_stage_position method to process stage position
+            during goto.
+
+        Returns
+        -------
+        ret_val : int
+            Return value:
+
+                * 0 : Reached position successfully.
+                * -1 : Command not accepted. Stage probably isn't homed / has stalled.
+                * -2 : Max retries / timeout exceeded.
+                * -3 : Programming error.
+        """
+        # must be a whole number of steps
+        position = [round(p) for p in position]
+        attempt_timeout = timeout / retries
+
+        while retries > 0:
+            # send goto command for each axis
+            resp = []
+            for i, pos in enumerate(position):
+                resp.append(self.controller.goto(i + 1, pos))
+            if all([r != "" for r in resp]):
+                # goto commands accepted
+                loc = None
+                t0 = time.time()
+                now = 0
+                # periodically poll for position
+                while (loc != position) and (now <= attempt_timeout):
+                    # ask for current position
+                    loc = self.read_stage_position(len(position), handler)
+                    # for debugging
+                    print(f"Location = {loc}")
+                    time.sleep(position_poll_sleep)
+                    now = time.time() - t0
+                # exited above loop because of microtimeout, retry
+                if now > attempt_timeout:
+                    ret_val = -2
+                    retries = retries - 1
+                else:
+                    # we got there
+                    ret_val = 0
+                    break
+            else:
+                # goto command fail. this likely means the stage is unhomed either
+                # because it stalled or it just powered on
+                ret_val = -1
+                break
+
+        return ret_val
+
+
+def round_sf(x, sig_fig):
+    """Round a number to a given significant figure.
+
+    Paramters
+    ---------
+    x : float or int
+        Number to round.
+    sig_fig : int
+        Significant figures to round to.
+
+    Returns
+    -------
+    y : float
+        Rounded number
+    """
+    return round(x, sigfig - int(np.floor(np.log10(abs(x)))) - 1)

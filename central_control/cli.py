@@ -138,19 +138,6 @@ class cli:
         # get number of stage axes
         self.axes = len(self.stage_lengths)
 
-    def _get_stage_position(self):
-        """Read the stage position and report it."""
-        loc = []
-        for axis in range(1, self.axes + 1, 1):
-            loc.append(self.logic.controller.read_pos(axis))
-
-        with StageHandler() as sh:
-            sh.connect(self.MQTTHOST)
-            sh.start_q("data/stage")
-            sh.handle_data(loc)
-
-        return loc
-
     def _get_substrate_positions(self, experiment):
         """Calculate absolute positions of all substrate centres.
 
@@ -419,8 +406,7 @@ class cli:
                 last_label = label
 
             # move to pixel
-            for i, ax_pos in enumerate(pixel["position"]):
-                self.logic.controller.goto(i + 1, ax_pos)
+            self.logic.goto_stage_position(pixel["position"], handler=self.sh)
 
             # init parameters derived from steadystate measurements
             ssvoc = None
@@ -598,8 +584,7 @@ class cli:
                 last_label = label
 
             # move to pixel
-            for i, ax_pos in enumerate(pixel["position"]):
-                self.logic.controller.goto(i + 1, ax_pos)
+            self.logic.goto_stage_position(pixel["position"], handler=self.sh)
 
             print(
                 f"Scanning EQE from {self.args.eqe_start_wl} nm to {self.args.eqe_end_wl} nm"
@@ -642,9 +627,6 @@ class cli:
         # get arguments parsed to the command line
         self.args = self._get_args()
 
-        # get mqtt host name
-        self.MQTTHOST = self.config["network"]["MQTTHOST"]
-
         if self.args.repeat is True:
             # retreive args from cached preferences
             self.args = self._load_prefs()
@@ -654,6 +636,9 @@ class cli:
 
         # find and load config file
         self._load_config()
+
+        # get mqtt host name from config
+        self.MQTTHOST = self.config["network"]["MQTTHOST"]
 
         # look up number of stage axes from config and init attribute
         self._get_axes()
@@ -677,20 +662,22 @@ class cli:
             self.args.destination, self.config["network"]["archive"]
         )
 
+        # create handler for reporting stage position
+        self.sh = StageHandler()
+        self.sh.connect(self.MQTTHOST)
+        self.sh.start_q("data/stage")
+
         # home the stage
         if self.args.home is True:
-            for i in range(self.axes):
-                # axes are 1-indexed
-                self.logic.controller.home(i + 1)
+            self.logic.home_stage(self.config["stage"]["length"])
 
         # goto stage position
         if self.args.goto is not None:
-            for i, pos in enumerate(self.args.goto):
-                self.logic.controller.goto(i + 1, pos)
+            self.logic.goto_stage_position(self.args.goto, handler=sh)
 
         # read stage position
         if self.args.read_stage is True:
-            self._get_stage_position()
+            self.logic.read_stage_position(handler=sh)
 
         # calibrate LED PSU if required
         if self.args.calibrate_psu is True:
@@ -762,6 +749,10 @@ class cli:
         # measure eqe
         if len(self.eqe_pixel_queue) > 0:
             self._eqe()
+
+        # close stage handler
+        self.sh.end_q()
+        self.sh.disconnect()
 
     class FullPaths(argparse.Action):
         """Expand user- and relative-paths and save pref arg parse action."""
