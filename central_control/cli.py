@@ -36,6 +36,9 @@ class cli:
 
     prefs_file = "preferences.ini"
     config_file = "measurement_config.ini"
+    eqe_diode_cal_file = "eqe_diode_calibration.txt"
+    eqe_ref_spectrum_file = "eqe_reference_spectrum.txt"
+    solarsim_spec_cal_file = "solarsim_spectrum_calibration.txt"
 
     def __init__(self, appname="central-control"):
         """Construct object.
@@ -98,7 +101,7 @@ class cli:
 
         # check if config file is given in cli and if so, copy it to cache
         if self.args.config_file is not None:
-            shutil.copyfile(self.args.config_file, cached_config_path)
+            shutil.copy(self.args.config_file, cached_config_path)
 
         # try to load the cached file
         if cached_config_path.exists() is True:
@@ -107,6 +110,12 @@ class cli:
             raise Exception(
                 f"Config file path not found in CLI or at {cached_config_path}."
             )
+
+    def _cache_ref_data(self):
+        """Copy reference data files to cache."""
+        shutil.copy(self.config["paths"]["eqe_ref_cal_path"], self.cache.joinpath(self.eqe_diode_cal_file))
+        shutil.copy(self.config["paths"]["eqe_ref_spec_path"], self.cache.joinpath(self.eqe_ref_spectrum_file))
+        shutil.copy(self.config["paths"]["solarsim_spec_cal_path"], self.cache.joinpath(self.solarsim_spec_cal_file))
 
     def _update_save_settings(self, folder, archive):
         """Tell saver MQTT client where to save and backup data.
@@ -135,6 +144,7 @@ class cli:
 
     def _save_cache(self):
         """Send cached data to saver MQTT client."""
+        # context manager handles disconnect
         with CacheHandler() as ch:
             ch.connect(self.MQTTHOST)
             ch.start_q("data/cache")
@@ -634,9 +644,9 @@ class cli:
                 smu_voltage=self.args.eqe_smu_v,
                 calibration=False,
                 ref_measurement_path=,
-                ref_measurement_file_header=,
-                ref_eqe_path=,
-                ref_spectrum_path=,
+                ref_measurement_file_header=1,
+                ref_eqe_path=self.cache.joinpath(self.eqe_diode_cal_file),
+                ref_spectrum_path=self.cache.joinpath(self.eqe_ref_spectrum_file),
                 start_wl=self.args.eqe_start_wl,
                 end_wl=self.args.eqe_end_wl,
                 num_points=self.args.eqe_num_wls,
@@ -661,8 +671,9 @@ class cli:
             # save argparse prefs to cache
             self._save_prefs()
 
-        # find and load config file
+        # load config file and copy ref data to cache
         self._load_config()
+        self._cache_ref_data()
 
         # get mqtt host name from config
         self.MQTTHOST = self.config["network"]["MQTTHOST"]
