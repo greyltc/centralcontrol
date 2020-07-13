@@ -134,7 +134,7 @@ class cli:
         with SettingsHandler() as sh:
             sh.connect(self.MQTTHOST)
             # publish to data saver settings topic
-            sh.start_q("data/saver")
+            sh.start_q("cli/data/settings")
             sh.update_settings(str(abs_folder), archive)
 
     def _verify_save_client(self):
@@ -147,7 +147,7 @@ class cli:
         # context manager handles disconnect
         with CacheHandler() as ch:
             ch.connect(self.MQTTHOST)
-            ch.start_q("data/cache")
+            ch.start_q("cli/data/cache")
             for file in self.cache.iterdir():
                 with open(self.cache.joinpath(file), "r") as f:
                     contents = f.read()
@@ -400,10 +400,10 @@ class cli:
         # create mqtt data handlers for i-v-t measurements
         # mqtt publisher topics for each handler
         subtopics = []
-        subtopics.append(f"data/vt")
-        subtopics.append(f"data/iv")
-        subtopics.append(f"data/mppt")
-        subtopics.append(f"data/it")
+        subtopics.append(f"cli/data/vt")
+        subtopics.append(f"cli/data/iv")
+        subtopics.append(f"cli/data/mppt")
+        subtopics.append(f"cli/data/it")
 
         # instantiate handlers
         vdh = DataHandler()
@@ -604,7 +604,7 @@ class cli:
         edh = DataHandler()
         self.handlers.append(edh)
         edh.connect(self.MQTTHOST)
-        edh.start_q("data/eqe")
+        edh.start_q("cli/data/eqe")
 
         # look up settings from config
         grating_change_wls = [float(x) for x in self.config["monochromator"]["grating_change_wls"].split(",")]
@@ -709,7 +709,7 @@ class cli:
         self.sh = StageHandler()
         self.handlers.append(self.sh)
         self.sh.connect(self.MQTTHOST)
-        self.sh.start_q("data/stage")
+        self.sh.start_q("cli/stage")
 
         # home the stage
         if self.args.home is True:
@@ -728,7 +728,7 @@ class cli:
             pdh = DataHandler()
             self.handlers.append(pdh)
             pdh.connect(self.MQTTHOST)
-            pdh.start_q("data/psu")
+            pdh.start_q("cli/data/psu")
             pdh.idn = "psu_calibration"
             self._set_experiment_relay("eqe")
             # TODO: look up diode location from calibration file
@@ -758,7 +758,7 @@ class cli:
                 sdh = DataHandler()
                 self.handlers.append(sdh)
                 sdh.connect(self.MQTTHOST)
-                sdh.start_q("data/spectrum")
+                sdh.start_q("cli/data/spectrum")
                 sdh.idn = "spectrum"
                 sdh.handle_data(self.logic.spectrum)
 
