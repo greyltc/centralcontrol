@@ -19,6 +19,7 @@ import itertools
 import json
 import os
 import pathlib
+import shutil
 import types
 
 from collections import deque
@@ -34,6 +35,7 @@ class cli:
     """
 
     prefs_file = "preferences.ini"
+    config_file = "measurement_config.ini"
 
     def __init__(self, appname="central-control"):
         """Construct object.
@@ -92,12 +94,14 @@ class cli:
     def _load_config(self):
         """Find and load config file."""
         self.config = configparser.ConfigParser()
-        cached_config_path = self.cache.joinpath("measurement_config.ini")
+        cached_config_path = self.cache.joinpath(self.config_file)
+
+        # check if config file is given in cli and if so, copy it to cache
         if self.args.config_file is not None:
-            # priority 1: CLI
-            self.config.read(self.args.config_file)
-        elif cached_config_path.exists() is True:
-            # priority 2: cache dir
+            shutil.copyfile(self.args.config_file, cached_config_path)
+
+        # try to load the cached file
+        if cached_config_path.exists() is True:
             self.config.read(cached_config_path)
         else:
             raise Exception(

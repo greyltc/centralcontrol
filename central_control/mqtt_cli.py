@@ -9,7 +9,7 @@ import warnings
 import paho.mqtt.client as mqtt
 import psutil
 
-import central_control
+import central_control.cli
 
 
 class CLIMQTT(mqtt.Client):
@@ -37,9 +37,11 @@ class CLIMQTT(mqtt.Client):
         # psutils process object
         self.proc = None
 
-        self.os_name = os.name
+        # instantiate cli object to read attributes
+        self.cli = central_control.cli.cli()
 
-        if self.os_name != "posix":
+        # check if graceful keyboard interrupt is available on running os
+        if (self.os_name := os.name) != "posix":
             warnings.warn("The CLI cannot be stopped gracefully on this OS.")
 
     def __enter__(self):
@@ -91,8 +93,7 @@ class CLIMQTT(mqtt.Client):
         msg : str
             Configuration file as a string.
         """
-        self.cli = central_control.cli.cli()
-        self.config_file_path = self.cli.cache.joinpath("measurement_config.ini")
+        self.config_file_path = self.cli.cache.joinpath(self.cli.config_file)
         with open(self.config_file_path, "w") as f:
             f.wrtie(msg)
 
