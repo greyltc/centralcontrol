@@ -699,8 +699,10 @@ class cli:
         self._verify_save_client()
 
         # tell mqtt data saver where to save
+        save_folder = pathlib.Path(self.config["paths"]["save_folder"])
+        experiment_data_folder = save_folder.joinpath(self.args.experiment_folder)
         self._update_save_settings(
-            self.args.destination, self.config["network"]["archive"]
+            str(experiment_data_folder), self.config["network"]["archive"]
         )
 
         # create handler for reporting stage position
@@ -801,6 +803,7 @@ class cli:
 
         parser.add_argument(
             "--repeat",
+            default=False,
             action="store_true",
             help="Repeat the last user-defined run action.",
         )
@@ -816,13 +819,12 @@ class cli:
             version="%(prog)s " + central_control.__version__,
         )
         parser.add_argument(
-            "-o", "--operator", type=str, required=True, help="Name of operator"
+            "-o", "--operator", type=str, help="Name of operator"
         )
         parser.add_argument(
             "-r",
             "--run-description",
             type=str,
-            required=True,
             help="Words describing the measurements about to be taken",
         )
 
@@ -831,7 +833,7 @@ class cli:
         )
         measure.add_argument(
             "-d",
-            "--destination",
+            "--experiment-folder",
             help="Directory name (relative) in which to save the output data",
         )
         measure.add_argument(
