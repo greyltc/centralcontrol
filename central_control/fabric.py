@@ -698,6 +698,40 @@ class fabric:
 
         return ret_val
 
+    def check_all_contacts(self, rows, columns, pixels):
+        """Perform contact check on all pixels in the system.
+
+        Parameters
+        ----------
+        rows : int
+            Number of rows in the substrate array.
+        columns : int
+            Number of columns in the substrate array.
+        pixels : int
+            Number of pixels on each pcb adapter in the system. Assumes all adapaters
+            are the same.
+
+        Returns
+        -------
+        fail_bitmask : str
+            Pass/fail bitmask where bits corresponding to pixels that failed the
+            contact check are set to 1.
+        """
+        mux_list = [
+            [r + 1, c + 1, p + 1]
+            for r in range(rows)
+            for c in range(columns)
+            for p in range(pixels)
+        ]
+
+        for r, c, p in mux_list:
+            self.controller.set_mux(r, c, p)
+            if self.sm.contact_check() is True:
+                msg = "FAILED"
+            else:
+                msg = "PASSED"
+            print(f"Contact check {msg}! Row: {r}, col: {c}, pixel: {p}")
+
 
 def round_sf(x, sig_fig):
     """Round a number to a given significant figure.

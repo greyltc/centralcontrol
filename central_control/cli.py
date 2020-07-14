@@ -663,6 +663,9 @@ class cli:
             # signal end of measurement
             edh.end()
 
+    def _check_all_contacts(self, queue):
+        """Perform contact check on all pixels in a queue."""
+
     def run(self):
         """Act on command line instructions."""
         # get arguments parsed to the command line
@@ -726,6 +729,19 @@ class cli:
         # read stage position
         if self.args.read_stage is True:
             self.logic.read_stage_position(handler=sh)
+
+        # round robin contact check
+        if self.args.contact_check is True:
+            array = self.config["substrates"]["number"].split(",")
+            rows = array[0]
+            try:
+                cols = array[1]
+            except IndexError:
+                cols = 1
+            active_layout = self.config["substrates"]["active_layout"]
+            pcb_adapter = self.config[active_layout]["pcb_name"]
+            pixels = self.config[pcb_adapter]["pixels"]
+            self.logic.check_all_contacts(rows, cols, pixels)
 
         # calibrate LED PSU if required
         if self.args.calibrate_psu is True:
@@ -1077,6 +1093,12 @@ class cli:
             default=False,
             action="store_true",
             help="Read diode ADC counts now and store those as corresponding to 1.0 sun intensity",
+        )
+        setup.add_argument(
+            "--contact-check",
+            default=False,
+            action="store_true",
+            help="Cycle through pixels checking whether force and sense pins are connected",
         )
 
         testing = parser.add_argument_group("optional arguments for debugging/testing")

@@ -161,7 +161,7 @@ class controller:
 
         # convert column number to a letter
         letters = "abcdefghijklmnopqrstuvwxyz"
-        col = letters[col]
+        col = letters[col - 1]
 
         # connect relay
         self.tn.send_cmd(f"s{row}{col}{pixel}")

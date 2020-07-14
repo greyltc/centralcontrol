@@ -405,6 +405,58 @@ class k2400:
             cb(measurement)
         return q
 
+    def contact_check(self):
+        """Perform contact check.
+
+        Returns
+        -------
+        failed : bool
+            `True` if contact check fails (contact resistance too high). `False` if
+            all is well.
+        """
+        # enable contact check
+        self.sm.write(":SYST:CCH ON")
+
+        # set 2 ohm contact resistance
+        self.sm.write(":SYST:CCH:RES 2")
+
+        # set 4-wire mode
+        self.setWires(self, twoWire=False)
+
+        # enable contact check pass/fail to be mapped to DIO
+        self.sm.write(":CALC2:LIM4:STAT ON")
+
+        # set all DIO to be high on failure
+        self.sm.write(":CALC2:LIM4:SOUR2 15")
+
+        # set to resistance measurement function
+        self.sm.write(':SENS:FUNC "RES"')
+
+        # enable contact check event detection
+        self.sm.write(":TRIG:SEQ2:SOUR CCH")
+
+        # set 2s timeout
+        self.sm.write(":TRIG:SEQ2:TOUT 2")
+
+        # turn on output
+        self.sm.write(":OUTP ON")
+
+        # trigger check
+        self.sm.write(":INIT")
+
+        # query pass/fail
+        resp = self.sm.query(":CALC2:LIM4:FAIL?")
+
+        # turn off output
+        self.sm.write(":OUTP ON")
+
+        if resp == "0":
+            return False
+        else:
+            # clear failure state
+            self.sm.write(":SYST:CLE")
+            return True
+
 
 # testing code
 if __name__ == "__main__":
