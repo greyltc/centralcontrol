@@ -29,8 +29,9 @@ class DataHandler(MQTTQueuePublisher):
         """
         payload = {
             "data": data,
-            "clear": False,
             "id": self.idn,
+            "clear": False,
+            "end": False,
         }
         # turn dict into string that mqtt can send
         payload = json.dumps(payload)
@@ -38,7 +39,13 @@ class DataHandler(MQTTQueuePublisher):
 
     def clear(self):
         """Clear plot."""
-        payload = {"clear": True, "id": self.idn}
+        payload = {"id": self.idn, "clear": True, "end": False}
+        payload = json.dumps(payload)
+        self.append_payload(payload)
+
+    def end(self):
+        """Signal end of measurement."""
+        payload = {"id": self.idn, "clear": False, "end": True}
         payload = json.dumps(payload)
         self.append_payload(payload)
 

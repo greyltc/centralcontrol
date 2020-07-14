@@ -73,6 +73,8 @@ class cli:
 
         Make sure everything gets cleaned up properly.
         """
+        # TODO: turn off psu
+        self.logic.run_done()
         self._disconnect_all()
 
     def _save_prefs(self):
@@ -465,10 +467,17 @@ class cli:
                     handler=vdh,
                 )
 
+                # signal end of measurement
+                vdh.end()
+
                 # if this was at Voc, use the last measurement as estimate of Voc
                 if self.args.steadystate_i == 0:
                     ssvoc = vt[-1]
                     self.logic.mppt.Voc = ssvoc
+
+            if (self.args.sweep_1 is True) or (self.args.sweep_1 is True):
+                # clear iv plot
+                ivdh.clear()
 
             # TODO: add support for dark measurement, has to use autorange
             if self.args.sweep_1 is True:
@@ -496,8 +505,6 @@ class cli:
 
                 print(f"Sweeping voltage from {start} V to {end} V")
 
-                # clear iv plot
-                ivdh.clear()
                 iv1 = self.logic.sweep(
                     sourceVoltage=True,
                     compliance=compliance_i,
@@ -531,6 +538,10 @@ class cli:
                 )
 
                 Pmax_sweep2, Vmpp2, Impp2, maxIx2 = self.logic.mppt.which_max_power(iv2)
+
+            if (self.args.sweep_1 is True) or (self.args.sweep_1 is True):
+                # signal end of iv measurements
+                ivdh.end()
 
             # TODO: read and interpret parameters for smart mode
             # # determine Vmpp and current compliance for mppt
@@ -579,6 +590,9 @@ class cli:
                     handler=mdh,
                 )
 
+                # signal end of measurement
+                mdh.end()
+
             if self.args.i_t > 0:
                 # steady state I@constant V measured here - usually Isc
                 # clear I@constant V plot
@@ -593,6 +607,9 @@ class cli:
                     setPoint=self.args.steadystate_v,
                     handler=cdh,
                 )
+
+                # signal end of measurement
+                cdh.end()
 
         self.logic.run_done()
 
@@ -658,6 +675,9 @@ class cli:
                 integration_time=self.args.eqe_integration_time,
                 handler=edh,
             )
+
+            # signal end of measurement
+            edh.end()
 
     def run(self):
         """Act on command line instructions."""
