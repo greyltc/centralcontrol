@@ -191,3 +191,15 @@ class controller:
         self.tn.send_cmd("c")
 
         return self.tn.read_response(timeout=self.read_timeout)
+
+    def set_relay(self, exp):
+        """Choose EQE or IV connection.
+
+        Parameters
+        ----------
+        exp : {"eqe", "iv"}
+            Experiment name: either "eqe" or "iv".
+        """
+        self.tn.send_cmd(exp)
+
+        return self.tn.read_response(timeout=self.read_timeout)

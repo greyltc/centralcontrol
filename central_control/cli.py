@@ -378,26 +378,10 @@ class cli:
             h.end_q()
             h.disconnect()
 
-    def _set_experiment_relay(self, experiment):
-        """Set the experiment relay configuration.
-
-        Parameters
-        ----------
-        experiment : str
-            Experiment being performed.
-        """
-        if experiment == "solarsim":
-            # TODO: add relay config func
-            pass
-        elif experiment == "eqe":
-            # TODO: add relay config func
-            pass
-        else:
-            raise ValueError(f"Experiment '{experiment}' not supported.")
-
     def _ivt(self):
         """Run through pixel queue of i-v-t measurements."""
-        self._set_experiment_relay("solarsim")
+        # set the master experiment relay
+        self.logic.controller.set_relay("iv")
 
         # create mqtt data handlers for i-v-t measurements
         # mqtt publisher topics for each handler
@@ -615,7 +599,7 @@ class cli:
 
     def _eqe(self):
         """Run through pixel queue of EQE measurements."""
-        self._set_experiment_relay("eqe")
+        self.logic.controller.set_relay("eqe")
 
         # create mqtt data handler for eqe
         edh = DataHandler()
@@ -750,7 +734,7 @@ class cli:
             pdh.connect(self.MQTTHOST)
             pdh.start_q("cli/data/psu")
             pdh.idn = "psu_calibration"
-            self._set_experiment_relay("eqe")
+            self.logic.controller.set_relay("eqe")
             # TODO: look up diode location from calibration file
             self.logic.calibrate_psu(
                 self.args.calibrate_psu_ch, loc=, handler=pdh
@@ -758,13 +742,13 @@ class cli:
 
         # measure EQE calibration diode if required
         if self.args.calibrate_eqe is True:
-            self._set_experiment_relay("eqe")
+            self.logic.controller.set_relay("eqe")
             # TODO: add calibrate EQE func
 
         # perform solar sim calibration measurement
         if self.calibrate_solarsim is True:
             # TODO; add calibrate solar sim func
-            self._set_experiment_relay("solarsim")
+            self.logic.controller.set_relay("iv")
 
             if self.args.wavelabs_spec_cal_path != "":
                 spectrum_cal = np.genfromtxt(
