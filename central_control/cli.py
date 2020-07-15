@@ -706,10 +706,8 @@ class cli:
         self._verify_save_client()
 
         # tell mqtt data saver where to save
-        save_folder = pathlib.Path(self.config["paths"]["save_folder"])
-        experiment_data_folder = save_folder.joinpath(self.args.experiment_folder)
         self._update_save_settings(
-            str(experiment_data_folder), self.config["network"]["archive"]
+            self.args.experiment_folder, self.config["network"]["archive"]
         )
 
         # create handler for reporting stage position
