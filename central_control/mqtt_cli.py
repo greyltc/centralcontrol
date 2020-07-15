@@ -70,8 +70,6 @@ class CLIMQTT(mqtt.Client):
             self._save_config(m)
         elif subtopic == "run":
             self._run(m)
-        elif subtopic == "pause":
-            self._pause()
         elif subtopic == "stop":
             self._stop()
         elif subtopic == "cal_eqe":
@@ -96,34 +94,6 @@ class CLIMQTT(mqtt.Client):
         self.config_file_path = self.cli.cache.joinpath(self.cli.config_file)
         with open(self.config_file_path, "w") as f:
             f.wrtie(msg)
-
-    def _start_or_resume_subprocess(self, args, subtopic=""):
-        """Start or resume a subprocess.
-
-        Start a new subprocess is there isn't one running or resume a subprocess if one
-        is paused and run has been pressed.
-
-        Parameters
-        ----------
-        args : list
-            List of command line arguments to parse to CLI.
-        subtopic : str
-            Message subtopic. This is used to determine whether a paused process should
-            be resumed.
-        """
-        # start process if there is none
-        if self.proc is None:
-            self._start_subprocess(args)
-        else:
-            try:
-                # try to resume the process if run pressed and it's paused
-                if (self.proc.status() == "stopped") & (subtopic == "run"):
-                    self.proc.resume()
-                else:
-                    pass
-            except ProcessLookupError:
-                # process was run but has finished so start a new one
-                self._start_subprocess(args)
 
     def _start_subprocess(self, args):
         """Run the CLI as a subprocess.
@@ -164,21 +134,7 @@ class CLIMQTT(mqtt.Client):
             Dictionary of settings sent from the GUI.
         """
         args = self._format_run_msg(msg)
-        self._start_or_resume_subprocess(args, subtopic="run")
-
-    def _pause(self):
-        """Pause a running subprocess."""
-        # check if a process may still be running
-        if self.proc is not None:
-            try:
-                # try to pause the process if it's running
-                if self.proc.status() == "running":
-                    self.proc.suspend()
-            except ProcessLookupError:
-                # process was run but has now finished
-                self.proc = None
-        else:
-            pass
+        self._start_subprocess(args)
 
     def _stop(self):
         """Terminate a subprocess."""
@@ -224,7 +180,7 @@ class CLIMQTT(mqtt.Client):
     def _cal_eqe(self, msg):
         """Measure the EQE reference photodiode."""
         args = self._format_cal_eqe_msg(msg)
-        self._start_or_resume_subprocess(args)
+        self._start_subprocess(args)
 
     def _format_cal_psu_msg(self, msg):
         """Convert calibrate PSU msg from GUI to CLI list for subprocess.
@@ -247,22 +203,22 @@ class CLIMQTT(mqtt.Client):
     def _cal_psu(self, msg):
         """Measure the reference photodiode as a funtcion of LED current."""
         args = self._format_cal_psu_msg(msg)
-        self._start_or_resume_subprocess(args)
+        self._start_subprocess(args)
 
     def _home(self):
         """Home the stage."""
         args = ["--home"]
-        self._start_or_resume_subprocess(args)
+        self._start_subprocess(args)
 
     def _goto(self, msg):
         """Go to a stage position."""
         args = ["--goto"] + msg
-        self._start_or_resume_subprocess(args)
+        self._start_subprocess(args)
 
     def _read_stage(self):
         """Read the stage position."""
         args = ["--read-stage"]
-        self._start_or_resume_subprocess(args)
+        self._start_subprocess(args)
 
 
 if __name__ == "__main__":
