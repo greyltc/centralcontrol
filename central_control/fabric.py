@@ -1,6 +1,5 @@
 """High level experiment functions."""
 
-import h5py
 import numpy as np
 import scipy as sp
 from scipy.integrate import simps
@@ -58,7 +57,197 @@ class fabric:
 
         return compliance_i
 
-    def connect(
+    def connect_smu(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        smu_address=None,
+        smu_terminator="\n",
+        smu_baud=57600,
+    ):
+        """Create smu connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        smu_address : str
+            VISA resource name for the source-measure unit. If `None` is given a
+            virtual instrument is created.
+        smu_terminator : str
+            Termination character for communication with the source-measure unit.
+        smu_baud : int
+            Baud rate for serial communication with the source-measure unit.
+        """
+        if (smu_address is None) or (dummy is True):
+            self.sm = virt.k2400()
+        else:
+            self.sm = k2400(
+                visa_lib=visa_lib,
+                terminator=smu_terminator,
+                addressString=smu_address,
+                serialBaud=smu_baud,
+            )
+        self.sm_idn = self.sm.idn
+
+        # instantiate max-power tracker object based on smu
+        self.mppt = mppt(self.sm)
+
+    def connect_lia(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        lia_address=None,
+        lia_terminator="\r",
+        lia_baud=9600,
+        lia_output_interface=0,
+    ):
+        """Create lock-in amplifier connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        lia_address : str
+            VISA resource name for the lock-in amplifier. If `None` is given a virtual
+            instrument is created.
+        lia_terminator : str
+            Termination character for communication with the lock-in amplifier.
+        lia_baud : int
+            Baud rate for serial communication with the lock-in amplifier.
+        lia_output_interface : int
+            Communication interface on the lock-in amplifier rear panel used to read
+            instrument responses. This does not need to match the VISA resource
+            interface type if, for example, an interface adapter is used between the
+            control computer and the instrument. Valid output communication interfaces:
+                * 0 : RS232
+                * 1 : GPIB
+        """
+        if (lia_address is None) or (dummy is True):
+            self.lia = virtual_sr830.sr830(return_int=True)
+        else:
+            self.lia = sr830.sr830(return_int=True, check_errors=True)
+            # default lia_output_interface is RS232
+        self.lia.connect(
+            resource_name=lia_address,
+            output_interface=lia_output_interface,
+            set_default_configuration=True,
+        )
+        self.lia_idn = self.lia.get_id()
+
+    def connect_monochromator(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        mono_address=None,
+        mono_terminator="\r",
+        mono_baud=9600,
+    ):
+        """Create monochromator connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        mono_address : str
+            VISA resource name for the monochromator. If `None` is given a virtual
+            instrument is created.
+        mono_terminator : str
+            Termination character for communication with the monochromator.
+        mono_baud : int
+            Baud rate for serial communication with the monochromator.
+        """
+        if (mono_address is None) or (dummy is True):
+            self.mono = virtual_sp2150.sp2150()
+        else:
+            self.mono = sp2150.sp2150()
+        self.mono.connect(resource_name=mono_address)
+        self.mono.set_scan_speed(1000)
+
+    def connect_solarsim(self, dummy=False, visa_lib="@py", light_address=None):
+        """Create solar simulator connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        light_address : str
+            VISA resource name for the light engine. If `None` is given a virtual
+            instrument is created.
+        """
+        if (light_address is None) or (dummy is True):
+            self.le = virt.illumination()
+        else:
+            self.le = illumination(address=light_address)
+        self.le.connect()
+
+    def connect_controller(
+        self, dummy=False, visa_lib="@py", controller_address=None,
+    ):
+        """Create mux and stage controller connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        controller_address : str
+            VISA resource name for the multiplexor and stage controller. If `None` is
+            given a virtual instrument is created.
+        """
+        if (controller_address is None) or (dummy is True):
+            self.controller = virt.controller()
+        else:
+            self.controller = controller(address=controller_address)
+        self.controller.connect()
+
+    def connect_psu(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        psu_address=None,
+        psu_terminator="\r",
+        psu_baud=9600,
+    ):
+        """Create LED PSU connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        psu_address : str
+            VISA resource name for the LED power supply unit. If `None` is given a
+            virtual instrument is created.
+        psu_terminator : str
+            Termination character for communication with the power supply unit.
+        psu_baud : int
+            Baud rate for serial communication with the power supply unit.
+        """
+        if (psu_address is None) or (dummy is True):
+            self.psu = virtual_dp800.dp800()
+        else:
+            self.psu = dp800.dp800()
+        self.psu.connect(resource_name=psu_address)
+        self.psu_idn = self.psu.get_id()
+
+    def connect_all_instruments(
         self,
         dummy=False,
         visa_lib="@py",
@@ -132,63 +321,65 @@ class fabric:
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
         """
-        # source measure unit
-        if (smu_address is None) or (dummy is True):
-            self.sm = virt.k2400()
-        else:
-            self.sm = k2400(
-                visa_lib=visa_lib,
-                terminator=smu_terminator,
-                addressString=smu_address,
-                serialBaud=smu_baud,
-            )
-        self.sm_idn = self.sm.idn
-
-        # instantiate max-power tracker object based on smu
-        self.mppt = mppt(self.sm)
-
-        # multiplexor
-        if (controller_address is None) or (dummy is True):
-            self.controller = virt.controller()
-        else:
-            self.controller = controller(address=controller_address)
-        self.controller.connect()
-
-        # light engine
-        if (light_address is None) or (dummy is True):
-            self.le = virt.illumination()
-        else:
-            self.le = illumination(address=light_address)
-        self.le.connect()
-
-        # lock=in amplifier
-        if (lia_address is None) or (dummy is True):
-            self.lia = virtual_sr830.sr830(return_int=True)
-        else:
-            self.lia = sr830.sr830(return_int=True, check_errors=True)
-            # default lia_output_interface is RS232
-        self.lia.connect(
-            resource_name=lia_address,
-            output_interface=lia_output_interface,
-            set_default_configuration=True,
+        self.connect_smu(
+            dummy=dummy,
+            visa_lib=visa_lib,
+            smu_address=smu_address,
+            smu_terminator=smu_terminator,
+            smu_baud=smu_baud,
         )
-        self.lia_idn = self.lia.get_id()
 
-        # monochromator
-        if (mono_address is None) or (dummy is True):
-            self.mono = virtual_sp2150.sp2150()
-        else:
-            self.mono = sp2150.sp2150()
-        self.mono.connect(resource_name=mono_address)
-        self.mono.set_scan_speed(1000)
+        self.connect_lia(
+            dummy=dummy,
+            visa_lib=visa_lib,
+            lia_address=lia_address,
+            lia_terminator=lia_terminator,
+            lia_baud=lia_baud,
+            lia_output_interface=lia_output_interface,
+        )
 
-        # bias LED PSU
-        if (psu_address is None) or (dummy is True):
-            self.psu = virtual_dp800.dp800()
-        else:
-            self.psu = dp800.dp800()
-        self.psu.connect(resource_name=psu_address)
-        self.psu_idn = self.psu.get_id()
+        self.connect_monochromator(
+            dummy=dummy,
+            visa_lib=visa_lib,
+            mono_address=mono_address,
+            mono_terminator=mono_terminator,
+            mono_baud=mono_baud,
+        )
+
+        self.connect_solarsim(
+            dummy=dummy, visa_lib=visa_lib, light_address=light_address
+        )
+
+        self.connect_controller(
+            dummy=dummy, visa_lib=visa_lib, controller_address=controller_address,
+        )
+
+        self.connect_psu(
+            dummy=dummy,
+            visa_lib=visa_lib,
+            psu_address=psu_address,
+            psu_terminator=psu_terminator,
+            psu_baud=psu_baud,
+        )
+
+    def disconnect_instrument(self, instr):
+        """Disconnect and instrument.
+
+        Parameters
+        ----------
+        instr : VISA resource object
+            VISA resource for the instrument.
+        """
+        instr.close()
+
+    def disconnect_all_instruments(self):
+        """Disconnect all instruments."""
+        self.sm.close()
+        self.lia.close()
+        self.mono.close()
+        self.controller.close()
+        self.le.close()
+        self.psu.close()
 
     def hardware_test(self, substrates_to_test):
         """Test hardware."""

@@ -27,17 +27,18 @@ controller:
     address: 172.0.0.3
 
 # source-measure unit(s)
-smus:
-    - smu1:
-        address: ASRL1::INSTR
-        baud: 57600
-        terminator: '\n'
-        # if front terminals is false, use rear terminals
-        front_terminals: false
-        # if 2 wire is false, use 4 wire
-        two_wire: false
-        # list of mux relays served by smu
-        mux_relays: null
+smu:
+    smus:
+        - smu1:
+            address: ASRL1::INSTR
+            # list of mux relays served by smu
+            mux_relays: null
+    baud: 57600
+    terminator: '\n'
+    # if front terminals is false, use rear terminals
+    front_terminals: false
+    # if 2 wire is false, use 4 wire
+    two_wire: false
 
 solarsim:
     address: wavelabs-relay://127.0.0.1:3335
@@ -46,17 +47,22 @@ solarsim:
 # lock-in amplifier
 lia:
     address: ASRL2::INSTR
-    output_interface: 0
     terminator: '\r'
+    baud: 9600
+    output_interface: 0
 
 monochromator:
     address: ASRL3::INSTR
+    terminator: '\r'
+    baud: 9600
     grating_change_wls: [1200]
     filter_change_wls: [370, 640, 715, 765]
 
 # LED power supply unit
 psu:
     address: ASRL4::INSTR
+    terminator: '\r'
+    baud: 9600
     ch1_voltage: 30
     ch2_voltage: 30
     ch3_voltage: 5

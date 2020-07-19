@@ -794,11 +794,26 @@ def run(mqttc, args):
     save_args(mqttc, args)
     save_settings()
 
-    # look up number of stage axes from config and init attribute
-    axes = get_axes()
-
     # connect all instruments
-    measurement.connect_all()
+    measurement.connect_all_instruments(
+        args.dummy,
+        config["visa"]["visa_lib"],
+        config["smu"]["smus"]["smu1"]["address"],
+        config["smu"]["terminator"],
+        config["smu"]["baud"],
+        config["controller"]["address"],
+        config["solarsimulator"]["address"],
+        config["lia"]["address"],
+        config["lia"]["terminator"],
+        config["lia"]["baud"],
+        config["lia"]["output_interface"],
+        config["monochromator"]["address"],
+        config["monochromator"]["terminator"],
+        config["monochromator"]["baud"],
+        config["psu"]["address"],
+        config["psu"]["terminator"],
+        config["psu"]["baud"],
+    )
 
     # build up the queue of pixels to run through
     if args.dummy is True:
@@ -828,8 +843,7 @@ def run(mqttc, args):
         eqe(mqqtc, eqe_pixel_queue, args)
 
     # disconnect all instruments
-    # TODO; make function
-    disconnect_all()
+    measurement.disconnect_all_instruments()
 
 
 def on_message(mqttc, obj, msg):
