@@ -28,7 +28,7 @@ controller:
 
 # source-measure unit(s)
 smus:
-    smu1:
+    - smu1:
         address: ASRL1::INSTR
         baud: 57600
         terminator: '\n'
