@@ -13,41 +13,12 @@ import psutil
 import central_control.cli
 
 
-class CLIMQTT(mqtt.Client):
-    """MQTT client that controls how the CLI is run from the GUI."""
+class ContextMQTT(mqtt.Client):
+    """MQTT client with context manager methods."""
 
-    stop = collections.deque([False], maxlen=1)
-    status = collections.deque(["idle"], maxlen=1)
-
-    def __init__(self, MQTTHOST="127.0.0.1", topic="gui/#"):
-        """Construct object.
-
-        Connect the MQTT client to the broker, subscribe to the GUI topic, and create
-        process attribute (for storing cli process).
-
-        Parameters
-        ----------
-        MQTTHOST : str
-            IP address or host name of the MQTT broker.
-        topic : str
-            Topic to subscribe to.
-        """
+    def __init__(self):
+        """Construct object."""
         super().__init__()
-        # connect MQTT client to broker
-        self.connect(MQTTHOST)
-        # subscribe to everything in the GUI topic
-        self.subscribe(topic)
-
-        # psutils process object
-        self.proc = None
-
-        # append MQTT handlers to this as they're created so they can be all easily
-        # cleaned up by context manager
-        self.handlers = deque()
-
-        # check if graceful keyboard interrupt is available on running os
-        if (self.os_name := os.name) != "posix":
-            warnings.warn("The CLI cannot be stopped gracefully on this OS.")
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
@@ -58,35 +29,9 @@ class CLIMQTT(mqtt.Client):
 
         Make sure everything gets cleaned up properly.
         """
-        try:
-            self._stop()
-        except psutil.NoSuchProcess:
-            # subprocess has already stopped
-            pass
         self.loop_stop()
         self.disconnect()
 
-    def on_message(self, mqttc, obj, msg):
-        """Act on an MQTT message."""
-        m = json.loads(msg.payload)
-
-        # perform action depending on which button generated the message
-        if (subtopic := msg.topic.split("/")[-1]) == "config":
-            self._save_config(m)
-        elif subtopic == "run":
-            self._run(m)
-        elif subtopic == "stop":
-            self._stop()
-        elif subtopic == "cal_eqe":
-            self._cal_eqe(m)
-        elif subtopic == "cal_psu":
-            self._cal_psu(m)
-        elif subtopic == "home":
-            self._home()
-        elif subtopic == "goto":
-            self._goto(m)
-        elif subtopic == "read_stage":
-            self._read_stage()
 
     def _save_config(self, msg):
         """Save config string to cached file so CLI can use it.
@@ -906,6 +851,28 @@ class CLIMQTT(mqtt.Client):
         # disconnect MQTT handlers
         self._disconnect_all()
 
+def on_message(self, mqttc, obj, msg):
+    """Act on an MQTT message."""
+    m = json.loads(msg.payload)
+
+    # perform action depending on which button generated the message
+    if (subtopic := msg.topic.split("/")[-1]) == "config":
+        self._save_config(m)
+    elif subtopic == "run":
+        self._run(m)
+    elif subtopic == "stop":
+        self._stop()
+    elif subtopic == "cal_eqe":
+        self._cal_eqe(m)
+    elif subtopic == "cal_psu":
+        self._cal_psu(m)
+    elif subtopic == "home":
+        self._home()
+    elif subtopic == "goto":
+        self._goto(m)
+    elif subtopic == "read_stage":
+        self._read_stage()
+
 
 if __name__ == "__main__":
     import argparse
@@ -917,9 +884,14 @@ if __name__ == "__main__":
         help="IP address or hostname of MQTT broker.",
     )
     parser.add_argument(
-        "--topic", default="server/#", help="Topic for MQTT client to subscribe to.",
+        "--topic", default="server/request", help="Topic for MQTT client to subscribe to.",
     )
     args = parser.parse_args()
 
-    with CLIMQTT(args.mqtthost, args.topic) as mqttc:
+    with ContextMQTT() as mqttc:
+        mqttc.on_message = on_message
+        # connect MQTT client to broker
+        mqttc.connect(args.MQTTHOST)
+        # subscribe to everything in the server/request topic
+        mqttc.subscribe(args.topic)
         mqttc.loop_forever()
