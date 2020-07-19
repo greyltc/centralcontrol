@@ -2,9 +2,9 @@
 
 import collections
 import json
+import multiprocessing as mp
 import os
 import signal
-import subprocess
 import warnings
 
 import paho.mqtt.client as mqtt
@@ -12,6 +12,8 @@ import psutil
 
 import central_control.cli
 
+# create empty dummy process on start
+process = mp.Process()
 
 class ContextMQTT(mqtt.Client):
     """MQTT client with context manager methods."""
@@ -45,17 +47,6 @@ def _save_config(self, msg):
     with open(self.config_file_path, "w") as f:
         f.wrtie(msg)
 
-def _start_subprocess(self, args):
-    """Run the CLI as a subprocess.
-
-    Parameters
-    ----------
-    args : list
-        List of command line arguments to parse to CLI.
-    """
-    cli_args = ["python", "cli.py"] + args
-    p = subprocess.Popen(cli_args)
-    self.proc = psutil.Process(p.pid)
 
 def _format_run_msg(self, msg):
     """Convert run msg from GUI to CLI list for subprocess.
@@ -852,29 +843,65 @@ def run(self):
     self._disconnect_all()
 
 
-def on_message(self, mqttc, obj, msg):
+def on_message(mqttc, obj, msg):
     """Act on an MQTT message."""
     m = json.loads(msg.payload)
     action = m["action"]
     data = m["data"]
 
     # perform action depending on which button generated the message
-    if action == "config":
-        self._save_config(m)
+    if action == "get_config":
+        _get_config()
+    elif action == "set_config":
+        _set_config()
     elif action == "run":
-        self._run(m)
+        _run(m)
     elif action == "stop":
-        self._stop()
+        _stop()
     elif action == "cal_eqe":
-        self._cal_eqe(m)
+        _cal_eqe(m)
     elif action == "cal_psu":
-        self._cal_psu(m)
+        _cal_psu(m)
     elif action == "home":
-        self._home()
+        _home()
     elif action == "goto":
-        self._goto(m)
+        _goto(m)
     elif action == "read_stage":
-        self._read_stage()
+        _read_stage()
+
+
+def _start_process(target, args):
+    """Run a function in a new process.
+
+    Parameters
+    ----------
+    target : function
+        Name of function to run in a new process.
+    args : tuple
+        Arguments to pass to the function formatted as (arg1, arg2, ...,).
+    """
+    global process
+
+    # try to start a new process. Ignore request if a process is still running.
+    if process.is_alive() is False:
+        process = mp.Process(target=target, args=args)
+        process.start()
+        print(f"Started process with PID={process.pid}!")
+    else:
+        print(f"Cannot start new process. A process is still running with PID={process.pid}.")
+
+
+def _stop():
+    """Stop an active process running a requested function."""
+    global process
+
+    # if the process is still alive, stop it
+    if process.is_alive() is True:
+        process.terminate()
+        process.join()
+        print(f"Stopped process with PID={process.pid}.")
+    else:
+        print(f"Process with PID={process.pid} has already stopped.")
 
 
 if __name__ == "__main__":
@@ -886,9 +913,6 @@ if __name__ == "__main__":
         default="127.0.0.1",
         help="IP address or hostname of MQTT broker.",
     )
-    parser.add_argument(
-        "--topic", default="server/request", help="Topic for MQTT client to subscribe to.",
-    )
     args = parser.parse_args()
 
     with ContextMQTT() as mqttc:
@@ -896,5 +920,5 @@ if __name__ == "__main__":
         # connect MQTT client to broker
         mqttc.connect(args.MQTTHOST)
         # subscribe to everything in the server/request topic
-        mqttc.subscribe(args.topic)
+        mqttc.subscribe("server/request")
         mqttc.loop_forever()
