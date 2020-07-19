@@ -12,8 +12,10 @@ import psutil
 
 import central_control.cli
 
-# create empty dummy process on start
+
+# create dummy process
 process = mp.Process()
+
 
 class ContextMQTT(mqtt.Client):
     """MQTT client with context manager methods."""
@@ -904,6 +906,23 @@ def _stop():
         print(f"Process with PID={process.pid} has already stopped.")
 
 
+def respond(mqttc, kind, data):
+    """Publish responses to server/response topic.
+
+    Parameters
+    ----------
+    mqttc : mqtt.Client
+        MQTT client to publish from.
+    kind : str
+        Name for the kind of data included in the response dictionary.
+    data : any jsonifiable type
+        Data to be included in the response dictionary.
+    """
+    payload = json.dumps({"kind": kind, "data": data})
+    mqttc.publish("server/response", payload=payload, qos=2).wait_for_publish()
+
+
+# required when using multiprocessing in windows, advised on other platforms
 if __name__ == "__main__":
     import argparse
 
@@ -915,10 +934,10 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    with ContextMQTT() as mqttc:
-        mqttc.on_message = on_message
+    with ContextMQTT() as mqtt_server:
+        mqtt_server.on_message = on_message
         # connect MQTT client to broker
-        mqttc.connect(args.MQTTHOST)
+        mqtt_server.connect(args.MQTTHOST)
         # subscribe to everything in the server/request topic
-        mqttc.subscribe("server/request")
-        mqttc.loop_forever()
+        mqtt_server.subscribe("server/request")
+        mqtt_server.loop_forever()
