@@ -3,7 +3,6 @@
 import collections
 import json
 import multiprocessing as mp
-import os
 import signal
 import warnings
 
@@ -15,6 +14,9 @@ import central_control.cli
 
 # create dummy process
 process = mp.Process()
+
+# create dummy config
+config = {}
 
 
 class ContextMQTT(mqtt.Client):
@@ -48,6 +50,66 @@ def _save_config(self, msg):
     self.config_file_path = self.cli.cache.joinpath(self.cli.config_file)
     with open(self.config_file_path, "w") as f:
         f.wrtie(msg)
+
+example_config_file_name = "example_config.ini"
+config_file_name = "measurement_config.ini"
+self.config_file = pathlib.Path(config_file_name)
+
+# let's figure out where the configuration file is
+config_env_var = "MEASUREMENT_CONFIGURATION_FILE_NAME"
+if config_env_var in os.environ:
+    env_config = pathlib.Path(os.environ.get(config_env_var))
+else:
+    env_config = pathlib.Path()
+home_config = pathlib.Path.home() / config_file_name
+local_config = pathlib.Path(config_file_name)
+example_config = pathlib.Path(example_config_file_name)
+example_python_config = pathlib.Path("python") / example_config_file_name
+file_sibling_config = self.this_file.parent / example_config_file_name
+self.config_warn = False
+if self.cl_config.is_file():  # priority 1: check the command line
+    lg.debug("Using config file from command line")
+    self.config_file = self.cl_config
+elif env_config.is_file():  # priority 2: check the environment
+    lg.debug(f"Using config file from {config_env_var} variable")
+    self.config_file = env_config
+elif local_config.is_file():  # priority 3: check in the current drectory
+    #lg.debug(f"Using local config file {local_config.resolve()}")
+    self.config_file = local_config
+elif home_config.is_file():  # priority 4: check in home dir
+    lg.debug(
+        f"Using config file {config_file_name} in home dir: {pathlib.Path.home()}"
+    )
+    self.config_file = home_config
+elif example_config.is_file():  # priority 5: check in cwd for example
+    lg.debug(f"Using example config file: {example_config.resolve()}")
+    self.config_file = example_config
+    self.config_warn = True
+elif example_python_config.is_file():  # priority 6: check in python/for example
+    lg.debug(f"Using example config file: {example_python_config.resolve()}")
+    self.config_file = example_python_config
+    self.config_warn = True
+elif file_sibling_config.is_file():
+    lg.debug(f"Using example config file next to __file__: {file_sibling_config.resolve()}")
+    self.config_file = file_sibling_config
+    self.config_warn = True
+else:  # and give up
+    lg.error("Unable to find a configuration file to load.")
+    raise (ValueError("No config file"))
+
+lg.info(f"Using configuration file: {self.config_file.resolve()}")
+if self.config_warn == True:
+    lg.warning(f"You're running with the example configuration file. That's likely not what you want.")
+
+try:
+    with open(self.config_file, "r") as f:
+        for line in f:
+            lg.debug(line.rstrip())
+    self.config.read(str(self.config_file))
+except:
+    lg.error("Unexpected error parsing config file.")
+    lg.error(sys.exc_info()[0])
+    raise
 
 
 def _format_run_msg(self, msg):
@@ -926,6 +988,8 @@ def respond(mqttc, kind, data):
 if __name__ == "__main__":
     import argparse
 
+    import yaml
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mqtthost",
@@ -933,6 +997,19 @@ if __name__ == "__main__":
         help="IP address or hostname of MQTT broker.",
     )
     args = parser.parse_args()
+
+    # try to load the configuration file from the current working directory
+    try:
+        with open("measurement_config.yaml", "r") as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)
+    except FileNotFoundError:
+        # maybe running a test from project directory
+        try:
+            with open("example_config.yaml", "r") as f:
+                config = yaml.load(f, Loader=yaml.FullLoader)
+            print(f"'measurement_config.yaml' not found in current working directory: {os.getcwd()}. Falling back on 'example_config.yaml' project file.")
+        except FileNotFoundError:
+            raise FileNotFoundError(f"No configuration file could be found in current working directory: {os.getcwd()}. Please run the server from a directory with a valid 'measurement_config.yaml' file.")
 
     with ContextMQTT() as mqtt_server:
         mqtt_server.on_message = on_message
