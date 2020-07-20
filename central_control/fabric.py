@@ -628,6 +628,9 @@ class fabric:
 
     def eqe(
         self,
+        ref_measurement,
+        ref_eqe,
+        ref_spectrum,
         psu_ch1_voltage=0,
         psu_ch1_current=0,
         psu_ch2_voltage=0,
@@ -635,28 +638,68 @@ class fabric:
         psu_ch3_voltage=0,
         psu_ch3_current=0,
         smu_voltage=0,
-        calibration=True,
-        ref_measurement_path=None,
-        ref_measurement_file_header=1,
-        ref_eqe_path=None,
-        ref_spectrum_path=None,
         start_wl=350,
         end_wl=1100,
         num_points=76,
-        repeats=1,
         grating_change_wls=None,
         filter_change_wls=None,
+        integration_time=8,
         auto_gain=True,
         auto_gain_method="user",
-        integration_time=8,
         handler=None,
+        handler_kwargs={},
     ):
-        """Run EQE scan."""
-        # TODO: don't always need this
-        # open all mux relays if calibrating
-        if calibration is True:
-            self.controller.clear_mux()
+        """Run an EQE scan.
 
+        Paremeters
+        ----------
+        ref_measurement : array
+            Measurement data of the reference diode arranged in two columns where the
+            first column is wavelengths in nm and the second is the measured signal at
+            each wavelength. Ignored if `calibration` is True.
+        ref_eqe : array
+            EQE calibration data for the reference diode arranged in two columns where
+            the first column is wavelengths in nm and the second is EQE in desired
+            units at each wavelength. Ignored if `calibration` is True.
+        ref_spectrum : array
+            Reference spectrum to use in an integrated Jsc calculation arranged in two
+            columns where the first column is wavelengths in nm and the second is spectral
+            irradiance in W/m^2/nm at each wavelength Ignored if `calibration` is True.
+        psu_ch1_voltage : float, optional
+            PSU channel 1 voltage.
+        psu_ch1_current : float, optional
+            PSU channel 1 current.
+        psu_ch2_voltage : float, optional
+            PSU channel 2 voltage.
+        psu_ch2_current : float, optional
+            PSU channel 2 current.
+        psu_ch3_voltage : float, optional
+            PSU channel 3 voltage.
+        psu_ch3_current : float, optional
+            PSU channel 3 current.
+        start_wl : int or float, optional
+            Start wavelength in nm.
+        end_wl : int or float, optional
+            End wavelength in nm
+        num_points : int, optional
+            Number of wavelengths in scan
+        grating_change_wls : list or tuple of int or float, optional
+            Wavelength in nm at which to change to the grating.
+        filter_change_wls : list or tuple of int or float, optional
+            Wavelengths in nm at which to change filters
+        integration_time : int
+            Integration time setting for the lock-in amplifier.
+        auto_gain : bool, optional
+            Automatically choose sensitivity.
+        auto_gain_method : {"instr", "user"}, optional
+            If auto_gain is True, method for automatically finding the correct gain
+            setting. "instr" uses the instrument auto-gain feature, "user" implements
+            a user-defined algorithm.
+        handler : data_handler object, optional
+            Object that processes live data produced during the scan.
+        handler_kwargs : dict, optional
+            Dictionary of keyword arguments to pass to the handler.
+        """
         eqe_data = eqe.scan(
             self.lia,
             self.mono,
@@ -669,24 +712,112 @@ class fabric:
             psu_ch3_voltage,
             psu_ch3_current,
             smu_voltage,
-            calibration,
-            ref_measurement_path,
-            ref_measurement_file_header,
-            ref_eqe_path,
-            ref_spectrum_path,
+            False,
+            ref_measurement,
+            ref_eqe,
+            ref_spectrum,
             start_wl,
             end_wl,
             num_points,
-            repeats,
             grating_change_wls,
             filter_change_wls,
+            integration_time,
             auto_gain,
             auto_gain_method,
-            integration_time,
             handler,
+            handler_kwargs,
         )
 
         return eqe_data
+
+    def calibrate_eqe(
+        self,
+        psu_ch1_voltage=0,
+        psu_ch1_current=0,
+        psu_ch2_voltage=0,
+        psu_ch2_current=0,
+        psu_ch3_voltage=0,
+        psu_ch3_current=0,
+        smu_voltage=0,
+        start_wl=350,
+        end_wl=1100,
+        num_points=76,
+        grating_change_wls=None,
+        filter_change_wls=None,
+        integration_time=8,
+        auto_gain=True,
+        auto_gain_method="user",
+        handler=None,
+        handler_kwargs={},
+    ):
+        """Measure an EQE calibration photodiode.
+
+        Paremeters
+        ----------
+        psu_ch1_voltage : float, optional
+            PSU channel 1 voltage.
+        psu_ch1_current : float, optional
+            PSU channel 1 current.
+        psu_ch2_voltage : float, optional
+            PSU channel 2 voltage.
+        psu_ch2_current : float, optional
+            PSU channel 2 current.
+        psu_ch3_voltage : float, optional
+            PSU channel 3 voltage.
+        psu_ch3_current : float, optional
+            PSU channel 3 current.
+        start_wl : int or float, optional
+            Start wavelength in nm.
+        end_wl : int or float, optional
+            End wavelength in nm
+        num_points : int, optional
+            Number of wavelengths in scan
+        grating_change_wls : list or tuple of int or float, optional
+            Wavelength in nm at which to change to the grating.
+        filter_change_wls : list or tuple of int or float, optional
+            Wavelengths in nm at which to change filters
+        integration_time : int
+            Integration time setting for the lock-in amplifier.
+        auto_gain : bool, optional
+            Automatically choose sensitivity.
+        auto_gain_method : {"instr", "user"}, optional
+            If auto_gain is True, method for automatically finding the correct gain
+            setting. "instr" uses the instrument auto-gain feature, "user" implements
+            a user-defined algorithm.
+        handler : data_handler object, optional
+            Object that processes live data produced during the scan.
+        handler_kwargs : dict, optional
+            Dictionary of keyword arguments to pass to the handler.
+        """
+        cal_eqe_data = eqe.scan(
+            self.lia,
+            self.mono,
+            self.psu,
+            self.sm,
+            psu_ch1_voltage,
+            psu_ch1_current,
+            psu_ch2_voltage,
+            psu_ch2_current,
+            psu_ch3_voltage,
+            psu_ch3_current,
+            smu_voltage,
+            True,
+            None,
+            None,
+            None,
+            start_wl,
+            end_wl,
+            num_points,
+            grating_change_wls,
+            filter_change_wls,
+            integration_time,
+            auto_gain,
+            auto_gain_method,
+            handler,
+            handler_kwargs,
+        )
+
+        return cal_eqe_data
 
     def calibrate_psu(self, channel=1, loc=None, handler=None):
         """Calibrate the LED PSU.

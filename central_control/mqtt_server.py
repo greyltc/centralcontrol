@@ -1,5 +1,6 @@
 """Client for running the CLI based on MQTT messages."""
 
+import argparse
 import collections
 import json
 import multiprocessing as mp
@@ -9,13 +10,51 @@ import warnings
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
 
 import central_control.fabric
+import yaml
 
+
+def get_args():
+    """Get arguments parsed from the command line."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mqtthost",
+        default="127.0.0.1",
+        help="IP address or hostname of MQTT broker.",
+    )
+    return parser.parse_args()
+
+
+def yaml_include(loader, node):
+    """Load tagged yaml files into root file."""
+    with open(node.value) as f:
+        return yaml.load(f, Loader=yaml.FullLoader)
+
+
+# bind include function to !include tags in yaml config file
+yaml.add_constructor("!include", yaml_include)
+
+# try to load the configuration file from the current working directory
+try:
+    with open("measurement_config.yaml", "r") as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+except FileNotFoundError:
+    # maybe running a test from project directory
+    try:
+        with open("example_config.yaml", "r") as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)
+        print(
+            "'measurement_config.yaml' not found in current working directory: " +
+            f"{os.getcwd()}. Falling back on 'example_config.yaml' project file."
+        )
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            "No configuration file could be found in current working directory: " +
+            f"{os.getcwd()}. Please run the server from a directory with a valid " +
+            "'measurement_config.yaml' file."
+        )
 
 # create dummy process
 process = mp.Process()
-
-# create dummy config
-config = {}
 
 # create measurement object
 measurement = central_control.fabric.fabric()
@@ -57,21 +96,82 @@ def stop_process():
         print(f"Process with PID={process.pid} has already stopped.")
 
 
-def save_config():
-    """Send configuration to save clients."""
-    # TODO: fill in func
-    pass
+def publish_config(mqttc):
+    """Send configuration to clients.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    """
+    payload = {"kind": "config", "data": config}
+    mqttc.append_payload(json.dumps(payload))
 
 
-def calibrate_eqe(args):
-    """Measure the EQE reference photodiode."""
-    # TODO: complete args for func
-    measurement.calibrate_eqe()
+def calibrate_eqe(mqttc):
+    """Measure the EQE reference photodiode.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    """
+    measurement.controller.set_relay("eqe")
+
+    # measure all eqe calibration diodes
+    for diode in config["experiments"]["eqe"]["calibration_diodes"]:
+        if (c := config["calibration_diodes"][diode]["connection"]) == "external":
+            # if externally connected make sure all mux relays are open
+            measurement.controller.clear_mux()
+            measurement.goto_stage_position(
+                config["calibration_diodes"][diode][position],
+                handler=handle_stage_data,
+                handler_kwargs={"mqttc": mqttc},
+            )
+        elif c == "internal":
+            # connect required relay
+            arr_loc = config["calibration_diodes"][diode]["array_location"]
+            measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
+            pos = calculate_pixel_position("eqe", arr_loc[0], arr_loc[1], arr_loc[2])
+            measurement.goto_stage_position(
+                pos,
+                handler=handle_stage_data,
+                handler_kwargs={"mqttc": mqttc},
+            )
+        else:
+            raise ValueError(
+                f"Photodiode connection mode '{c}' not recognised. Must be " +
+                "'internal' or 'external'."
+            )
+
+        cal_wls = config["calibration_diodes"][diode]["eqe"]["wls"]
+        cal_settings = config["calibratio_diodes"][diode]["eqe_calibration_settings"]
+
+        measurement.calibrate_eqe(
+            psu_ch1_voltage=config["psu"]["ch1_voltage"],
+            psu_ch1_current=cal_settings["ch1_current"],
+            psu_ch2_voltage=config["psu"]["ch2_voltage"],
+            psu_ch2_current=cal_settings["ch2_current"],
+            psu_ch3_voltage=config["psu"]["ch3_voltage"],
+            psu_ch3_current=cal_settings["ch3_current"],
+            smu_voltage=cal_settings["smu_voltage"],
+            start_wl=min(cal_wls),
+            end_wl=max(cal_wls),
+            num_points=len(cal_wls),
+            grating_change_wls=config["monochromator"]["grating_change_wls"],
+            filter_change_wls=config["monochromator"]["filter_change_wls"],
+            integration_time=cal_settings["time_constant"],
+            auto_gain=True,
+            auto_gain_method="user",
+            handler=None,
+            handler_kwargs={},
+        )
 
 
 def calibrate_psu(args):
     """Measure the reference photodiode as a funtcion of LED current."""
     # TODO: complete args for func
+    measurement.controller.set_relay("iv")
     measurement.calibrate_psu()
 
 
@@ -137,7 +237,7 @@ def get_substrate_positions(experiment):
         Absolute substrate centre co-ordinates. Each sublist contains the positions
         along each axis.
     """
-    experiment_centre = config["experiment_positions"][experiment]
+    experiment_centre = config["experiment"][experiment]["positions"]
 
     # read in number substrates in the array along each axis
     substrate_number = config["substrates"]["number"]
@@ -178,6 +278,81 @@ def get_substrate_positions(experiment):
     return substrate_centres
 
 
+def get_substrate_index(array_loc, array_size):
+    """Get the index of a substrate in a flattened array.
+
+    Parameters
+    ----------
+    array_loc : list of int
+        Position of the substrate in the array along each available axis.
+    array_size : list of int
+        Number of substrates in the array along each available axis.
+
+    Returns
+    -------
+    index : int
+        Index of the substrate in the flattened array.
+    """
+    if len(array_loc) > 1:
+        # get position along last axis
+        last_axis_loc = array_loc.pop()
+
+        # pop length of last axis, it's not needed anymore
+        array_size.pop()
+
+        # get the total number of substrates in each subarray comprised of remaining
+        # axes
+        subarray_total = 1
+        for n in array_size:
+            subarray_total = subarray_total * n
+
+        # get the number of substrates in all subarrays along the last axis up to the
+        # level below the substrate location
+        subarray_total = subarray_total * (last_axis_loc - 1)
+
+        # recursively iterate through axes, adding smaller subarray totals as axes are
+        # reduced to 1
+        index = get_substrate_index(array_loc, array_size) + subarray_total
+
+    return index
+
+
+def calculate_pixel_position(experiment, row, col, pixel):
+    """Calculate the position of a pixel.
+
+    Parameters
+    ----------
+    experiment : str
+        Experiment centre to move to.
+    row : int
+        Row index of substrate in the array, 1-indexed.
+    pixel_pos : list of float
+        Relative pixel centre positoin to centre of the substrate in mm along each
+        axis.
+    step_length : float
+        Length of a single stage step in mm.
+    """
+    # find the absolute position of the substrate centre
+    centres = get_substrate_positions(experiment)
+    array_size = config["substrates"]["number"]
+    index = get_substrate_index([row, col], array_size)
+    # because row and col are 1-indexed, so is index, therefore subtract 1
+    centre = centres[index - 1]
+
+    # look up the pixel position in mm
+    layout = config["substrates"]["active_layout"]
+    pos = config["substrates"]["layouts"][layout]["positions"][pixel]
+
+    # convert relative pixel positions in mm to steps
+    step_length = config["stage"]["steplength"]
+    pos = [x / step_length for x in pos]
+
+    # calculate absolute position of pixel
+    pos = [sum(x) for x in zip(pos, centre)]
+
+    return pos
+
+
 def build_q(args, pixel_address_string, experiment):
     """Generate a queue of pixels we'll run through.
 
@@ -213,7 +388,9 @@ def build_q(args, pixel_address_string, experiment):
         (l2 := len(args.labels)) != substrate_total
     ):
         raise ValueError(
-            f"Lists of layouts and labels must match number of substrates in the array: {substrate_total}. Layouts list has length {l1} and labels list has length {l2}."
+            "Lists of layouts and labels must match number of substrates in the " +
+            f"array: {substrate_total}. Layouts list has length {l1} and labels list " +
+            f"has length {l2}."
         )
 
     # create a substrate queue where each element is a dictionary of info about the
@@ -224,15 +401,13 @@ def build_q(args, pixel_address_string, experiment):
         args.layouts, args.labels, substrate_centres
     ):
         # get pcb adapter info from config file
-        pcb_name = config[layout]["pcb_name"]
+        pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
 
         # read in pixel positions from layout in config file
-        config_pos = config[layout]["positions"]
+        config_pos = config["substrates"]["layouts"][layout]["positions"]
         pixel_positions = []
-        for i in range(0, len(config_pos), axes):
-            abs_pixel_position = [
-                int(x + y) for x, y in zip(config_pos[i : i + axes], centre)
-            ]
+        for pos in range(len(config_pos)):
+            abs_pixel_position = [int(x) for x in zip(pos, centre)]
             pixel_positions.append(abs_pixel_position)
 
         # find co-ordinate of substrate in the array
@@ -846,7 +1021,7 @@ def on_message(mqttc, obj, msg):
 
     # perform action depending on which button generated the message
     if action == "get_config":
-        start_process(get_config)
+        start_process(publish_config, (mqttc,))
     elif action == "set_config":
         start_process(set_config)
     elif action == "run":
@@ -874,26 +1049,9 @@ if __name__ == "__main__":
 
     import yaml
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mqtthost",
-        default="127.0.0.1",
-        help="IP address or hostname of MQTT broker.",
-    )
-    args = parser.parse_args()
+    
 
-    # try to load the configuration file from the current working directory
-    try:
-        with open("measurement_config.yaml", "r") as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)
-    except FileNotFoundError:
-        # maybe running a test from project directory
-        try:
-            with open("example_config.yaml", "r") as f:
-                config = yaml.load(f, Loader=yaml.FullLoader)
-            print(f"'measurement_config.yaml' not found in current working directory: {os.getcwd()}. Falling back on 'example_config.yaml' project file.")
-        except FileNotFoundError:
-            raise FileNotFoundError(f"No configuration file could be found in current working directory: {os.getcwd()}. Please run the server from a directory with a valid 'measurement_config.yaml' file.")
+    args = get_args()
 
     with MQTTQueuePublisher() as mqtt_server:
         mqtt_server.on_message = on_message

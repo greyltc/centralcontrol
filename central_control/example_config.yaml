@@ -159,6 +159,15 @@ calibration_diodes:
         # in steps
         position: [1010000, 1200000]
         eqe: !include example_pd1_eqe.yaml
+        # instrument settings for calibrating the photodiode
+        eqe_calibration_settings:
+            # psu currents
+            ch1_current: 0
+            ch2_current: 0
+            ch3_current: 0
+            # LIA time constant setting
+            time_constant: 8
+            smu_voltage: 0
         # 1 sun equivalent calibration current
         solarsim: null
 
