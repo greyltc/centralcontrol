@@ -17,7 +17,7 @@ process = mp.Process()
 # create dummy config
 config = {}
 
-# create measutrement object
+# create measurement object
 measurement = central_control.fabric.fabric()
 
 
@@ -31,6 +31,7 @@ def start_process(target, args=()):
     args : tuple
         Arguments to pass to the function formatted as (arg1, arg2, ...,).
     """
+    # bring process object into scope
     global process
 
     # try to start a new process. Ignore request if a process is still running.
@@ -44,6 +45,7 @@ def start_process(target, args=()):
 
 def stop_process():
     """Stop an active process running a requested function."""
+    # bring process object into scope
     global process
 
     # if the process is still alive, stop it
@@ -63,14 +65,12 @@ def save_config():
 
 def calibrate_eqe(args):
     """Measure the EQE reference photodiode."""
-    global measurement
     # TODO: complete args for func
     measurement.calibrate_eqe()
 
 
 def calibrate_psu(args):
     """Measure the reference photodiode as a funtcion of LED current."""
-    global measurement
     # TODO: complete args for func
     measurement.calibrate_psu()
 
@@ -84,20 +84,17 @@ def calibrate_solarsim(args):
 
 def home():
     """Home the stage."""
-    global measurement
     measurement.home_stage(config["stage"]["length"])
 
 
 def goto(args):
     """Go to a stage position."""
-    global measurement
     # TODO: complete args for func
     measurement.goto_stage_position()
 
 
 def read_stage():
     """Read the stage position."""
-    global measurement
     # TODO: complete args for func
     measurement.read_stage_position()
 
@@ -411,8 +408,6 @@ def ivt(mqttc, pixel_queue, args):
     args : types.SimpleNamespace
         Experiment arguments.
     """
-    global measurement
-
     # set the master experiment relay
     measurement.controller.set_relay("iv")
 
@@ -688,7 +683,6 @@ def eqe(mqqtc, pixel_queue, args):
     args : types.SimpleNamespace
         Experiment arguments.
     """
-    global measurement
     measurement.controller.set_relay("eqe")
 
     # look up settings from config
@@ -784,8 +778,6 @@ def run(mqttc, args):
     args : types.SimpleNamespace
         Arguments required to run a measurement.
     """
-    global measurement
-
     # verify a save client is available
     verify_save_client()
 
