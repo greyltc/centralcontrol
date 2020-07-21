@@ -2,14 +2,18 @@
 
 import argparse
 import collections
+import itertools
 import json
+import os
 import sys
+import threading
 import types
 import warnings
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
-
 import central_control.fabric
+
+import numpy as np
 import yaml
 
 
@@ -34,7 +38,7 @@ def yaml_include(loader, node):
 yaml.add_constructor("!include", yaml_include)
 
 
-def load_config_from_file():
+def load_config_from_file(mqttc):
     """Load the configuration file into memory."""
     global config
 
@@ -42,21 +46,51 @@ def load_config_from_file():
     try:
         with open("measurement_config.yaml", "r") as f:
             config = yaml.load(f, Loader=yaml.FullLoader)
+        kind = "info"
+        data = "Configuration file loaded successfully!"
     except FileNotFoundError:
         # maybe running a test from project directory
         try:
             with open("example_config.yaml", "r") as f:
                 config = yaml.load(f, Loader=yaml.FullLoader)
-            print(
-                "'measurement_config.yaml' not found in current working directory: " +
-                f"{os.getcwd()}. Falling back on 'example_config.yaml' project file."
+            kind = "warning"
+            data = (
+                "'measurement_config.yaml' not found in server working directory: "
+                + f"{os.getcwd()}. Falling back on 'example_config.yaml' project file."
             )
         except FileNotFoundError:
-            raise FileNotFoundError(
-                "No configuration file could be found in current working directory: " +
-                f"{os.getcwd()}. Please run the server from a directory with a valid " +
-                "'measurement_config.yaml' file."
+            kind = "error"
+            data = (
+                "No configuration file could be found in server working directory: "
+                + f"{os.getcwd()}. Please run the server from a directory with a valid "
+                + "'measurement_config.yaml' file."
             )
+
+    mqttc.append_payload(json.dumps({"kind": kind, "data": data}))
+
+
+def load_calibration_from_file(mqttc):
+    """Load calibration data from file back into memory."""
+    global calibration
+
+    # try to load the configuration file from the current working directory
+    try:
+        with open("calibration.yaml", "r") as f:
+            calibration = yaml.load(f, Loader=yaml.FullLoader)
+        kind = "info"
+        data = "Calibration data loaded successfully!"
+    except FileNotFoundError:
+        # no calibration available
+        kind = "warning"
+        data = "No calibration data available."
+
+    mqttc.append_payload(json.dumps({"kind": kind, "data": data}))
+
+
+def save_calibration_data():
+    """Save calibration data to disk in case of crash."""
+    with open("calibration.yaml", "w") as f:
+        yaml.dump(calibration, f)
 
 
 def start_thread(mqttc, target, args, name):
@@ -84,11 +118,14 @@ def _publish_config(mqttc):
     mqttc : MQTTQueuePublisher object
         MQTT queue publisher.
     """
+    # reload config from file
+    load_config_from_file(mqttc)
+
     payload = {"kind": "config", "data": config}
     mqttc.append_payload(json.dumps(payload))
 
 
-def _save_new_config(mqttc, new_config):
+def _update_config(mqttc, new_config):
     """Update configuration file.
 
     Parameters
@@ -102,6 +139,28 @@ def _save_new_config(mqttc, new_config):
     payload = {"kind": "warning", "data": "set config not implemented"}
     mqttc.append_payload(json.dumps(payload))
 
+    # reload config from file
+    load_config_from_file(mqttc)
+
+
+def _publish_calibration(mqttc):
+    """Save calibration data to clients.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    """
+    if calibration is {}:
+        kind = "warning"
+        data = "No calibration data available."
+    else:
+        kind = "calibration"
+        data = calibration
+
+    payload = {"kind": kind, "data": data}
+    mqttc.append_payload(json.dumps(payload))
+
 
 def _calibrate_eqe(mqttc):
     """Measure the EQE reference photodiode.
@@ -111,60 +170,66 @@ def _calibrate_eqe(mqttc):
     mqttc : MQTTQueuePublisher object
         MQTT queue publisher.
     """
+    global calibration
+
     measurement.controller.set_relay("eqe")
 
-    # measure all eqe calibration diodes
-    for diode in config["experiments"]["eqe"]["calibration_diodes"]:
-        if (c := config["calibration_diodes"][diode]["connection"]) == "external":
-            # if externally connected make sure all mux relays are open
-            measurement.controller.clear_mux()
+    diode = config["experiments"]["eqe"]["calibration_diode"]
 
-            # move to position
-            measurement.goto_stage_position(
-                config["calibration_diodes"][diode][position],
-                handler=handle_stage_data,
-                handler_kwargs={"mqttc": mqttc},
-            )
-        elif c == "internal":
-            # connect required relay
-            arr_loc = config["calibration_diodes"][diode]["array_location"]
-            measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
+    if (c := config["calibration_diodes"][diode]["connection"]) == "external":
+        # if externally connected make sure all mux relays are open
+        measurement.controller.clear_mux()
 
-            # move to position
-            pos = calculate_pixel_position("eqe", arr_loc[0], arr_loc[1], arr_loc[2])
-            measurement.goto_stage_position(
-                pos,
-                handler=handle_stage_data,
-                handler_kwargs={"mqttc": mqttc},
-            )
-        else:
-            raise ValueError(
-                f"Photodiode connection mode '{c}' not recognised. Must be " +
-                "'internal' or 'external'."
-            )
-
-        cal_wls = config["calibration_diodes"][diode]["eqe"]["wls"]
-        cal_settings = config["calibratio_diodes"][diode]["eqe_calibration_settings"]
-
-        measurement.calibrate_eqe(
-            psu_ch1_voltage=config["psu"]["ch1_voltage"],
-            psu_ch1_current=cal_settings["ch1_current"],
-            psu_ch2_voltage=config["psu"]["ch2_voltage"],
-            psu_ch2_current=cal_settings["ch2_current"],
-            psu_ch3_voltage=config["psu"]["ch3_voltage"],
-            psu_ch3_current=cal_settings["ch3_current"],
-            smu_voltage=cal_settings["smu_voltage"],
-            start_wl=min(cal_wls),
-            end_wl=max(cal_wls),
-            num_points=len(cal_wls),
-            grating_change_wls=config["monochromator"]["grating_change_wls"],
-            filter_change_wls=config["monochromator"]["filter_change_wls"],
-            integration_time=cal_settings["time_constant"],
-            auto_gain=True,
-            auto_gain_method="user",
-            handler=None,
-            handler_kwargs={},
+        # move to position
+        measurement.goto_stage_position(
+            config["calibration_diodes"][diode]["position"],
+            handler=_handle_stage_data,
+            handler_kwargs={"mqttc": mqttc},
         )
+    elif c == "internal":
+        # connect required relay
+        arr_loc = config["calibration_diodes"][diode]["array_location"]
+        measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
+
+        # move to position
+        pos = _calculate_pixel_position("eqe", arr_loc[0], arr_loc[1], arr_loc[2])
+        measurement.goto_stage_position(
+            pos, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc},
+        )
+    else:
+        raise ValueError(
+            f"Photodiode connection mode '{c}' not recognised. Must be "
+            + "'internal' or 'external'."
+        )
+
+    cal_wls = config["calibration_diodes"][diode]["eqe"]["wls"]
+    cal_settings = config["calibratio_diodes"][diode]["eqe_calibration_settings"]
+
+    eqe_calibration = measurement.calibrate_eqe(
+        psu_ch1_voltage=config["psu"]["ch1_voltage"],
+        psu_ch1_current=cal_settings["ch1_current"],
+        psu_ch2_voltage=config["psu"]["ch2_voltage"],
+        psu_ch2_current=cal_settings["ch2_current"],
+        psu_ch3_voltage=config["psu"]["ch3_voltage"],
+        psu_ch3_current=cal_settings["ch3_current"],
+        smu_voltage=cal_settings["smu_voltage"],
+        start_wl=min(cal_wls),
+        end_wl=max(cal_wls),
+        num_points=len(cal_wls),
+        grating_change_wls=config["monochromator"]["grating_change_wls"],
+        filter_change_wls=config["monochromator"]["filter_change_wls"],
+        integration_time=cal_settings["time_constant"],
+        auto_gain=True,
+        auto_gain_method="user",
+        handler=None,
+        handler_kwargs={},
+    )
+
+    calibration["eqe"][diode] = eqe_calibration
+
+    save_calibration_data()
+
+    _publish_calibration(mqttc)
 
 
 def _calibrate_psu(mqttc, channel):
@@ -263,10 +328,7 @@ def _get_substrate_positions(experiment):
     # get absolute substrate centres along each axis
     axis_pos = []
     for offset, spacing, number, centre in zip(
-        substrate_offsets,
-        substrate_spacing,
-        substrate_number,
-        experiment_centre,
+        substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
     ):
         abs_offset = offset * (spacing / steplength) + centre
         axis_pos.append(np.linspace(-abs_offset, abs_offset, number))
@@ -311,7 +373,7 @@ def _get_substrate_index(array_loc, array_size):
 
         # recursively iterate through axes, adding smaller subarray totals as axes are
         # reduced to 1
-        index = get_substrate_index(array_loc, array_size) + subarray_total
+        index = _get_substrate_index(array_loc, array_size) + subarray_total
 
     return index
 
@@ -332,9 +394,9 @@ def _calculate_pixel_position(experiment, row, col, pixel):
         Length of a single stage step in mm.
     """
     # find the absolute position of the substrate centre
-    centres = get_substrate_positions(experiment)
+    centres = _get_substrate_positions(experiment)
     array_size = config["substrates"]["number"]
-    index = get_substrate_index([row, col], array_size)
+    index = _get_substrate_index([row, col], array_size)
     # because row and col are 1-indexed, so is index, therefore subtract 1
     centre = centres[index - 1]
 
@@ -373,7 +435,7 @@ def _build_q(args, pixel_address_string, experiment):
     # TODO: return support for inferring layout from pcb adapter resistors
 
     # get substrate centres
-    substrate_centres = get_substrate_positions(experiment)
+    substrate_centres = _get_substrate_positions(experiment)
     substrate_total = len(substrate_centres)
 
     # number of substrates along each available axis
@@ -387,18 +449,16 @@ def _build_q(args, pixel_address_string, experiment):
         (l2 := len(args.labels)) != substrate_total
     ):
         raise ValueError(
-            "Lists of layouts and labels must match number of substrates in the " +
-            f"array: {substrate_total}. Layouts list has length {l1} and labels list " +
-            f"has length {l2}."
+            "Lists of layouts and labels must match number of substrates in the "
+            + f"array: {substrate_total}. Layouts list has length {l1} and labels list "
+            + f"has length {l2}."
         )
 
     # create a substrate queue where each element is a dictionary of info about the
     # layout from the config file
     substrate_q = []
     i = 0
-    for layout, label, centre in zip(
-        args.layouts, args.labels, substrate_centres
-    ):
+    for layout, label, centre in zip(args.layouts, args.labels, substrate_centres):
         # get pcb adapter info from config file
         pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
 
@@ -435,7 +495,7 @@ def _build_q(args, pixel_address_string, experiment):
     bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
 
     # build pixel queue
-    pixel_q = deque()
+    pixel_q = collections.deque()
     for substrate in substrate_q:
         # git bitmask for the substrate pcb
         sub_bitmask = [
@@ -455,6 +515,7 @@ def _build_q(args, pixel_address_string, experiment):
                 pixel_q.append(pixel_dict)
 
     return pixel_q
+
 
 def _connect_instruments(mqttc, args):
     """Init fabric object and connect instruments.
@@ -501,9 +562,7 @@ def _connect_instruments(mqttc, args):
     )
 
     # set up smu terminals
-    measurement.sm.setTerminals(
-        front=config["smu"]["front_terminals"]
-    )
+    measurement.sm.setTerminals(front=config["smu"]["front_terminals"])
     measurement.sm.setWires(twoWire=config["smu"]["two_wire"])
 
 
@@ -526,14 +585,9 @@ def _handle_measurement_data(data, **kwargs):
 
     payload = {
         "kind": kind,
-        "data": {
-            "data": data,
-            "id": idn,
-            "clear": False,
-            "end": False,
-        }
+        "data": {"data": data, "id": idn, "clear": False, "end": False},
     }
-    mqtt.append_payload(json.dumps(payload))
+    mqttc.append_payload(json.dumps(payload))
 
 
 def _handle_stage_data(data, **kwargs):
@@ -550,7 +604,7 @@ def _handle_stage_data(data, **kwargs):
     mqttc = kwargs["mqttc"]
 
     payload = {"kind": "stage_position", "data": data}
-    mqtt.append_payload(json.dumps(payload))
+    mqttc.append_payload(json.dumps(payload))
 
 
 def _handle_save_settings(settings, **kwargs):
@@ -567,7 +621,7 @@ def _handle_save_settings(settings, **kwargs):
     mqttc = kwargs["mqttc"]
 
     payload = {"kind": "save_settings", "data": settings}
-    mqtt.append_payload(json.dumps(payload))
+    mqttc.append_payload(json.dumps(payload))
 
 
 def _ivt(mqttc, pixel_queue, args):
@@ -604,13 +658,12 @@ def _ivt(mqttc, pixel_queue, args):
         # move to pixel
         measurement.goto_stage_position(
             pixel["position"],
-            handler=handle_stage_data,
+            handler=_handle_stage_data,
             handler_kwargs={"mqttc": mqttc},
         )
 
         # init parameters derived from steadystate measurements
         ssvoc = None
-        ssisc = None
 
         # get or estimate compliance current
         if type(args.current_compliance_override) == float:
@@ -625,9 +678,7 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "vt_measurement",
-                    "data": {
-                        "id": idn, "clear": True, "end": False
-                        }
+                    "data": {"id": idn, "clear": True, "end": False},
                 }
             )
 
@@ -639,7 +690,7 @@ def _ivt(mqttc, pixel_queue, args):
                 compliance=args.voltage_compliance_override,
                 senseRange="a",
                 setPoint=args.steadystate_i,
-                handler=handle_measurement_data,
+                handler=_handle_measurement_data,
                 handler_kwargs={"kind": "vt_measurement", "idn": idn, "mqttc": mqttc},
             )
 
@@ -647,9 +698,7 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "vt_measurement",
-                    "data": {
-                        "id": idn, "clear": False, "end": True
-                        }
+                    "data": {"id": idn, "clear": False, "end": True},
                 }
             )
 
@@ -663,9 +712,7 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "iv_measurement",
-                    "data": {
-                        "id": idn, "clear": True, "end": False
-                        }
+                    "data": {"id": idn, "clear": True, "end": False},
                 }
             )
 
@@ -675,9 +722,7 @@ def _ivt(mqttc, pixel_queue, args):
             if type(args.scan_start_override_1) == float:
                 start = args.scan_start_override_1
             elif ssvoc is not None:
-                start = ssvoc * (
-                    1 + (config["iv"]["percent_beyond_voc"] / 100)
-                )
+                start = ssvoc * (1 + (config["iv"]["percent_beyond_voc"] / 100))
             else:
                 raise ValueError(
                     f"Start voltage wasn't given and couldn't be inferred."
@@ -687,11 +732,7 @@ def _ivt(mqttc, pixel_queue, args):
             if type(args.scan_end_override_1) == float:
                 end = args.scan_end_override_1
             else:
-                end = (
-                    -1
-                    * np.sign(ssvoc)
-                    * config["iv"]["voltage_beyond_isc"]
-                )
+                end = -1 * np.sign(ssvoc) * config["iv"]["voltage_beyond_isc"]
 
             print(f"Sweeping voltage from {start} V to {end} V")
 
@@ -704,7 +745,7 @@ def _ivt(mqttc, pixel_queue, args):
                 start=start,
                 end=end,
                 NPLC=args.scan_nplc,
-                handler=handle_measurement_data,
+                handler=_handle_measurement_data,
                 handler_kwargs={"kind": "iv_measurement", "idn": idn, "mqttc": mqttc},
             )
 
@@ -725,7 +766,7 @@ def _ivt(mqttc, pixel_queue, args):
                 start=start,
                 end=end,
                 NPLC=args.scan_nplc,
-                handler=handle_measurement_data,
+                handler=_handle_measurement_data,
                 handler_kwargs={"kind": "iv_measurement", "idn": idn, "mqttc": mqttc},
             )
 
@@ -736,9 +777,7 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "iv_measurement",
-                    "data": {
-                        "id": idn, "clear": False, "end": True
-                        }
+                    "data": {"id": idn, "clear": False, "end": True},
                 }
             )
 
@@ -769,9 +808,7 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "mppt_measurement",
-                    "data": {
-                        "id": idn, "clear": True, "end": False
-                        }
+                    "data": {"id": idn, "clear": True, "end": False},
                 }
             )
 
@@ -784,7 +821,7 @@ def _ivt(mqttc, pixel_queue, args):
                 compliance=args.voltage_compliance_override,
                 senseRange="a",
                 setPoint=0,
-                handler=handle_measurement_data,
+                handler=_handle_measurement_data,
                 handler_kwargs={"kind": "mppt_measurement", "idn": idn, "mqttc": mqttc},
             )
             measurement.mppt.Voc = vt[-1]
@@ -794,7 +831,7 @@ def _ivt(mqttc, pixel_queue, args):
                 NPLC=args.steadystate_nplc,
                 stepDelay=args.steadystate_step_delay,
                 extra=args.mppt_params,
-                handler=handle_measurement_data,
+                handler=_handle_measurement_data,
                 handler_kwargs={"kind": "mppt_measurement", "idn": idn, "mqttc": mqttc},
             )
 
@@ -802,9 +839,7 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "mppt_measurement",
-                    "data": {
-                        "id": idn, "clear": False, "end": True
-                        }
+                    "data": {"id": idn, "clear": False, "end": True},
                 }
             )
 
@@ -814,13 +849,11 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "it_measurement",
-                    "data": {
-                        "id": idn, "clear": True, "end": False
-                        }
+                    "data": {"id": idn, "clear": True, "end": False},
                 }
             )
 
-            it = measurement.logic.steady_state(
+            it = measurement.steady_state(
                 t_dwell=args.i_t,
                 NPLC=args.steadystate_nplc,
                 stepDelay=args.steadystate_step_delay,
@@ -828,7 +861,7 @@ def _ivt(mqttc, pixel_queue, args):
                 compliance=compliance_i,
                 senseRange="a",
                 setPoint=args.steadystate_v,
-                handler=handle_measurement_data,
+                handler=_handle_measurement_data,
                 handler_kwargs={"kind": "it_measurement", "idn": idn, "mqttc": mqttc},
             )
 
@@ -836,16 +869,14 @@ def _ivt(mqttc, pixel_queue, args):
             mqttc.append_payload(
                 {
                     "kind": "it_measurement",
-                    "data": {
-                        "id": idn, "clear": False, "end": True
-                        }
+                    "data": {"id": idn, "clear": False, "end": True},
                 }
             )
 
     measurement.run_done()
 
 
-def _eqe(mqqtc, pixel_queue, args):
+def _eqe(mqttc, pixel_queue, args):
     """Run through pixel queue of EQE measurements.
 
     Paramters
@@ -859,10 +890,6 @@ def _eqe(mqqtc, pixel_queue, args):
     """
     measurement.controller.set_relay("eqe")
 
-    # look up settings from config
-    grating_change_wls = config["monochromator"]["grating_change_wls"]
-    filter_change_wls = config["monochromator"]["filter_change_wls"]
-
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
         label = pixel["label"]
@@ -870,7 +897,7 @@ def _eqe(mqqtc, pixel_queue, args):
         print(f"\nOperating on substrate {label}, pixel {pix}...")
 
         # add id str to handlers to display on plots
-        edh.idn = f"{label}_pixel{pix}"
+        idn = f"{label}_pixel{pix}"
 
         # we have a new substrate
         if last_label != label:
@@ -880,23 +907,21 @@ def _eqe(mqqtc, pixel_queue, args):
         # move to pixel
         measurement.goto_stage_position(
             pixel["position"],
-            handler=handle_stage_data,
+            handler=_handle_stage_data,
             handler_kwargs={"mqttc": mqttc},
         )
 
-        print(
-            f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm"
-        )
+        print(f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm")
 
         # clear eqe plot
         mqttc.append_payload(
             {
                 "kind": "eqe_measurement",
-                "data": {
-                    "id": idn, "clear": True, "end": False
-                    }
+                "data": {"id": idn, "clear": True, "end": False},
             }
         )
+
+        diode = config["experiments"]["eqe"]["calibration_photodiode"]
 
         # TODO: fill in paths
         measurement.eqe(
@@ -907,21 +932,18 @@ def _eqe(mqqtc, pixel_queue, args):
             psu_ch3_voltage=config["psu"]["ch3_voltage"],
             psu_ch3_current=args.psu_is[2],
             smu_voltage=args.eqe_smu_v,
-            calibration=False,
-            ref_measurement_path=,
-            ref_measurement_file_header=1,
-            ref_eqe_path=,
-            ref_spectrum_path=,
+            ref_measurement=calibration["eqe"][diode],
+            ref_eqe=config["calibration_photodiodes"][diode]["eqe"],
+            ref_spectrum=config["reference"]["spectra"]["AM1.5G"],
             start_wl=args.eqe_start_wl,
             end_wl=args.eqe_end_wl,
             num_points=args.eqe_num_wls,
-            repeats=args.eqe_repeats,
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             auto_gain=not (args.eqe_autogain_off),
             auto_gain_method=args.eqe_autogain_method,
             integration_time=args.eqe_integration_time,
-            handler=handle_measurement_data,
+            handler=_handle_measurement_data,
             handler_kwargs={"kind": "eqe_measurement", "idn": idn, "mqttc": mqttc},
         )
 
@@ -929,9 +951,7 @@ def _eqe(mqqtc, pixel_queue, args):
         mqttc.append_payload(
             {
                 "kind": "eqe_measurement",
-                "data": {
-                    "id": idn, "clear": False, "end": True
-                    }
+                "data": {"id": idn, "clear": False, "end": True},
             }
         )
 
@@ -953,12 +973,12 @@ def _run(mqttc, args):
         Arguments required to run a measurement.
     """
     # verify a save client is available
-    verify_save_client()
+    _verify_save_client()
 
     # report all settings
     # TODO: make funcs
-    save_args(mqttc, args)
-    save_settings()
+    _save_args(mqttc, args)
+    _save_settings()
 
     # connect all instruments
     measurement.connect_all_instruments(
@@ -987,26 +1007,22 @@ def _run(mqttc, args):
         args.eqe_pixel_address = "0x1"
 
     if args.iv_pixel_address is not None:
-        iv_pixel_queue = build_q(
-            args.iv_pixel_address, experiment="solarsim"
-        )
+        iv_pixel_queue = _build_q(args, args.iv_pixel_address, experiment="solarsim")
     else:
         iv_pixel_queue = []
 
     if args.eqe_pixel_address is not None:
-        eqe_pixel_queue = build_q(
-            args.eqe_pixel_address, experiment="eqe"
-        )
+        eqe_pixel_queue = _build_q(args, args.eqe_pixel_address, experiment="eqe")
     else:
         eqe_pixel_queue = []
 
     # measure i-v-t
     if len(iv_pixel_queue) > 0:
-        ivt(mqttc, iv_pixel_queue, args)
+        _ivt(mqttc, iv_pixel_queue, args)
 
     # measure eqe
     if len(eqe_pixel_queue) > 0:
-        eqe(mqqtc, eqe_pixel_queue, args)
+        _eqe(mqttc, eqe_pixel_queue, args)
 
     # disconnect all instruments
     measurement.disconnect_all_instruments()
@@ -1026,11 +1042,11 @@ def on_message(mqttc, obj, msg):
 
     # perform action depending on which button generated the message
     if action == "get_config":
-        load_config_from_file()
         start_thread(mqttc, _publish_config, (mqttc,), action)
     elif action == "set_config":
-        start_thread(mqttc, _save_new_config, (mqttc, data,), action)
-        load_config_from_file()
+        start_thread(mqttc, _update_config, (mqttc, data,), action)
+    elif action == "get_calibration":
+        start_thread(mqttc, _publish_calibration, (mqttc,), action)
     elif action == "run":
         args = types.SimpleNamespace(**data)
         start_thread(mqttc, _run, (mqttc, args,), action)
@@ -1042,7 +1058,7 @@ def on_message(mqttc, obj, msg):
     elif action == "calibrate_eqe":
         start_thread(mqttc, _calibrate_eqe, (mqttc,), action)
     elif action == "calibrate_psu":
-        start_thread(mqttc, _calibrate_psu, (mqttc, data,), aciton)
+        start_thread(mqttc, _calibrate_psu, (mqttc, data,), action)
     elif action == "home":
         start_thread(mqttc, _home, (mqttc,), action)
     elif action == "goto":
@@ -1058,10 +1074,6 @@ if __name__ == "__main__":
     # create dummy thread
     thread = threading.Thread()
 
-    # load config file
-    config = {}
-    load_config_from_file()
-
     # create fabric measurement logic object
     measurement = central_control.fabric.fabric()
 
@@ -1073,4 +1085,13 @@ if __name__ == "__main__":
         mqtt_server.subscribe("server/request")
         # start publisher queue for processing responses
         mqtt_server.start_q("server/response")
+
+        # load config file
+        config = {}
+        load_config_from_file(mqtt_server)
+
+        # try to laod calibration data and let clients know if none available
+        calibration = {}
+        load_calibration_from_file(mqtt_server)
+
         mqtt_server.loop_forever()

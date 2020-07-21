@@ -141,10 +141,11 @@ experiments:
         position: [5000000, 1200000]
         # list of names of photodiodes to use to calibrate the experiment
         # names refer to photodiodes listed in the calibration_diodes section
-        calibration_diodes: [pd1]
+        calibration_diodes: null
     eqe:
         position: [1000000, 1200000]
-        calibration_diodes: [pd1]
+        # only one eqe calibration diode allowed
+        calibration_diode: pd1
 
 calibration_diodes:
     pd1:

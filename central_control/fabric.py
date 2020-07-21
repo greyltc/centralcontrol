@@ -518,6 +518,7 @@ class fabric:
         setPoint=0,
         senseRange="f",
         handler=None,
+        handler_kwargs={},
     ):
         """Make steady state measurements.
 
@@ -557,7 +558,9 @@ class fabric:
         self.sm.write(
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
-        q = self.sm.measureUntil(t_dwell=t_dwell, handler=handler)
+        q = self.sm.measureUntil(
+            t_dwell=t_dwell, handler=handler, handler_kwargs=handler_kwargs
+        )
 
         return q
 
@@ -572,6 +575,7 @@ class fabric:
         end=0,
         NPLC=1,
         handler=None,
+        handler_kwargs={},
     ):
         """Perform I-V measurement sweep.
 
@@ -592,12 +596,18 @@ class fabric:
         raw = self.sm.measure()
 
         if handler is not None:
-            handler(raw)
+            handler(raw, **handler_kwargs)
 
         return raw
 
     def track_max_power(
-        self, duration=30, NPLC=-1, step_delay=-1, extra="basic://7:10", handler=None,
+        self,
+        duration=30,
+        NPLC=-1,
+        step_delay=-1,
+        extra="basic://7:10",
+        handler=None,
+        handler_kwargs={},
     ):
         """Track maximum power point.
 
@@ -622,6 +632,7 @@ class fabric:
             step_delay=step_delay,
             extra=extra,
             handler=handler,
+            handler_kwargs=handler_kwargs,
         )
 
         return raw
@@ -924,7 +935,7 @@ class fabric:
 
         return ret_val
 
-    def read_stage_position(self, axes, handler=None):
+    def read_stage_position(self, axes, handler=None, handler_kwargs={}):
         """Read the current stage position along all available axes.
 
         Parameters
@@ -944,12 +955,18 @@ class fabric:
             loc.append(self.controller.get_position(axis))
 
         if handler is not None:
-            handler.handle_data(loc)
+            handler(loc, **handler_kwargs)
 
         return loc
 
     def goto_stage_position(
-        self, position, timeout=20, retries=5, position_poll_sleep=0.5, handler=None,
+        self,
+        position,
+        timeout=20,
+        retries=5,
+        position_poll_sleep=0.5,
+        handler=None,
+        handler_kwargs={},
     ):
         """Go to stage position in steps.
 
@@ -971,6 +988,8 @@ class fabric:
         handler : handler object
             Handler to pass to read_stage_position method to process stage position
             during goto.
+        handler_kwargs : dict
+            Keyword arguments to pass to data handler.
 
         Returns
         -------
@@ -999,7 +1018,9 @@ class fabric:
                 # periodically poll for position
                 while (loc != position) and (now <= attempt_timeout):
                     # ask for current position
-                    loc = self.read_stage_position(len(position), handler)
+                    loc = self.read_stage_position(
+                        len(position), handler, handler_kwargs
+                    )
                     # for debugging
                     print(f"Location = {loc}")
                     time.sleep(position_poll_sleep)
