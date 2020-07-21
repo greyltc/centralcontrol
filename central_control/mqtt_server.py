@@ -1,17 +1,9 @@
-"""MQTT Server for interacting with the system.
-
-Functions with an "_" prefix only run in a subprocess. Functions without the prefix
-only run in the main process.
-
-Take care to pass all information required by a subsubprocess function to its
-arguments. Child processes can't access the global scope of the parent process.
-"""
+"""MQTT Server for interacting with the system."""
 
 import argparse
 import collections
 import json
-import multiprocessing as mp
-import multiprocessing.managers
+import sys
 import types
 import warnings
 
@@ -30,16 +22,6 @@ def get_args():
         help="IP address or hostname of MQTT broker.",
     )
     return parser.parse_args()
-
-
-# create a custom shared memory manager that will allow the fabric object to
-# be used by both the main and child processes
-class MeasurementManager(mp.managers.BaseManager):
-    pass
-
-
-# register the fabric object with the manager
-MeasurementManager.register('Measurement', central_control.fabric.fabric)
 
 
 def yaml_include(loader, node):
@@ -77,58 +59,24 @@ def load_config_from_file():
             )
 
 
-def start_process(mqttc, target, args=(), name=None):
-    """Run a function in a new process.
+def start_thread(mqttc, target, args, name):
+    """Start a new thread if no thread is running."""
+    global thread
 
-    Parameters
-    ----------
-    target : function
-        Name of function to run in a new process.
-    args : tuple
-        Arguments to pass to the function formatted as (arg1, arg2, ...,).
-    name : str
-        Name of the process.
-    """
-    # bring process object into scope
-    global process
-
-    # try to start a new process. Ignore request if a process is still running.
-    if process.is_alive() is False:
-        process = mp.Process(target=target, name=name, args=args)
-        process.start()
+    if thread.is_alive() is False:
+        thread = threading.Thread(target=target, args=args, name=name)
+        thread.start()
         kind = "info"
-        data = f"Server started process named '{process.name}'!"
+        data = f"Started action: {thread.name}."
     else:
         kind = "warning"
-        data = (
-            f"Server busy. Cannot start new process named '{name}'. A process named " +
-            f"'{process.name}' is still running."
-        )
+        data = f"Server busy. Still running action: {thread.name}."
 
-    # let clients know what happened
+    # report back status to clients
     mqttc.append_payload(json.dumps({"kind": kind, "data": data}))
 
 
-def stop_process(mqttc):
-    """Stop an active process running a requested function."""
-    # bring process object into scope
-    global process
-
-    # if the process is still alive, stop it
-    if process.is_alive() is True:
-        process.terminate()
-        process.join()
-        kind = "info"
-        data = f"Server stopped process named '{process.name}'."
-    else:
-        kind = "info"
-        data = f"Process named '{process.name}' has already stopped."
-
-    # let clients know what happened
-    mqttc.append_payload(json.dumps({"kind": kind, "data": data}))
-
-
-def _publish_config(mqttc, config):
+def _publish_config(mqttc):
     """Send configuration to clients.
 
     Parameters
@@ -155,7 +103,7 @@ def _save_new_config(mqttc, new_config):
     mqttc.append_payload(json.dumps(payload))
 
 
-def _calibrate_eqe(mqttc, config):
+def _calibrate_eqe(mqttc):
     """Measure the EQE reference photodiode.
 
     Parameters
@@ -219,38 +167,38 @@ def _calibrate_eqe(mqttc, config):
         )
 
 
-def _calibrate_psu(mqttc, config, channel):
+def _calibrate_psu(mqttc, channel):
     """Measure the reference photodiode as a funtcion of LED current."""
     # TODO: complete args for func
     measurement.controller.set_relay("iv")
     measurement.calibrate_psu()
 
 
-def _calibrate_solarsim(mqttc, config):
+def _calibrate_solarsim(mqttc):
     """Calibrate the solar simulator."""
     # TODO; add calibrate solar sim func
     measurement.controller.set_relay("iv")
     solarsim_spectral_calibration = config["solarsim"]["spectral_calibration"]
 
 
-def _home(mqttc, config):
+def _home(mqttc):
     """Home the stage."""
     measurement.home_stage(config["stage"]["length"])
 
 
-def _goto(mqttc, config, position):
+def _goto(mqttc, position):
     """Go to a stage position."""
     # TODO: complete args for func
     measurement.goto_stage_position()
 
 
-def _read_stage(mqttc, config):
+def _read_stage(mqttc):
     """Read the stage position."""
     # TODO: complete args for func
     measurement.read_stage_position()
 
 
-def _contact_check(mqttc, config):
+def _contact_check(mqttc):
     """Perform contact check."""
     # TODO: write back to gui
     array = config["substrates"]["number"]
@@ -265,13 +213,13 @@ def _contact_check(mqttc, config):
     measurement.check_all_contacts(rows, cols, pixels)
 
 
-def _verify_save_client(mqttc, config):
+def _verify_save_client(mqttc):
     """Verify the MQTT client for saving data is running."""
     # TODO: at verification method.
     pass
 
 
-def _get_substrate_positions(config, experiment):
+def _get_substrate_positions(experiment):
     """Calculate absolute positions of all substrate centres.
 
     Read in info from config file.
@@ -329,7 +277,7 @@ def _get_substrate_positions(config, experiment):
     return substrate_centres
 
 
-def _get_substrate_index(config, array_loc, array_size):
+def _get_substrate_index(array_loc, array_size):
     """Get the index of a substrate in a flattened array.
 
     Parameters
@@ -368,7 +316,7 @@ def _get_substrate_index(config, array_loc, array_size):
     return index
 
 
-def _calculate_pixel_position(config, experiment, row, col, pixel):
+def _calculate_pixel_position(experiment, row, col, pixel):
     """Calculate the position of a pixel.
 
     Parameters
@@ -404,7 +352,7 @@ def _calculate_pixel_position(config, experiment, row, col, pixel):
     return pos
 
 
-def _build_q(config, args, pixel_address_string, experiment):
+def _build_q(args, pixel_address_string, experiment):
     """Generate a queue of pixels we'll run through.
 
     Parameters
@@ -508,7 +456,7 @@ def _build_q(config, args, pixel_address_string, experiment):
 
     return pixel_q
 
-def _connect_instruments(mqttc, config, args):
+def _connect_instruments(mqttc, args):
     """Init fabric object and connect instruments.
 
     Determine which instruments are connected and their settings from the config
@@ -622,7 +570,7 @@ def _handle_save_settings(settings, **kwargs):
     mqtt.append_payload(json.dumps(payload))
 
 
-def _ivt(mqttc, config, pixel_queue, args):
+def _ivt(mqttc, pixel_queue, args):
     """Run through pixel queue of i-v-t measurements.
 
     Paramters
@@ -897,7 +845,7 @@ def _ivt(mqttc, config, pixel_queue, args):
     measurement.run_done()
 
 
-def _eqe(mqqtc, config, pixel_queue, args):
+def _eqe(mqqtc, pixel_queue, args):
     """Run through pixel queue of EQE measurements.
 
     Paramters
@@ -994,7 +942,7 @@ def _test_hardware(mqttc, config):
     pass
 
 
-def _run(mqttc, config, args):
+def _run(mqttc, args):
     """Act on command line instructions.
 
     Parameters
@@ -1067,14 +1015,10 @@ def _run(mqttc, config, args):
 def on_message(mqttc, obj, msg):
     """Act on an MQTT message.
 
-    All actions, except actions loading from or writing to the config file, run in a
-    subprocess and only one subprocess can run at a time. This helps protect the
-    intengrity of objects that could otherwise be accessed simultaneously by multiple
-    processes. This also allows the subprocess to be stopped if necessary without
-    terminating the parent process.
+    Each action runs in a worker thread leaving the MQTT client to give feedback
+    when busy.
 
-    This also allows the server to let clients know that it's busy rather than queueing
-    up requests.
+    Only one action thread can run at a time.
     """
     m = json.loads(msg.payload)
     action = m["action"]
@@ -1083,44 +1027,43 @@ def on_message(mqttc, obj, msg):
     # perform action depending on which button generated the message
     if action == "get_config":
         load_config_from_file()
-        start_process(mqttc, _publish_config, (mqttc, config,), action)
+        start_thread(mqttc, _publish_config, (mqttc,), action)
     elif action == "set_config":
-        start_process(mqttc, _save_new_config, (mqttc, data,), action)
+        start_thread(mqttc, _save_new_config, (mqttc, data,), action)
         load_config_from_file()
     elif action == "run":
         args = types.SimpleNamespace(**data)
-        start_process(mqttc, _run, (mqttc, config, args,), action)
+        start_thread(mqttc, _run, (mqttc, args,), action)
     elif action == "stop":
-        stop_process(mqttc)
+        # kill the server, external process will restart it
+        sys.exit(1)
     elif action == "calibrate_solarsim":
-        start_process(mqttc, _calibrate_solarsim, (mqttc, config,), action)
+        start_thread(mqttc, _calibrate_solarsim, (mqttc,), action)
     elif action == "calibrate_eqe":
-        start_process(mqttc, _calibrate_eqe, (mqttc, config,), action)
+        start_thread(mqttc, _calibrate_eqe, (mqttc,), action)
     elif action == "calibrate_psu":
-        start_process(mqttc, _calibrate_psu, (mqttc, config, data,), action)
+        start_thread(mqttc, _calibrate_psu, (mqttc, data,), aciton)
     elif action == "home":
-        start_process(mqttc, _home, (mqttc, config,) action)
+        start_thread(mqttc, _home, (mqttc,), action)
     elif action == "goto":
-        start_process(mqttc, _goto, (mqttc, config, data,), action)
+        start_thread(mqttc, _goto, (mqttc, data,), action)
     elif action == "read_stage":
-        start_process(mqttc, _read_stage, (mqttc, config,), action)
+        start_thread(mqttc, _read_stage, (mqttc,), action)
 
 
 # required when using multiprocessing in windows, advised on other platforms
 if __name__ == "__main__":
     cli_args = get_args()
 
-    # create dummy process
-    process = mp.Process()
+    # create dummy thread
+    thread = threading.Thread()
 
     # load config file
     config = {}
     load_config_from_file()
 
-    # create fabric as an object with shared memory
-    manager = MeasurementManager()
-    manager.start()
-    measurement = manager.Measurement()
+    # create fabric measurement logic object
+    measurement = central_control.fabric.fabric()
 
     with MQTTQueuePublisher() as mqtt_server:
         mqtt_server.on_message = on_message
