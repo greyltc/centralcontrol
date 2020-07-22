@@ -264,10 +264,16 @@ def _calibrate_eqe(mqttc):
             pos, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc},
         )
     else:
-        raise ValueError(
-            f"Photodiode connection mode '{c}' not recognised. Must be "
-            + "'internal' or 'external'."
+        error_msg = (
+            f"EQE calibration failed. Photodiode connection mode '{c}' not "
+            + "recognised. Must be 'internal' or 'external'."
         )
+        payload = {
+            "kind": "error",
+            "data": error_msg,
+            "action": "",
+            "client-id": "",
+        }
 
     cal_wls = config["calibration_diodes"][diode]["eqe"]["wls"]
     cal_settings = config["calibratio_diodes"][diode]["eqe_calibration_settings"]
@@ -292,12 +298,18 @@ def _calibrate_eqe(mqttc):
         handler_kwargs={},
     )
 
-    calibration["eqe"][diode]["data"] = eqe_calibration
-    calibration["eqe"][diode]["timestamp"] = get_timestamp()
+    # update eqe diode calibration data in atomic thread-safe way
+    timestamp = get_timestamp()
+    diode_dict = {"data": eqe_calibration, "timestamp": timestamp}
+    calibration["eqe"][diode] = diode_dict
 
+    # save local copy of calibration to reload in case of crash
     save_calibration_data()
 
+    # publish calibration and tell savers to save it
     _publish_calibration(mqttc)
+    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
+    mqttc.append_payload(json.dumps(payload))
 
 
 def _calibrate_psu(mqttc, channel):
