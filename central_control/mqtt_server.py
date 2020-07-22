@@ -1036,7 +1036,7 @@ def _test_hardware(mqttc, config):
     pass
 
 
-def _run(mqttc, args):
+def _run(mqttc, args, request):
     """Act on command line instructions.
 
     Parameters
@@ -1049,6 +1049,44 @@ def _run(mqttc, args):
     # the run function only runs in a separate thread so make sure all mutations of
     # save_folder are atomic to ensure thread safety
     global save_folder
+
+    # build up the queue of pixels to run through
+    if args.dummy is True:
+        args.iv_pixel_address = "0x1"
+        args.eqe_pixel_address = "0x1"
+
+    if args.iv_pixel_address is not None:
+        try:
+            iv_pixel_queue = _build_q(
+                args, args.iv_pixel_address, experiment="solarsim"
+            )
+        except ValueError as e:
+            # there was a problem with the labels and/or layouts list
+            payload = {
+                "kind": "error",
+                "data": "RUN ABORTED! " + str(e),
+                "action": request["action"],
+                "client-id": request["client-id"],
+            }
+            mqttc.append_payload(json.dumps(payload))
+            return
+    else:
+        iv_pixel_queue = []
+
+    if args.eqe_pixel_address is not None:
+        try:
+            eqe_pixel_queue = _build_q(args, args.eqe_pixel_address, experiment="eqe")
+        except ValueError as e:
+            payload = {
+                "kind": "error",
+                "data": "RUN ABORTED! " + str(e),
+                "action": request["action"],
+                "client-id": request["client-id"],
+            }
+            mqttc.append_payload(json.dumps(payload))
+            return
+    else:
+        eqe_pixel_queue = []
 
     # update save folder and publish it
     save_folder = args.destination
@@ -1088,24 +1126,19 @@ def _run(mqttc, args):
         config["psu"]["baud"],
     )
 
-    # build up the queue of pixels to run through
-    if args.dummy is True:
-        args.iv_pixel_address = "0x1"
-        args.eqe_pixel_address = "0x1"
-
-    if args.iv_pixel_address is not None:
-        iv_pixel_queue = _build_q(args, args.iv_pixel_address, experiment="solarsim")
-    else:
-        iv_pixel_queue = []
-
-    if args.eqe_pixel_address is not None:
-        eqe_pixel_queue = _build_q(args, args.eqe_pixel_address, experiment="eqe")
-    else:
-        eqe_pixel_queue = []
-
     # measure i-v-t
     if len(iv_pixel_queue) > 0:
-        _ivt(mqttc, iv_pixel_queue, args)
+        try:
+            _ivt(mqttc, iv_pixel_queue, args)
+        except ValueError as e:
+            payload = {
+                "kind": "error",
+                "data": "RUN ABORTED! " + str(e),
+                "action": request["action"],
+                "client-id": request["client-id"],
+            }
+            mqttc.append_payload(json.dumps(payload))
+            return
 
     # measure eqe
     if len(eqe_pixel_queue) > 0:
