@@ -229,7 +229,7 @@ def get_timestamp():
     return time.strftime("[%Y-%m-%d]_[%H-%M-%S_%z]")
 
 
-def _calibrate_eqe(mqttc):
+def _calibrate_eqe(mqttc, request):
     """Measure the EQE reference photodiode.
 
     Parameters
@@ -311,30 +311,96 @@ def _calibrate_eqe(mqttc):
     payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
     mqttc.append_payload(json.dumps(payload))
 
+    payload = {
+        "kind": "info",
+        "data": "EQE calibration complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
 
-def _calibrate_psu(mqttc, channel):
+
+def _calibrate_psu(mqttc, channel, request):
     """Measure the reference photodiode as a funtcion of LED current."""
     # TODO: complete args for func
     measurement.controller.set_relay("iv")
-    measurement.calibrate_psu()
+    psu_calibration = measurement.calibrate_psu()
+
+    # update eqe diode calibration data in atomic thread-safe way
+    timestamp = get_timestamp()
+    diode_dict = {"data": psu_calibration, "timestamp": timestamp}
+    calibration["psu"][diode] = diode_dict
+
+    # save local copy of calibration to reload in case of crash
+    save_calibration_data()
+
+    # publish calibration and tell savers to save it
+    _publish_calibration(mqttc)
+    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
+    mqttc.append_payload(json.dumps(payload))
+
+    payload = {
+        "kind": "info",
+        "data": "LED PSU calibration complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
 
 
-def _calibrate_solarsim(mqttc):
+def _calibrate_solarsim(mqttc, request):
     """Calibrate the solar simulator."""
     # TODO; add calibrate solar sim func
     measurement.controller.set_relay("iv")
     solarsim_spectral_calibration = config["solarsim"]["spectral_calibration"]
 
+    # update eqe diode calibration data in atomic thread-safe way
+    timestamp = get_timestamp()
+    diode_dict = {"data": psu_calibration, "timestamp": timestamp}
+    calibration["psu"][diode] = diode_dict
 
-def _home(mqttc):
+    # save local copy of calibration to reload in case of crash
+    save_calibration_data()
+
+    # publish calibration and tell savers to save it
+    _publish_calibration(mqttc)
+    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
+    mqttc.append_payload(json.dumps(payload))
+
+    payload = {
+        "kind": "info",
+        "data": "Solar sim calibration complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
+
+
+def _home(mqttc, request):
     """Home the stage."""
     measurement.home_stage(config["stage"]["length"])
 
+    payload = {
+        "kind": "info",
+        "data": "Homing complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
 
-def _goto(mqttc, position):
+
+def _goto(mqttc, position, request):
     """Go to a stage position."""
     # TODO: complete args for func
     measurement.goto_stage_position()
+
+    payload = {
+        "kind": "info",
+        "data": "Goto stage position complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
 
 
 def _read_stage(mqttc):
@@ -342,8 +408,16 @@ def _read_stage(mqttc):
     # TODO: complete args for func
     measurement.read_stage_position()
 
+    payload = {
+        "kind": "info",
+        "data": "Read stage position complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
 
-def _contact_check(mqttc):
+
+def _contact_check(mqttc, request):
     """Perform contact check."""
     # TODO: write back to gui
     array = config["substrates"]["number"]
@@ -356,6 +430,14 @@ def _contact_check(mqttc):
     pcb_adapter = config[active_layout]["pcb_name"]
     pixels = config[pcb_adapter]["pixels"]
     measurement.check_all_contacts(rows, cols, pixels)
+
+    payload = {
+        "kind": "info",
+        "data": "Contact check complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
 
 
 def _get_substrate_positions(experiment):
@@ -1147,6 +1229,15 @@ def _run(mqttc, args, request):
     # disconnect all instruments
     measurement.disconnect_all_instruments()
 
+    # report complete
+    payload = {
+        "kind": "info",
+        "data": "Run complete!",
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
+
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT message.
@@ -1174,22 +1265,22 @@ def on_message(mqttc, obj, msg):
         _publish_save_folder(mqttc, request)
     elif action == "run":
         args = types.SimpleNamespace(**data)
-        start_thread(mqttc, _run, (mqttc, args,), action)
+        start_thread(mqttc, _run, (mqttc, args, request,), action)
     elif action == "stop":
         # kill the server, external process will restart it
         sys.exit(1)
     elif action == "calibrate_solarsim":
-        start_thread(mqttc, _calibrate_solarsim, (mqttc,), action)
+        start_thread(mqttc, _calibrate_solarsim, (mqttc, request,), action)
     elif action == "calibrate_eqe":
-        start_thread(mqttc, _calibrate_eqe, (mqttc,), action)
+        start_thread(mqttc, _calibrate_eqe, (mqttc, request,), action)
     elif action == "calibrate_psu":
-        start_thread(mqttc, _calibrate_psu, (mqttc, data,), action)
+        start_thread(mqttc, _calibrate_psu, (mqttc, data, request,), action)
     elif action == "home":
-        start_thread(mqttc, _home, (mqttc,), action)
+        start_thread(mqttc, _home, (mqttc, request,), action)
     elif action == "goto":
-        start_thread(mqttc, _goto, (mqttc, data,), action)
+        start_thread(mqttc, _goto, (mqttc, data, request,), action)
     elif action == "read_stage":
-        start_thread(mqttc, _read_stage, (mqttc,), action)
+        start_thread(mqttc, _read_stage, (mqttc, request,), action)
 
 
 # required when using multiprocessing in windows, advised on other platforms
