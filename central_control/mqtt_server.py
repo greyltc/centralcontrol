@@ -6,6 +6,7 @@ import itertools
 import json
 import os
 import sys
+import time
 import threading
 import types
 import warnings
@@ -110,18 +111,47 @@ def start_thread(mqttc, target, args, name):
     mqttc.append_payload(json.dumps({"kind": kind, "data": data}))
 
 
-def _publish_config(mqttc):
+def _publish_save_folder(mqttc, request={"action": "", "data": "", "client-id": ""}):
+    """Send save folder name to clients.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    # reload config from file
+    load_config_from_file(mqttc)
+
+    payload = {
+        "kind": "save_folder",
+        "data": save_folder,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
+
+
+def _publish_config(mqttc, request={"action": "", "data": "", "client-id": ""}):
     """Send configuration to clients.
 
     Parameters
     ----------
     mqttc : MQTTQueuePublisher object
         MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
     """
     # reload config from file
     load_config_from_file(mqttc)
 
-    payload = {"kind": "config", "data": config}
+    payload = {
+        "kind": "config",
+        "data": config,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
     mqttc.append_payload(json.dumps(payload))
 
 
@@ -143,8 +173,8 @@ def _update_config(mqttc, new_config):
     load_config_from_file(mqttc)
 
 
-def _publish_calibration(mqttc):
-    """Save calibration data to clients.
+def _publish_calibration(mqttc, request={"action": "", "data": "", "client-id": ""}):
+    """Send calibration data to clients.
 
     Parameters
     ----------
@@ -158,8 +188,24 @@ def _publish_calibration(mqttc):
         kind = "calibration"
         data = calibration
 
-    payload = {"kind": kind, "data": data}
+    payload = {
+        "kind": kind,
+        "data": data,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
     mqttc.append_payload(json.dumps(payload))
+
+
+def get_timestamp():
+    """Create a human readable formatted timestamp string.
+
+    Returns
+    -------
+    timestamp : str
+        Formatted timestamp.
+    """
+    return time.strftime("[%Y-%m-%d]_[%H-%M-%S_%z]")
 
 
 def _calibrate_eqe(mqttc):
@@ -225,7 +271,8 @@ def _calibrate_eqe(mqttc):
         handler_kwargs={},
     )
 
-    calibration["eqe"][diode] = eqe_calibration
+    calibration["eqe"][diode]["data"] = eqe_calibration
+    calibration["eqe"][diode]["timestamp"] = get_timestamp()
 
     save_calibration_data()
 
@@ -276,12 +323,6 @@ def _contact_check(mqttc):
     pcb_adapter = config[active_layout]["pcb_name"]
     pixels = config[pcb_adapter]["pixels"]
     measurement.check_all_contacts(rows, cols, pixels)
-
-
-def _verify_save_client(mqttc):
-    """Verify the MQTT client for saving data is running."""
-    # TODO: at verification method.
-    pass
 
 
 def _get_substrate_positions(experiment):
@@ -972,13 +1013,20 @@ def _run(mqttc, args):
     args : types.SimpleNamespace
         Arguments required to run a measurement.
     """
-    # verify a save client is available
-    _verify_save_client()
+    # the run function only runs in a separate thread so make sure all mutations of
+    # save_folder are atomic to ensure thread safety
+    global save_folder
 
-    # report all settings
+    # update save folder and publish it
+    save_folder = args.destination
+    _publish_save_folder(mqttc)
+
+    # publish other settings
+    _publish_config(mqttc)
+    _publish_calibration(mqttc)
+
     # TODO: make funcs
-    _save_args(mqttc, args)
-    _save_settings()
+    _publish_args(mqttc, args)
 
     # connect all instruments
     measurement.connect_all_instruments(
@@ -1031,22 +1079,27 @@ def _run(mqttc, args):
 def on_message(mqttc, obj, msg):
     """Act on an MQTT message.
 
-    Each action runs in a worker thread leaving the MQTT client to give feedback
-    when busy.
-
-    Only one action thread can run at a time.
+    Actions that require instrument I/O run in a worker thread. Only one action thread
+    can run at a time. If an action thread is running the server will report that it's
+    busy.
     """
-    m = json.loads(msg.payload)
-    action = m["action"]
-    data = m["data"]
+    request = json.loads(msg.payload)
+    action = request["action"]
+    data = request["data"]
 
-    # perform action depending on which button generated the message
+    # perform a requested action
     if action == "get_config":
-        start_thread(mqttc, _publish_config, (mqttc,), action)
+        # respond immediately
+        _publish_config(mqttc, request)
     elif action == "set_config":
+        # can't set config while action is being performed
         start_thread(mqttc, _update_config, (mqttc, data,), action)
     elif action == "get_calibration":
-        start_thread(mqttc, _publish_calibration, (mqttc,), action)
+        # respond immediately
+        _publish_calibration(mqttc, request)
+    elif action == "get_save_folder":
+        # respond immediately
+        _publish_save_folder(mqttc, request)
     elif action == "run":
         args = types.SimpleNamespace(**data)
         start_thread(mqttc, _run, (mqttc, args,), action)
@@ -1093,5 +1146,8 @@ if __name__ == "__main__":
         # try to laod calibration data and let clients know if none available
         calibration = {}
         load_calibration_from_file(mqtt_server)
+
+        # forget save folder, a new one will be required
+        save_folder = None
 
         mqtt_server.loop_forever()
