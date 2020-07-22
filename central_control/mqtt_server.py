@@ -239,6 +239,8 @@ def _calibrate_eqe(mqttc, request):
     """
     global calibration
 
+    # TODO: add connect/disconnect methods
+
     measurement.controller.set_relay("eqe")
 
     diode = config["experiments"]["eqe"]["calibration_diode"]
@@ -265,15 +267,17 @@ def _calibrate_eqe(mqttc, request):
         )
     else:
         error_msg = (
-            f"EQE calibration failed. Photodiode connection mode '{c}' not "
+            f"EQE calibration failed! Photodiode connection mode '{c}' not "
             + "recognised. Must be 'internal' or 'external'."
         )
         payload = {
             "kind": "error",
             "data": error_msg,
-            "action": "",
-            "client-id": "",
+            "action": request["action"],
+            "client-id": request["client-id"],
         }
+        mqttc.append_payload(json.dumps(payload))
+        return
 
     cal_wls = config["calibration_diodes"][diode]["eqe"]["wls"]
     cal_settings = config["calibratio_diodes"][diode]["eqe_calibration_settings"]
@@ -322,9 +326,51 @@ def _calibrate_eqe(mqttc, request):
 
 def _calibrate_psu(mqttc, channel, request):
     """Measure the reference photodiode as a funtcion of LED current."""
-    # TODO: complete args for func
+    global calibration
+
+    # TODO: add connect/disconnect methods
+
+    # using smu to measure the current from the photodiode
     measurement.controller.set_relay("iv")
-    psu_calibration = measurement.calibrate_psu()
+
+    # connect EQE diode
+    diode = config["experiments"]["eqe"]["calibration_diode"]
+
+    if (c := config["calibration_diodes"][diode]["connection"]) == "external":
+        # if externally connected make sure all mux relays are open
+        measurement.controller.clear_mux()
+
+        # move to position
+        measurement.goto_stage_position(
+            config["calibration_diodes"][diode]["position"],
+            handler=_handle_stage_data,
+            handler_kwargs={"mqttc": mqttc},
+        )
+    elif c == "internal":
+        # connect required relay
+        arr_loc = config["calibration_diodes"][diode]["array_location"]
+        measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
+
+        # move to position
+        pos = _calculate_pixel_position("eqe", arr_loc[0], arr_loc[1], arr_loc[2])
+        measurement.goto_stage_position(
+            pos, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc},
+        )
+    else:
+        error_msg = (
+            f"EQE calibration failed! Photodiode connection mode '{c}' not "
+            + "recognised. Must be 'internal' or 'external'."
+        )
+        payload = {
+            "kind": "error",
+            "data": error_msg,
+            "action": request["action"],
+            "client-id": request["client-id"],
+        }
+        mqttc.append_payload(json.dumps(payload))
+        return
+
+    psu_calibration = measurement.calibrate_psu(channel)
 
     # update eqe diode calibration data in atomic thread-safe way
     timestamp = get_timestamp()

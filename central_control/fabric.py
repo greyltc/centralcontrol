@@ -465,7 +465,7 @@ class fabric:
         self.le.off()
         self.sm.outOn(on=False)
 
-    def pixel_setup(self, pixel):
+    def pixel_setup(self, pixel, handler=None, handler_kwargs={}):
         """Move to pixel and connect it with mux.
 
         Parameters
@@ -473,10 +473,9 @@ class fabric:
         pixel : dict
             Pixel information
         """
-        # move to pixel position
-        for i, pos in enumerate(pixel["position"]):
-            # goto is 1-indexed
-            self.controller.goto(i + 1, pos)
+        self.goto_stage_position(
+            pixel["position"], handler=handler, handler_kwargs=handler_kwargs
+        )
 
         # connect pixel
         row = pixel["array_loc"][0]
@@ -830,7 +829,7 @@ class fabric:
 
         return cal_eqe_data
 
-    def calibrate_psu(self, channel=1, loc=None, handler=None):
+    def calibrate_psu(self, channel=1):
         """Calibrate the LED PSU.
 
         Measure the short-circuit current of a photodiode generated upon illumination
@@ -840,20 +839,8 @@ class fabric:
         ----------
         channel : {1, 2, 3}
             PSU channel.
-        loc : list
-            Position of calibration photodiode along each axis.
-        handler : DataHandler
-            Handler to process data.
         """
         currents = np.linspace(0, 1, 11, endpoint=True)
-
-        # move to photodiode
-        if loc is not None:
-            for i, l in loc:
-                self.controller.goto(i + 1, l)
-
-        # open all mux relays
-        self.controller.clear_mux()
 
         # set smu to short circuit and enable output
         self.sm.setupDC(
@@ -865,13 +852,13 @@ class fabric:
         self.psu.set_apply(channel=channel, voltage="MAX", current=0)
         self.psu.set_output_enable(True, channel)
 
+        data = []
         for current in currents:
             self.psu.set_apply(channel=channel, voltage="MAX", current=current)
             time.sleep(1)
-            data = self.sm.measure()
-            data.append(current)
-            if handler is not None:
-                handler.handle_data(data)
+            measurement = self.sm.measure()
+            measurement.append(current)
+            data.append(measurement)
 
         # disable PSU
         self.psu.set_apply(channel=channel, voltage="MAX", current=0)
@@ -879,6 +866,8 @@ class fabric:
 
         # disable smu
         self.sm.outOn(False)
+
+        return data
 
     def home_stage(self, expected_lengths, timeout=80, length_poll_sleep=0.1):
         """Home the stage.
