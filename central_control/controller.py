@@ -67,6 +67,10 @@ class controller:
         self.version_message = self.tn.read_response(timeout=2)
         print(f"Got version request response: {self.version_message}")
 
+    def disconnect(self):
+        """Disconnect form the telnet client."""
+        self.tn.close()
+
     def home(self, axis):
         """Send a home command to the stage.
 

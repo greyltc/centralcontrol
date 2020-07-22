@@ -239,11 +239,33 @@ def _calibrate_eqe(mqttc, request):
     """
     global calibration
 
-    # TODO: add connect/disconnect methods
+    timestamp = get_timestamp()
 
-    measurement.controller.set_relay("eqe")
-
+    # look up psu calibration diode
     diode = config["experiments"]["eqe"]["calibration_diode"]
+
+    # look up smu
+    smu = config["calibration_diodes"][diode]["eqe_calibration_settings"]["smu"]
+
+    # connect instruments
+    measurement.connect_instruments(
+        dummy=False,
+        visa_lib=config["visa"]["visa-lib"],
+        smu_address=config["smu"]["smus"][smu]["address"],
+        smu_terminator=config["smu"]["terminator"],
+        smu_baud=config["smu"]["baud"],
+        controller_address=config["controller"]["address"],
+        lia_address=config["lia"]["address"],
+        lia_terminator=config["lia"]["terminator"],
+        lia_baud=config["lia"]["baud"],
+        lia_output_interface=config["lia"]["output_interface"],
+        mono_address=config["monochromator"]["address"],
+        mono_terminator=config["monochromator"]["terminator"],
+        mono_baud=config["monochromator"]["baud"],
+    )
+
+    # set relay for eqe measurement
+    measurement.controller.set_relay("eqe")
 
     if (c := config["calibration_diodes"][diode]["connection"]) == "external":
         # if externally connected make sure all mux relays are open
@@ -302,8 +324,13 @@ def _calibrate_eqe(mqttc, request):
         handler_kwargs={},
     )
 
+    # disconnect instruments
+    measurement.sm.disconnect()
+    measurement.lia.disconnect()
+    measurement.mono.disconnect()
+    measurement.controller.disconnect()
+
     # update eqe diode calibration data in atomic thread-safe way
-    timestamp = get_timestamp()
     diode_dict = {"data": eqe_calibration, "timestamp": timestamp}
     calibration["eqe"][diode] = diode_dict
 
@@ -330,11 +357,27 @@ def _calibrate_psu(mqttc, channel, request):
 
     # TODO: add connect/disconnect methods
 
+    # get EQE diode info
+    diode = config["experiments"]["eqe"]["calibration_diode"]
+
+    # look up smu
+    smu = config["calibration_diodes"][diode]["psu_calibration_settings"]["smu"]
+
+    # connect instruments
+    measurement.connect_instruments(
+        dummy=False,
+        visa_lib=config["visa"]["visa-lib"],
+        smu_address=config["smu"]["smus"][smu]["address"],
+        smu_terminator=config["smu"]["terminator"],
+        smu_baud=config["smu"]["baud"],
+        controller_address=config["controller"]["address"],
+        psu_address=config["psu"]["address"],
+        psu_terminator=config["psu"]["terminator"],
+        psu_baud=config["psu"]["baud"],
+    )
+
     # using smu to measure the current from the photodiode
     measurement.controller.set_relay("iv")
-
-    # connect EQE diode
-    diode = config["experiments"]["eqe"]["calibration_diode"]
 
     if (c := config["calibration_diodes"][diode]["connection"]) == "external":
         # if externally connected make sure all mux relays are open
@@ -370,7 +413,13 @@ def _calibrate_psu(mqttc, channel, request):
         mqttc.append_payload(json.dumps(payload))
         return
 
+    # perform measurement
     psu_calibration = measurement.calibrate_psu(channel)
+
+    # disconnect instruments
+    measurement.sm.disconnect()
+    measurement.psu.disconnect()
+    measurement.controller.disconnect()
 
     # update eqe diode calibration data in atomic thread-safe way
     timestamp = get_timestamp()
@@ -1234,7 +1283,7 @@ def _run(mqttc, args, request):
     _publish_args(mqttc, args)
 
     # connect all instruments
-    measurement.connect_all_instruments(
+    measurement.connect_instruments(
         args.dummy,
         config["visa"]["visa_lib"],
         config["smu"]["smus"]["smu1"]["address"],

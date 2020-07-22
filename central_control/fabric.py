@@ -82,8 +82,10 @@ class fabric:
         smu_baud : int
             Baud rate for serial communication with the source-measure unit.
         """
-        if (smu_address is None) or (dummy is True):
+        if dummy is True:
             self.sm = virt.k2400()
+        elif smu_address is None:
+            return
         else:
             self.sm = k2400(
                 visa_lib=visa_lib,
@@ -129,11 +131,14 @@ class fabric:
                 * 0 : RS232
                 * 1 : GPIB
         """
-        if (lia_address is None) or (dummy is True):
+        if dummy is True:
             self.lia = virtual_sr830.sr830(return_int=True)
+        elif lia_address is None:
+            return
         else:
             self.lia = sr830.sr830(return_int=True, check_errors=True)
-            # default lia_output_interface is RS232
+
+        # default lia_output_interface is RS232
         self.lia.connect(
             resource_name=lia_address,
             output_interface=lia_output_interface,
@@ -166,8 +171,10 @@ class fabric:
         mono_baud : int
             Baud rate for serial communication with the monochromator.
         """
-        if (mono_address is None) or (dummy is True):
+        if dummy is True:
             self.mono = virtual_sp2150.sp2150()
+        elif mono_address is None:
+            return
         else:
             self.mono = sp2150.sp2150()
         self.mono.connect(resource_name=mono_address)
@@ -187,14 +194,16 @@ class fabric:
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
         """
-        if (light_address is None) or (dummy is True):
+        if dummy is True:
             self.le = virt.illumination()
+        elif light_address is None:
+            return
         else:
             self.le = illumination(address=light_address)
         self.le.connect()
 
     def connect_controller(
-        self, dummy=False, visa_lib="@py", controller_address=None,
+        self, dummy=False, controller_address=None,
     ):
         """Create mux and stage controller connection.
 
@@ -203,16 +212,17 @@ class fabric:
         dummy : bool
             Choose whether or not to make all instruments virtual. Useful for testing
             control logic.
-        visa_lib : str
-            PyVISA backend.
         controller_address : str
             VISA resource name for the multiplexor and stage controller. If `None` is
             given a virtual instrument is created.
         """
-        if (controller_address is None) or (dummy is True):
+        if dummy is True:
             self.controller = virt.controller()
+        elif controller_address is None:
+            pass
         else:
             self.controller = controller(address=controller_address)
+
         self.controller.connect()
 
     def connect_psu(
@@ -240,14 +250,17 @@ class fabric:
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
         """
-        if (psu_address is None) or (dummy is True):
+        if dummy is True:
             self.psu = virtual_dp800.dp800()
+        elif psu_address is None:
+            return
         else:
             self.psu = dp800.dp800()
+
         self.psu.connect(resource_name=psu_address)
         self.psu_idn = self.psu.get_id()
 
-    def connect_all_instruments(
+    def connect_instruments(
         self,
         dummy=False,
         visa_lib="@py",
@@ -351,7 +364,7 @@ class fabric:
         )
 
         self.connect_controller(
-            dummy=dummy, visa_lib=visa_lib, controller_address=controller_address,
+            dummy=dummy, controller_address=controller_address,
         )
 
         self.connect_psu(
@@ -362,24 +375,14 @@ class fabric:
             psu_baud=psu_baud,
         )
 
-    def disconnect_instrument(self, instr):
-        """Disconnect and instrument.
-
-        Parameters
-        ----------
-        instr : VISA resource object
-            VISA resource for the instrument.
-        """
-        instr.close()
-
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
-        self.sm.close()
-        self.lia.close()
-        self.mono.close()
-        self.controller.close()
-        self.le.close()
-        self.psu.close()
+        self.sm.disconnect()
+        self.lia.disconnect()
+        self.mono.disconnect()
+        self.controller.disconnect()
+        self.le.disconnect()
+        self.psu.disconnect()
 
     def hardware_test(self, substrates_to_test):
         """Test hardware."""

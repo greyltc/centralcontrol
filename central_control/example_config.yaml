@@ -169,6 +169,9 @@ calibration_diodes:
             # LIA time constant setting
             time_constant: 8
             smu_voltage: 0
+            smu: smu1
+        psu_calibration_settings:
+            smu: smu1
         # 1 sun equivalent calibration current
         solarsim: null
 

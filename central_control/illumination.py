@@ -40,6 +40,10 @@ class illumination:
     """
         self.light_engine.connect()
 
+    def disconnect(self):
+        """Disconnect light source."""
+        self.light_engine.disconnect()
+
     def on(self):
         """
     turns light on

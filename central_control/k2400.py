@@ -194,6 +194,11 @@ class k2400:
 
         # TODO: look into contact checking function of 2400 :system:ccheck
 
+    def disconnect(self):
+        """Close VISA resource."""
+        self.sm.outOn(False)
+        self.sm.close()
+
     def setWires(self, twoWire=False):
         if twoWire:
             self.sm.write(":system:rsense off")  # four wire mode off
