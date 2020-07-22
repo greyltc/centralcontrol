@@ -180,6 +180,8 @@ def _publish_calibration(mqttc, request={"action": "", "data": "", "client-id": 
     ----------
     mqttc : MQTTQueuePublisher object
         MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
     """
     if calibration is {}:
         kind = "warning"
@@ -193,6 +195,25 @@ def _publish_calibration(mqttc, request={"action": "", "data": "", "client-id": 
         "data": data,
         "action": request["action"],
         "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
+
+
+def _publish_args(mqttc, args):
+    """Send calibration data to clients.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    args : types.SimpleNamespace
+        Arguments parsed to the run command.
+    """
+    payload = {
+        "kind": "run_args",
+        "data": vars(args),
+        "action": "",
+        "client-id": "",
     }
     mqttc.append_payload(json.dumps(payload))
 
@@ -1021,11 +1042,17 @@ def _run(mqttc, args):
     save_folder = args.destination
     _publish_save_folder(mqttc)
 
-    # publish other settings
+    # publish config and calibration
     _publish_config(mqttc)
     _publish_calibration(mqttc)
 
-    # TODO: make funcs
+    # tell savers to save config and calibration
+    payload = {"kind": "save_config", "data": "", "action": "", "client-id": ""}
+    mqttc.append_payload(json.dumps(payload))
+    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
+    mqttc.append_payload(json.dumps(payload))
+
+    # publish run arguments, saver knows to save it immediately
     _publish_args(mqttc, args)
 
     # connect all instruments
