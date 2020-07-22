@@ -8,13 +8,16 @@ class us:
   
   substrate_centers = [300, 260, 220, 180, 140, 100, 60, 20]  # mm from home to the centers of A, B, C, D, E, F, G, H substrates
   photodiode_location = 315  # mm
+  motor_steps_per_rev = 200  # steps/rev
+  micro_stepping = 256 # microsteps/step
+  screw_pitch = 8.0  # mm/rev
   
   # software reject movements that would put us outside these limits
   # TODO: make multi axis
   minimum_position = [5]
   maximum_position = [120]
 
-  def __init__(self, pcb_object, nAxes=1, expected_lengths=[809219], steps_per_mm=200*256/2.54):
+  def __init__(self, pcb_object, nAxes=1, expected_lengths=[809219], steps_per_mm=motor_steps_per_rev*micro_stepping/screw_pitch):
     """
     sets up the microstepper object
     needs handle to active PCB class object
@@ -36,6 +39,8 @@ class us:
     opens connection to the motor controller
     """
     len0 = pcb.get('l0')  # get the length of the 0 axis to check comms
+    len1 = pcb.get('l1')  # get the length of the 0 axis to check comms
+    len1 = pcb.get('l2')  # get the length of the 0 axis to check comms
     return 0
 
 

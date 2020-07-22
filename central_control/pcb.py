@@ -163,7 +163,11 @@ class pcb:
       elif cmd.startswith('p'):
         ret = int(answer)
       elif cmd.startswith('l'):
-        ret = int(answer)
+        if answer.startswith('ERROR'):
+          # TODO: use logging module here
+          ret = None
+        else:
+          ret = int(answer)
       elif cmd.startswith('r'):
         ret = int(answer)
       elif cmd.startswith('c'):
