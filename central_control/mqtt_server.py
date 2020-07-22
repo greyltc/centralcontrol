@@ -236,6 +236,8 @@ def _calibrate_eqe(mqttc, request):
     ----------
     mqttc : MQTTQueuePublisher object
         MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
     """
     global calibration
 
@@ -289,8 +291,9 @@ def _calibrate_eqe(mqttc, request):
         )
     else:
         error_msg = (
-            f"EQE calibration failed! Photodiode connection mode '{c}' not "
-            + "recognised. Must be 'internal' or 'external'."
+            f"EQE calibration failed! Photodiode connection mode '{c}' "
+            + f"for photodiode '{diode}' not recognised. Must be 'internal' "
+            + "or 'external'."
         )
         payload = {
             "kind": "error",
@@ -301,8 +304,7 @@ def _calibrate_eqe(mqttc, request):
         mqttc.append_payload(json.dumps(payload))
         return
 
-    cal_wls = config["calibration_diodes"][diode]["eqe"]["wls"]
-    cal_settings = config["calibratio_diodes"][diode]["eqe_calibration_settings"]
+    cal_settings = config["calibration_diodes"][diode]["eqe_calibration_settings"]
 
     eqe_calibration = measurement.calibrate_eqe(
         psu_ch1_voltage=config["psu"]["ch1_voltage"],
@@ -312,9 +314,9 @@ def _calibrate_eqe(mqttc, request):
         psu_ch3_voltage=config["psu"]["ch3_voltage"],
         psu_ch3_current=cal_settings["ch3_current"],
         smu_voltage=cal_settings["smu_voltage"],
-        start_wl=min(cal_wls),
-        end_wl=max(cal_wls),
-        num_points=len(cal_wls),
+        start_wl=min(cal_settings["eqe"]["wls"]),
+        end_wl=max(cal_settings["eqe"]["wls"]),
+        num_points=len(cal_settings["eqe"]["wls"]),
         grating_change_wls=config["monochromator"]["grating_change_wls"],
         filter_change_wls=config["monochromator"]["filter_change_wls"],
         integration_time=cal_settings["time_constant"],
@@ -352,10 +354,18 @@ def _calibrate_eqe(mqttc, request):
 
 
 def _calibrate_psu(mqttc, channel, request):
-    """Measure the reference photodiode as a funtcion of LED current."""
-    global calibration
+    """Measure the reference photodiode as a funtcion of LED current.
 
-    # TODO: add connect/disconnect methods
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    channel : int
+        PSU channel to calibrate.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    global calibration
 
     # get EQE diode info
     diode = config["experiments"]["eqe"]["calibration_diode"]
@@ -401,8 +411,9 @@ def _calibrate_psu(mqttc, channel, request):
         )
     else:
         error_msg = (
-            f"EQE calibration failed! Photodiode connection mode '{c}' not "
-            + "recognised. Must be 'internal' or 'external'."
+            f"PSU calibration failed! Photodiode connection mode '{c}' "
+            + f"for photodiode '{diode}' not recognised. Must be 'internal' "
+            + "or 'external'."
         )
         payload = {
             "kind": "error",
@@ -444,15 +455,32 @@ def _calibrate_psu(mqttc, channel, request):
 
 
 def _calibrate_solarsim(mqttc, request):
-    """Calibrate the solar simulator."""
-    # TODO; add calibrate solar sim func
-    measurement.controller.set_relay("iv")
-    solarsim_spectral_calibration = config["solarsim"]["spectral_calibration"]
+    """Calibrate the solar simulator.
 
-    # update eqe diode calibration data in atomic thread-safe way
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    global config
+
     timestamp = get_timestamp()
-    diode_dict = {"data": psu_calibration, "timestamp": timestamp}
-    calibration["psu"][diode] = diode_dict
+
+    spectral_calibration = config["solarsim"]["spectral_calibration"]["cal"]
+
+    measurement.connect_instruments(
+        dummy=False,
+        visa_lib=config["visa"]["visa-lib"],
+        light_address=config["solarsim"]["address"],
+    )
+
+    spectrum = measurement.measure_spectrum(spectrum_cal=spectral_calibration)
+
+    # update spectrum  calibration data in atomic thread-safe way
+    spectrum_dict = {"data": spectrum, "timestamp": timestamp}
+    calibration["solarsim"]["spectrum"] = spectrum_dict
 
     # save local copy of calibration to reload in case of crash
     save_calibration_data()
@@ -462,9 +490,104 @@ def _calibrate_solarsim(mqttc, request):
     payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
     mqttc.append_payload(json.dumps(payload))
 
+    # get solar sim diode info
+    if (diodes := config["experiments"]["solarsim"]["calibration_diodes"]) is not None:
+        connected = False
+        for i, diode in enumerate(diodes):
+            if (c := config["calibration_diodes"][diode]["connection"]) == "external":
+                # if externally connected make sure all mux relays are open
+                measurement.controller.clear_mux()
+
+                # move to position
+                measurement.goto_stage_position(
+                    config["calibration_diodes"][diode]["position"],
+                    handler=_handle_stage_data,
+                    handler_kwargs={"mqttc": mqttc},
+                )
+            elif c == "internal":
+                # connect required relay
+                arr_loc = config["calibration_diodes"][diode]["array_location"]
+                measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
+
+                # move to position
+                pos = _calculate_pixel_position(
+                    "eqe", arr_loc[0], arr_loc[1], arr_loc[2]
+                )
+                measurement.goto_stage_position(
+                    pos, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc},
+                )
+            else:
+                error_msg = (
+                    f"Solarsim calibration failed! Photodiode connection mode '{c}' "
+                    + f"for photodiode '{diode}' not recognised. Must be 'internal' "
+                    + "or 'external'."
+                )
+                payload = {
+                    "kind": "error",
+                    "data": error_msg,
+                    "action": request["action"],
+                    "client-id": request["client-id"],
+                }
+                mqttc.append_payload(json.dumps(payload))
+                continue
+
+            # look up smu
+            smu = config["calibration_diodes"][diode]["solarsim_calibration_settings"][
+                "smu"
+            ]
+            compliance = config["calibration_diodes"][diode][
+                "solarsim_calibration_settings"
+            ]["compliance_current"]
+
+            if connected is False:
+                # connect instruments
+                measurement.connect_instruments(
+                    dummy=False,
+                    visa_lib=config["visa"]["visa-lib"],
+                    smu_address=config["smu"]["smus"][smu]["address"],
+                    smu_terminator=config["smu"]["terminator"],
+                    smu_baud=config["smu"]["baud"],
+                    controller_address=config["controller"]["address"],
+                )
+                connected = True
+
+                measurement.controller.set_relay("iv")
+
+            it = measurement.steady_state(
+                t_dwell=1,
+                sourceVoltage=True,
+                compliance=compliance,
+                senseRange="a",
+                setPoint=0,
+            )
+
+            # update eqe diode calibration data in atomic thread-safe way
+            diode_dict = {"data": it, "timestamp": timestamp}
+            calibration["solarsim"]["diodes"][diode] = diode_dict
+
+            # save local copy of calibration to reload in case of crash
+            save_calibration_data()
+
+            # publish calibration and tell savers to save it
+            _publish_calibration(mqttc)
+            payload = {
+                "kind": "save_calibration",
+                "data": "",
+                "action": "",
+                "client-id": "",
+            }
+            mqttc.append_payload(json.dumps(payload))
+
+        # diconnect instruments
+        measurement.sm.disconnect()
+        measurement.controller.disconnect()
+
+    # disconnect light engine
+    measurement.le.disconnect()
+
     payload = {
         "kind": "info",
-        "data": "Solar sim calibration complete!",
+        "data": "Solar simulator calibration complete!",
         "action": request["action"],
         "client-id": request["client-id"],
     }

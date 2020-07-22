@@ -388,80 +388,57 @@ class fabric:
         """Test hardware."""
         pass
 
-    def measureIntensity(self, recipe=None, spectrum_cal=None):
-        """Measure the equivalent solar intensity of the light source.
+    def measure_spectrum(self, recipe=None, spectrum_cal=None):
+        """Measure the spectrum of the light source.
 
-        Uses either reference calibration diodes on the sample stage and/or the light
-        source's own internal calibration sensor.
-
-        The function can return the number of suns and ADC counts for two stage-mounted
-        diodes using diode calibration values in diode_cal (if diode_cal is not a tuple
-        with valid calibration values, sets intensity to 1.0 sun for both diodes.)
-
-        This function will try to calculate the equivalent solar intensity based on a
-        measurement of the spectral irradiance if supported by the light source. To
-        obtain the correct units and relative scaling for the spectral irradiance
-        calibration data must be supplied as an argument to the function call. If
-        calibration data is not supplied the raw measurement will be returned and the
-        intensity is assumed to be 1.0 sun equivalent.
+        Uses the internal spectrometer.
 
         Parameters
         ----------
         recipe : str
             Name of the spectrum recipe for the light source to load.
-        spectrum_cal : array-like
+        spectrum_cal : list
             Calibration data for the light source's internal spectrometer used to
             convert the raw measurement to units of spectral irradiance.
 
         Returns
         -------
-        ret : dict
-            Dictionary of intensity measurements, i.e. diode readings and/or Wavelabs
-            integrated intensity.
+        spectrum : list
+            Spectrum measurements.
         """
-        ret = {
-            "diode_1_adc": None,
-            "diode_2_adc": None,
-            "diode_1_suns": None,
-            "diode_2_suns": None,
-            "wavelabs_suns": None,
-        }
+        if recipe is not None:
+            # choose the recipe
+            self.le.light_engine.activateRecipe(recipe)
 
-        self.spectrum = None
+        # edit the recipe for the intensity measurement but store old values so it
+        # can be changed back after
+        old_duration = self.le.light_engine.getRecipeParam(param="Duration")
+        new_duration = 1
+        self.le.light_engine.setRecipeParam(param="Duration", value=new_duration * 1000)
 
-        if self.le.wavelabs is True:
-            # if using wavelabs light engine, use internal spectrometer to measure
-            # spectrum and intensity
-            if recipe is not None:
-                # choose the recipe
-                self.le.light_engine.activateRecipe(recipe)
+        # run recipe
+        run_ID = self.le.light_engine.on()
+        self.le.light_engine.waitForRunFinished(run_ID=run_ID)
+        self.le.light_engine.waitForResultAvailable(run_ID=run_ID)
 
-            # edit the recipe for the intensity measurement but store old values so it
-            # can be changed back after
-            old_duration = self.le.light_engine.getRecipeParam(param="Duration")
-            new_duration = 1
-            self.le.light_engine.setRecipeParam(
-                param="Duration", value=new_duration * 1000
-            )
-            run_ID = self.le.light_engine.on()
-            self.le.light_engine.waitForRunFinished(run_ID=run_ID)
-            self.le.light_engine.waitForResultAvailable(run_ID=run_ID)
-            spectra = self.le.light_engine.getDataSeries(run_ID=run_ID)
-            self.le.light_engine.setRecipeParam(param="Duration", value=old_duration)
-            spectrum = spectra[0]
-            wls = spectrum["data"]["Wavelenght"]
-            irr = spectrum["data"]["Irradiance"]
-            self.spectrum_raw = np.array([[w, i] for w, i in zip(wls, irr)])
-            if spectrum_cal is None:
-                self.spectrum = self.spectrum_raw
-                ret["wavelabs_suns"] = 1
-                warnings.warn("Spectral calibration not provided. Assuming 1.0 suns.")
-            else:
-                self.spectrum = self.spectrum_raw * spectrum_cal
-                # calculate intensity in suns
-                ret["wavelabs_suns"] = sp.integrate.simps(self.spectrum, wls) / 1000
+        # get spectrum data
+        raw_spectrum = self.le.light_engine.getDataSeries(run_ID=run_ID)[0]
+        wls = raw_spectrum["data"]["Wavelenght"]
+        raw_irr = raw_spectrum["data"]["Irradiance"]
+        data = np.array([[w, i] for w, i in zip(wls, raw_irr)])
 
-        return ret
+        # reset recipe
+        self.le.light_engine.setRecipeParam(param="Duration", value=old_duration)
+
+        # calculate spectral irradiance and add to data array
+        if spectrum_cal is None:
+            data[:, 2] = raw_irr
+        else:
+            data[:, 2] = raw_irr * np.array([spectrum_cal])
+            # calculate intensity in suns
+            suns = sp.integrate.simps(data[:, 2], data[:, 0]) / 1000
+
+        return data.tolist()
 
     def run_done(self):
         """Turn off light engine and smu."""
