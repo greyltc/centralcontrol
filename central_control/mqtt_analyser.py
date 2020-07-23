@@ -271,10 +271,10 @@ if __name__ == "__main__":
         mqtt_analyser.connect(args.MQTTHOST)
 
         # subscribe to data and request topics
-        mqtt_analyser.subscribe("data/raw")
-        mqtt_analyser.subscribe("data/calibration")
-        mqtt_analyser.subscribe("measurement/request")
-        mqtt_analyser.subscribe("control/calibration_check_request")
+        mqtt_analyser.subscribe("data/raw", qos=2)
+        mqtt_analyser.subscribe("data/calibration", qos=2)
+        mqtt_analyser.subscribe("measurement/request", qos=2)
+        mqtt_analyser.subscribe("control/calibration_check_request", qos=2)
 
         # start publisher queue for processing responses
         mqtt_analyser.loop_start()

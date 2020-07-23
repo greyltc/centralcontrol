@@ -111,28 +111,6 @@ def start_thread(mqttc, target, args, name):
     mqttc.append_payload(json.dumps({"kind": kind, "data": data}))
 
 
-def _publish_save_folder(mqttc, request={"action": "", "data": "", "client-id": ""}):
-    """Send save folder name to clients.
-
-    Parameters
-    ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
-    request : dict
-        Request dictionary sent to the server.
-    """
-    # reload config from file
-    load_config_from_file(mqttc)
-
-    payload = {
-        "kind": "save_folder",
-        "data": save_folder,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload(json.dumps(payload))
-
-
 def _publish_config(mqttc, request={"action": "", "data": "", "client-id": ""}):
     """Send configuration to clients.
 
@@ -171,25 +149,6 @@ def _update_config(mqttc, new_config):
 
     # reload config from file
     load_config_from_file(mqttc)
-
-
-def _publish_args(mqttc, args):
-    """Send calibration data to clients.
-
-    Parameters
-    ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
-    args : types.SimpleNamespace
-        Arguments parsed to the run command.
-    """
-    payload = {
-        "kind": "run_args",
-        "data": vars(args),
-        "action": "",
-        "client-id": "",
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
 
 
 def get_timestamp():
