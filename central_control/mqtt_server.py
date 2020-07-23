@@ -1003,6 +1003,29 @@ def _handle_save_settings(settings, **kwargs):
     mqttc.append_payload(json.dumps(payload))
 
 
+def _handle_contact_check(pixel_msg, **kwargs):
+    """Publish stage position data.
+
+    Parameters
+    ----------
+    settings : dict
+        Dictionary of save settings.
+    **kwargs : dict
+        Dictionary of additional keyword arguments required by handler. Should have
+        one keys: "mqttc" whose value is an MQTT queue publisher client.
+    """
+    mqttc = kwargs["mqttc"]
+    request = kwargs["request"]
+
+    payload = {
+        "kind": "contact_check",
+        "data": pixel_msg,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload(json.dumps(payload))
+
+
 def _ivt(mqttc, pixel_queue, args):
     """Run through pixel queue of i-v-t measurements.
 

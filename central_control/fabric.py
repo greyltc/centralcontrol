@@ -1010,7 +1010,9 @@ class fabric:
 
         return ret_val
 
-    def check_all_contacts(self, rows, columns, pixels):
+    def check_all_contacts(
+        self, rows, columns, pixels, handler=None, handler_kwargs={}
+    ):
         """Perform contact check on all pixels in the system.
 
         Parameters
@@ -1022,6 +1024,10 @@ class fabric:
         pixels : int
             Number of pixels on each pcb adapter in the system. Assumes all adapaters
             are the same.
+        handler : handler callback
+            Handler that acts on failed contact check reports.
+        handler_kwargs : dict
+            Keyword arguments required by the handler.
 
         Returns
         -------
@@ -1036,13 +1042,18 @@ class fabric:
             for p in range(pixels)
         ]
 
+        failed = 0
         for r, c, p in mux_list:
             self.controller.set_mux(r, c, p)
             if self.sm.contact_check() is True:
-                msg = "FAILED"
-            else:
-                msg = "PASSED"
-            print(f"Contact check {msg}! Row: {r}, col: {c}, pixel: {p}")
+                failed += 1
+                if handler is not None:
+                    handler(
+                        f"Contact check FAILED! Row: {r}, col: {c}, pixel: {p}",
+                        **handler_kwargs,
+                    )
+
+        return f"{failed}/{len(mux_list)} pixels failed the contact check."
 
 
 def round_sf(x, sig_fig):
