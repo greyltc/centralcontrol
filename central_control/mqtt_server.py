@@ -596,6 +596,11 @@ def _calibrate_solarsim(mqttc, request):
 
 def _home(mqttc, request):
     """Home the stage."""
+    # TODO: finish
+    measurement.connect_instruments(
+        dummy=False, controller_address=config["controller"]["address"],
+    )
+
     measurement.home_stage(config["stage"]["length"])
 
     payload = {

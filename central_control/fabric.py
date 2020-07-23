@@ -849,7 +849,7 @@ class fabric:
 
         return data
 
-    def home_stage(self, expected_lengths, timeout=80, length_poll_sleep=0.1):
+    def home_stage(self, expected_lengths, timeout=120, length_poll_sleep=0.1):
         """Home the stage.
 
         Parameters
@@ -931,7 +931,7 @@ class fabric:
     def goto_stage_position(
         self,
         position,
-        timeout=20,
+        timeout=30,
         retries=5,
         position_poll_sleep=0.5,
         handler=None,
