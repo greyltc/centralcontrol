@@ -843,55 +843,6 @@ def _build_q(args, pixel_address_string, experiment):
     return pixel_q
 
 
-def _connect_instruments(mqttc, args):
-    """Init fabric object and connect instruments.
-
-    Determine which instruments are connected and their settings from the config
-    file.
-    """
-    if args.dummy is False:
-        visa_lib = config["visa"]["visa_lib"]
-        smu_address = config["smu"]["address"]
-        smu_terminator = config["smu"]["terminator"]
-        smu_baud = config["smu"]["baud"]
-        light_address = config["solarsim"]["address"]
-        controller_address = config["controller"]["address"]
-        lia_address = config["lia"]["address"]
-        lia_output_interface = config["lia"]["output_interface"]
-        mono_address = config["mono"]["address"]
-        psu_address = config["psu"]["address"]
-    else:
-        visa_lib = None
-        smu_address = None
-        smu_terminator = None
-        smu_baud = None
-        light_address = None
-        controller_address = None
-        lia_address = None
-        lia_output_interface = None
-        mono_address = None
-        psu_address = None
-
-    # connect to insturments
-    measurement.connect(
-        dummy=args.dummy,
-        visa_lib=visa_lib,
-        smu_address=smu_address,
-        smu_terminator=smu_terminator,
-        smu_baud=smu_baud,
-        light_address=light_address,
-        controller_address=controller_address,
-        lia_address=lia_address,
-        lia_output_interface=lia_output_interface,
-        mono_address=mono_address,
-        psu_address=psu_address,
-    )
-
-    # set up smu terminals
-    measurement.sm.setTerminals(front=config["smu"]["front_terminals"])
-    measurement.sm.setWires(twoWire=config["smu"]["two_wire"])
-
-
 def _handle_measurement_data(data, **kwargs):
     """Publish measurement data.
 
@@ -1418,6 +1369,10 @@ def _run(mqttc, request, args):
         config["psu"]["terminator"],
         config["psu"]["baud"],
     )
+
+    # set up smu terminals
+    measurement.sm.setTerminals(front=config["smu"]["front_terminals"])
+    measurement.sm.setWires(twoWire=config["smu"]["two_wire"])
 
     # measure i-v-t
     if len(iv_pixel_queue) > 0:
