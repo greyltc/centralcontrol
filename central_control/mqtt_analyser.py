@@ -131,12 +131,12 @@ def process_spectrum(mqttc):
     """
     # look up calibration and measurement data
     cal = np.array(config["solarsim"]["spectral_calibration"]["cal"])
-    meas = np.array(spectrum_calibration["data"]["meas"])
+    meas = np.array(spectrum_calibration["data"])
 
     # calculate spectral irradiance in W/m^2/nm and append to cal dict
-    irr = meas * cal
-    irr = irr.tolist()
-    spectrum_calibration["data"]["irr"] = irr
+    irr = meas[:, 1] * cal
+    meas[:, 2] = irr
+    spectrum_calibration["data"] = meas.tolist()
 
     # publish processed spectrum
     mqttc.append_payload("data/processed", json.dumps(spectrum_calibration))

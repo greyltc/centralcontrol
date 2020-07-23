@@ -173,32 +173,6 @@ def _update_config(mqttc, new_config):
     load_config_from_file(mqttc)
 
 
-def _publish_calibration(mqttc, request={"action": "", "data": "", "client-id": ""}):
-    """Send calibration data to clients.
-
-    Parameters
-    ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
-    request : dict
-        Request dictionary sent to the server.
-    """
-    if calibration is {}:
-        kind = "warning"
-        data = "No calibration data available."
-    else:
-        kind = "calibration"
-        data = calibration
-
-    payload = {
-        "kind": kind,
-        "data": data,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload(json.dumps(payload))
-
-
 def _publish_args(mqttc, args):
     """Send calibration data to clients.
 
@@ -215,7 +189,7 @@ def _publish_args(mqttc, args):
         "action": "",
         "client-id": "",
     }
-    mqttc.append_payload(json.dumps(payload))
+    mqttc.append_payload("measurement/response", json.dumps(payload))
 
 
 def get_timestamp():
@@ -301,12 +275,12 @@ def _calibrate_eqe(mqttc, request):
             "action": request["action"],
             "client-id": request["client-id"],
         }
-        mqttc.append_payload(json.dumps(payload))
+        mqttc.append_payload("measurement/response", json.dumps(payload))
         return
 
     cal_settings = config["calibration_diodes"][diode]["eqe_calibration_settings"]
 
-    eqe_calibration = measurement.calibrate_eqe(
+    eqe_calibration = measurement.eqe(
         psu_ch1_voltage=config["psu"]["ch1_voltage"],
         psu_ch1_current=cal_settings["ch1_current"],
         psu_ch2_voltage=config["psu"]["ch2_voltage"],
@@ -333,16 +307,16 @@ def _calibrate_eqe(mqttc, request):
     measurement.controller.disconnect()
 
     # update eqe diode calibration data in atomic thread-safe way
-    diode_dict = {"data": eqe_calibration, "timestamp": timestamp}
-    calibration["eqe"][diode] = diode_dict
+    diode_dict = {"data": eqe_calibration, "timestamp": timestamp, "diode": diode}
 
-    # save local copy of calibration to reload in case of crash
-    save_calibration_data()
-
-    # publish calibration and tell savers to save it
-    _publish_calibration(mqttc)
-    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
-    mqttc.append_payload(json.dumps(payload))
+    # publish calibration
+    payload = {
+        "measurement": "eqe_calibration",
+        "data": diode_dict,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload("data/calibration", json.dumps(payload))
 
     payload = {
         "kind": "info",
@@ -350,7 +324,7 @@ def _calibrate_eqe(mqttc, request):
         "action": request["action"],
         "client-id": request["client-id"],
     }
-    mqttc.append_payload(json.dumps(payload))
+    mqttc.append_payload("measurement/response", json.dumps(payload))
 
 
 def _calibrate_psu(mqttc, channel, request):
@@ -366,6 +340,8 @@ def _calibrate_psu(mqttc, channel, request):
         Request dictionary sent to the server.
     """
     global calibration
+
+    timestamp = get_timestamp()
 
     # get EQE diode info
     diode = config["experiments"]["eqe"]["calibration_diode"]
@@ -421,7 +397,7 @@ def _calibrate_psu(mqttc, channel, request):
             "action": request["action"],
             "client-id": request["client-id"],
         }
-        mqttc.append_payload(json.dumps(payload))
+        mqttc.append_payload("measurement/response", json.dumps(payload))
         return
 
     # perform measurement
@@ -433,17 +409,16 @@ def _calibrate_psu(mqttc, channel, request):
     measurement.controller.disconnect()
 
     # update eqe diode calibration data in atomic thread-safe way
-    timestamp = get_timestamp()
-    diode_dict = {"data": psu_calibration, "timestamp": timestamp}
-    calibration["psu"][diode] = diode_dict
+    diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": diode}
 
-    # save local copy of calibration to reload in case of crash
-    save_calibration_data()
-
-    # publish calibration and tell savers to save it
-    _publish_calibration(mqttc)
-    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
-    mqttc.append_payload(json.dumps(payload))
+    # publish calibration
+    payload = {
+        "kind": "pus_calibration",
+        "data": diode_dict,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload("data/calibration", json.dumps(payload))
 
     payload = {
         "kind": "info",
@@ -451,7 +426,7 @@ def _calibrate_psu(mqttc, channel, request):
         "action": request["action"],
         "client-id": request["client-id"],
     }
-    mqttc.append_payload(json.dumps(payload))
+    mqttc.append_payload("measurement/response", json.dumps(payload))
 
 
 def _calibrate_solarsim(mqttc, request):
@@ -468,32 +443,32 @@ def _calibrate_solarsim(mqttc, request):
 
     timestamp = get_timestamp()
 
-    spectral_calibration = config["solarsim"]["spectral_calibration"]["cal"]
-
     measurement.connect_instruments(
         dummy=False,
         visa_lib=config["visa"]["visa-lib"],
         light_address=config["solarsim"]["address"],
     )
 
-    spectrum = measurement.measure_spectrum(spectrum_cal=spectral_calibration)
+    spectrum = measurement.measure_spectrum()
 
     # update spectrum  calibration data in atomic thread-safe way
     spectrum_dict = {"data": spectrum, "timestamp": timestamp}
-    calibration["solarsim"]["spectrum"] = spectrum_dict
 
-    # save local copy of calibration to reload in case of crash
-    save_calibration_data()
-
-    # publish calibration and tell savers to save it
-    _publish_calibration(mqttc)
-    payload = {"kind": "save_calibration", "data": "", "action": "", "client-id": ""}
-    mqttc.append_payload(json.dumps(payload))
+    # publish calibration
+    payload = {
+        "kind": "spectrum_calibration",
+        "data": spectrum_dict,
+        "action": request["action"],
+        "client-id": request["client-id"],
+    }
+    mqttc.append_payload("data/calibration", json.dumps(payload))
 
     # get solar sim diode info
     if (diodes := config["experiments"]["solarsim"]["calibration_diodes"]) is not None:
+        diodes_dict = {}
+        measurement.controller.set_relay("iv")
         connected = False
-        for i, diode in enumerate(diodes):
+        for diode in diodes:
             if (c := config["calibration_diodes"][diode]["connection"]) == "external":
                 # if externally connected make sure all mux relays are open
                 measurement.controller.clear_mux()
@@ -551,8 +526,6 @@ def _calibrate_solarsim(mqttc, request):
                 )
                 connected = True
 
-                measurement.controller.set_relay("iv")
-
             it = measurement.steady_state(
                 t_dwell=1,
                 sourceVoltage=True,
@@ -562,25 +535,20 @@ def _calibrate_solarsim(mqttc, request):
             )
 
             # update eqe diode calibration data in atomic thread-safe way
-            diode_dict = {"data": it, "timestamp": timestamp}
-            calibration["solarsim"]["diodes"][diode] = diode_dict
-
-            # save local copy of calibration to reload in case of crash
-            save_calibration_data()
-
-            # publish calibration and tell savers to save it
-            _publish_calibration(mqttc)
-            payload = {
-                "kind": "save_calibration",
-                "data": "",
-                "action": "",
-                "client-id": "",
-            }
-            mqttc.append_payload(json.dumps(payload))
+            diodes_dict[diode] = {"data": it, "timestamp": timestamp}
 
         # diconnect instruments
         measurement.sm.disconnect()
         measurement.controller.disconnect()
+
+        # publish calibration
+        payload = {
+            "kind": "solarsim_diode_calibration",
+            "data": diodes_dict,
+            "action": request["action"],
+            "client-id": request["client-id"],
+        }
+        mqttc.append_payload("data/calibration", json.dumps(payload))
 
     # disconnect light engine
     measurement.le.disconnect()
@@ -591,7 +559,7 @@ def _calibrate_solarsim(mqttc, request):
         "action": request["action"],
         "client-id": request["client-id"],
     }
-    mqttc.append_payload(json.dumps(payload))
+    mqttc.append_payload("measurement/response", json.dumps(payload))
 
 
 def _home(mqttc, request):
