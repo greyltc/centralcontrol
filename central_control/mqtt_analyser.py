@@ -91,8 +91,9 @@ def process_eqe(payload, mqttc):
     meas_sig = meas[-1]
 
     # get interpolation object
-    cal_wls = eqe_calibration["wls"]
-    cal_sig = eqe_calibration["sig"]
+    cal = np.array(eqe_calibration)
+    cal_wls = cal[:, 1]
+    cal_sig = cal[:, -1]
     f_cal = sp.interpolate.interp1d(
         cal_wls, cal_sig, kind="cubic", bounds_error=False, fill_value=0
     )
