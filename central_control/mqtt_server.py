@@ -9,6 +9,7 @@ import sys
 import time
 import threading
 import types
+import uuid
 import warnings
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
@@ -1496,6 +1497,9 @@ if __name__ == "__main__":
 
     # create fabric measurement logic object
     measurement = central_control.fabric.fabric()
+
+    # create mqtt client id
+    client_id = f"measure-{uuid.uuid4().hex}"
 
     with MQTTQueuePublisher() as mqtt_measure:
         mqtt_measure.on_message = on_message

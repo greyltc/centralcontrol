@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import uuid
 
 import numpy as np
 import scipy as sp
@@ -263,6 +264,9 @@ if __name__ == "__main__":
     psu_calibration = {}
     spectrum_calibration = {}
     solarsim_diode_calibration = {}
+
+    # create mqtt client id
+    client_id = f"analyser-{uuid.uuid4().hex}"
 
     with MQTTQueuePublisher() as mqtt_analyser:
         mqtt_analyser.on_message = on_message
