@@ -84,7 +84,7 @@ class wavelabs:
       pass
     
     try:
-      self.server.close()
+      self.server.server_close()
     except:
       pass    
 

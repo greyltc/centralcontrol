@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from telnetlib import Telnet
 import socket
 import os
 
@@ -9,31 +10,53 @@ class pcb:
   Interface for talking to my control PCB
   """
   write_terminator = '\r\n'
-  read_terminator = b'\r\n'
-  prompt = '>>> '
+  #read_terminator = b'\r\n' # probably don't care
+  prompt = b'>>> '
   substrateList = 'HGFEDCBA'  # all the possible substrates
   substratesConnected = ''  # the ones we've detected
   adapters = []  # list of tuples of adapter boards: (substrate_letter, resistor_value)
 
-  def __init__(self, address, ignore_adapter_resistors=False):
-    timeout = 10  # pcb has this many seconds to respond
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  class MyTelnet(Telnet):
+    def read_response(self, timeout=None):
+      found_prompt = False
+      resp = self.read_until(pcb.prompt, timeout=None)
+      if resp.endswith(pcb.prompt):
+        found_prompt = True
+      ret = resp.rstrip(pcb.prompt).decode().strip()
+      if len(resp) == 0:
+        ret = None  # nothing came back (likely a timeout)
+      return ret, found_prompt
+
+    def send_cmd(self, cmd):
+      if not cmd.endswith(pcb.write_terminator.decode()):
+        self.write(cmd.encode())
+      else:
+        self.write(cmd.encode()+pcb.write_terminator)
+      self.sock.sendall()
+
+  def __init__(self, address, ignore_adapter_resistors=True, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
+    self.timeout = timeout # pcb has this many seconds to respond
+    self.ignore_adapter_resistors = ignore_adapter_resistors
+
     addr_split = address.split(':')
     if len(addr_split) == 1:
-        port = 23  # default port
-        host = addr_split[0]
+      port = 23  # default port
+      host = addr_split[0]
     else:
-        host, port = address.split(':')
-    s.settimeout(timeout)
-    s.connect((socket.gethostbyname(host), int(port)))
+      host, port = address.split(':')
+
+    self.host = host
+    self.port = int(port)
+
+
+  def __enter__(self):
+    self.tn = self.MyTelnet(self.host, self.port)
+    self.sf = self.tn.sock.makefile("rwb", buffering=0)
+
     if os.name != 'nt':
-      pcb.set_keepalive_linux(s)  # let's try to keep our connection alive!
-    sf = s.makefile("rwb", buffering=0)
+      pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
 
-    self.s = s
-    self.sf = sf
-
-    welcome_message, win = self.getResponse()
+    welcome_message, win = self.tn.read_response()
 
     if not win:
       raise ValueError('Did not see welcome message from pcb')
@@ -52,17 +75,28 @@ class pcb:
         mask = 0x01 << (7-i)
         if (mask & substrates) != 0x00:
           self.substratesConnected = self.substratesConnected + substrate
-          if ignore_adapter_resistors:
+          if self.ignore_adapter_resistors:
             resistors[substrate] = 0
           else:
             resistors[substrate] = self.get('d'+substrate)
           found = found + substrate
       print(found)
     self.resistors = resistors
+    return(self)
 
-  def __del__(self):
-    self.disconnect_all()
-    self.disconnect()
+  def __exit__(self, type, value, traceback):
+    try:
+      self.disconnect_all()
+    except:
+      pass
+    try:
+      self.sf.close()
+    except:
+      pass
+    try:
+      self.tn.close()
+    except:
+      pass
 
   def substrateSearch(self):
     """Returns bitmask of connected MUX boards
@@ -77,22 +111,21 @@ class pcb:
         found |= 0x01 << (7-i)
     return found
 
-  def disconnect(self):
-    self.sf.close()
-    try:
-      self.s.shutdown(socket.SHUT_RDWR)
-    except:
-      pass
-    self.s.close()
-
   def pix_picker(self, substrate, pixel, suppressWarning=False):
     win = False
     ready = False
-    try:
-      cmd = "s" + substrate + str(pixel)
-      answer, ready = self.query(cmd)
-    except:
-      raise (ValueError, "Failure while talking to PCB")
+    retries = 5
+    try_num = 0
+    while try_num < retries:
+      try:
+        cmd = "s" + substrate + str(pixel)
+        answer, ready = self.query(cmd)
+      except:
+        pass
+      if ready:
+        if answer == '':
+          break
+      retries += 1
 
     if ready:
       if answer == '':
@@ -100,49 +133,20 @@ class pcb:
       else:
         print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
     else:
-      raise (ValueError, "Comms are out of sync with the PCB")
+      raise (ValueError("Comms are out of sync with the PCB"))
 
     return win
 
-
-  # returns string, bool
-  # the string is the response
-  # the bool tells us if the read completed successfully
-  def getResponse(self):
-    sf = self.sf
-    result = None
-    found_prompt = False
-
-    try:
-      maybePrompt = sf.read(1) + sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
-      while found_prompt == False:
-        if result is None:
-          result = b""
-        if maybePrompt.decode() == self.prompt:
-          found_prompt = True
-          break
-        else:  # it's not the prompt, so let's keep reading
-          theRest = sf.readline()
-          result = result + maybePrompt + theRest
-          maybePrompt = sf.read(1) + sf.read(1) + sf.read(1) + sf.read(1)  # a prompt has length 4
-    except:
-      pass
-    if result is not None:
-      result = result.decode().rstrip() # strip off the final terminator and decode
-    return result, found_prompt
-
   def write(self, cmd):
-    sf = self.sf
     if not cmd.endswith(self.write_terminator):
       cmd = cmd + self.write_terminator
 
-    sf.write(cmd.encode())
-    sf.flush()
-
+    self.sf.write(cmd.encode())
+    self.sf.flush()
 
   def query(self, query):
     self.write(query)
-    return self.getResponse()
+    return self.tn.read_response()
 
 
   def get(self, cmd):
@@ -151,10 +155,24 @@ class pcb:
     ready = False
     ret = None
 
-    try:
-      answer, ready = self.query(cmd)
-    except:
-      raise (ValueError, "Failure while talking to PCB")
+    retry_cmds = ['j','h', 'l', 's', 'r', 'c', 'e', 'g']
+    super_retry_cmds = ['b']
+    if cmd[0] in retry_cmds:
+      tries_left = 5
+    elif cmd[0] in super_retry_cmds: # very important to get through because this is e-stop
+      tries_left = 5000
+    else:
+      tries_left = 1
+
+    while tries_left > 0:
+      try:
+        answer, ready = self.query(cmd)
+        if (ready == True) and ('ERROR' not in answer):
+          break
+      except:
+        ready = False
+        #raise (ValueError, "Failure while talking to PCB")
+      tries_left -= 1
 
     if ready:
       # parse by question
@@ -162,6 +180,12 @@ class pcb:
         ret = answer
       elif cmd.startswith('p'):
         ret = int(answer)
+      elif cmd.startswith('g'):
+        if answer.startswith('ERROR'):
+          # TODO: use logging module here
+          ret = None
+        else:
+          ret = answer
       elif cmd.startswith('l'):
         if answer.startswith('ERROR'):
           # TODO: use logging module here
@@ -169,8 +193,28 @@ class pcb:
         else:
           ret = int(answer)
       elif cmd.startswith('r'):
-        ret = int(answer)
+        if answer.startswith('ERROR'):
+          # TODO: use logging module here
+          ret = None
+        else:
+          ret = int(answer)
+      elif cmd.startswith('h'):
+        if answer.startswith('ERROR'):
+          # TODO: use logging module here
+          ret = None
+        else:
+          ret = answer
+      elif cmd.startswith('j'):
+        if answer.startswith('ERROR'):
+          # TODO: use logging module here
+          ret = None
+        else:
+          ret = answer
+      elif cmd.startswith('b'):
+          ret = answer
       elif cmd.startswith('c'):
+        ret = answer
+      elif cmd.startswith('e'):
         ret = answer
       else:  # parse by answer
         if answer.startswith('AIN'):
@@ -180,7 +224,7 @@ class pcb:
         else:
           print(f'WARNING: Got unexpected response form PCB to "{cmd}": {answer}')
     else:
-      raise (ValueError, "Comms are out of sync with the PCB")
+      raise (ValueError("Comms are out of sync with the PCB"))
 
     return ret
 
@@ -226,6 +270,7 @@ class pcb:
 
 # testing
 if __name__ == "__main__":
-  pcb_address = 'WIZnet111785'
-  p = pcb(pcb_address, ignore_adapter_resistors=True)
-  print(f"PD1 COUNTS = {p.getADCCounts(1)}")
+  pcb_address = '10.46.0.239'
+  with pcb(pcb_address, ignore_adapter_resistors=True) as p:
+    print(f"Mux Check result = {p.get('c')}")
+    print(f"Stage Check result = {p.get('e')}")
