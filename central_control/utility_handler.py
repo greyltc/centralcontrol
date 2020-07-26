@@ -90,6 +90,16 @@ def worker():
                 result = mo.goto(task['pos'])
                 if result != 0:
                     log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
+
+        elif task['cmd'] == 'read_stage':
+            with pcb.pcb(task['pcb']) as p:
+                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                mo.connect()
+                pos = mo.get_position()
+            payload = {'pos': pos}
+            payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+            output = {'destination':'response', 'payload': payload}  # post it to the response channel
+            outputq.put(output)
         
         elif task['cmd'] == 'check_health':
             log_msg(f'Checking controller...',lvl=logging.INFO)

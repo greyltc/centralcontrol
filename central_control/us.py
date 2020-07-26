@@ -254,7 +254,7 @@ class us:
         if (axl is not None) and (axl >= 0):
           dims += [axl]
           ret = 0
-          self.current_position[self.axes.index(ax)] = self.pcb.get(f'r{ax}')
+          self.current_position[self.axes.index(ax)] = self.pcb.get(f'r{ax}')/self.steps_per_mm
           if axis != -1:
             self.check_lengths(ax)
           break
@@ -263,6 +263,24 @@ class us:
       ret = dims
     if axis == -1:
       self.check_lengths()
+    return(ret)
+
+
+  # returns the stage's current position (a list matching the axes input)
+  # axis is -1 for all available axes or a list of axes
+  # returns None values for axes that could not be read
+  def get_position(self, axes=-1):
+    ret = []
+    if not hasattr(axes, "__len__"):
+      if axes == -1:
+        axes = self.axes
+      else:
+        axes = [axes]
+    
+    for ax in axes:
+      pos = self.pcb.get(f'r{ax}')/self.steps_per_mm
+      ret += [pos]
+      self.current_position[self.axes.index(ax)] = pos
     return(ret)
 
 

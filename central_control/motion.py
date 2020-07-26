@@ -68,3 +68,9 @@ class motion:
     emergency stop of the driver
     """
     return self.motion_engine.estop()
+
+  def get_position(self):
+    """
+    returns the current stage location in mm
+    """
+    return self.motion_engine.get_position()
