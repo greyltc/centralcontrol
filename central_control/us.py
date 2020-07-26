@@ -13,7 +13,7 @@ class us:
   screw_pitch = 8.0  # mm/rev
 
   allowed_length_deviation = 1 # measured length can deviate from expected length by up to this, in mm
-  end_buffers = 3 # don't allow movement to within this many mm of the stage ends (needed to prevent potential homing issues)
+  end_buffers = 5 # don't allow movement to within this many mm of the stage ends (needed to prevent potential homing issues)
 
   otter_safe_x = 54.6875 # xaxis safe location to home y for otter (in mm)
 
@@ -363,6 +363,7 @@ class us:
     """
     ret = -9
     t0 = time.time()
+    stop_check_time_res = 0.25  # [s] of often to check if we've stopped
 
     if not hasattr(new_pos, "__len__"):
       new_pos = [new_pos]
@@ -385,7 +386,7 @@ class us:
         if (axl is not None) and (axl > 0):
           axmin = ebs
           axmax = axl - ebs
-          if new_pos[i] > axmin and new_pos[i] < axmax:
+          if new_pos[i] >= axmin and new_pos[i] <= axmax:
             ret = 0
           else:
             ret = -6
@@ -419,7 +420,7 @@ class us:
                   if ret != -8: # this error case needs to stick
                     ret = 0
                 break
-              time.sleep(0.5)
+              time.sleep(stop_check_time_res)
               time_left = timeout - (time.time() - t0)
             if (time_left <= 0):
               ret = -1
