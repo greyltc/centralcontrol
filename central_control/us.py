@@ -278,7 +278,13 @@ class us:
         axes = [axes]
     
     for ax in axes:
-      pos = self.pcb.get(f'r{ax}')/self.steps_per_mm
+      # TODO: probably shouldn't have to do a home check here first
+      home_check = self.pcb.get(f'r{ax}')
+      if home_check is not None and home_check > 0:
+        steps = self.pcb.get(f'r{ax}')
+        pos = steps/self.steps_per_mm
+      else:
+        pos = None
       ret += [pos]
       self.current_position[self.axes.index(ax)] = pos
     return(ret)
@@ -476,7 +482,7 @@ if __name__ == "__main__":
       print('Homing')
       result = me.home()
       if isinstance(result, list):
-        print('Stage dims = {result}')
+        print(f'Stage dims = {result}')
       else:
         raise(ValueError(f'Home failed with {result}'))
       time.sleep(1)
