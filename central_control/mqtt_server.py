@@ -42,61 +42,9 @@ yaml.add_constructor("!include", yaml_include)
 
 def load_config_from_file(mqttc):
     """Load the configuration file into memory."""
-    global config
-
     # try to load the configuration file from the current working directory
-    try:
-        with open("measurement_config.yaml", "r") as f:
-            config = yaml.load(f, Loader=yaml.FullLoader)
-        kind = "info"
-        data = "Configuration file loaded successfully!"
-    except FileNotFoundError:
-        # maybe running a test from project directory
-        try:
-            with open("example_config.yaml", "r") as f:
-                config = yaml.load(f, Loader=yaml.FullLoader)
-            kind = "warning"
-            data = (
-                "'measurement_config.yaml' not found in server working directory: "
-                + f"{os.getcwd()}. Falling back on 'example_config.yaml' project file."
-            )
-        except FileNotFoundError:
-            kind = "error"
-            data = (
-                "No configuration file could be found in server working directory: "
-                + f"{os.getcwd()}. Please run the server from a directory with a valid "
-                + "'measurement_config.yaml' file."
-            )
-
-    mqttc.append_payload(
-        "measurement/response", json.dumps({"kind": kind, "data": data})
-    )
-
-
-def load_calibration_from_file(mqttc):
-    """Load calibration data from file back into memory."""
-    global calibration
-
-    # try to load the configuration file from the current working directory
-    try:
-        with open("calibration.yaml", "r") as f:
-            calibration = yaml.load(f, Loader=yaml.FullLoader)
-        kind = "info"
-        data = "Calibration data loaded successfully!"
-    except FileNotFoundError:
-        # no calibration available
-        kind = "warning"
-        data = "No calibration data available."
-
-    mqttc.append_payload(
-        "measurement/response", json.dumps({"kind": kind, "data": data})
-    )
-
-
-def save_calibration_data():
-    """Save calibration data to disk in case of crash."""
-    with open("calibration.yaml", "w") as f:
-        yaml.dump(calibration, f)
+    with open("measurement_config.yaml", "r") as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
 
 
 def start_thread(target, args):
@@ -1201,19 +1149,10 @@ def on_message(mqttc, obj, msg):
     busy.
     """
     request = json.loads(msg.payload)
-    action = request["action"]
-    data = request["data"]
 
     # perform a requested action
-    if action == "get_config":
-        # respond immediately
-        _publish_config(mqttc, request)
-    elif action == "set_config":
-        # can't set config while action is being performed
-        start_thread(_update_config, (mqttc, request, data,))
-    elif action == "run":
-        args = types.SimpleNamespace(**data)
-        start_thread(_run, (mqttc, request, args,))
+    if (action := msg.topic.split("/")[-1]) == "run":
+        start_thread(_run, (mqttc, request,))
     elif action == "stop":
         # kill the server, external process will restart it
         sys.exit(1)
@@ -1249,7 +1188,7 @@ if __name__ == "__main__":
         # connect MQTT client to broker
         mqtt_measure.connect(cli_args.MQTTHOST)
         # subscribe to everything in the server/request topic
-        mqtt_measure.subscribe("measurement/request", qos=2)
+        mqtt_measure.subscribe("measurement/#", qos=2)
         # start publisher queue for processing responses
         mqtt_measure.loop_start()
         mqtt_measure.start_q()
