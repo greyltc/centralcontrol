@@ -61,7 +61,7 @@ class pcb:
     if not win:
       raise ValueError('Did not see welcome message from pcb')
 
-    print(f"Connected to control PCB running firmware version {self.get('v')}")
+    #print(f"Connected to control PCB running firmware version {self.get('v')}")
 
     substrates = self.substrateSearch()
     resistors = {}  # dict of measured resistor values where the key is the associated substrate
@@ -80,7 +80,7 @@ class pcb:
           else:
             resistors[substrate] = self.get('d'+substrate)
           found = found + substrate
-      print(found)
+      #print(found)
     self.resistors = resistors
     return(self)
 
