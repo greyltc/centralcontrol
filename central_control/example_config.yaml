@@ -28,11 +28,7 @@ controller:
 
 # source-measure unit(s)
 smu:
-    smus:
-        - smu1:
-            address: ASRL1::INSTR
-            # list of mux relays served by smu
-            mux_relays: null
+    address: ASRL1::INSTR
     baud: 57600
     terminator: '\n'
     # if front terminals is false, use rear terminals
@@ -66,6 +62,10 @@ psu:
     ch1_voltage: 30
     ch2_voltage: 30
     ch3_voltage: 5
+    calibration:
+        # currents in amps
+        max_current: 1
+        current_step: 0.1
 
 stage:
     # stage lengths in steps along each available axis.
@@ -76,6 +76,9 @@ stage:
     steplength: 0.000155
     # approx steps/s
     speed: 186000
+    experiment_positions:
+        solarsim: [5000000, 1200000]
+        eqe: [1000000, 1200000]
 
 # i-v-t measurement settings
 ivt:
@@ -133,54 +136,12 @@ substrates:
 
         6px_30mm_pcb:
             pcb_contact_pads: 6
-            pcb_resistor: 0
- 
-experiments:
-    solarsim:
-        # centre position in steps along each available stage axis
-        position: [5000000, 1200000]
-        # list of names of photodiodes to use to calibrate the experiment
-        # names refer to photodiodes listed in the calibration_diodes section
-        calibration_diodes: null
-    eqe:
-        position: [1000000, 1200000]
-        # only one eqe calibration diode allowed
-        calibration_diode: pd1
-
-calibration_diodes:
-    pd1:
-        # state whether photodiode is connected externally ("external") to the mux or
-        # internally ("internal") to the device array via a pcb adapter
-        connection: internal
-        # if internally connected, specify the device location in the array along each axis and
-        # the contact pad number, e.g. to select pixel 4 from the substrate in row 2, column 3
-        # in for a 2D device array, array_location: 2,3,4
-        array_location: [1, 1, 1]
-        # if externally connected, specify the position of the stage along each available axis
-        # in steps
-        position: [1010000, 1200000]
-        # instrument settings for calibrating the photodiode
-        eqe_calibration_settings:
-            eqe: !include example_pd1_eqe.yaml
-            # psu currents
-            ch1_current: 0
-            ch2_current: 0
-            ch3_current: 0
-            # LIA time constant setting
-            time_constant: 8
-            smu_voltage: 0
-            smu: smu1
-        psu_calibration_settings:
-            smu: smu1
-        solarsim_calibration_settings:
-            # 1 sun equivalent calibration current
-            calibration_current: null
-            smu: smu1
-            # compliance current in A
-            compliance_current: 0.05
+            pcb_resistor: 0    
 
 # miscellaneous reference data
 reference:
     # spectral irradiance data
     spectra:
         AM1.5G: !include example_am15g.yaml
+    calibration:
+        eqe: !include example_pd1_eqe.yaml

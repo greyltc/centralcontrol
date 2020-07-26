@@ -36,7 +36,7 @@ class fabric:
         self.software_revision = central_control.__version__
         print("Software revision: {:s}".format(self.software_revision))
 
-    def compliance_current_guess(self, area):
+    def compliance_current_guess(self, area=None):
         """Guess what the compliance current should be for i-v-t measurements.
 
         Parameters
@@ -52,7 +52,10 @@ class fabric:
         # multiply by 5 to allow more data to be taken in forward bias (useful for
         # equivalent circuit fitting)
         # reduce to maximum compliance of keithley 2400 if too high
-        if (compliance_i := 5 * max_j * area / 1000) > 1:
+        if area is None:
+            # no area info given so can't make a calcualted guess
+            compliance_i = 0.1
+        elif (compliance_i := 5 * max_j * area / 1000) > 1:
             compliance_i = 1
 
         return compliance_i
@@ -64,6 +67,8 @@ class fabric:
         smu_address=None,
         smu_terminator="\n",
         smu_baud=57600,
+        smu_front_terminals=False,
+        smu_two_wire=False,
     ):
         """Create smu connection.
 
@@ -81,6 +86,10 @@ class fabric:
             Termination character for communication with the source-measure unit.
         smu_baud : int
             Baud rate for serial communication with the source-measure unit.
+        smu_front_terminals : bool
+            Flag whether to use the front terminals of the source-measure unit.
+        smu_two_wire : bool
+            Flag whether to measure in two-wire mode. If `False` measure in four-wire mode.
         """
         if dummy is True:
             self.sm = virt.k2400()
@@ -94,6 +103,10 @@ class fabric:
                 serialBaud=smu_baud,
             )
         self.sm_idn = self.sm.idn
+
+        # set up smu terminals
+        self.sm.setTerminals(front=smu_front_terminals)
+        self.sm.setWires(twoWire=smu_two_wire)
 
         # instantiate max-power tracker object based on smu
         self.mppt = mppt(self.sm)
@@ -267,6 +280,8 @@ class fabric:
         smu_address=None,
         smu_terminator="\n",
         smu_baud=57600,
+        smu_front_terminals=False,
+        smu_two_wire=False,
         controller_address=None,
         light_address=None,
         lia_address=None,
@@ -299,6 +314,10 @@ class fabric:
             Termination character for communication with the source-measure unit.
         smu_baud : int
             Baud rate for serial communication with the source-measure unit.
+        smu_front_terminals : bool
+            Flag whether to use the front terminals of the source-measure unit.
+        smu_two_wire : bool
+            Flag whether to measure in two-wire mode. If `False` measure in four-wire mode.
         controller_address : str
             VISA resource name for the multiplexor and stage controller. If `None` is
             given a virtual instrument is created.
@@ -340,6 +359,8 @@ class fabric:
             smu_address=smu_address,
             smu_terminator=smu_terminator,
             smu_baud=smu_baud,
+            smu_front_terminals=smu_front_terminals,
+            smu_two_wire=smu_two_wire,
         )
 
         self.connect_lia(
@@ -442,14 +463,18 @@ class fabric:
         pixel : dict
             Pixel information
         """
-        self.goto_stage_position(
-            pixel["position"], handler=handler, handler_kwargs=handler_kwargs
-        )
+        if pixel["position"] is not None:
+            self.goto_stage_position(
+                pixel["position"], handler=handler, handler_kwargs=handler_kwargs
+            )
 
         # connect pixel
-        row = pixel["array_loc"][0]
-        col = pixel["array_loc"][1]
-        self.controller.set_mux(row, col, pixel["pixel"])
+        if pixel["array_loc"] is not None:
+            row = pixel["array_loc"][0]
+            col = pixel["array_loc"][1]
+            self.controller.set_mux(row, col, pixel["pixel"])
+        else:
+            self.controller.clear_mux()
 
     def slugify(self, value, allow_unicode=False):
         """Convert string to slug.
@@ -690,7 +715,7 @@ class fabric:
 
         return eqe_data
 
-    def calibrate_psu(self, channel=1):
+    def calibrate_psu(self, channel=1, max_current=1.0, current_step=0.1):
         """Calibrate the LED PSU.
 
         Measure the short-circuit current of a photodiode generated upon illumination
@@ -700,8 +725,14 @@ class fabric:
         ----------
         channel : {1, 2, 3}
             PSU channel.
+        max_current : float
+            Maximum current in amps to measure to.
+        current_step : float
+            Current step in amps.
         """
-        currents = np.linspace(0, 1, 11, endpoint=True)
+        currents = np.linspace(
+            0, max_current, (max_current / current_step) + 1, endpoint=True
+        )
 
         # set smu to short circuit and enable output
         self.sm.setupDC(

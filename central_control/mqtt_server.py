@@ -125,46 +125,6 @@ def start_thread(target, args):
     mqttc.append_payload("measurement/response", json.dumps(payload))
 
 
-def _publish_config(mqttc, request={"action": "", "data": "", "client-id": ""}):
-    """Send configuration to clients.
-
-    Parameters
-    ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
-    request : dict
-        Request dictionary sent to the server.
-    """
-    # reload config from file
-    load_config_from_file(mqttc)
-
-    payload = {
-        "kind": "config",
-        "data": config,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
-
-
-def _update_config(mqttc, new_config):
-    """Update configuration file.
-
-    Parameters
-    ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
-    new_config : dict
-        New configuration data to write to file.
-    """
-    # TODO: implement save config
-    payload = {"kind": "warning", "data": "set config not implemented"}
-    mqttc.append_payload("measurement/response", json.dumps(payload))
-
-    # reload config from file
-    load_config_from_file(mqttc)
-
-
 def get_timestamp():
     """Create a human readable formatted timestamp string.
 
@@ -186,151 +146,80 @@ def _calibrate_eqe(mqttc, request):
     request : dict
         Request dictionary sent to the server.
     """
-    global calibration
+    args = request["args"]
 
-    timestamp = get_timestamp()
-
-    # look up psu calibration diode
-    diode = config["experiments"]["eqe"]["calibration_diode"]
-
-    # look up smu
-    smu = config["calibration_diodes"][diode]["eqe_calibration_settings"]["smu"]
-
-    # connect instruments
-    measurement.connect_instruments(
-        dummy=False,
-        visa_lib=config["visa"]["visa-lib"],
-        smu_address=config["smu"]["smus"][smu]["address"],
-        smu_terminator=config["smu"]["terminator"],
-        smu_baud=config["smu"]["baud"],
-        controller_address=config["controller"]["address"],
-        lia_address=config["lia"]["address"],
-        lia_terminator=config["lia"]["terminator"],
-        lia_baud=config["lia"]["baud"],
-        lia_output_interface=config["lia"]["output_interface"],
-        mono_address=config["monochromator"]["address"],
-        mono_terminator=config["monochromator"]["terminator"],
-        mono_baud=config["monochromator"]["baud"],
-    )
-
-    # set relay for eqe measurement
-    measurement.controller.set_relay("eqe")
-
-    if (c := config["calibration_diodes"][diode]["connection"]) == "external":
-        # if externally connected make sure all mux relays are open
-        measurement.controller.clear_mux()
-
-        # move to position
-        measurement.goto_stage_position(
-            config["calibration_diodes"][diode]["position"],
-            handler=_handle_stage_data,
-            handler_kwargs={"mqttc": mqttc, "request": request},
-        )
-    elif c == "internal":
-        # connect required relay
-        arr_loc = config["calibration_diodes"][diode]["array_location"]
-        measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
-
-        # move to position
-        pos = _calculate_pixel_position("eqe", arr_loc[0], arr_loc[1], arr_loc[2])
-        measurement.goto_stage_position(
-            pos,
-            handler=_handle_stage_data,
-            handler_kwargs={"mqttc": mqttc, "request": request},
-        )
+    # get pixel queue
+    if int(args.eqe_pixel_address, 16) > 0:
+        # if the bitmask isn't empty
+        try:
+            pixel_queue = _build_q(args, experiment="eqe")
+        except ValueError as e:
+            # there was a problem with the labels and/or layouts list
+            _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+            return
     else:
-        error_msg = (
-            f"EQE calibration failed! Photodiode connection mode '{c}' "
-            + f"for photodiode '{diode}' not recognised. Must be 'internal' "
-            + "or 'external'."
-        )
-        payload = {
-            "kind": "error",
-            "data": error_msg,
-            "action": request["action"],
-            "client-id": request["client-id"],
+        # if it's emptpy, assume cal diode is connected externally
+        pixel_dict = {
+            "label": args.labels[0],
+            "layout": None,
+            "array_loc": None,
+            "pixel": 0,
+            "position": None,
+            "area": None,
         }
-        mqttc.append_payload("measurement/response", json.dumps(payload))
-        return
+        pixel_queue = collections.deque(pixel_dict)
 
-    cal_settings = config["calibration_diodes"][diode]["eqe_calibration_settings"]
+    _log("Calibrating EQE...", "info", **{"mqttc": mqttc})
 
-    eqe_calibration = measurement.eqe(
-        psu_ch1_voltage=config["psu"]["ch1_voltage"],
-        psu_ch1_current=cal_settings["ch1_current"],
-        psu_ch2_voltage=config["psu"]["ch2_voltage"],
-        psu_ch2_current=cal_settings["ch2_current"],
-        psu_ch3_voltage=config["psu"]["ch3_voltage"],
-        psu_ch3_current=cal_settings["ch3_current"],
-        smu_voltage=cal_settings["smu_voltage"],
-        start_wl=min(cal_settings["eqe"]["wls"]),
-        end_wl=max(cal_settings["eqe"]["wls"]),
-        num_points=len(cal_settings["eqe"]["wls"]),
-        grating_change_wls=config["monochromator"]["grating_change_wls"],
-        filter_change_wls=config["monochromator"]["filter_change_wls"],
-        integration_time=cal_settings["time_constant"],
-        auto_gain=True,
-        auto_gain_method="user",
-        handler=None,
-        handler_kwargs={},
-    )
+    _eqe(pixel_queue, request, mqttc, calibration=True)
 
-    # disconnect instruments
-    measurement.sm.disconnect()
-    measurement.lia.disconnect()
-    measurement.mono.disconnect()
-    measurement.controller.disconnect()
-
-    # update eqe diode calibration data in atomic thread-safe way
-    diode_dict = {"data": eqe_calibration, "timestamp": timestamp, "diode": diode}
-
-    # publish calibration
-    payload = {
-        "measurement": "eqe_calibration",
-        "data": diode_dict,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("data/calibration", json.dumps(payload))
-
-    payload = {
-        "kind": "info",
-        "data": "EQE calibration complete!",
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
+    _log("EQE calibration complete!", "info", **{"mqttc": mqttc})
 
 
-def _calibrate_psu(mqttc, request, channel):
+def _calibrate_psu(mqttc, request):
     """Measure the reference photodiode as a funtcion of LED current.
 
     Parameters
     ----------
     mqttc : MQTTQueuePublisher object
         MQTT queue publisher.
-    channel : int
-        PSU channel to calibrate.
     request : dict
         Request dictionary sent to the server.
     """
-    global calibration
+    config = request["config"]
+    args = request["args"]
+    channel = request["args"]["psu_channel"]
 
-    timestamp = get_timestamp()
-
-    # get EQE diode info
-    diode = config["experiments"]["eqe"]["calibration_diode"]
-
-    # look up smu
-    smu = config["calibration_diodes"][diode]["psu_calibration_settings"]["smu"]
+    # get pixel queue
+    if int(args.eqe_pixel_address, 16) > 0:
+        # if the bitmask isn't empty
+        try:
+            pixel_queue = _build_q(args, experiment="eqe")
+        except ValueError as e:
+            # there was a problem with the labels and/or layouts list
+            _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+            return
+    else:
+        # if it's emptpy, assume cal diode is connected externally
+        pixel_dict = {
+            "label": args.labels[0],
+            "layout": None,
+            "array_loc": None,
+            "pixel": 0,
+            "position": None,
+            "area": None,
+        }
+        pixel_queue = collections.deque(pixel_dict)
 
     # connect instruments
     measurement.connect_instruments(
         dummy=False,
         visa_lib=config["visa"]["visa-lib"],
-        smu_address=config["smu"]["smus"][smu]["address"],
+        smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
         smu_baud=config["smu"]["baud"],
+        smu_front_terminals=config["smu"]["front_terminals"],
+        smu_two_wire=config["smu"]["two_wire"],
         controller_address=config["controller"]["address"],
         psu_address=config["psu"]["address"],
         psu_terminator=config["psu"]["terminator"],
@@ -340,74 +229,60 @@ def _calibrate_psu(mqttc, request, channel):
     # using smu to measure the current from the photodiode
     measurement.controller.set_relay("iv")
 
-    if (c := config["calibration_diodes"][diode]["connection"]) == "external":
-        # if externally connected make sure all mux relays are open
-        measurement.controller.clear_mux()
+    _log("Starting LED PSU calibration...", "info", **{"mqttc": mqttc})
 
-        # move to position
-        measurement.goto_stage_position(
-            config["calibration_diodes"][diode]["position"],
-            handler=_handle_stage_data,
-            handler_kwargs={"mqttc": mqttc, "request": request},
+    while len(pixel_queue) > 0:
+        pixel = pixel_queue.popleft()
+        label = pixel["label"]
+        pix = pixel["pixel"]
+        _log(
+            f"\nOperating on substrate {label}, pixel {pix}...",
+            "info",
+            **{"mqttc": mqttc},
         )
-    elif c == "internal":
-        # connect required relay
-        arr_loc = config["calibration_diodes"][diode]["array_location"]
-        measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
 
-        # move to position
-        pos = _calculate_pixel_position("eqe", arr_loc[0], arr_loc[1], arr_loc[2])
-        measurement.goto_stage_position(
-            pos,
-            handler=_handle_stage_data,
-            handler_kwargs={"mqttc": mqttc, "request": request},
-        )
-    else:
-        error_msg = (
-            f"PSU calibration failed! Photodiode connection mode '{c}' "
-            + f"for photodiode '{diode}' not recognised. Must be 'internal' "
-            + "or 'external'."
-        )
-        payload = {
-            "kind": "error",
-            "data": error_msg,
-            "action": request["action"],
-            "client-id": request["client-id"],
-        }
-        mqttc.append_payload("measurement/response", json.dumps(payload))
-        return
+        # add id str to handlers to display on plots
+        idn = f"{label}_pixel{pix}"
 
-    # perform measurement
-    psu_calibration = measurement.calibrate_psu(channel)
+        # we have a new substrate
+        if last_label != label:
+            _log(
+                f"New substrate using '{pixel['layout']}' layout!",
+                "info",
+                **{"mqttc": mqttc},
+            )
+            last_label = label
+
+        # move to pixel
+        measurement.pixel_setup(
+            pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
+        )
+
+        timestamp = get_timestamp()
+
+        # perform measurement
+        psu_calibration = measurement.calibrate_psu(
+            channel,
+            config["psu"]["calibration"]["max_current"],
+            config["psu"]["calibration"]["current_step"],
+        )
+
+        # update eqe diode calibration data in atomic thread-safe way
+        diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
+        mqttc.append_payload(
+            f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
+        )
 
     # disconnect instruments
     measurement.sm.disconnect()
     measurement.psu.disconnect()
     measurement.controller.disconnect()
 
-    # update eqe diode calibration data in atomic thread-safe way
-    diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": diode}
-
-    # publish calibration
-    payload = {
-        "kind": "pus_calibration",
-        "data": diode_dict,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("data/calibration", json.dumps(payload))
-
-    payload = {
-        "kind": "info",
-        "data": "LED PSU calibration complete!",
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
+    _log("LED PSU calibration complete!", "info", **{"mqttc": mqttc})
 
 
-def _calibrate_solarsim(mqttc, request):
-    """Calibrate the solar simulator.
+def _calibrate_spectrum(mqttc, request):
+    """Measure the solar simulator spectrum using it's internal spectrometer.
 
     Parameters
     ----------
@@ -416,7 +291,7 @@ def _calibrate_solarsim(mqttc, request):
     request : dict
         Request dictionary sent to the server.
     """
-    global config
+    config = request["config"]
 
     timestamp = get_timestamp()
 
@@ -428,117 +303,55 @@ def _calibrate_solarsim(mqttc, request):
 
     spectrum = measurement.measure_spectrum()
 
+    measurement.le.disconnect()
+
     # update spectrum  calibration data in atomic thread-safe way
     spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
     # publish calibration
-    payload = {
-        "kind": "spectrum_calibration",
-        "data": spectrum_dict,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("data/calibration", json.dumps(payload))
+    mqttc.append_payload("calibration/spectrum", json.dumps(spectrum_dict))
 
-    # get solar sim diode info
-    if (diodes := config["experiments"]["solarsim"]["calibration_diodes"]) is not None:
-        diodes_dict = {}
-        measurement.controller.set_relay("iv")
-        connected = False
-        for diode in diodes:
-            if (c := config["calibration_diodes"][diode]["connection"]) == "external":
-                # if externally connected make sure all mux relays are open
-                measurement.controller.clear_mux()
 
-                # move to position
-                measurement.goto_stage_position(
-                    config["calibration_diodes"][diode]["position"],
-                    handler=_handle_stage_data,
-                    handler_kwargs={"mqttc": mqttc, "request": request},
-                )
-            elif c == "internal":
-                # connect required relay
-                arr_loc = config["calibration_diodes"][diode]["array_location"]
-                measurement.controller.set_mux(arr_loc[0], arr_loc[1], arr_loc[2])
+def _calibrate_solarsim_diodes(mqttc, request):
+    """Calibrate the solar simulator using photodiodes.
 
-                # move to position
-                pos = _calculate_pixel_position(
-                    "eqe", arr_loc[0], arr_loc[1], arr_loc[2]
-                )
-                measurement.goto_stage_position(
-                    pos,
-                    handler=_handle_stage_data,
-                    handler_kwargs={"mqttc": mqttc, "request": request},
-                )
-            else:
-                error_msg = (
-                    f"Solarsim calibration failed! Photodiode connection mode '{c}' "
-                    + f"for photodiode '{diode}' not recognised. Must be 'internal' "
-                    + "or 'external'."
-                )
-                payload = {
-                    "kind": "error",
-                    "data": error_msg,
-                    "action": request["action"],
-                    "client-id": request["client-id"],
-                }
-                mqttc.append_payload("measurement/response", json.dumps(payload))
-                continue
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    _log("Calibrating solar simulator diodes...", "info", **{"mqttc": mqttc})
 
-            # look up smu
-            smu = config["calibration_diodes"][diode]["solarsim_calibration_settings"][
-                "smu"
-            ]
-            compliance = config["calibration_diodes"][diode][
-                "solarsim_calibration_settings"
-            ]["compliance_current"]
+    args = request["args"]
 
-            if connected is False:
-                # connect instruments
-                measurement.connect_instruments(
-                    dummy=False,
-                    visa_lib=config["visa"]["visa-lib"],
-                    smu_address=config["smu"]["smus"][smu]["address"],
-                    smu_terminator=config["smu"]["terminator"],
-                    smu_baud=config["smu"]["baud"],
-                    controller_address=config["controller"]["address"],
-                )
-                connected = True
-
-            it = measurement.steady_state(
-                t_dwell=1,
-                sourceVoltage=True,
-                compliance=compliance,
-                senseRange="a",
-                setPoint=0,
-            )
-
-            # update eqe diode calibration data in atomic thread-safe way
-            diodes_dict[diode] = {"data": it, "timestamp": timestamp}
-
-        # diconnect instruments
-        measurement.sm.disconnect()
-        measurement.controller.disconnect()
-
-        # publish calibration
-        payload = {
-            "kind": "solarsim_diode_calibration",
-            "data": diodes_dict,
-            "action": request["action"],
-            "client-id": request["client-id"],
+    # get pixel queue
+    if int(args.iv_pixel_address, 16) > 0:
+        # if the bitmask isn't empty
+        try:
+            pixel_queue = _build_q(args, experiment="eqe")
+        except ValueError as e:
+            # there was a problem with the labels and/or layouts list
+            _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+            return
+    else:
+        # if it's emptpy, assume cal diode is connected externally
+        pixel_dict = {
+            "label": args.labels[0],
+            "layout": None,
+            "array_loc": None,
+            "pixel": 0,
+            "position": None,
+            "area": None,
         }
-        mqttc.append_payload("data/calibration", json.dumps(payload))
+        pixel_queue = collections.deque(pixel_dict)
 
-    # disconnect light engine
-    measurement.le.disconnect()
+    _log("Calibrating solar simulator diodes...", "info", **{"mqttc": mqttc})
 
-    payload = {
-        "kind": "info",
-        "data": "Solar simulator calibration complete!",
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
+    _ivt(mqttc, request, pixel_queue, calibration=True)
+
+    _log("Solar simulator diode calibration complete!", "info", **{"mqttc": mqttc})
 
 
 def _home(mqttc, request):
@@ -740,15 +553,13 @@ def _calculate_pixel_position(experiment, row, col, pixel):
     return pos
 
 
-def _build_q(args, pixel_address_string, experiment):
+def _build_q(args, experiment):
     """Generate a queue of pixels we'll run through.
 
     Parameters
     ----------
     args : types.SimpleNamespace
         Experiment arguments.
-    pixel_address_string : str
-        Hexadecimal bitmask string.
     experiment : str
         Name used to look up the experiment centre stage position from the config
         file.
@@ -766,9 +577,6 @@ def _build_q(args, pixel_address_string, experiment):
 
     # number of substrates along each available axis
     substrate_number = config["substrates"]["number"]
-
-    # number of available axes
-    axes = len(substrate_centres[0])
 
     # make sure as many layouts as labels were given
     if ((l1 := len(args.layouts)) != substrate_total) or (
@@ -818,6 +626,11 @@ def _build_q(args, pixel_address_string, experiment):
     # TODO: return support for pixel strings that aren't hex bitmasks
     # convert hex bitmask string into bit list where 1's and 0's represent whether
     # a pixel should be measured or not, respectively
+    if experiment == "solarsim":
+        pixel_address_string = args.iv_pixel_address
+    elif experiment == "eqe":
+        pixel_address_string = args.eqe_pixel_address
+
     bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
 
     # build pixel queue
@@ -856,15 +669,9 @@ def _handle_measurement_data(data, **kwargs):
     kind = kwargs["kind"]
     idn = kwargs["idn"]
     mqttc = kwargs["mqttc"]
-    request = kwargs["request"]
 
-    payload = {
-        "kind": kind,
-        "data": {"data": data, "id": idn, "clear": False, "end": False},
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
+    payload = {"data": data, "id": idn, "clear": False, "end": False}
+    mqttc.append_payload(f"data/raw/{kind}", json.dumps(payload))
 
 
 def _handle_stage_data(data, **kwargs):
@@ -878,15 +685,8 @@ def _handle_stage_data(data, **kwargs):
         Dictionary of additional keyword arguments required by handler.
     """
     mqttc = kwargs["mqttc"]
-    request = kwargs["request"]
 
-    payload = {
-        "kind": "stage_position",
-        "data": data,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
+    mqttc.append_payload("stage_position", json.dumps(data))
 
 
 def _handle_contact_check(pixel_msg, **kwargs):
@@ -900,18 +700,29 @@ def _handle_contact_check(pixel_msg, **kwargs):
         Dictionary of additional keyword arguments required by handler.
     """
     mqttc = kwargs["mqttc"]
-    request = kwargs["request"]
 
-    payload = {
-        "kind": "contact_check",
-        "data": pixel_msg,
-        "action": request["action"],
-        "client-id": request["client-id"],
-    }
-    mqttc.append_payload("measurement/response", json.dumps(payload))
+    mqttc.append_payload("contact_check", json.dumps(pixel_msg))
 
 
-def _ivt(mqttc, request, pixel_queue, args):
+def _log(msg, level, **kwargs):
+    """Publish info for logging.
+
+    Parameters
+    ----------
+    msg : str
+        Log message.
+    level : str
+        Log level.
+    **kwargs : dict
+        Dictionary of additional keyword arguments required by handler.
+    """
+    mqttc = kwargs["mqttc"]
+
+    payload = {"level": level, "msg": msg}
+    mqttc.append_payload("log", json.dumps(payload))
+
+
+def _ivt(mqttc, request, pixel_queue, calibration=False):
     """Run through pixel queue of i-v-t measurements.
 
     Paramters
@@ -923,30 +734,56 @@ def _ivt(mqttc, request, pixel_queue, args):
     args : types.SimpleNamespace
         Experiment arguments.
     """
+    config = request["config"]
+    args = request["args"]
+
+    # connect instruments
+    measurement.connect_instruments(
+        dummy=False,
+        visa_lib=config["visa"]["visa-lib"],
+        smu_address=config["smu"]["address"],
+        smu_terminator=config["smu"]["terminator"],
+        smu_baud=config["smu"]["baud"],
+        smu_front_terminals=config["smu"]["front_terminals"],
+        smu_two_wire=config["smu"]["two_wire"],
+        controller_address=config["controller"]["address"],
+        light_address=config["solarsim"]["address"],
+    )
+
     # set the master experiment relay
     measurement.controller.set_relay("iv")
 
     last_label = None
     # scan through the pixels and do the requested measurements
     while len(pixel_queue) > 0:
+        # instantiate container for all measurement data on pixel
+        data = []
+
+        # get pixel info
         pixel = pixel_queue.popleft()
         label = pixel["label"]
         pix = pixel["pixel"]
-        print(f"\nOperating on substrate {label}, pixel {pix}...")
+        _log(
+            f"\nOperating on substrate {label}, pixel {pix}...",
+            "info",
+            **{"mqttc": mqttc},
+        )
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
 
-        # we have a new substrate
+        # check if there is have a new substrate
         if last_label != label:
-            print(f"New substrate using '{pixel['layout']}' layout!")
+            _log(
+                f"New substrate using '{pixel['layout']}' layout!",
+                "info",
+                **{"mqttc": mqttc},
+            )
             last_label = label
 
         # move to pixel
-        measurement.goto_stage_position(
-            pixel["position"],
-            handler=_handle_stage_data,
-            handler_kwargs={"mqttc": mqttc, "request": request},
+        measurement.pixel_setup(
+            pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
         )
 
         # init parameters derived from steadystate measurements
@@ -959,16 +796,21 @@ def _ivt(mqttc, request, pixel_queue, args):
             # estimate compliance current based on area
             compliance_i = measurement.compliance_current_guess(pixel["area"])
 
+        if calibration is False:
+            handler = _handle_measurement_data
+        else:
+            handler = None
+            handler_kwargs = {}
+
+        timestamp = get_timestamp()
+
         # steady state v@constant I measured here - usually Voc
         if args.v_t > 0:
             # clear v@constant I plot
-            payload = {
-                "kind": "vt_measurement",
-                "data": {"id": idn, "clear": True, "end": False},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("plot/clear", json.dumps(payload))
+            mqttc.append_payload("plot/vt/clear", json.dumps(""))
+
+            if calibration is False:
+                handler_kwargs = {"kind": "vt_measurement", "idn": idn, "mqttc": mqttc}
 
             vt = measurement.steady_state(
                 t_dwell=args.v_t,
@@ -978,23 +820,11 @@ def _ivt(mqttc, request, pixel_queue, args):
                 compliance=args.voltage_compliance_override,
                 senseRange="a",
                 setPoint=args.steadystate_i,
-                handler=_handle_measurement_data,
-                handler_kwargs={
-                    "kind": "vt_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                    "request": request,
-                },
+                handler=handler,
+                handler_kwargs=handler_kwargs,
             )
 
-            # signal end of measurement
-            payload = {
-                "kind": "vt_measurement",
-                "data": {"id": idn, "clear": False, "end": True},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("data/end_file", json.dumps(payload))
+            data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
             if args.steadystate_i == 0:
@@ -1003,13 +833,7 @@ def _ivt(mqttc, request, pixel_queue, args):
 
         if (args.sweep_1 is True) or (args.sweep_1 is True):
             # clear iv plot
-            payload = {
-                "kind": "iv_measurement",
-                "data": {"id": idn, "clear": True, "end": False},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("plot/clear", json.dumps(payload))
+            mqttc.append_payload("plot/iv/clear", json.dumps(""))
 
         # TODO: add support for dark measurement, has to use autorange
         if args.sweep_1 is True:
@@ -1029,7 +853,14 @@ def _ivt(mqttc, request, pixel_queue, args):
             else:
                 end = -1 * np.sign(ssvoc) * config["iv"]["voltage_beyond_isc"]
 
-            print(f"Sweeping voltage from {start} V to {end} V")
+            _log(
+                f"Sweeping voltage from {start} V to {end} V",
+                "info",
+                **{"mqttc": mqttc},
+            )
+
+            if calibration is False:
+                handler_kwargs = {"kind": "iv_measurement", "idn": idn, "mqttc": mqttc}
 
             iv1 = measurement.sweep(
                 sourceVoltage=True,
@@ -1040,14 +871,11 @@ def _ivt(mqttc, request, pixel_queue, args):
                 start=start,
                 end=end,
                 NPLC=args.scan_nplc,
-                handler=_handle_measurement_data,
-                handler_kwargs={
-                    "kind": "iv_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                    "request": request,
-                },
+                handler=handler,
+                handler_kwargs=handler_kwargs,
             )
+
+            data += iv1
 
             Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.which_max_power(iv1)
 
@@ -1056,7 +884,14 @@ def _ivt(mqttc, request, pixel_queue, args):
             start = end
             end = start
 
-            print(f"Sweeping voltage from {start} V to {end} V")
+            _log(
+                f"Sweeping voltage from {start} V to {end} V",
+                "info",
+                **{"mqttc": mqttc},
+            )
+
+            if calibration is False:
+                handler_kwargs = {"kind": "iv_measurement", "idn": idn, "mqttc": mqttc}
 
             iv2 = measurement.sweep(
                 sourceVoltage=True,
@@ -1066,26 +901,13 @@ def _ivt(mqttc, request, pixel_queue, args):
                 start=start,
                 end=end,
                 NPLC=args.scan_nplc,
-                handler=_handle_measurement_data,
-                handler_kwargs={
-                    "kind": "iv_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                    "request": request,
-                },
+                handler=handler,
+                handler_kwargs=handler_kwargs,
             )
 
-            Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.which_max_power(iv2)
+            data += iv2
 
-        if (args.sweep_1 is True) or (args.sweep_1 is True):
-            # signal end of iv measurements
-            payload = {
-                "kind": "iv_measurement",
-                "data": {"id": idn, "clear": False, "end": True},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("data/end_file", json.dumps(payload))
+            Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.which_max_power(iv2)
 
         # TODO: read and interpret parameters for smart mode
         # # determine Vmpp and current compliance for mppt
@@ -1108,16 +930,21 @@ def _ivt(mqttc, request, pixel_queue, args):
         measurement.mppt.current_compliance = compliance_i
 
         if args.mppt_t > 0:
-            print(f"Tracking maximum power point for {args.mppt_t} seconds.")
+            _log(
+                f"Tracking maximum power point for {args.mppt_t} seconds.",
+                "info",
+                **{"mqttc": mqttc},
+            )
 
             # clear mppt plot
-            payload = {
-                "kind": "mppt_measurement",
-                "data": {"id": idn, "clear": True, "end": False},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("plot/clear", json.dumps(payload))
+            mqttc.append_payload("plot/mppt/clear", json.dumps(""))
+
+            if calibration is False:
+                handler_kwargs = {
+                    "kind": "mppt_measurement",
+                    "idn": idn,
+                    "mqttc": mqttc,
+                }
 
             # measure voc for 1s to initialise mppt
             vt = measurement.steady_state(
@@ -1128,13 +955,8 @@ def _ivt(mqttc, request, pixel_queue, args):
                 compliance=args.voltage_compliance_override,
                 senseRange="a",
                 setPoint=0,
-                handler=_handle_measurement_data,
-                handler_kwargs={
-                    "kind": "mppt_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                    "request": request,
-                },
+                handler=handler,
+                handler_kwargs=handler_kwargs,
             )
             measurement.mppt.Voc = vt[-1]
 
@@ -1143,34 +965,20 @@ def _ivt(mqttc, request, pixel_queue, args):
                 NPLC=args.steadystate_nplc,
                 stepDelay=args.steadystate_step_delay,
                 extra=args.mppt_params,
-                handler=_handle_measurement_data,
-                handler_kwargs={
-                    "kind": "mppt_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                    "request": request,
-                },
+                handler=handler,
+                handler_kwargs=handler_kwargs,
             )
 
-            # signal end of measurement
-            payload = {
-                "kind": "mppt_measurement",
-                "data": {"id": idn, "clear": False, "end": True},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("data/end_file", json.dumps(payload))
+            data += vt
+            data += mt
 
         if args.i_t > 0:
             # steady state I@constant V measured here - usually Isc
             # clear I@constant V plot
-            payload = {
-                "kind": "it_measurement",
-                "data": {"id": idn, "clear": True, "end": False},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("plot/clear", json.dumps(payload))
+            mqttc.append_payload("plot/it/clear", json.dumps(""))
+
+            if calibration is False:
+                handler_kwagrgs = {"kind": "it_measurement", "idn": idn, "mqttc": mqttc}
 
             it = measurement.steady_state(
                 t_dwell=args.i_t,
@@ -1180,28 +988,20 @@ def _ivt(mqttc, request, pixel_queue, args):
                 compliance=compliance_i,
                 senseRange="a",
                 setPoint=args.steadystate_v,
-                handler=_handle_measurement_data,
-                handler_kwargs={
-                    "kind": "it_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                    "request": request,
-                },
+                handler=handler,
+                handler_kwargs=handler_kwagrgs,
             )
 
-            # signal end of measurement
-            payload = {
-                "kind": "it_measurement",
-                "data": {"id": idn, "clear": False, "end": True},
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("data/end_file", json.dumps(payload))
+            data += it
+
+        if calibration is True:
+            diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
+            mqttc.append_payload("calibration/solarsim_diode", json.dumps(diode_dict))
 
     measurement.run_done()
 
 
-def _eqe(mqttc, request, pixel_queue, args):
+def _eqe(pixel_queue, request, mqttc, calibration=False):
     """Run through pixel queue of EQE measurements.
 
     Paramters
@@ -1213,41 +1013,79 @@ def _eqe(mqttc, request, pixel_queue, args):
     args : types.SimpleNamespace
         Experiment arguments.
     """
+    config = request["config"]
+    args = request["args"]
+
+    # connect instruments
+    measurement.connect_instruments(
+        dummy=False,
+        visa_lib=config["visa"]["visa-lib"],
+        smu_address=config["smu"]["address"],
+        smu_terminator=config["smu"]["terminator"],
+        smu_baud=config["smu"]["baud"],
+        smu_front_terminals=config["smu"]["front_terminals"],
+        smu_two_wire=config["smu"]["two_wire"],
+        controller_address=config["controller"]["address"],
+        lia_address=config["lia"]["address"],
+        lia_terminator=config["lia"]["terminator"],
+        lia_baud=config["lia"]["baud"],
+        lia_output_interface=config["lia"]["output_interface"],
+        mono_address=config["monochromator"]["address"],
+        mono_terminator=config["monochromator"]["terminator"],
+        mono_baud=config["monochromator"]["baud"],
+    )
+
     measurement.controller.set_relay("eqe")
 
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
         label = pixel["label"]
         pix = pixel["pixel"]
-        print(f"\nOperating on substrate {label}, pixel {pix}...")
+        _log(
+            f"\nOperating on substrate {label}, pixel {pix}...",
+            "info",
+            **{"mqttc": mqttc},
+        )
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
 
         # we have a new substrate
         if last_label != label:
-            print(f"New substrate using '{pixel['layout']}' layout!")
+            _log(
+                f"New substrate using '{pixel['layout']}' layout!",
+                "info",
+                **{"mqttc": mqttc},
+            )
             last_label = label
 
         # move to pixel
-        measurement.goto_stage_position(
-            pixel["position"],
-            handler=_handle_stage_data,
-            handler_kwargs={"mqttc": mqttc, "request": request},
+        measurement.pixel_setup(
+            pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
         )
 
-        print(f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm")
+        _log(
+            f"Scanning EQE from {args.eqe_start_wl} nm to {args.eqe_end_wl} nm",
+            "info",
+            **{"mqttc": mqttc},
+        )
+
+        # determine how live measurement data will be handled
+        if calibration is True:
+            handler = None
+            handler_kwargs = {}
+        else:
+            handler = _handle_measurement_data
+            handler_kwargs = {"idn": idn, "mqttc": mqttc}
 
         # clear eqe plot
-        payload = {
-            "kind": "eqe_measurement",
-            "data": {"id": idn, "clear": True, "end": False},
-            "action": request["action"],
-            "client-id": request["client-id"],
-        }
-        mqttc.append_payload("plot/clear", json.dumps(payload))
+        mqttc.append_payload("plot/eqe/clear", json.dumps(""))
 
-        measurement.eqe(
+        # get human-readable timestamp
+        timestamp = get_timestamp()
+
+        # perform measurement
+        eqe = measurement.eqe(
             psu_ch1_voltage=config["psu"]["ch1_voltage"],
             psu_ch1_current=args.psu_is[0],
             psu_ch2_voltage=config["psu"]["ch2_voltage"],
@@ -1263,23 +1101,22 @@ def _eqe(mqttc, request, pixel_queue, args):
             auto_gain=not (args.eqe_autogain_off),
             auto_gain_method=args.eqe_autogain_method,
             integration_time=args.eqe_integration_time,
-            handler=_handle_measurement_data,
-            handler_kwargs={
-                "kind": "eqe_measurement",
-                "idn": idn,
-                "mqttc": mqttc,
-                "request": request,
-            },
+            handler=handler,
+            handler_kwargs=handler_kwargs,
         )
 
-        # signal end of measurement
-        payload = {
-            "kind": "eqe_measurement",
-            "data": {"id": idn, "clear": False, "end": True},
-            "action": request["action"],
-            "client-id": request["client-id"],
-        }
-        mqttc.append_payload("data/end_file", json.dumps(payload))
+        # update eqe diode calibration data in
+        if calibration is True:
+            diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
+            mqttc.append_payload(
+                "calibration/eqe", json.dumps(diode_dict), retain=True,
+            )
+
+    # disconnect instruments
+    measurement.sm.disconnect()
+    measurement.lia.disconnect()
+    measurement.mono.disconnect()
+    measurement.controller.disconnect()
 
 
 def _test_hardware(mqttc, request, config):
@@ -1288,7 +1125,7 @@ def _test_hardware(mqttc, request, config):
     pass
 
 
-def _run(mqttc, request, args):
+def _run(mqttc, request):
     """Act on command line instructions.
 
     Parameters
@@ -1298,9 +1135,8 @@ def _run(mqttc, request, args):
     args : types.SimpleNamespace
         Arguments required to run a measurement.
     """
-    # the run function only runs in a separate thread so make sure all mutations of
-    # save_folder are atomic to ensure thread safety
-    global save_folder
+    config = request["config"]
+    args = request["args"]
 
     # build up the queue of pixels to run through
     if args.dummy is True:
@@ -1309,70 +1145,22 @@ def _run(mqttc, request, args):
 
     if args.iv_pixel_address is not None:
         try:
-            iv_pixel_queue = _build_q(
-                args, args.iv_pixel_address, experiment="solarsim"
-            )
+            iv_pixel_queue = _build_q(args, experiment="solarsim")
         except ValueError as e:
             # there was a problem with the labels and/or layouts list
-            payload = {
-                "kind": "error",
-                "data": "RUN ABORTED! " + str(e),
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("measurement/response", json.dumps(payload))
+            _log("RUN ABORTED! " + str(e), "error", {"mqttc": mqttc})
             return
     else:
         iv_pixel_queue = []
 
     if args.eqe_pixel_address is not None:
         try:
-            eqe_pixel_queue = _build_q(args, args.eqe_pixel_address, experiment="eqe")
+            eqe_pixel_queue = _build_q(args, experiment="eqe")
         except ValueError as e:
-            payload = {
-                "kind": "error",
-                "data": "RUN ABORTED! " + str(e),
-                "action": request["action"],
-                "client-id": request["client-id"],
-            }
-            mqttc.append_payload("measurement/response", json.dumps(payload))
+            _log("RUN ABORTED! " + str(e), "error", {"mqttc": mqttc})
             return
     else:
         eqe_pixel_queue = []
-
-    # update save folder and publish it
-    save_folder = args.destination
-
-    # publish config and calibration
-    _publish_config(mqttc)
-
-    # publish run arguments, saver knows to save it immediately
-    _publish_args(mqttc, args)
-
-    # connect all instruments
-    measurement.connect_instruments(
-        args.dummy,
-        config["visa"]["visa_lib"],
-        config["smu"]["smus"]["smu1"]["address"],
-        config["smu"]["terminator"],
-        config["smu"]["baud"],
-        config["controller"]["address"],
-        config["solarsimulator"]["address"],
-        config["lia"]["address"],
-        config["lia"]["terminator"],
-        config["lia"]["baud"],
-        config["lia"]["output_interface"],
-        config["monochromator"]["address"],
-        config["monochromator"]["terminator"],
-        config["monochromator"]["baud"],
-        config["psu"]["address"],
-        config["psu"]["terminator"],
-        config["psu"]["baud"],
-    )
-
-    # set up smu terminals
-    measurement.sm.setTerminals(front=config["smu"]["front_terminals"])
-    measurement.sm.setWires(twoWire=config["smu"]["two_wire"])
 
     # measure i-v-t
     if len(iv_pixel_queue) > 0:
