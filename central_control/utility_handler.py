@@ -83,6 +83,7 @@ def worker():
                 else:
                     log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
 
+        # send the stage some place
         elif task['cmd'] == 'goto':
             with pcb.pcb(task['pcb']) as p:
                 mo = motion.motion(address=task['stage_uri'], pcb_object=p)
@@ -91,7 +92,8 @@ def worker():
                 if result != 0:
                     log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
 
-        elif task['cmd'] == 'for_pcb':  # for any pcb command that returns nothing on success
+        # handle any generic PCB command that has an empty return on success
+        elif task['cmd'] == 'for_pcb':
             with pcb.pcb(task['pcb']) as p:
                 # special case for pixel selection to avoid parallel connections
                 if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
@@ -102,6 +104,7 @@ def worker():
             else:
                 log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
 
+        # get the stage location
         elif task['cmd'] == 'read_stage':
             with pcb.pcb(task['pcb']) as p:
                 mo = motion.motion(address=task['stage_uri'], pcb_object=p)
@@ -111,7 +114,34 @@ def worker():
             payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
             output = {'destination':'response', 'payload': payload}  # post the position to the response channel
             outputq.put(output)
-        
+
+        # device round robin commands
+        elif task['cmd'] == 'round_robin':
+            with pcb.pcb(task['pcb']) as p:
+                p.get('s') # make sure we're starting with nothing selected
+                if task['type'] == 'current':
+                    pass  # TODO: smu measure current command goes here
+                for sel in task['devices']:
+                    p.get(sel)  # select the device
+                    if task['type'] == 'current':
+                        pass  # TODO: smu measure current command goes here
+                    elif task['type'] == 'rtd':
+                        pass  # TODO: smu resistance command goes here
+                    elif task['type'] == 'connectivity':
+                        pass  # TODO: smu connectivity command goes here
+                    p.get('s') # deselect the device
+
+
+                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                mo.connect()
+                pos = mo.get_position()
+                
+            #payload = {'pos': pos}
+            #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+            #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
+            #outputq.put(output)
+
+        # system health check
         elif task['cmd'] == 'check_health':
             log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
             try:
