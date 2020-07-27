@@ -9,7 +9,7 @@ class motion:
 
   # these should be overwritten by a motion controller implementation
   #substrate_centers = [160, 140, 120, 100, 80, 60, 40, 20]  # mm from home to the centers of A, B, C, D, E, F, G, H substrates
-  #photodiode_location = 180  # mm  
+  #photodiode_location = 180  # mm
 
   def __init__(self, address='', pcb_object = None):
     """
