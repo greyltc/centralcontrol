@@ -91,6 +91,14 @@ def worker():
                 if result != 0:
                     log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
 
+        elif task['cmd'] == 'for_pcb':  # for any pcb command that returns nothing on success
+            with pcb.pcb(task['pcb']) as p:
+                result = p.get(task['pcb_cmd'])
+            if result == '':
+                log_msg(f"Command {task['pcb_cmd']} acknowleged.",lvl=logging.DEBUG)
+            else:
+                log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
+
         elif task['cmd'] == 'read_stage':
             with pcb.pcb(task['pcb']) as p:
                 mo = motion.motion(address=task['stage_uri'], pcb_object=p)
@@ -98,7 +106,7 @@ def worker():
                 pos = mo.get_position()
             payload = {'pos': pos}
             payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-            output = {'destination':'response', 'payload': payload}  # post it to the response channel
+            output = {'destination':'response', 'payload': payload}  # post the position to the response channel
             outputq.put(output)
         
         elif task['cmd'] == 'check_health':

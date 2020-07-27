@@ -150,7 +150,8 @@ class pcb:
 
 
   def get(self, cmd):
-    """sends cmd to the pcb and returns the relevant command response
+    """
+    sends cmd to the pcb and returns the relevant command response
     """
     ready = False
     ret = None
@@ -175,55 +176,41 @@ class pcb:
       tries_left -= 1
 
     if ready:
-      # parse by question
-      if cmd == 'v':
-        ret = answer
-      elif cmd.startswith('p'):
-        ret = int(answer)
-      elif cmd.startswith('g'):
+      # try to parse by question
+      if cmd.startswith('g'):
         if answer.startswith('ERROR'):
-          # TODO: use logging module here
-          ret = None
+          ret = None  # TODO: probably shouldn't just chuck this error...
         else:
           ret = answer
       elif cmd.startswith('l'):
         if answer.startswith('ERROR'):
-          # TODO: use logging module here
-          ret = None
+          ret = None  # TODO: probably shouldn't just chuck this error...
         else:
           ret = int(answer)
       elif cmd.startswith('r'):
         if answer.startswith('ERROR'):
-          # TODO: use logging module here
-          ret = None
+          ret = None  # TODO: probably shouldn't just chuck this error...
         else:
           ret = int(answer)
       elif cmd.startswith('h'):
         if answer.startswith('ERROR'):
-          # TODO: use logging module here
-          ret = None
+          ret = None  # TODO: probably shouldn't just chuck this error...
         else:
           ret = answer
       elif cmd.startswith('j'):
         if answer.startswith('ERROR'):
-          # TODO: use logging module here
-          ret = None
+          ret = None  # TODO: probably shouldn't just chuck this error...
         else:
           ret = answer
-      elif cmd.startswith('b'):
-          ret = answer
-      elif cmd.startswith('c'):
-        ret = answer
-      elif cmd.startswith('e'):
-        ret = answer
-      else:  # parse by answer
+      else:  # not a question parsable command, attempt to parse by answer
         if answer.startswith('AIN'):
           ret = answer.split(' ')[1]
         elif answer.startswith('Board'):
           ret = int(answer.split(' ')[5])
-        else:
-          print(f'WARNING: Got unexpected response form PCB to "{cmd}": {answer}')
-    else:
+        else:  # could not parse by either question or answer, fine. just return the result
+          ret = answer
+    else: # ready is False
+      # TODO: should not raise here
       raise (ValueError("Comms are out of sync with the PCB"))
 
     return ret
