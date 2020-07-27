@@ -391,7 +391,12 @@ class k2400:
         return vals
 
     def measureUntil(
-        self, t_dwell=np.inf, measurements=np.inf, cb=lambda x: None, handler=None
+        self,
+        t_dwell=np.inf,
+        measurements=np.inf,
+        cb=lambda x: None,
+        handler=None,
+        handler_kwargs={},
     ):
         """Meakes measurements until termination conditions are met
     supports a callback after every measurement
@@ -405,7 +410,7 @@ class k2400:
             self.setOutput(0)
             measurement = self.measure()
             if handler is not None:
-                handler(measurement)
+                handler(measurement, **handler_kwargs)
             q.append(measurement)
             cb(measurement)
         return q

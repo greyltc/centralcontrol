@@ -116,7 +116,7 @@ def _calibrate_eqe(mqttc, request):
     args = request["args"]
 
     # get pixel queue
-    if int(args["eqe_pixel_address"], 16) > 0:
+    if int(args["eqe_devs"], 16) > 0:
         # if the bitmask isn't empty
         try:
             pixel_queue = _build_q(args, experiment="eqe")
@@ -127,7 +127,7 @@ def _calibrate_eqe(mqttc, request):
     else:
         # if it's emptpy, assume cal diode is connected externally
         pixel_dict = {
-            "label": args["labels"][0],
+            "label": args["label_tree"][0],
             "layout": None,
             "array_loc": None,
             "pixel": 0,
@@ -164,10 +164,9 @@ def _calibrate_psu(mqttc, request):
 
     config = request["config"]
     args = request["args"]
-    channel = request["args"]["psu_channel"]
 
     # get pixel queue
-    if int(args["eqe_pixel_address"], 16) > 0:
+    if int(args["eqe_devs"], 16) > 0:
         # if the bitmask isn't empty
         try:
             pixel_queue = _build_q(args, experiment="eqe")
@@ -178,7 +177,7 @@ def _calibrate_psu(mqttc, request):
     else:
         # if it's emptpy, assume cal diode is connected externally
         pixel_dict = {
-            "label": args["labels"][0],
+            "label": args["label_tree"][0],
             "layout": None,
             "array_loc": None,
             "pixel": 0,
@@ -235,17 +234,18 @@ def _calibrate_psu(mqttc, request):
         timestamp = get_timestamp()
 
         # perform measurement
-        psu_calibration = measurement.calibrate_psu(
-            channel,
-            config["psu"]["calibration"]["max_current"],
-            config["psu"]["calibration"]["current_step"],
-        )
+        for channel in [1, 2, 3]:
+            psu_calibration = measurement.calibrate_psu(
+                channel,
+                config["psu"]["calibration"]["max_current"],
+                config["psu"]["calibration"]["current_step"],
+            )
 
-        # update eqe diode calibration data in atomic thread-safe way
-        diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
-        mqttc.append_payload(
-            f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
-        )
+            # update eqe diode calibration data in atomic thread-safe way
+            diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
+            mqttc.append_payload(
+                f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
+            )
 
     # disconnect instruments
     measurement.sm.disconnect()
@@ -323,7 +323,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
     args = request["args"]
 
     # get pixel queue
-    if int(args["iv_pixel_address"], 16) > 0:
+    if int(args["iv_devs"], 16) > 0:
         # if the bitmask isn't empty
         try:
             pixel_queue = _build_q(args, experiment="eqe")
@@ -334,7 +334,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
     else:
         # if it's emptpy, assume cal diode is connected externally
         pixel_dict = {
-            "label": args["labels"][0],
+            "label": args["label_tree"][0],
             "layout": None,
             "array_loc": None,
             "pixel": 0,
@@ -374,7 +374,7 @@ def _calibrate_rtd(request, mqtthost):
     measurement = central_control.fabric.fabric()
 
     # get pixel queue
-    if int(args["iv_pixel_address"], 16) > 0:
+    if int(args["iv_devs"], 16) > 0:
         # if the bitmask isn't empty
         try:
             pixel_queue = _build_q(args, experiment="eqe")
@@ -446,7 +446,8 @@ def _goto(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    position = request["args"]["goto"]
+    args = request["args"]
+    position = [args["goto_x"], args["goto_y"]]
     _log(f"Moving to stage position {}...", "info", **{"mqttc": mqttc})
 
     config = request["config"]
@@ -572,7 +573,7 @@ def _contact_check(request, mqtthost):
     # make a pixel queue for the contact check
     try:
         # get length of bitmask string
-        b_len = len(args["iv_pixel_address"])
+        b_len = len(args["iv_devs"])
 
         # convert it to a string formatter for later
         # hash (#) appends 0x for hex
@@ -582,13 +583,13 @@ def _contact_check(request, mqtthost):
 
         # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
         # pixels selected in either bitmask.
-        iv_int = int(args["iv_pixel_address"], 16)
-        eqe_int = int(args["eqe_pixel_address"], 16)
+        iv_int = int(args["iv_devs"], 16)
+        eqe_int = int(args["eqe_devs"], 16)
         # bitwise or
         merge_int = iv_int | eqe_int
 
         # convert int back to bitmask, overriding iv_pixel_address for build_q
-        args["iv_pixel_address"] = format(merge_int, b_len_str)
+        args["iv_devs"] = format(merge_int, b_len_str)
 
         iv_pixel_queue = _build_q(args, experiment="solarsim")
     except ValueError as e:
@@ -727,20 +728,19 @@ def _build_q(request, experiment):
     substrate_number = config["substrates"]["number"]
 
     # make sure as many layouts as labels were given
-    if ((l1 := len(args["layouts"])) != substrate_total) or (
-        (l2 := len(args["labels"])) != substrate_total
-    ):
+    if (l := len(args["label_tree"])) != substrate_total:
         raise ValueError(
             "Lists of layouts and labels must match number of substrates in the "
-            + f"array: {substrate_total}. Layouts list has length {l1} and labels list "
-            + f"has length {l2}."
+            + f"array: {substrate_total}. Layouts list has length {l}."
         )
+
+    layout = config["substrates"]["active_layout"]
 
     # create a substrate queue where each element is a dictionary of info about the
     # layout from the config file
     substrate_q = []
     i = 0
-    for layout, label, centre in zip(args["layouts"], args["labels"], substrate_centres):
+    for label, centre in zip(args["label_tree"], substrate_centres):
         # get pcb adapter info from config file
         pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
 
@@ -775,9 +775,9 @@ def _build_q(request, experiment):
     # convert hex bitmask string into bit list where 1's and 0's represent whether
     # a pixel should be measured or not, respectively
     if experiment == "solarsim":
-        pixel_address_string = args["iv_pixel_address"]
+        pixel_address_string = args["iv_devs"]
     elif experiment == "eqe":
-        pixel_address_string = args["eqe_pixel_address"]
+        pixel_address_string = args["eqe_devs"]
 
     bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
     bitmask.reverse()
@@ -817,9 +817,13 @@ def _handle_measurement_data(data, **kwargs):
     """
     kind = kwargs["kind"]
     idn = kwargs["idn"]
+    try:
+        sweep = kwargs["sweep"]
+    except KeyError:
+        sweep = ""
     mqttc = kwargs["mqttc"]
 
-    payload = {"data": data, "id": idn, "clear": False, "end": False}
+    payload = {"data": data, "id": idn, "clear": False, "end": False, "sweep": sweep}
     mqttc.append_payload(f"data/raw/{kind}", json.dumps(payload))
 
 
@@ -908,6 +912,11 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
     # set the master experiment relay
     measurement.controller.set_relay("iv")
 
+    if args["ad_switch"] is True:
+        source_delay = -1
+    else:
+        source_delay = args["source_delay"]
+
     last_label = None
     # scan through the pixels and do the requested measurements
     while len(pixel_queue) > 0:
@@ -945,22 +954,22 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         ssvoc = None
 
         # get or estimate compliance current
-        if type(args["current_compliance_override"]) == float:
-            compliance_i = args["current_compliance_override"]
-        else:
-            # estimate compliance current based on area
-            compliance_i = measurement.compliance_current_guess(pixel["area"])
+        compliance_i = measurement.compliance_current_guess(pixel["area"])
 
+        # choose data handler
         if calibration is False:
             handler = _handle_measurement_data
         else:
             handler = None
             handler_kwargs = {}
-
+        
         timestamp = get_timestamp()
 
+        # turn on light
+        measurement.le.on()
+
         # steady state v@constant I measured here - usually Voc
-        if args["v_t"] > 0:
+        if args["i_dwell"] > 0:
             # clear v@constant I plot
             mqttc.append_payload("plot/vt/clear", json.dumps(""))
 
@@ -968,13 +977,13 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 handler_kwargs = {"kind": "vt_measurement", "idn": idn, "mqttc": mqttc}
 
             vt = measurement.steady_state(
-                t_dwell=args["v_t"],
-                NPLC=args["steadystate_nplc"],
-                stepDelay=args["steadystate_step_delay"],
+                t_dwell=args["i_dwell"],
+                NPLC=args["nplc"],
+                stepDelay=source_delay,
                 sourceVoltage=False,
-                compliance=args["voltage_compliance_override"],
+                compliance=3,
                 senseRange="a",
-                setPoint=args["steadystate_i"],
+                setPoint=args["i_dwell_value_ma"] / 1000,
                 handler=handler,
                 handler_kwargs=handler_kwargs,
             )
@@ -982,98 +991,109 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
-            if args["steadystate_i"] == 0:
+            if args["i_dwell_value_ma"] / 1000 == 0:
                 ssvoc = vt[-1]
                 measurement.mppt.Voc = ssvoc
 
-        if (args["sweep_1"] is True) or (args["sweep_2"] is True):
+        # if performing sweeps
+        if args["sweep_check"] is True:
+            # detmine type of sweeps to perform
+            if (s := args["lit_sweep"]) == 0:
+                sweeps = ["dark", "ligh"]
+            elif s == 1:
+                sweeps = ["light", "dark"]
+            elif s == 2:
+                sweeps = ["dark"]
+            elif s == 3:
+                sweeps = ["light"]
+        else:
+            sweeps = []
+
+        # perform sweeps
+        for sweep in sweeps:
             # clear iv plot
             mqttc.append_payload("plot/iv/clear", json.dumps(""))
 
-        # TODO: add support for dark measurement, has to use autorange
-        if args["sweep_1"] is True:
-            # determine sweep start voltage
-            if type(args["scan_start_override_1"]) == float:
-                start = args["scan_start_override_1"]
-            elif ssvoc is not None:
-                start = ssvoc * (1 + (config["iv"]["percent_beyond_voc"] / 100))
+            if sweep == "dark":
+                measurement.le.off()
+                sense_range = "a"
             else:
-                raise ValueError(
-                    f"Start voltage wasn't given and couldn't be inferred."
+                sense_range = "f"
+
+            if args["sweep_check"] is True:
+                start = args["sweep_start"]
+                end = args["sweep_end"]
+
+                _log(
+                    f"Sweeping voltage from {start} V to {end} V",
+                    "info",
+                    **{"mqttc": mqttc},
                 )
 
-            # determine sweep end voltage
-            if type(args["scan_end_override_1"]) == float:
-                end = args["scan_end_override_1"]
-            else:
-                end = -1 * np.sign(ssvoc) * config["iv"]["voltage_beyond_isc"]
+                if calibration is False:
+                    handler_kwargs = {"kind": "iv_measurement", "idn": idn, "sweep": sweep, "mqttc": mqttc}
 
-            _log(
-                f"Sweeping voltage from {start} V to {end} V",
-                "info",
-                **{"mqttc": mqttc},
-            )
+                iv1 = measurement.sweep(
+                    sourceVoltage=True,
+                    compliance=compliance_i,
+                    senseRange=sense_range,
+                    nPoints=args["iv_steps"],
+                    stepDelay=source_delay,
+                    start=start,
+                    end=end,
+                    NPLC=args["scan_nplc"],
+                    handler=handler,
+                    handler_kwargs=handler_kwargs,
+                )
 
-            if calibration is False:
-                handler_kwargs = {"kind": "iv_measurement", "idn": idn, "mqttc": mqttc}
+                data += iv1
 
-            iv1 = measurement.sweep(
-                sourceVoltage=True,
-                compliance=compliance_i,
-                senseRange="f",
-                nPoints=args["scan_points"],
-                stepDelay=args["scan_step_delay"],
-                start=start,
-                end=end,
-                NPLC=args["scan_nplc"],
-                handler=handler,
-                handler_kwargs=handler_kwargs,
-            )
+                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.which_max_power(iv1)
 
-            data += iv1
+            if args["return_switch"] is True:
+                # sweep the opposite way to sweep 1
+                start = end
+                end = start
 
-            Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.which_max_power(iv1)
+                _log(
+                    f"Sweeping voltage from {start} V to {end} V",
+                    "info",
+                    **{"mqttc": mqttc},
+                )
 
-        if args["sweep_2"] is True:
-            # sweep the opposite way to sweep 1
-            start = end
-            end = start
+                if calibration is False:
+                    handler_kwargs = {"kind": "iv_measurement", "idn": idn, "sweep": sweep, "mqttc": mqttc}
 
-            _log(
-                f"Sweeping voltage from {start} V to {end} V",
-                "info",
-                **{"mqttc": mqttc},
-            )
+                iv2 = measurement.sweep(
+                    sourceVoltage=True,
+                    senseRange=sense_range,
+                    compliance=compliance_i,
+                    nPoints=args["iv_steps"],
+                    stepDelay=source_delay,
+                    start=start,
+                    end=end,
+                    NPLC=args["scan_nplc"],
+                    handler=handler,
+                    handler_kwargs=handler_kwargs,
+                )
 
-            if calibration is False:
-                handler_kwargs = {"kind": "iv_measurement", "idn": idn, "mqttc": mqttc}
+                data += iv2
 
-            iv2 = measurement.sweep(
-                sourceVoltage=True,
-                senseRange="f",
-                compliance=compliance_i,
-                nPoints=args["scan_points"],
-                start=start,
-                end=end,
-                NPLC=args["scan_nplc"],
-                handler=handler,
-                handler_kwargs=handler_kwargs,
-            )
+                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.which_max_power(iv2)
 
-            data += iv2
-
-            Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.which_max_power(iv2)
+            if sweep == "dark":
+                measurement.le.on()
 
         # TODO: read and interpret parameters for smart mode
         # # determine Vmpp and current compliance for mppt
-        # if (self.args["sweep_1"] is True) & (self.args["sweep_2"] is True):
+        # if (self.args["sweep_check"] is True) & (self.args["return_switch"] is True):
         #     if abs(Pmax_sweep1) > abs(Pmax_sweep2):
         #         Vmpp = Vmpp1
         #         compliance_i = Impp1 * 5
         #     else:
         #         Vmpp = Vmpp2
         #         compliance_i = Impp2 * 5
-        # elif self.args["sweep_1"] is True:
+        # elif self.args["sweep_check"] is True:
         #     Vmpp = Vmpp1
         #     compliance_i = Impp1 * 5
         # else:
@@ -1084,9 +1104,9 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         # self.logic.mppt.Vmpp = Vmpp
         measurement.mppt.current_compliance = compliance_i
 
-        if args["mppt_t"] > 0:
+        if args["mppt_dwell"] > 0:
             _log(
-                f"Tracking maximum power point for {args["mppt_t"]} seconds.",
+                f"Tracking maximum power point for {args["mppt_dwell"]} seconds.",
                 "info",
                 **{"mqttc": mqttc},
             )
@@ -1104,10 +1124,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             # measure voc for 1s to initialise mppt
             vt = measurement.steady_state(
                 t_dwell=1,
-                NPLC=args["steadystate_nplc"],
-                stepDelay=args["steadystate_step_delay"],
+                NPLC=args["nplc"],
+                stepDelay=args["source_delay"],
                 sourceVoltage=False,
-                compliance=args["voltage_compliance_override"],
+                compliance=3,
                 senseRange="a",
                 setPoint=0,
                 handler=handler,
@@ -1116,9 +1136,9 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             measurement.mppt.Voc = vt[-1]
 
             mt = measurement.track_max_power(
-                args["mppt_t"],
-                NPLC=args["steadystate_nplc"],
-                stepDelay=args["steadystate_step_delay"],
+                args["mppt_dwell"],
+                NPLC=args["nplc"],
+                stepDelay=args["source_delay"],
                 extra=args["mppt_params"],
                 handler=handler,
                 handler_kwargs=handler_kwargs,
@@ -1127,7 +1147,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             data += vt
             data += mt
 
-        if args["i_t"] > 0:
+        if args["v_dwell"] > 0:
             # steady state I@constant V measured here - usually Isc
             # clear I@constant V plot
             mqttc.append_payload("plot/it/clear", json.dumps(""))
@@ -1136,27 +1156,29 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 handler_kwagrgs = {"kind": "it_measurement", "idn": idn, "mqttc": mqttc}
 
             it = measurement.steady_state(
-                t_dwell=args["i_t"],
-                NPLC=args["steadystate_nplc"],
-                stepDelay=args["steadystate_step_delay"],
+                t_dwell=args["v_dwell"],
+                NPLC=args["nplc"],
+                stepDelay=source_delay,
                 sourceVoltage=True,
                 compliance=compliance_i,
                 senseRange="a",
-                setPoint=args["steadystate_v"],
+                setPoint=args["v_dwell_value"],
                 handler=handler,
                 handler_kwargs=handler_kwagrgs,
             )
 
             data += it
 
+        measurement.sm.outOn(False)
+
         if calibration is True:
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
             if rtd is True:
                 mqttc.append_payload("calibration/rtd", json.dumps(diode_dict))
             else:
-                mqttc.append_payload("calibration/solarsim_diode", json.dumps(diode_dict))
-
-    measurement.run_done()
+                mqttc.append_payload(
+                    "calibration/solarsim_diode", json.dumps(diode_dict)
+                )
 
 
 def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
@@ -1227,7 +1249,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         )
 
         _log(
-            f"Scanning EQE from {args["eqe_start_wl"]} nm to {args["eqe_end_wl"]} nm",
+            f"Scanning EQE from {args["eqe_start"]} nm to {args["eqe_end"]} nm",
             "info",
             **{"mqttc": mqttc},
         )
@@ -1246,23 +1268,23 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         # get human-readable timestamp
         timestamp = get_timestamp()
 
+        num_points = 1 + int(np.absolute(args["eqe_end"] - args["eqe_start"]) / args["eqe_step"])
+
         # perform measurement
         eqe = measurement.eqe(
             psu_ch1_voltage=config["psu"]["ch1_voltage"],
-            psu_ch1_current=args["psu_is"][0],
+            psu_ch1_current=args["chan1_ma"] / 1000,
             psu_ch2_voltage=config["psu"]["ch2_voltage"],
-            psu_ch2_current=args["psu_is"][1],
+            psu_ch2_current=args["chan2_ma"] / 1000,
             psu_ch3_voltage=config["psu"]["ch3_voltage"],
-            psu_ch3_current=args["psu_is"][2],
-            smu_voltage=args["eqe_smu_v"],
-            start_wl=args["eqe_start_wl"],
-            end_wl=args["eqe_end_wl"],
-            num_points=args["eqe_num_wls"],
+            psu_ch3_current=args["chan3_ma"] / 1000,
+            smu_voltage=args["eqe_bias"],
+            start_wl=args["eqe_start"],
+            end_wl=args["eqe_end"],
+            num_points=num_points,
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
-            auto_gain=not (args["eqe_autogain_off"]),
-            auto_gain_method=args["eqe_autogain_method"],
-            integration_time=args["eqe_integration_time"],
+            integration_time=args["eqe_int"],
             handler=handler,
             handler_kwargs=handler_kwargs,
         )
@@ -1307,11 +1329,16 @@ def _run(request, mqtthost):
     args = request["args"]
 
     # build up the queue of pixels to run through
-    if args["dummy"] is True:
-        args["iv_pixel_address"] = "0x1"
-        args["eqe_pixel_address"] = "0x1"
+    try:
+        dummy = args["dummy"]
+    except KeyError:
+        dummy = False
 
-    if args["iv_pixel_address"] is not None:
+    if dummy is True:
+        args["iv_devs"] = format(1, f"#0{len(args["iv_devs"])}x")
+        args["eqe_devs"] = args["iv_devs"]
+
+    if args["iv_devs"] is not None:
         try:
             iv_pixel_queue = _build_q(args, experiment="solarsim")
         except ValueError as e:
@@ -1321,7 +1348,7 @@ def _run(request, mqtthost):
     else:
         iv_pixel_queue = []
 
-    if args["eqe_pixel_address"] is not None:
+    if args["eqe_devs"] is not None:
         try:
             eqe_pixel_queue = _build_q(args, experiment="eqe")
         except ValueError as e:
