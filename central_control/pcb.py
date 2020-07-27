@@ -10,9 +10,13 @@ class pcb:
   Interface for talking to my control PCB
   """
   write_terminator = '\r\n'
-  #read_terminator = b'\r\n' # probably don't care
+  #read_terminator = b'\r\n' # probably don't care. all whitespace gets stripped anyway
   prompt = b'>>> '
+  
   substrateList = 'HGFEDCBA'  # all the possible substrates
+  # TODO: this is out of date. with otter it's not one substrate per mux board anymore.
+  # unsure of the implications, if any right now
+  
   substratesConnected = ''  # the ones we've detected
   adapters = []  # list of tuples of adapter boards: (substrate_letter, resistor_value)
 
@@ -156,6 +160,8 @@ class pcb:
     ready = False
     ret = None
 
+    # TODO: don't need to retry some commands that start with these letters
+    # like eqe and stream
     retry_cmds = ['j','h', 'l', 's', 'r', 'c', 'e', 'g']
     super_retry_cmds = ['b']
     if cmd[0] in retry_cmds:

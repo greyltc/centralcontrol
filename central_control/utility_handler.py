@@ -93,9 +93,12 @@ def worker():
 
         elif task['cmd'] == 'for_pcb':  # for any pcb command that returns nothing on success
             with pcb.pcb(task['pcb']) as p:
+                # special case for pixel selection to avoid parallel connections
+                if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
+                    p.get('s')  # deselect all before selecting one
                 result = p.get(task['pcb_cmd'])
             if result == '':
-                log_msg(f"Command {task['pcb_cmd']} acknowleged.",lvl=logging.DEBUG)
+                log_msg(f"Command acknowledged: {task['pcb_cmd']}",lvl=logging.DEBUG)
             else:
                 log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
 
@@ -110,23 +113,32 @@ def worker():
             outputq.put(output)
         
         elif task['cmd'] == 'check_health':
-            log_msg(f'Checking controller...',lvl=logging.INFO)
-            with pcb.pcb(task['pcb']) as p:
-                log_msg('Controller connected',lvl=logging.INFO)
-                log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
-                log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
-                log_msg(f"Controller mux bitmask value: {p.get('c')}",lvl=logging.INFO)
+            log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
+            try:
+                with pcb.pcb(task['pcb']) as p:
+                    log_msg('Controller connection initiated',lvl=logging.INFO)
+                    log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
+                    log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
+                    log_msg(f"Controller mux bitmask value: {p.get('c')}",lvl=logging.INFO)
+            except:
+                log_msg(f'Could not talk to control box',lvl=logging.WARNING)
 
-            log_msg(f'Checking PSU...',lvl=logging.INFO)
+            log_msg(f"Checking power supply@{task['psu']}...",lvl=logging.INFO)
             rm = pyvisa.ResourceManager()
-            with rm.open_resource(task['psu']) as psu:
-                log_msg('PSU connected',lvl=logging.INFO)
-                log_msg(f'PSU identification string: {psu.query("*IDN?").strip()}',lvl=logging.INFO)
+            try:
+                with rm.open_resource(task['psu']) as psu:
+                    log_msg('Power supply connection initiated',lvl=logging.INFO)
+                    log_msg(f'Power supply identification string: {psu.query("*IDN?").strip()}',lvl=logging.INFO)
+            except:
+                log_msg(f'Could not talk to PSU',lvl=logging.WARNING)
             
-            log_msg(f'Checking SMU...',lvl=logging.INFO)
-            with rm.open_resource(task['smu_address'], baud_rate=task['smu_baud'], flow_control=pyvisa.constants.VI_ASRL_FLOW_XON_XOFF) as smu:
-                log_msg('SMU connected',lvl=logging.INFO)
-                log_msg(f'SMU identification string: {smu.query("*IDN?").strip()}',lvl=logging.INFO)
+            log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
+            try:
+                with rm.open_resource(task['smu_address'], baud_rate=task['smu_baud'], flow_control=pyvisa.constants.VI_ASRL_FLOW_XON_XOFF) as smu:
+                    log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
+                    log_msg(f'Sourcemeter identification string: {smu.query("*IDN?").strip()}',lvl=logging.INFO)
+            except:
+                log_msg(f'Could not talk to sourcemeter',lvl=logging.WARNING)
 
         taskq.task_done()
 
