@@ -777,44 +777,54 @@ class fabric:
 
         Returns
         -------
-        lengths : list of int
-            The lengths of the stages along each available axis in steps for a
-            successful home. If there was a problem an error code is returned:
+        response : dict
+            Dictionary containing return code, message, and lengths. Error codes are
+            defined as follows:
 
                 * -1 : Timeout error.
                 * -2 : Programming error.
                 * -3 : Unexpected axis length. Probably stalled during homing.
+                * -4 : Response error.
         """
-        ret_val = [0 for x in range(len(expected_lengths))]
-        print("Homing the stage...")
         for i, l in enumerate(expected_lengths):
             r = self.controller.home(i + 1)
             if r != "":
-                raise (ValueError(f"Homing the stage failed: {r}"))
+                msg = f"Homing the stage along axis {i + 1} failed: {r}."
+                lengths = []
+                code = -4
+                return {"code": code, "msg": msg, "lengths": lengths}
             elif self.controller.tn.empty_response is True:
-                ret_val[i] = -2
-                break
+                msg = "Programming error"
+                lengths = []
+                code = -2
+                return {"code": code, "msg": msg, "lengths": lengths}
 
-        if all([rv == 0 for rv in ret_val]):
-            t0 = time.time()
-            dt = 0
-            while dt < timeout:
-                time.sleep(length_poll_sleep)
-                for i, l in enumerate(expected_lengths):
-                    ret_val[i] = self.controller.get_length(i + 1)
-                    if (ret_val[i] > 0) & (round_sf(ret_val[i], 1) != round_sf(l, 1)):
-                        # if a stage length is returned but it's unexpected there was
-                        # probably a stall
-                        ret_val[i] = -3
-                if all([rv > 0 for rv in ret_val]):
-                    # axis lengths have been returned for all axes
-                    break
-                elif any([rv == -3 for rv in ret_val]):
-                    # at least one axis returned an unexpected length
-                    break
-                dt = time.time() - t0
+        t0 = time.time()
+        dt = 0
+        lengths = []
+        while dt < timeout:
+            for i, l in enumerate(expected_lengths):
+                lengths[i] = self.controller.get_length(i + 1)
+                if (lengths[i] > 0) & (round_sf(lengths[i], 1) != round_sf(l, 1)):
+                    # if a stage length is returned but it's unexpected there was
+                    # probably a stall
+                    msg = (
+                        f"Returned {lengths[i]} steps for axis {i + 1} but was "
+                        + f"expecting {l} steps. The stage probably stalled."
+                    )
+                    code = -3
+                    return {"code": code, "msg": msg, "lengths": lengths}
+            if all([l > 0 for l in lengths]):
+                # axis lengths have been returned for all axes
+                msg = f"Axis lengths are {lengths} steps, as expected."
+                code = 0
+                return {"code": code, "msg": msg, "lengths": lengths}
+            time.sleep(length_poll_sleep)
+            dt = time.time() - t0
 
-        return ret_val
+        msg = "Timeout error"
+        code = -2
+        return {"code": code, "msg": msg, "lengths": lengths}
 
     def read_stage_position(self, axes, handler=None, handler_kwargs={}):
         """Read the current stage position along all available axes.

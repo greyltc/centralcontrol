@@ -354,36 +354,84 @@ def _calibrate_solarsim_diodes(request, mqtthost):
     mqttc.stop()
 
 
-def _home(mqttc, request):
-    """Home the stage."""
-    # TODO: finish
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+def _calibrate_rtd(request, mqtthost):
+    """Calibrate RTD's for temperature measurement.
+    
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    _log("Calibrating RTDs...", "info", **{"mqttc": mqttc})
 
     # create temporary mqtt client
     mqttc = MQTTQueuePublisher()
     mqttc.run(cli_args.MQTTHOST)
 
-    measurement.connect_instruments(
-        dummy=False, controller_address=config["controller"]["address"],
-    )
+    # create fabric measurement logic object
+    measurement = central_control.fabric.fabric()
 
-    measurement.home_stage(config["stage"]["length"])
+    # get pixel queue
+    if int(args["iv_pixel_address"], 16) > 0:
+        # if the bitmask isn't empty
+        try:
+            pixel_queue = _build_q(args, experiment="eqe")
+        except ValueError as e:
+            # there was a problem with the labels and/or layouts list
+            _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+            return
+    else:
+        # if it's emptpy, report error
+        _log("CALIBRATION ABORTED! No devices selected.", "error", **{"mqttc": mqttc})
 
-    _log("Homing complete!", "info", **{"mqttc": mqttc})
+    try:
+        _ivt(mqttc, request, pixel_queue, calibration=True, rtd=True)
+    except ValueError as e:
+        _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+        return
+
+    _log("RTD calibration complete!", "info", **{"mqttc": mqttc})
 
     mqttc.stop()
 
 
-def _calibrate_rtd(request, mqtthost):
-    """Calibrate RTD's."""
-    # TODO; fill in func
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+def _home(request, mqtthost):
+    """Home the stage.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    _log("Homing stage...", "info", **{"mqttc": mqttc})
+
+    config = request["config"]
 
     # create temporary mqtt client
     mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+    mqttc.run(mqtthost)
+
+    # create fabric measurement logic object and connect instruments
+    measurement = central_control.fabric.fabric()
+    measurement.connect_instruments(
+        dummy=False, controller_address=config["controller"]["address"],
+    )
+
+    homing_dict = measurement.home_stage(config["stage"]["length"])
+    measurement.controller.disconnect()
+
+    if homing_dict["code"] < 0:
+        # homing failed
+        _log(homing_dict["msg"], "error", **{"mqttc": mqttc})
+    else:
+        # homing succeeded
+        _log(homing_dict["msg"], "info", **{"mqttc": mqttc})
+
+    _log("Homing complete!", "info", **{"mqttc": mqttc})
 
     mqttc.stop()
 
@@ -718,7 +766,7 @@ def _log(msg, level, **kwargs):
     mqttc.append_payload("log", json.dumps(payload))
 
 
-def _ivt(pixel_queue, request, measurement, mqttc, calibration=False):
+def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False):
     """Run through pixel queue of i-v-t measurements.
 
     Paramters
@@ -733,6 +781,8 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False):
         Object controlling instruments and measurements.
     calibration : bool
         Calibration flag.
+    rtd : bool
+        RTD flag for type of calibration. Used for reporting.
     """
     config = request["config"]
     args = request["args"]
@@ -996,7 +1046,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False):
 
         if calibration is True:
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
-            mqttc.append_payload("calibration/solarsim_diode", json.dumps(diode_dict))
+            if rtd is True:
+                mqttc.append_payload("calibration/rtd", json.dumps(diode_dict))
+            else:
+                mqttc.append_payload("calibration/solarsim_diode", json.dumps(diode_dict))
 
     measurement.run_done()
 
@@ -1175,14 +1228,14 @@ def _run(request, mqtthost):
     # measure i-v-t
     if len(iv_pixel_queue) > 0:
         try:
-            _ivt(iv_pixel_queue, request, measurement, mqttc, False)
+            _ivt(iv_pixel_queue, request, measurement, mqttc)
         except ValueError as e:
             _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
             return
 
     # measure eqe
     if len(eqe_pixel_queue) > 0:
-        _eqe(eqe_pixel_queue, request, measurement, mqttc, False)
+        _eqe(eqe_pixel_queue, request, measurement, mqttc)
 
     # report complete
     _log("Run complete!", "info", **{"mqttc": mqttc})
@@ -1213,6 +1266,8 @@ def on_message(mqttc, obj, msg):
         start_process(_calibrate_solarsim_diodes, (request, cli_args.MQTTHOST,))
     elif action == "calibrate_spectrum":
         start_process(_calibrate_spectrum, (request, cli_args.MQTTHOST,))
+    elif action == "calibrate_rtd":
+        start_process(_calibrate_rtd, (request, cli_args.MQTTHOST,))
     elif action == "home":
         start_process(_home, (request, cli_args.MQTTHOST,))
     elif action == "goto":
