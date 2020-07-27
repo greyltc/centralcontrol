@@ -838,17 +838,33 @@ class fabric:
 
         Returns
         -------
-        loc : list of int
-            Stage position in steps along each axis.
+        loc : dict
+            Response dictionary including stage position in steps along each axis as
+            well as return code and message:
+
+                * 0 : Read position successfully.
+                * -1 : Command not accepted. Stage probably isn't homed / has stalled.
+                * -2 : Programming error.
         """
         loc = []
         for axis in range(1, axes + 1, 1):
-            loc.append(self.controller.get_position(axis))
+            r = self.controller.get_position(axis)
+            if r != "":
+                msg = "Command not accepted. Stage probably isn't homed / has stalled."
+                code = -1
+                return {"msg": msg, "code": code, "loc": loc}
+            elif self.controller.tn.empty_response is True:
+                msg = "Programming error"
+                code = -2
+                return {"msg": msg, "code": code, "loc": loc}
+            loc.append(r)
 
         if handler is not None:
             handler(loc, **handler_kwargs)
 
-        return loc
+        msg = "Read position successfully."
+        code = 0
+        return {"msg": msg, "code": code, "loc": loc}
 
     def goto_stage_position(
         self,
@@ -887,6 +903,7 @@ class fabric:
                 * -1 : Command not accepted. Stage probably isn't homed / has stalled.
                 * -2 : Max retries / timeout exceeded.
                 * -3 : Programming error.
+                * -4 : Read position error.
         """
         # must be a whole number of steps
         position = [round(p) for p in position]
@@ -908,8 +925,13 @@ class fabric:
         now = 0
         # periodically poll for position
         while (loc != position) and (now < timeout):
-            # ask for current position
-            loc = self.read_stage_position(len(position), handler, handler_kwargs)
+            # ask for current position and return if error on read
+            response = self.read_stage_position(len(position), handler, handler_kwargs)
+            if response["code"] < 0:
+                msg = f"Read position error: {response['msg']}."
+                code = -4
+                return {"msg": msg, "code": code}
+            loc = response["loc"]
             time.sleep(position_poll_sleep)
             now = time.time() - t0
         # exited above loop because of microtimeout, retry
@@ -944,9 +966,8 @@ class fabric:
 
         Returns
         -------
-        fail_bitmask : str
-            Pass/fail bitmask where bits corresponding to pixels that failed the
-            contact check are set to 1.
+        fail_msg : str
+            Pass/fail summary.
         """
         mux_list = [
             [r + 1, c + 1, p + 1]
@@ -967,6 +988,49 @@ class fabric:
                     )
 
         return f"{failed}/{len(mux_list)} pixels failed the contact check."
+
+    def contact_check(self, pixel_queue, handler=None, handler_kwargs={}):
+        """Perform contact checks on a queue of pixels.
+
+        Parameters
+        ----------
+        pixel_queue : deque of dict
+            Queue of pixels to check
+        handler : handler callback
+            Handler that acts on failed contact check reports.
+        handler_kwargs : dict
+            Keyword arguments required by the handler.
+
+        Returns
+        -------
+        fail_msg : str
+            Pass/fail summary.
+        """
+        failed = 0
+        while len(pixel_queue) > 0:
+            # get pixel info
+            pixel = pixel_queue.popleft()
+            label = pixel["label"]
+            pix = pixel["pixel"]
+
+            # add id str to handlers to display on plots
+            idn = f"{label}_pixel{pix}"
+
+            if pixel["array_loc"] is not None:
+                row = pixel["array_loc"][0]
+                col = pixel["array_loc"][1]
+                self.controller.set_mux(row, col, pixel["pixel"])
+            else:
+                self.controller.clear_mux()
+
+            if self.sm.contact_check() is True:
+                failed += 1
+                if handler is not None:
+                    handler(
+                        f"Contact check FAILED! Device: {idn}", **handler_kwargs,
+                    )
+
+        return f"{failed} pixels failed the contact check."
 
 
 def round_sf(x, sig_fig):

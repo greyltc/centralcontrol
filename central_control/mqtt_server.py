@@ -356,7 +356,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
 
 def _calibrate_rtd(request, mqtthost):
     """Calibrate RTD's for temperature measurement.
-    
+
     Parameters
     ----------
     mqttc : MQTTQueuePublisher object
@@ -479,28 +479,59 @@ def _goto(request, mqtthost):
 
 
 def _read_stage(request, mqtthost):
-    """Read the stage position."""
-    # TODO: complete args for func
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+    """Read the stage position.
+
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    _log(f"Reading stage position {}...", "info", **{"mqttc": mqttc})
+
+    config = request["config"]
 
     # create temporary mqtt client
     mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+    mqttc.run(mqtthost)
 
-    measurement.read_stage_position()
+    # create fabric measurement logic object and connect instruments
+    measurement = central_control.fabric.fabric()
+    measurement.connect_instruments(
+        dummy=False, controller_address=config["controller"]["address"],
+    )
 
-    _log("Read stage position complete!", "info", **{"mqttc": mqttc})
+    stage_pos_dict = measurement.read_stage_position(
+        len(config["stage"]["lengths"]),
+        handler=_handle_stage_data,
+        handler_kwargs={"mqttc": mqttc},
+    )
+    measurement.controller.disconnect()
+
+    if stage_pos_dict["code"] < 0:
+        # homing failed
+        _log(stage_pos_dict["msg"], "error", **{"mqttc": mqttc})
+    else:
+        # homing succeeded
+        _log(stage_pos_dict["msg"], "info", **{"mqttc": mqttc})
+
+    _log("Read complete!", "info", **{"mqttc": mqttc})
 
     mqttc.stop()
 
 
 def _contact_check(request, mqtthost):
-    """Perform contact check."""
-    # TODO: write back to gui
+    """Perform contact check.
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    _log("Performing contact check...", "info", **{"mqttc": mqttc})
 
     # create temporary mqtt client
     mqttc = MQTTQueuePublisher()
@@ -508,6 +539,20 @@ def _contact_check(request, mqtthost):
 
     config = request["config"]
 
+    # create fabric measurement logic object
+    measurement = central_control.fabric.fabric()
+    measurement.connect_instruments(
+        dummy=False,
+        visa_lib=config["visa"]["visa-lib"],
+        smu_address=config["smu"]["address"],
+        smu_terminator=config["smu"]["terminator"],
+        smu_baud=config["smu"]["baud"],
+        smu_front_terminals=config["smu"]["front_terminals"],
+        smu_two_wire=config["smu"]["two_wire"],
+        controller_address=config["controller"]["address"],
+    )
+
+    # look up number of rows columns and pixels
     array = config["substrates"]["number"]
     rows = array[0]
     try:
@@ -517,7 +562,42 @@ def _contact_check(request, mqtthost):
     active_layout = config["substrates"]["active_layout"]
     pcb_adapter = config[active_layout]["pcb_name"]
     pixels = config[pcb_adapter]["pixels"]
-    measurement.check_all_contacts(rows, cols, pixels)
+
+    response = measurement.check_all_contacts(
+        rows, cols, pixels, _handle_contact_check, {"mqttc": mqttc}
+    )
+    _log(reponse, "info", **{"mqttc": mqttc})
+
+    # TODO: decide whether or not to use bitmasks for contact check
+    # # make a pixel queue for the contact check
+    # try:
+    #     # get length of bitmask string
+    #     b_len = len(args["iv_pixel_address"])
+
+    #     # convert it to a string formatter for later
+    #     # hash (#) appends 0x for hex
+    #     # leading zero adds zero padding to resulting string
+    #     # x formats as hexadecimal
+    #     b_len_str = f"#0{b_len}x"
+
+    #     # convert iv and eqe bitmasks to ints and perform bitwise or. The result will lead
+    #     # to a merged bitmask so any pixel in either gets a contact check
+    #     iv_int = int(args["iv_pixel_address"], 16)
+    #     eqe_int = int(args["eqe_pixel_address"], 16)
+    #     # bitwise or
+    #     merge_int = iv_int | eqe_int
+
+    #     # convert int back to bitmask, overriding iv_pixel_address for build_q
+    #     args["iv_pixel_address"] = format(merge_int, b_len_str)
+
+    #     iv_pixel_queue = _build_q(args, experiment="solarsim")
+    # except ValueError as e:
+    #     # there was a problem with the labels and/or layouts list
+    #     _log("CONTACT CHECK ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+    #     return
+
+    # response = measurement.contact_check(iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc})
+    # _log(reponse, "info", **{"mqttc": mqttc})
 
     _log("Contact check complete!", "info", **{"mqttc": mqttc})
 
