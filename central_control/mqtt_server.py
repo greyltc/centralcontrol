@@ -552,52 +552,52 @@ def _contact_check(request, mqtthost):
         controller_address=config["controller"]["address"],
     )
 
-    # look up number of rows columns and pixels
-    array = config["substrates"]["number"]
-    rows = array[0]
-    try:
-        cols = array[1]
-    except IndexError:
-        cols = 1
-    active_layout = config["substrates"]["active_layout"]
-    pcb_adapter = config[active_layout]["pcb_name"]
-    pixels = config[pcb_adapter]["pixels"]
-
-    response = measurement.check_all_contacts(
-        rows, cols, pixels, _handle_contact_check, {"mqttc": mqttc}
-    )
-    _log(reponse, "info", **{"mqttc": mqttc})
-
-    # TODO: decide whether or not to use bitmasks for contact check
-    # # make a pixel queue for the contact check
+    # TODO: decide whether or not to just measure everything in contact check
+    # # look up number of rows columns and pixels
+    # array = config["substrates"]["number"]
+    # rows = array[0]
     # try:
-    #     # get length of bitmask string
-    #     b_len = len(args["iv_pixel_address"])
+    #     cols = array[1]
+    # except IndexError:
+    #     cols = 1
+    # active_layout = config["substrates"]["active_layout"]
+    # pcb_adapter = config[active_layout]["pcb_name"]
+    # pixels = config[pcb_adapter]["pixels"]
 
-    #     # convert it to a string formatter for later
-    #     # hash (#) appends 0x for hex
-    #     # leading zero adds zero padding to resulting string
-    #     # x formats as hexadecimal
-    #     b_len_str = f"#0{b_len}x"
-
-    #     # convert iv and eqe bitmasks to ints and perform bitwise or. The result will lead
-    #     # to a merged bitmask so any pixel in either gets a contact check
-    #     iv_int = int(args["iv_pixel_address"], 16)
-    #     eqe_int = int(args["eqe_pixel_address"], 16)
-    #     # bitwise or
-    #     merge_int = iv_int | eqe_int
-
-    #     # convert int back to bitmask, overriding iv_pixel_address for build_q
-    #     args["iv_pixel_address"] = format(merge_int, b_len_str)
-
-    #     iv_pixel_queue = _build_q(args, experiment="solarsim")
-    # except ValueError as e:
-    #     # there was a problem with the labels and/or layouts list
-    #     _log("CONTACT CHECK ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-    #     return
-
-    # response = measurement.contact_check(iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc})
+    # response = measurement.check_all_contacts(
+    #     rows, cols, pixels, _handle_contact_check, {"mqttc": mqttc}
+    # )
     # _log(reponse, "info", **{"mqttc": mqttc})
+
+    # make a pixel queue for the contact check
+    try:
+        # get length of bitmask string
+        b_len = len(args["iv_pixel_address"])
+
+        # convert it to a string formatter for later
+        # hash (#) appends 0x for hex
+        # leading zero adds zero padding to resulting string
+        # x formats as hexadecimal
+        b_len_str = f"#0{b_len}x"
+
+        # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
+        # pixels selected in either bitmask.
+        iv_int = int(args["iv_pixel_address"], 16)
+        eqe_int = int(args["eqe_pixel_address"], 16)
+        # bitwise or
+        merge_int = iv_int | eqe_int
+
+        # convert int back to bitmask, overriding iv_pixel_address for build_q
+        args["iv_pixel_address"] = format(merge_int, b_len_str)
+
+        iv_pixel_queue = _build_q(args, experiment="solarsim")
+    except ValueError as e:
+        # there was a problem with the labels and/or layouts list
+        _log("CONTACT CHECK ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+        return
+
+    response = measurement.contact_check(iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc})
+    _log(reponse, "info", **{"mqttc": mqttc})
 
     _log("Contact check complete!", "info", **{"mqttc": mqttc})
 
@@ -780,14 +780,15 @@ def _build_q(request, experiment):
         pixel_address_string = args["eqe_pixel_address"]
 
     bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
+    bitmask.reverse()
 
     # build pixel queue
     pixel_q = collections.deque()
     for substrate in substrate_q:
         # git bitmask for the substrate pcb
         sub_bitmask = [
-            bitmask.pop(-1) for i in range(substrate["pcb_contact_pads"])
-        ].reverse()
+            bitmask.pop(0) for i in range(substrate["pcb_contact_pads"])
+        ]
         # select pixels to measure from layout
         for pixel in substrate["pixels"]:
             if sub_bitmask[pixel - 1] == 1:
