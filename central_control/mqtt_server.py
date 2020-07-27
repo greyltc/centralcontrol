@@ -748,7 +748,7 @@ def _build_q(request, experiment):
         config_pos = config["substrates"]["layouts"][layout]["positions"]
         pixel_positions = []
         for pos in range(len(config_pos)):
-            abs_pixel_position = [int(x) for x in zip(pos, centre)]
+            abs_pixel_position = [int(x + y) for x, y in zip(pos, centre)]
             pixel_positions.append(abs_pixel_position)
 
         # find co-ordinate of substrate in the array
