@@ -436,20 +436,44 @@ def _home(request, mqtthost):
     mqttc.stop()
 
 
-def _goto(position, request, mqtthost):
-    """Go to a stage position."""
-    # TODO: complete args for func
+def _goto(request, mqtthost):
+    """Go to a stage position.
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+    Parameters
+    ----------
+    mqttc : MQTTQueuePublisher object
+        MQTT queue publisher.
+    request : dict
+        Request dictionary sent to the server.
+    """
+    position = request["args"]["goto"]
+    _log(f"Moving to stage position {}...", "info", **{"mqttc": mqttc})
+
+    config = request["config"]
 
     # create temporary mqtt client
     mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+    mqttc.run(mqtthost)
 
-    measurement.goto_stage_position()
+    # create fabric measurement logic object and connect instruments
+    measurement = central_control.fabric.fabric()
+    measurement.connect_instruments(
+        dummy=False, controller_address=config["controller"]["address"],
+    )
 
-    _log("Goto stage position complete!", "info", **{"mqttc": mqttc})
+    goto_dict = measurement.goto_stage_position(
+        position, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc},
+    )
+    measurement.controller.disconnect()
+
+    if goto_dict["code"] < 0:
+        # homing failed
+        _log(goto_dict["msg"], "error", **{"mqttc": mqttc})
+    else:
+        # homing succeeded
+        _log(goto_dict["msg"], "info", **{"mqttc": mqttc})
+
+    _log("Goto complete!", "info", **{"mqttc": mqttc})
 
     mqttc.stop()
 

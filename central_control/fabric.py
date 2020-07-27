@@ -853,8 +853,7 @@ class fabric:
     def goto_stage_position(
         self,
         position,
-        timeout=30,
-        retries=5,
+        timeout=60,
         position_poll_sleep=0.5,
         handler=None,
         handler_kwargs={},
@@ -870,9 +869,6 @@ class fabric:
         timeout : float
             Timeout in seconds. Raise an error if it takes longer than expected to
             reach the required position.
-        retries : int
-            Number of attempts to send command before failing. The command will be sent
-            this many times within the timeout period.
         position_poll_sleep : float
             Time to wait in s before polling the current position of the stage to
             determine whether the required position has been reached.
@@ -884,7 +880,7 @@ class fabric:
 
         Returns
         -------
-        ret_val : int
+        response : dict
             Return value:
 
                 * 0 : Reached position successfully.
@@ -894,43 +890,38 @@ class fabric:
         """
         # must be a whole number of steps
         position = [round(p) for p in position]
-        attempt_timeout = timeout / retries
 
-        while retries > 0:
-            # send goto command for each axis
-            resp = []
-            for i, pos in enumerate(position):
-                resp.append(self.controller.goto(i + 1, pos))
-            if all([r != "" for r in resp]):
-                # goto commands accepted
-                loc = None
-                t0 = time.time()
-                now = 0
-                # periodically poll for position
-                while (loc != position) and (now <= attempt_timeout):
-                    # ask for current position
-                    loc = self.read_stage_position(
-                        len(position), handler, handler_kwargs
-                    )
-                    # for debugging
-                    print(f"Location = {loc}")
-                    time.sleep(position_poll_sleep)
-                    now = time.time() - t0
-                # exited above loop because of microtimeout, retry
-                if now > attempt_timeout:
-                    ret_val = -2
-                    retries = retries - 1
-                else:
-                    # we got there
-                    ret_val = 0
-                    break
-            else:
-                # goto command fail. this likely means the stage is unhomed either
-                # because it stalled or it just powered on
-                ret_val = -1
-                break
+        for i, pos in enumerate(position):
+            r = self.controller.goto(i + 1, pos)
+            if r != "":
+                msg = "Command not accepted. Stage probably isn't homed / has stalled."
+                code = -1
+                return {"msg": msg, "code": code}
+            elif self.controller.tn.empty_response is True:
+                msg = "Programming error"
+                code = -3
+                return {"msg": msg, "code": code}
 
-        return ret_val
+        # goto commands accepted
+        loc = []
+        t0 = time.time()
+        now = 0
+        # periodically poll for position
+        while (loc != position) and (now < timeout):
+            # ask for current position
+            loc = self.read_stage_position(len(position), handler, handler_kwargs)
+            time.sleep(position_poll_sleep)
+            now = time.time() - t0
+        # exited above loop because of microtimeout, retry
+        if now > timeout:
+            msg = "Goto timeout exceeded."
+            code = -2
+            return {"msg": msg, "code": code}
+        else:
+            # we got there
+            msg = "Reached position successfully."
+            code = 0
+            return {"msg": msg, "code": code}
 
     def check_all_contacts(
         self, rows, columns, pixels, handler=None, handler_kwargs={}
