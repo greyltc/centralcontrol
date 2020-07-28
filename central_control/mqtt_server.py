@@ -247,10 +247,6 @@ def _calibrate_psu(request, mqtthost):
                     f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
                 )
 
-        # disconnect instruments
-        measurement.sm.disconnect()
-        measurement.psu.disconnect()
-
         _log("LED PSU calibration complete!", "info", **{"mqttc": mqttc})
 
         mqttc.stop()
@@ -282,8 +278,6 @@ def _calibrate_spectrum(request, mqtthost):
         )
 
         spectrum = measurement.measure_spectrum()
-
-        measurement.le.disconnect()
 
         # update spectrum  calibration data in atomic thread-safe way
         spectrum_dict = {"data": spectrum, "timestamp": timestamp}
@@ -1244,11 +1238,6 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             mqttc.append_payload(
                 "calibration/eqe", json.dumps(diode_dict), retain=True,
             )
-
-    # disconnect instruments
-    measurement.sm.disconnect()
-    measurement.lia.disconnect()
-    measurement.mono.disconnect()
 
 
 def _run(request, mqtthost):
