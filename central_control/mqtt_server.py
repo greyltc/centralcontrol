@@ -983,7 +983,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 sourceVoltage=False,
                 compliance=3,
                 senseRange="a",
-                setPoint=args["i_dwell_value_ma"] / 1000,
+                setPoint=args["i_dwell_value"],
                 handler=handler,
                 handler_kwargs=handler_kwargs,
             )
@@ -991,7 +991,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
-            if args["i_dwell_value_ma"] / 1000 == 0:
+            if args["i_dwell_value"] == 0:
                 ssvoc = vt[-1]
                 measurement.mppt.Voc = ssvoc
 
@@ -1273,11 +1273,11 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         # perform measurement
         eqe = measurement.eqe(
             psu_ch1_voltage=config["psu"]["ch1_voltage"],
-            psu_ch1_current=args["chan1_ma"] / 1000,
+            psu_ch1_current=args["chan1"],
             psu_ch2_voltage=config["psu"]["ch2_voltage"],
-            psu_ch2_current=args["chan2_ma"] / 1000,
+            psu_ch2_current=args["chan2"],
             psu_ch3_voltage=config["psu"]["ch3_voltage"],
-            psu_ch3_current=args["chan3_ma"] / 1000,
+            psu_ch3_current=args["chan3"],
             smu_voltage=args["eqe_bias"],
             start_wl=args["eqe_start"],
             end_wl=args["eqe_end"],
