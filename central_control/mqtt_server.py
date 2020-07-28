@@ -624,15 +624,12 @@ def _get_substrate_positions(config, experiment):
     # read in substrate spacing in mm along each axis into a list
     substrate_spacing = config["substrates"]["spacing"]
 
-    # read in step length in steps/mm
-    steplength = config["stage"]["steplength"]
-
     # get absolute substrate centres along each axis
     axis_pos = []
     for offset, spacing, number, centre in zip(
         substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
     ):
-        abs_offset = offset * (spacing / steplength) + centre
+        abs_offset = offset * spacing + centre
         axis_pos.append(np.linspace(-abs_offset, abs_offset, number))
 
     # create array of positions
@@ -642,7 +639,7 @@ def _get_substrate_positions(config, experiment):
 
 
 def _build_q(request, experiment):
-    """Generate a queue of pixels we'll run through.
+    """Generate a queue of pixels to run through.
 
     Parameters
     ----------
