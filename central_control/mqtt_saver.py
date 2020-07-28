@@ -1,8 +1,8 @@
 """Save data obtained from MQTT broker."""
 
 import csv
-import json
 import pathlib
+import pickle
 import uuid
 
 import paho.mqtt.client as mqtt
@@ -171,7 +171,7 @@ def save_run_settings(payload):
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
-    payload = json.loads(msg.payload)
+    payload = pickle.load(msg.payload)
 
     if (topic := msg.topic) == "data/raw":
         save_data(payload)
@@ -179,9 +179,8 @@ def on_message(mqttc, obj, msg):
         save_data(payload, processed=True)
     elif msg.topic.split("/")[0] == "calibration":
         save_calibration(payload)
-    elif topic == "measurement/request":
-        if payload["action"] == "run":
-            save_run_settings(payload)
+    elif topic == "measurement/run":
+        save_run_settings(payload)
 
 
 if __name__ == "__main__":

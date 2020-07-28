@@ -3,9 +3,9 @@
 import argparse
 import collections
 import itertools
-import json
 import multiprocessing
 import os
+import pickle
 import sys
 import time
 import types
@@ -66,13 +66,13 @@ def start_process(target, args):
         process.start()
         publish.single(
             "measurement/status",
-            json.dumps("Busy"),
+            pickle.dump("Busy"),
             qos=2,
             retain=True,
             hostname=cli_args.MQTTHOST)
     else:
         payload = {"level": "warning", "msg": "Measurement server busy!"}
-        publish.single("log", json.dumps(payload), qos=2, hostname=cli_args.MQTTHOST)
+        publish.single("log", pickle.dump(payload), qos=2, hostname=cli_args.MQTTHOST)
 
 
 def stop_process():
@@ -86,7 +86,7 @@ def stop_process():
             "level": "warning",
             "msg": "Nothing to stop. Measurement server is idle.",
         }
-        publish.single("log", json.dumps(payload), qos=2, hostname=cli_args.MQTTHOST)
+        publish.single("log", pickle.dump(payload), qos=2, hostname=cli_args.MQTTHOST)
 
 
 def get_timestamp():
@@ -112,7 +112,7 @@ def _calibrate_eqe(request, mqtthost):
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
         # create temporary mqtt client
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating EQE...", "info", **{"mqttc": mqttc})
@@ -158,7 +158,7 @@ def _calibrate_psu(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibration LED PSU...", "info", **{"mqttc": mqttc})
@@ -252,7 +252,7 @@ def _calibrate_psu(request, mqtthost):
                     "data": psu_calibration, "timestamp": timestamp, "diode": idn
                 }
                 mqttc.append_payload(
-                    f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
+                    f"calibration/psu/channel_{channel}", pickle.dump(diode_dict)
                 )
 
         _log("LED PSU calibration complete!", "info", **{"mqttc": mqttc})
@@ -271,7 +271,7 @@ def _calibrate_spectrum(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating solar simulator spectrum...", "info", **{"mqttc": mqttc})
@@ -292,7 +292,7 @@ def _calibrate_spectrum(request, mqtthost):
         spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
         # publish calibration
-        mqttc.append_payload("calibration/spectrum", json.dumps(spectrum_dict))
+        mqttc.append_payload("calibration/spectrum", pickle.dump(spectrum_dict))
 
         _log(
             "Finished calibrating solar simulator spectrum!", "info", **{"mqttc": mqttc}
@@ -312,7 +312,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating solar simulator diodes...", "info", **{"mqttc": mqttc})
@@ -362,7 +362,7 @@ def _calibrate_rtd(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating RTDs...", "info", **{"mqttc": mqttc})
@@ -404,7 +404,7 @@ def _home(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Homing stage...", "info", **{"mqttc": mqttc})
@@ -438,7 +438,7 @@ def _goto(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log(f"Moving to stage position {}...", "info", **{"mqttc": mqttc})
@@ -473,7 +473,7 @@ def _read_stage(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log(f"Reading stage position {}...", "info", **{"mqttc": mqttc})
@@ -513,7 +513,7 @@ def _contact_check(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Performing contact check...", "info", **{"mqttc": mqttc})
@@ -759,7 +759,7 @@ def _handle_measurement_data(data, **kwargs):
     mqttc = kwargs["mqttc"]
 
     payload = {"data": data, "id": idn, "clear": False, "end": False, "sweep": sweep}
-    mqttc.append_payload(f"data/raw/{kind}", json.dumps(payload))
+    mqttc.append_payload(f"data/raw/{kind}", pickle.dump(payload))
 
 
 def _handle_stage_data(data, **kwargs):
@@ -774,7 +774,7 @@ def _handle_stage_data(data, **kwargs):
     """
     mqttc = kwargs["mqttc"]
 
-    mqttc.append_payload("stage_position", json.dumps(data))
+    mqttc.append_payload("stage_position", pickle.dump(data))
 
 
 def _handle_contact_check(pixel_msg, **kwargs):
@@ -789,7 +789,7 @@ def _handle_contact_check(pixel_msg, **kwargs):
     """
     mqttc = kwargs["mqttc"]
 
-    mqttc.append_payload("contact_check", json.dumps(pixel_msg))
+    mqttc.append_payload("contact_check", pickle.dump(pixel_msg))
 
 
 def _log(msg, level, **kwargs):
@@ -807,7 +807,7 @@ def _log(msg, level, **kwargs):
     mqttc = kwargs["mqttc"]
 
     payload = {"level": level, "msg": msg}
-    mqttc.append_payload("log", json.dumps(payload))
+    mqttc.append_payload("log", pickle.dump(payload))
 
 
 def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False):
@@ -915,7 +915,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         # steady state v@constant I measured here - usually Voc
         if args["i_dwell"] > 0:
             # clear v@constant I plot
-            mqttc.append_payload("plot/vt/clear", json.dumps(""))
+            mqttc.append_payload("plot/vt/clear", pickle.dump(""))
 
             if calibration is False:
                 handler_kwargs = {"kind": "vt_measurement", "idn": idn, "mqttc": mqttc}
@@ -956,7 +956,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         # perform sweeps
         for sweep in sweeps:
             # clear iv plot
-            mqttc.append_payload("plot/iv/clear", json.dumps(""))
+            mqttc.append_payload("plot/iv/clear", pickle.dump(""))
 
             if sweep == "dark":
                 measurement.le.off()
@@ -1056,7 +1056,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             )
 
             # clear mppt plot
-            mqttc.append_payload("plot/mppt/clear", json.dumps(""))
+            mqttc.append_payload("plot/mppt/clear", pickle.dump(""))
 
             if calibration is False:
                 handler_kwargs = {
@@ -1094,7 +1094,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         if args["v_dwell"] > 0:
             # steady state I@constant V measured here - usually Isc
             # clear I@constant V plot
-            mqttc.append_payload("plot/it/clear", json.dumps(""))
+            mqttc.append_payload("plot/it/clear", pickle.dump(""))
 
             if calibration is False:
                 handler_kwagrgs = {"kind": "it_measurement", "idn": idn, "mqttc": mqttc}
@@ -1118,10 +1118,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         if calibration is True:
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
             if rtd is True:
-                mqttc.append_payload("calibration/rtd", json.dumps(diode_dict))
+                mqttc.append_payload("calibration/rtd", pickle.dump(diode_dict))
             else:
                 mqttc.append_payload(
-                    "calibration/solarsim_diode", json.dumps(diode_dict)
+                    "calibration/solarsim_diode", pickle.dump(diode_dict)
                 )
 
 
@@ -1218,7 +1218,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             handler_kwargs = {"idn": idn, "mqttc": mqttc}
 
         # clear eqe plot
-        mqttc.append_payload("plot/eqe/clear", json.dumps(""))
+        mqttc.append_payload("plot/eqe/clear", pickle.dump(""))
 
         # get human-readable timestamp
         timestamp = get_timestamp()
@@ -1248,7 +1248,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         if calibration is True:
             diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
             mqttc.append_payload(
-                "calibration/eqe", json.dumps(diode_dict), retain=True,
+                "calibration/eqe", pickle.dump(diode_dict), retain=True,
             )
 
 
@@ -1269,7 +1269,7 @@ def _run(request, mqtthost):
         _calibrate_spectrum(request, mqtthost)
 
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
+        mqttc.will_set("measurement/status", pickle.dump("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Starting run...", "info", **{"mqttc": mqttc})
@@ -1329,7 +1329,7 @@ def on_message(mqttc, obj, msg):
     process can run at a time. If an action process is running the server will
     report that it's busy.
     """
-    request = json.loads(msg.payload)
+    request = pickle.load(msg.payload)
 
     # perform a requested action
     if (action := msg.topic.split("/")[-1]) == "run":
@@ -1367,9 +1367,9 @@ if __name__ == "__main__":
 
     # setup mqtt subscriber client
     mqttc = mqtt.Client(client_id=client_id)
-    mqttc.will_set("measurement/status", json.dumps("Offline"), 2, retain=True)
+    mqttc.will_set("measurement/status", pickle.dump("Offline"), 2, retain=True)
     mqttc.on_message = on_message
     mqttc.connect(cli_args.MQTTHOST)
     mqttc.subscribe("measurement/#", qos=2)
-    mqttc.publish("measurement/status", json.dumps("Ready"), 2, retain=True).wait_for_publish()
+    mqttc.publish("measurement/status", pickle.dump("Ready"), 2, retain=True).wait_for_publish()
     mqttc.loop_forever()

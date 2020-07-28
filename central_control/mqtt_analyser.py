@@ -1,7 +1,7 @@
 """Analyse raw data and publish the analysis."""
 
 import argparse
-import json
+import pickle
 import uuid
 
 import numpy as np
@@ -46,7 +46,7 @@ def process_ivt(payload, mqttc):
 
     # add processed data back into payload to be sent on
     payload["data"] = data
-    payload = json.dumps(payload)
+    payload = pickle.dump(payload)
     mqttc.append_payload("data/processed", payload)
 
 
@@ -73,7 +73,7 @@ def process_iv(payload, mqttc):
 
     # add processed data back into payload to be sent on
     payload["data"] = data
-    mqttc.append_payload("data/processed", json.dumps(payload))
+    mqttc.append_payload("data/processed", pickle.dump(payload))
 
 
 def process_eqe(payload, mqttc):
@@ -117,7 +117,7 @@ def process_eqe(payload, mqttc):
 
     # publish
     payload["data"] = meas
-    mqttc.append_payload("data/processed", json.dumps(payload))
+    mqttc.append_payload("data/processed", pickle.dump(payload))
 
 
 def process_spectrum(mqttc):
@@ -140,7 +140,7 @@ def process_spectrum(mqttc):
     spectrum_calibration["data"] = meas.tolist()
 
     # publish processed spectrum
-    mqttc.append_payload("data/processed", json.dumps(spectrum_calibration))
+    mqttc.append_payload("data/processed", pickle.dump(spectrum_calibration))
 
 
 def read_eqe_cal(payload):
@@ -219,13 +219,13 @@ def send_calibration_status(mqttc):
     }
 
     # publish status
-    payload = json.dumps(calibration_status)
+    payload = pickle.dump(calibration_status)
     mqttc.append_payload("control/calibration_check_response", payload)
 
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT message."""
-    payload = json.loads(msg.payload)
+    payload = pickle.load(msg.payload)
 
     if (topic := msg.topic) == "data/raw":
         if (measurement := payload["measurement"]) in [

@@ -3,7 +3,6 @@
 import numpy as np
 import scipy as sp
 from scipy.integrate import simps
-import json
 import unicodedata
 import re
 import os
