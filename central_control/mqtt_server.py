@@ -226,7 +226,7 @@ def _calibrate_psu(request, mqtthost):
             )
 
             if resp != 0:
-                _log(f"Stage/mux error: {resp}!", "error", **{"mqttc": mqttc})
+                _log(f"Stage/mux error: {resp}! Aborting calibration!", "error", **{"mqttc": mqttc})
                 break
 
             timestamp = get_timestamp()
@@ -840,7 +840,11 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
     )
 
     # set the master experiment relay
-    measurement.set_experiment_relay("iv")
+    resp = measurement.set_experiment_relay("iv")
+
+    if resp != 0:
+        _log(f"Stage/mux error: {resp}! Aborting run", "error", **{"mqttc": mqttc})
+        return
 
     if args["ad_switch"] is True:
         source_delay = -1
@@ -881,7 +885,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         )
 
         if resp != 0:
-            _log(f"Stage/mux error: {resp}!", "error", **{"mqttc": mqttc})
+            _log(f"Stage/mux error: {resp}! Aborting run", "error", **{"mqttc": mqttc})
             break
 
         # init parameters derived from steadystate measurements
@@ -1156,6 +1160,12 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
 
     measurement.set_experiment_relay("eqe")
 
+    resp = measurement.goto_stage_position(config["experiment_positions"]["eqe"])
+
+    if resp != 0:
+        _log(f"Stage/mux error: {resp}! Aborting run!", "error", **{"mqttc": mqttc})
+        return
+
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
         label = pixel["label"]
@@ -1184,7 +1194,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         )
 
         if resp != 0:
-            _log(f"Stage/mux error: {resp}!", "error", **{"mqttc": mqttc})
+            _log(f"Stage/mux error: {resp}! Aborting run!", "error", **{"mqttc": mqttc})
             break
 
         _log(
@@ -1251,12 +1261,16 @@ def _run(request, mqtthost):
     mqtthost : str
         MQTT broker IP address or host name.
     """
+    args = request["args"]
+
+    # calibrate spectrum if required
+    if args["iv_devs"] is not None:
+        _calibrate_spectrum(request, mqtthost)
+
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.run(mqtthost)
 
         _log("Starting run...", "info", **{"mqttc": mqttc})
-
-        args = request["args"]
 
         # build up the queue of pixels to run through
         try:
@@ -1290,7 +1304,6 @@ def _run(request, mqtthost):
         # measure i-v-t
         if len(iv_pixel_queue) > 0:
             try:
-                _calibrate_spectrum(request, mqtthost)
                 _ivt(iv_pixel_queue, request, measurement, mqttc)
             except ValueError as e:
                 _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
