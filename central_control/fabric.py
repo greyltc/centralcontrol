@@ -3,6 +3,7 @@
 import numpy as np
 import scipy as sp
 from scipy.integrate import simps
+import json
 import unicodedata
 import re
 import os
@@ -32,6 +33,10 @@ import eqe
 class fabric:
     """Experiment control logic."""
 
+    # expecting mqtt queue publisher object
+    _mqttc = None
+
+    # keep track of connected instruments
     _connected_instruments = []
 
     def __init__(self):

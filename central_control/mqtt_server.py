@@ -64,6 +64,12 @@ def start_process(target, args):
     if process.is_alive() is False:
         process = multiprocessing.Process(target=target, args=args)
         process.start()
+        publish.single(
+            "measurement/status",
+            json.dumps("Busy"),
+            qos=2,
+            retain=True,
+            hostname=cli_args.MQTTHOST)
     else:
         payload = {"level": "warning", "msg": "Measurement server busy!"}
         publish.single("log", json.dumps(payload), qos=2, hostname=cli_args.MQTTHOST)
@@ -106,6 +112,7 @@ def _calibrate_eqe(request, mqtthost):
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
         # create temporary mqtt client
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating EQE...", "info", **{"mqttc": mqttc})
@@ -151,6 +158,7 @@ def _calibrate_psu(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibration LED PSU...", "info", **{"mqttc": mqttc})
@@ -263,6 +271,7 @@ def _calibrate_spectrum(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating solar simulator spectrum...", "info", **{"mqttc": mqttc})
@@ -303,6 +312,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating solar simulator diodes...", "info", **{"mqttc": mqttc})
@@ -352,6 +362,7 @@ def _calibrate_rtd(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Calibrating RTDs...", "info", **{"mqttc": mqttc})
@@ -393,6 +404,7 @@ def _home(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Homing stage...", "info", **{"mqttc": mqttc})
@@ -426,6 +438,7 @@ def _goto(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log(f"Moving to stage position {}...", "info", **{"mqttc": mqttc})
@@ -460,6 +473,7 @@ def _read_stage(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log(f"Reading stage position {}...", "info", **{"mqttc": mqttc})
@@ -499,6 +513,7 @@ def _contact_check(request, mqtthost):
         Request dictionary sent to the server.
     """
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Performing contact check...", "info", **{"mqttc": mqttc})
@@ -1257,6 +1272,7 @@ def _run(request, mqtthost):
         _calibrate_spectrum(request, mqtthost)
 
     with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.will_set("measurement/status", json.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
         _log("Starting run...", "info", **{"mqttc": mqttc})
@@ -1354,7 +1370,9 @@ if __name__ == "__main__":
 
     # setup mqtt subscriber client
     mqttc = mqtt.Client(client_id=client_id)
+    mqttc.will_set("measurement/status", json.dumps("Offline"), 2, retain=True)
     mqttc.on_message = on_message
     mqttc.connect(cli_args.MQTTHOST)
     mqttc.subscribe("measurement/#", qos=2)
+    mqttc.publish("measurement/status", json.dumps("Ready"), 2, retain=True).wait_for_publish()
     mqttc.loop_forever()
