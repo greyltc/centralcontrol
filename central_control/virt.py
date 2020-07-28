@@ -47,11 +47,6 @@ class illumination:
         pass
 
 
-class pcb:
-    def pix_picker(self, substrate, pixel, suppressWarning=False):
-        return True
-
-
 class k2400:
     """Solar cell device simulator (looks like k2400 class)
   """
@@ -253,108 +248,66 @@ class k2400:
         pass
 
 
-class controller:
+class pcb:
     """Mux and stage controller."""
 
-    def __init__(self, address=""):
-        """Contrust object."""
-        self.address = address
+    def __init__(
+        self, address, ignore_adapter_resistors=True, timeout=1,
+    ):
+        self.timeout = timeout  # pcb has this many seconds to respond
+        self.ignore_adapter_resistors = ignore_adapter_resistors
 
-    def connect(self):
-        """Connect to the controller using Telnet."""
-        print("Virtual welcome!")
-        print(f"Got version request response: virtual version")
+    def __enter__(self):
+        return self
 
-    def home(self, axis, timeout=80, length_poll_sleep=0.1):
-        """Home the stage.
-
-        Parameters
-        ----------
-        axis : {1,2,3}
-            Stage axis 1, 2, or 3 (x, y, and z).
-        timeout : float
-            Timeout in seconds. Raise an error if it takes longer than expected to home
-            the stage.
-        length_poll_sleep : float
-            Time to wait in s before polling the current length of the stage to
-            determine whether homing has finished.
-
-        Returns
-        -------
-        ret_val : int
-            The length of the stage along the given axis in steps for a successful
-            home. If there was a problem an error code is returned:
-
-                * -1 : Timeout error.
-                * -2 : Programming error.
-        """
-        print("HOMING!")
-
-        return 1000000
-
-    def goto(self, axis, position, timeout=20, retries=5, position_poll_sleep=0.5):
-        """Go to stage position in steps.
-
-        Uses polling to determine when stage motion is complete.
-
-        Parameters
-        ----------
-        axis : {1,2,3}
-            Stage axis 1, 2, or 3 (x, y, and z).
-        position : int
-            Number of steps along stage to move to.
-        timeout : float
-            Timeout in seconds. Raise an error if it takes longer than expected to
-            reach the required position.
-        retries : int
-            Number of attempts to send command before failing. The command will be sent
-            this many times within the timeout period.
-        position_poll_sleep : float
-            Time to wait in s before polling the current position of the stage to
-            determine whether the required position has been reached.
-
-        Returns
-        -------
-        ret_val : int
-            Return value:
-
-                * 0 : Reached position successfully.
-                * -1 : Command not accepted. Stage probably isn't homed / has stalled.
-                * -2 : Max retries / timeout exceeded.
-                * -3 : Programming error.
-        """
-        # must be a whole number of steps
-        position = round(position)
-        print(f"Location = {position}")
-
-        return 0
-
-    def set_mux(self, row, col, pixel):
-        """Close a multiplexor relay.
-
-        Breaks all connections before making a new one.
-
-        Parameter
-        ---------
-        row : int
-            Row position of substrate, 1-indexed.
-        col : int
-            Column position of substrate, 1-indexed.
-        pixel : int
-            Pixel on substrate, 1-indexed.
-        """
+    def __exit__(self, type, value, traceback):
         pass
 
-    def clear_mux(self):
-        """Open all multiplexor relays."""
+    def substrateSearch(self):
+        """Returns bitmask of connected MUX boards
+    """
+        found = 0x01
+
+        return found
+
+    def pix_picker(self, substrate, pixel, suppressWarning=False):
+        return True
+
+    def write(self, cmd):
         pass
 
-    def get_port_expanders(self):
-        """Check which port expanders are available.
+    def query(self, query):
+        return "virtual response"
 
-        Returns
-        -------
-        expander_bitmask : str
-            Decimal string representing bitwise connected state of port expanders.
+    def get(self, cmd):
         """
-        return "1023"
+    sends cmd to the pcb and returns the relevant command response
+    """
+        return "virtual response"
+
+    def getADCCounts(self, chan):
+        """makes adc readings.
+    chan can be 0-7 to directly read the corresponding adc channel
+    """
+        return 1
+
+    def disconnect_all(self):
+        """ Opens all the switches
+    """
+        pass
+
+    def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
+        """Set TCP keepalive on an open socket.
+
+    It activates after 1 second (after_idle_sec) of idleness,
+    then sends a keepalive ping once every 3 seconds (interval_sec),
+    and closes the connection after 5 failed ping (max_fails), or 15 seconds
+    """
+        pass
+
+    def set_keepalive_osx(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
+        """Set TCP keepalive on an open socket.
+
+    sends a keepalive ping once every 3 seconds (interval_sec)
+    """
+        pass

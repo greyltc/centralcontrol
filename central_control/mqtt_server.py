@@ -94,7 +94,7 @@ def get_timestamp():
     return time.strftime("[%Y-%m-%d]_[%H-%M-%S_%z]")
 
 
-def _calibrate_eqe(mqttc, request):
+def _calibrate_eqe(request, mqtthost):
     """Measure the EQE reference photodiode.
 
     Parameters
@@ -104,46 +104,43 @@ def _calibrate_eqe(mqttc, request):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Calibrating EQE...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        # create temporary mqtt client
+        mqttc.run(mqtthost)
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+        _log("Calibrating EQE...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        args = request["args"]
 
-    args = request["args"]
+        # get pixel queue
+        if int(args["eqe_devs"], 16) > 0:
+            # if the bitmask isn't empty
+            try:
+                pixel_queue = _build_q(args, experiment="eqe")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
+        else:
+            # if it's emptpy, assume cal diode is connected externally
+            pixel_dict = {
+                "label": args["label_tree"][0],
+                "layout": None,
+                "sub_name": None,
+                "pixel": 0,
+                "position": None,
+                "area": None,
+            }
+            pixel_queue = collections.deque(pixel_dict)
 
-    # get pixel queue
-    if int(args["eqe_devs"], 16) > 0:
-        # if the bitmask isn't empty
-        try:
-            pixel_queue = _build_q(args, experiment="eqe")
-        except ValueError as e:
-            # there was a problem with the labels and/or layouts list
-            _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-            return
-    else:
-        # if it's emptpy, assume cal diode is connected externally
-        pixel_dict = {
-            "label": args["label_tree"][0],
-            "layout": None,
-            "array_loc": None,
-            "pixel": 0,
-            "position": None,
-            "area": None,
-        }
-        pixel_queue = collections.deque(pixel_dict)
+        _eqe(pixel_queue, request, mqttc, measurement, calibration=True)
 
-    _eqe(pixel_queue, request, mqttc, calibration=True)
+        _log("EQE calibration complete!", "info", **{"mqttc": mqttc})
 
-    _log("EQE calibration complete!", "info", **{"mqttc": mqttc})
-
-    mqttc.stop()
+        mqttc.stop()
 
 
-def _calibrate_psu(mqttc, request):
+def _calibrate_psu(request, mqtthost):
     """Measure the reference photodiode as a funtcion of LED current.
 
     Parameters
@@ -153,111 +150,109 @@ def _calibrate_psu(mqttc, request):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Calibration LED PSU...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+        _log("Calibration LED PSU...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        config = request["config"]
+        args = request["args"]
 
-    config = request["config"]
-    args = request["args"]
+        # get pixel queue
+        if int(args["eqe_devs"], 16) > 0:
+            # if the bitmask isn't empty
+            try:
+                pixel_queue = _build_q(args, experiment="eqe")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
+        else:
+            # if it's emptpy, assume cal diode is connected externally
+            pixel_dict = {
+                "label": args["label_tree"][0],
+                "layout": None,
+                "sub_name": None,
+                "pixel": 0,
+                "position": None,
+                "area": None,
+            }
+            pixel_queue = collections.deque(pixel_dict)
 
-    # get pixel queue
-    if int(args["eqe_devs"], 16) > 0:
-        # if the bitmask isn't empty
-        try:
-            pixel_queue = _build_q(args, experiment="eqe")
-        except ValueError as e:
-            # there was a problem with the labels and/or layouts list
-            _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-            return
-    else:
-        # if it's emptpy, assume cal diode is connected externally
-        pixel_dict = {
-            "label": args["label_tree"][0],
-            "layout": None,
-            "array_loc": None,
-            "pixel": 0,
-            "position": None,
-            "area": None,
-        }
-        pixel_queue = collections.deque(pixel_dict)
-
-    # connect instruments
-    measurement.connect_instruments(
-        dummy=False,
-        visa_lib=config["visa"]["visa-lib"],
-        smu_address=config["smu"]["address"],
-        smu_terminator=config["smu"]["terminator"],
-        smu_baud=config["smu"]["baud"],
-        smu_front_terminals=config["smu"]["front_terminals"],
-        smu_two_wire=config["smu"]["two_wire"],
-        controller_address=config["controller"]["address"],
-        psu_address=config["psu"]["address"],
-        psu_terminator=config["psu"]["terminator"],
-        psu_baud=config["psu"]["baud"],
-    )
-
-    # using smu to measure the current from the photodiode
-    measurement.controller.set_relay("iv")
-
-    while len(pixel_queue) > 0:
-        pixel = pixel_queue.popleft()
-        label = pixel["label"]
-        pix = pixel["pixel"]
-        _log(
-            f"\nOperating on substrate {label}, pixel {pix}...",
-            "info",
-            **{"mqttc": mqttc},
+        # connect instruments
+        measurement.connect_instruments(
+            dummy=False,
+            visa_lib=config["visa"]["visa-lib"],
+            smu_address=config["smu"]["address"],
+            smu_terminator=config["smu"]["terminator"],
+            smu_baud=config["smu"]["baud"],
+            smu_front_terminals=config["smu"]["front_terminals"],
+            smu_two_wire=config["smu"]["two_wire"],
+            pcb_address=config["pcb"]["uri"],
+            motion_address=config["motion"]["uri"],
+            psu_address=config["psu"]["address"],
+            psu_terminator=config["psu"]["terminator"],
+            psu_baud=config["psu"]["baud"],
         )
 
-        # add id str to handlers to display on plots
-        idn = f"{label}_pixel{pix}"
+        # using smu to measure the current from the photodiode
+        measurement.set_experiment_relay("iv")
 
-        # we have a new substrate
-        if last_label != label:
+        while len(pixel_queue) > 0:
+            pixel = pixel_queue.popleft()
+            label = pixel["label"]
+            pix = pixel["pixel"]
             _log(
-                f"New substrate using '{pixel['layout']}' layout!",
+                f"\nOperating on substrate {label}, pixel {pix}...",
                 "info",
                 **{"mqttc": mqttc},
             )
-            last_label = label
 
-        # move to pixel
-        measurement.pixel_setup(
-            pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
-        )
+            # add id str to handlers to display on plots
+            idn = f"{label}_pixel{pix}"
 
-        timestamp = get_timestamp()
+            # we have a new substrate
+            if last_label != label:
+                _log(
+                    f"New substrate using '{pixel['layout']}' layout!",
+                    "info",
+                    **{"mqttc": mqttc},
+                )
+                last_label = label
 
-        # perform measurement
-        for channel in [1, 2, 3]:
-            psu_calibration = measurement.calibrate_psu(
-                channel,
-                config["psu"]["calibration"]["max_current"],
-                config["psu"]["calibration"]["current_step"],
+            # move to pixel
+            measurement.pixel_setup(
+                pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
             )
 
-            # update eqe diode calibration data in atomic thread-safe way
-            diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
-            mqttc.append_payload(
-                f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
-            )
+            timestamp = get_timestamp()
 
-    # disconnect instruments
-    measurement.sm.disconnect()
-    measurement.psu.disconnect()
-    measurement.controller.disconnect()
+            # perform measurement
+            for channel in [1, 2, 3]:
+                psu_calibration = measurement.calibrate_psu(
+                    channel,
+                    config["psu"]["calibration"]["max_current"],
+                    config["psu"]["calibration"]["current_step"],
+                )
 
-    _log("LED PSU calibration complete!", "info", **{"mqttc": mqttc})
+                # update eqe diode calibration data in atomic thread-safe way
+                diode_dict = {
+                    "data": psu_calibration, "timestamp": timestamp, "diode": idn
+                }
+                mqttc.append_payload(
+                    f"calibration/psu/channel_{channel}", json.dumps(diode_dict)
+                )
 
-    mqttc.stop()
+        # disconnect instruments
+        measurement.sm.disconnect()
+        measurement.psu.disconnect()
+
+        _log("LED PSU calibration complete!", "info", **{"mqttc": mqttc})
+
+        mqttc.stop()
 
 
-def _calibrate_spectrum(mqttc, request):
+def _calibrate_spectrum(request, mqtthost):
     """Measure the solar simulator spectrum using it's internal spectrometer.
 
     Parameters
@@ -267,38 +262,36 @@ def _calibrate_spectrum(mqttc, request):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Calibrating solar simulator spectrum...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+        _log("Calibrating solar simulator spectrum...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        config = request["config"]
 
-    config = request["config"]
+        timestamp = get_timestamp()
 
-    timestamp = get_timestamp()
+        measurement.connect_instruments(
+            dummy=False,
+            visa_lib=config["visa"]["visa-lib"],
+            light_address=config["solarsim"]["address"],
+        )
 
-    measurement.connect_instruments(
-        dummy=False,
-        visa_lib=config["visa"]["visa-lib"],
-        light_address=config["solarsim"]["address"],
-    )
+        spectrum = measurement.measure_spectrum()
 
-    spectrum = measurement.measure_spectrum()
+        measurement.le.disconnect()
 
-    measurement.le.disconnect()
+        # update spectrum  calibration data in atomic thread-safe way
+        spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
-    # update spectrum  calibration data in atomic thread-safe way
-    spectrum_dict = {"data": spectrum, "timestamp": timestamp}
+        # publish calibration
+        mqttc.append_payload("calibration/spectrum", json.dumps(spectrum_dict))
 
-    # publish calibration
-    mqttc.append_payload("calibration/spectrum", json.dumps(spectrum_dict))
+        _log(
+            "Finished calibrating solar simulator spectrum!", "info", **{"mqttc": mqttc}
+        )
 
-    _log("Finished calibrating solar simulator spectrum!", "info", **{"mqttc": mqttc})
-
-    mqttc.stop()
+        mqttc.stop()
 
 
 def _calibrate_solarsim_diodes(request, mqtthost):
@@ -311,47 +304,43 @@ def _calibrate_solarsim_diodes(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Calibrating solar simulator diodes...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+        _log("Calibrating solar simulator diodes...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        args = request["args"]
 
-    args = request["args"]
+        # get pixel queue
+        if int(args["iv_devs"], 16) > 0:
+            # if the bitmask isn't empty
+            try:
+                pixel_queue = _build_q(args, experiment="eqe")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
+        else:
+            # if it's emptpy, assume cal diode is connected externally
+            pixel_dict = {
+                "label": args["label_tree"][0],
+                "layout": None,
+                "sub_name": None,
+                "pixel": 0,
+                "position": None,
+                "area": None,
+            }
+            pixel_queue = collections.deque(pixel_dict)
 
-    # get pixel queue
-    if int(args["iv_devs"], 16) > 0:
-        # if the bitmask isn't empty
         try:
-            pixel_queue = _build_q(args, experiment="eqe")
+            _ivt(mqttc, request, pixel_queue, calibration=True)
         except ValueError as e:
-            # there was a problem with the labels and/or layouts list
             _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
             return
-    else:
-        # if it's emptpy, assume cal diode is connected externally
-        pixel_dict = {
-            "label": args["label_tree"][0],
-            "layout": None,
-            "array_loc": None,
-            "pixel": 0,
-            "position": None,
-            "area": None,
-        }
-        pixel_queue = collections.deque(pixel_dict)
 
-    try:
-        _ivt(mqttc, request, pixel_queue, calibration=True)
-    except ValueError as e:
-        _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-        return
+        _log("Solar simulator diode calibration complete!", "info", **{"mqttc": mqttc})
 
-    _log("Solar simulator diode calibration complete!", "info", **{"mqttc": mqttc})
-
-    mqttc.stop()
+        mqttc.stop()
 
 
 def _calibrate_rtd(request, mqtthost):
@@ -364,37 +353,35 @@ def _calibrate_rtd(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Calibrating RTDs...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        _log("Calibrating RTDs...", "info", **{"mqttc": mqttc})
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+        # get pixel queue
+        if int(args["iv_devs"], 16) > 0:
+            # if the bitmask isn't empty
+            try:
+                pixel_queue = _build_q(args, experiment="eqe")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
+        else:
+            # if it's emptpy, report error
+            _log(
+                "CALIBRATION ABORTED! No devices selected.", "error", **{"mqttc": mqttc}
+            )
 
-    # get pixel queue
-    if int(args["iv_devs"], 16) > 0:
-        # if the bitmask isn't empty
         try:
-            pixel_queue = _build_q(args, experiment="eqe")
+            _ivt(mqttc, request, pixel_queue, calibration=True, rtd=True)
         except ValueError as e:
-            # there was a problem with the labels and/or layouts list
             _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
             return
-    else:
-        # if it's emptpy, report error
-        _log("CALIBRATION ABORTED! No devices selected.", "error", **{"mqttc": mqttc})
 
-    try:
-        _ivt(mqttc, request, pixel_queue, calibration=True, rtd=True)
-    except ValueError as e:
-        _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-        return
+        _log("RTD calibration complete!", "info", **{"mqttc": mqttc})
 
-    _log("RTD calibration complete!", "info", **{"mqttc": mqttc})
-
-    mqttc.stop()
+        mqttc.stop()
 
 
 def _home(request, mqtthost):
@@ -407,33 +394,27 @@ def _home(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Homing stage...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    config = request["config"]
+        _log("Homing stage...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(mqtthost)
+        config = request["config"]
 
-    # create fabric measurement logic object and connect instruments
-    measurement = central_control.fabric.fabric()
-    measurement.connect_instruments(
-        dummy=False, controller_address=config["controller"]["address"],
-    )
+        measurement.connect_instruments(
+            dummy=False, pcb_address=config["pcb"]["uri"], motion_address=config["stage"]["uri"],
+        )
 
-    homing_dict = measurement.home_stage(config["stage"]["length"])
-    measurement.controller.disconnect()
+        homed = measurement.home_stage(config["stage"]["length"])
 
-    if homing_dict["code"] < 0:
-        # homing failed
-        _log(homing_dict["msg"], "error", **{"mqttc": mqttc})
-    else:
-        # homing succeeded
-        _log(homing_dict["msg"], "info", **{"mqttc": mqttc})
+        if isinstance(homed, list):
+            _log(f'Stage lengths: {result}', "info", **{"mqttc": mqttc})
+        else:
+            _log(f'Home failed with result: {result}', "error", **{"mqttc": mqttc})
 
-    _log("Homing complete!", "info", **{"mqttc": mqttc})
+        _log("Homing complete!", "info", **{"mqttc": mqttc})
 
-    mqttc.stop()
+        mqttc.stop()
 
 
 def _goto(request, mqtthost):
@@ -446,37 +427,28 @@ def _goto(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    args = request["args"]
-    position = [args["goto_x"], args["goto_y"]]
-    _log(f"Moving to stage position {}...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    config = request["config"]
+        _log(f"Moving to stage position {}...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(mqtthost)
+        args = request["args"]
+        position = [args["goto_x"], args["goto_y"]]
 
-    # create fabric measurement logic object and connect instruments
-    measurement = central_control.fabric.fabric()
-    measurement.connect_instruments(
-        dummy=False, controller_address=config["controller"]["address"],
-    )
+        config = request["config"]
 
-    goto_dict = measurement.goto_stage_position(
-        position, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc},
-    )
-    measurement.controller.disconnect()
+        measurement.connect_instruments(
+            dummy=False, pcb_address=config["pcb"]["uri"], motion_address=config["stage"]["uri"],
+        )
 
-    if goto_dict["code"] < 0:
-        # homing failed
-        _log(goto_dict["msg"], "error", **{"mqttc": mqttc})
-    else:
-        # homing succeeded
-        _log(goto_dict["msg"], "info", **{"mqttc": mqttc})
+        goto = measurement.goto_stage_position(position)
 
-    _log("Goto complete!", "info", **{"mqttc": mqttc})
+        if goto < 0:
+            _log(f'Goto failed with result: {result}', "error", **{"mqttc": mqttc})
 
-    mqttc.stop()
+        _log("Goto complete!", "info", **{"mqttc": mqttc})
+
+        mqttc.stop()
 
 
 def _read_stage(request, mqtthost):
@@ -489,37 +461,33 @@ def _read_stage(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    _log(f"Reading stage position {}...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    config = request["config"]
+        _log(f"Reading stage position {}...", "info", **{"mqttc": mqttc})
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(mqtthost)
+        config = request["config"]
 
-    # create fabric measurement logic object and connect instruments
-    measurement = central_control.fabric.fabric()
-    measurement.connect_instruments(
-        dummy=False, controller_address=config["controller"]["address"],
-    )
+        measurement.connect_instruments(
+            dummy=False,
+            pcb_address=config["pcb"]["uri"],
+            motion_address=config["stage"]["uri"],
+        )
 
-    stage_pos_dict = measurement.read_stage_position(
-        len(config["stage"]["lengths"]),
-        handler=_handle_stage_data,
-        handler_kwargs={"mqttc": mqttc},
-    )
-    measurement.controller.disconnect()
+        stage_pos = measurement.read_stage_position()
 
-    if stage_pos_dict["code"] < 0:
-        # homing failed
-        _log(stage_pos_dict["msg"], "error", **{"mqttc": mqttc})
-    else:
-        # homing succeeded
-        _log(stage_pos_dict["msg"], "info", **{"mqttc": mqttc})
+        if isinstance(stage_pos, list):
+            _log(f'Stage lengths: {result}', "info", **{"mqttc": mqttc})
+        else:
+            _log(
+                f'Read position failed with result: {result}',
+                "error",
+                **{"mqttc": mqttc},
+            )
 
-    _log("Read complete!", "info", **{"mqttc": mqttc})
+        _log("Read complete!", "info", **{"mqttc": mqttc})
 
-    mqttc.stop()
+        mqttc.stop()
 
 
 def _contact_check(request, mqtthost):
@@ -532,77 +500,77 @@ def _contact_check(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    _log("Performing contact check...", "info", **{"mqttc": mqttc})
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        _log("Performing contact check...", "info", **{"mqttc": mqttc})
 
-    config = request["config"]
+        config = request["config"]
 
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
-    measurement.connect_instruments(
-        dummy=False,
-        visa_lib=config["visa"]["visa-lib"],
-        smu_address=config["smu"]["address"],
-        smu_terminator=config["smu"]["terminator"],
-        smu_baud=config["smu"]["baud"],
-        smu_front_terminals=config["smu"]["front_terminals"],
-        smu_two_wire=config["smu"]["two_wire"],
-        controller_address=config["controller"]["address"],
-    )
+        measurement.connect_instruments(
+            dummy=False,
+            visa_lib=config["visa"]["visa-lib"],
+            smu_address=config["smu"]["address"],
+            smu_terminator=config["smu"]["terminator"],
+            smu_baud=config["smu"]["baud"],
+            smu_front_terminals=config["smu"]["front_terminals"],
+            smu_two_wire=config["smu"]["two_wire"],
+            pcb_address=config["pcb"]["uri"],
+            motion_address=config["stage"]["uri"],
+        )
 
-    # TODO: decide whether or not to just measure everything in contact check
-    # # look up number of rows columns and pixels
-    # array = config["substrates"]["number"]
-    # rows = array[0]
-    # try:
-    #     cols = array[1]
-    # except IndexError:
-    #     cols = 1
-    # active_layout = config["substrates"]["active_layout"]
-    # pcb_adapter = config[active_layout]["pcb_name"]
-    # pixels = config[pcb_adapter]["pixels"]
+        # TODO: decide whether or not to just measure everything in contact check
+        # # look up number of rows columns and pixels
+        # array = config["substrates"]["number"]
+        # rows = array[0]
+        # try:
+        #     cols = array[1]
+        # except IndexError:
+        #     cols = 1
+        # active_layout = config["substrates"]["active_layout"]
+        # pcb_adapter = config[active_layout]["pcb_name"]
+        # pixels = config[pcb_adapter]["pixels"]
 
-    # response = measurement.check_all_contacts(
-    #     rows, cols, pixels, _handle_contact_check, {"mqttc": mqttc}
-    # )
-    # _log(reponse, "info", **{"mqttc": mqttc})
+        # response = measurement.check_all_contacts(
+        #     rows, cols, pixels, _handle_contact_check, {"mqttc": mqttc}
+        # )
+        # _log(reponse, "info", **{"mqttc": mqttc})
 
-    # make a pixel queue for the contact check
-    try:
-        # get length of bitmask string
-        b_len = len(args["iv_devs"])
+        # make a pixel queue for the contact check
+        try:
+            # get length of bitmask string
+            b_len = len(args["iv_devs"])
 
-        # convert it to a string formatter for later
-        # hash (#) appends 0x for hex
-        # leading zero adds zero padding to resulting string
-        # x formats as hexadecimal
-        b_len_str = f"#0{b_len}x"
+            # convert it to a string formatter for later
+            # hash (#) appends 0x for hex
+            # leading zero adds zero padding to resulting string
+            # x formats as hexadecimal
+            b_len_str = f"#0{b_len}x"
 
-        # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
-        # pixels selected in either bitmask.
-        iv_int = int(args["iv_devs"], 16)
-        eqe_int = int(args["eqe_devs"], 16)
-        # bitwise or
-        merge_int = iv_int | eqe_int
+            # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
+            # pixels selected in either bitmask.
+            iv_int = int(args["iv_devs"], 16)
+            eqe_int = int(args["eqe_devs"], 16)
+            # bitwise or
+            merge_int = iv_int | eqe_int
 
-        # convert int back to bitmask, overriding iv_pixel_address for build_q
-        args["iv_devs"] = format(merge_int, b_len_str)
+            # convert int back to bitmask, overriding iv_pixel_address for build_q
+            args["iv_devs"] = format(merge_int, b_len_str)
 
-        iv_pixel_queue = _build_q(args, experiment="solarsim")
-    except ValueError as e:
-        # there was a problem with the labels and/or layouts list
-        _log("CONTACT CHECK ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-        return
+            iv_pixel_queue = _build_q(args, experiment="solarsim")
+        except ValueError as e:
+            # there was a problem with the labels and/or layouts list
+            _log("CONTACT CHECK ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+            return
 
-    response = measurement.contact_check(iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc})
-    _log(reponse, "info", **{"mqttc": mqttc})
+        response = measurement.contact_check(
+            iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc}
+        )
+        _log(reponse, "info", **{"mqttc": mqttc})
 
-    _log("Contact check complete!", "info", **{"mqttc": mqttc})
+        _log("Contact check complete!", "info", **{"mqttc": mqttc})
 
-    mqttc.stop()
+        mqttc.stop()
 
 
 def _get_substrate_positions(config, experiment):
@@ -660,45 +628,6 @@ def _get_substrate_positions(config, experiment):
     return substrate_centres
 
 
-def _get_substrate_index(array_loc, array_size):
-    """Get the index of a substrate in a flattened array.
-
-    Parameters
-    ----------
-    array_loc : list of int
-        Position of the substrate in the array along each available axis.
-    array_size : list of int
-        Number of substrates in the array along each available axis.
-
-    Returns
-    -------
-    index : int
-        Index of the substrate in the flattened array.
-    """
-    if len(array_loc) > 1:
-        # get position along last axis
-        last_axis_loc = array_loc.pop()
-
-        # pop length of last axis, it's not needed anymore
-        array_size.pop()
-
-        # get the total number of substrates in each subarray comprised of remaining
-        # axes
-        subarray_total = 1
-        for n in array_size:
-            subarray_total = subarray_total * n
-
-        # get the number of substrates in all subarrays along the last axis up to the
-        # level below the substrate location
-        subarray_total = subarray_total * (last_axis_loc - 1)
-
-        # recursively iterate through axes, adding smaller subarray totals as axes are
-        # reduced to 1
-        index = _get_substrate_index(array_loc, array_size) + subarray_total
-
-    return index
-
-
 def _build_q(request, experiment):
     """Generate a queue of pixels we'll run through.
 
@@ -736,11 +665,16 @@ def _build_q(request, experiment):
 
     layout = config["substrates"]["active_layout"]
 
+    if experiment == "solarsim":
+        pixel_address_string = args["iv_devs"]
+    elif experiment == "eqe":
+        pixel_address_string = args["eqe_devs"]
+
     # create a substrate queue where each element is a dictionary of info about the
     # layout from the config file
     substrate_q = []
     i = 0
-    for label, centre in zip(args["label_tree"], substrate_centres):
+    for label, centre, sub_name in zip(args["label_tree"], substrate_centres, args["subs_names"]):
         # get pcb adapter info from config file
         pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
 
@@ -751,14 +685,9 @@ def _build_q(request, experiment):
             abs_pixel_position = [int(x + y) for x, y in zip(pos, centre)]
             pixel_positions.append(abs_pixel_position)
 
-        # find co-ordinate of substrate in the array
-        _substrates = np.linspace(1, substrate_total, substrate_total)
-        _array = np.reshape(_substrates, substrate_number)
-        array_loc = [int(ix) + 1 for ix in np.where(_array == i)]
-
         substrate_dict = {
             "label": label,
-            "array_loc": array_loc,
+            "sub_name": sub_name,
             "layout": layout,
             "pcb_name": pcb_name,
             "pcb_contact_pads": config[pcb_name]["pcb_contact_pads"],
@@ -774,12 +703,8 @@ def _build_q(request, experiment):
     # TODO: return support for pixel strings that aren't hex bitmasks
     # convert hex bitmask string into bit list where 1's and 0's represent whether
     # a pixel should be measured or not, respectively
-    if experiment == "solarsim":
-        pixel_address_string = args["iv_devs"]
-    elif experiment == "eqe":
-        pixel_address_string = args["eqe_devs"]
-
     bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
+    # reverse so index 0 is first pixel
     bitmask.reverse()
 
     # build pixel queue
@@ -795,7 +720,7 @@ def _build_q(request, experiment):
                 pixel_dict = {
                     "label": substrate["label"],
                     "layout": substrate["layout"],
-                    "array_loc": substrate["array_loc"],
+                    "sub_name": substrate["sub_name"],
                     "pixel": pixel,
                     "position": substrate["pixel_positions"][pixel - 1],
                     "area": substrate["areas"][pixel - 1],
@@ -905,12 +830,13 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        controller_address=config["controller"]["address"],
+        pcb_address=config["pcb"]["uri"],
+        motion_address=config["stage"]["uri"],
         light_address=config["solarsim"]["address"],
     )
 
     # set the master experiment relay
-    measurement.controller.set_relay("iv")
+    measurement.set_experiment_relay("iv")
 
     if args["ad_switch"] is True:
         source_delay = -1
@@ -1209,7 +1135,8 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        controller_address=config["controller"]["address"],
+        pcb_address=config["pcb"]["uri"],
+        motion_address=config["stage"]["uri"]
         lia_address=config["lia"]["address"],
         lia_terminator=config["lia"]["terminator"],
         lia_baud=config["lia"]["baud"],
@@ -1219,7 +1146,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         mono_baud=config["monochromator"]["baud"],
     )
 
-    measurement.controller.set_relay("eqe")
+    measurement.set_experiment_relay("eqe")
 
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
@@ -1300,13 +1227,6 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
     measurement.sm.disconnect()
     measurement.lia.disconnect()
     measurement.mono.disconnect()
-    measurement.controller.disconnect()
-
-
-def _test_hardware(mqttc, request, config):
-    """Test hardware."""
-    # TODO: fill in func
-    pass
 
 
 def _run(request, mqtthost):
@@ -1319,61 +1239,59 @@ def _run(request, mqtthost):
     mqtthost : str
         MQTT broker IP address or host name.
     """
-    # create fabric measurement logic object
-    measurement = central_control.fabric.fabric()
+    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-    # create temporary mqtt client
-    mqttc = MQTTQueuePublisher()
-    mqttc.run(cli_args.MQTTHOST)
+        _log("Starting run...", "info", **{"mqttc": mqttc})
 
-    args = request["args"]
+        args = request["args"]
 
-    # build up the queue of pixels to run through
-    try:
-        dummy = args["dummy"]
-    except KeyError:
-        dummy = False
-
-    if dummy is True:
-        args["iv_devs"] = format(1, f"#0{len(args["iv_devs"])}x")
-        args["eqe_devs"] = args["iv_devs"]
-
-    if args["iv_devs"] is not None:
+        # build up the queue of pixels to run through
         try:
-            iv_pixel_queue = _build_q(args, experiment="solarsim")
-        except ValueError as e:
-            # there was a problem with the labels and/or layouts list
-            _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-            return
-    else:
-        iv_pixel_queue = []
+            dummy = args["dummy"]
+        except KeyError:
+            dummy = False
 
-    if args["eqe_devs"] is not None:
-        try:
-            eqe_pixel_queue = _build_q(args, experiment="eqe")
-        except ValueError as e:
-            _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-            return
-    else:
-        eqe_pixel_queue = []
+        if dummy is True:
+            args["iv_devs"] = format(1, f"#0{len(args["iv_devs"])}x")
+            args["eqe_devs"] = args["iv_devs"]
 
-    # measure i-v-t
-    if len(iv_pixel_queue) > 0:
-        try:
-            _ivt(iv_pixel_queue, request, measurement, mqttc)
-        except ValueError as e:
-            _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
-            return
+        if args["iv_devs"] is not None:
+            try:
+                iv_pixel_queue = _build_q(args, experiment="solarsim")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
+        else:
+            iv_pixel_queue = []
 
-    # measure eqe
-    if len(eqe_pixel_queue) > 0:
-        _eqe(eqe_pixel_queue, request, measurement, mqttc)
+        if args["eqe_devs"] is not None:
+            try:
+                eqe_pixel_queue = _build_q(args, experiment="eqe")
+            except ValueError as e:
+                _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
+        else:
+            eqe_pixel_queue = []
 
-    # report complete
-    _log("Run complete!", "info", **{"mqttc": mqttc})
+        # measure i-v-t
+        if len(iv_pixel_queue) > 0:
+            try:
+                _ivt(iv_pixel_queue, request, measurement, mqttc)
+            except ValueError as e:
+                _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
+                return
 
-    # close mqtt client cleanly
-    mqttc.stop()
+        # measure eqe
+        if len(eqe_pixel_queue) > 0:
+            _eqe(eqe_pixel_queue, request, measurement, mqttc)
+
+        # report complete
+        _log("Run complete!", "info", **{"mqttc": mqttc})
+
+        # close mqtt client cleanly
+        mqttc.stop()
 
 
 def on_message(mqttc, obj, msg):

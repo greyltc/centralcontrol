@@ -247,7 +247,7 @@ class pcb:
             cmd = "ADC" + str(chan)
 
         return int(self.get(cmd))
-
+ 
     def disconnect_all(self):
         """ Opens all the switches
     """

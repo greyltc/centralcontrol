@@ -14,7 +14,8 @@ import warnings
 
 import central_control.virt as virt
 from central_control.k2400 import k2400
-from central_control.controller import controller
+from central_control.pcb import pcb
+from central_control.motion import motion
 from central_control.mppt import mppt
 from central_control.illumination import illumination
 import central_control  # for __version__
@@ -31,10 +32,23 @@ import eqe
 class fabric:
     """Experiment control logic."""
 
+    _connected_instruments = []
+
     def __init__(self):
         """Get software revision."""
         self.software_revision = central_control.__version__
         print("Software revision: {:s}".format(self.software_revision))
+
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context related to this object.
+
+        Make sure everything gets cleaned up properly.
+        """
+        self.disconnect_all_instruments()
 
     def compliance_current_guess(self, area=None):
         """Guess what the compliance current should be for i-v-t measurements.
@@ -91,25 +105,28 @@ class fabric:
         smu_two_wire : bool
             Flag whether to measure in two-wire mode. If `False` measure in four-wire mode.
         """
-        if dummy is True:
-            self.sm = virt.k2400()
-        elif smu_address is None:
+        if (smu_address is None) & (dummy is False):
             return
         else:
-            self.sm = k2400(
-                visa_lib=visa_lib,
-                terminator=smu_terminator,
-                addressString=smu_address,
-                serialBaud=smu_baud,
-            )
-        self.sm_idn = self.sm.idn
+            if dummy is True:
+                self.sm = virt.k2400()
+            else:
+                self.sm = k2400(
+                    visa_lib=visa_lib,
+                    terminator=smu_terminator,
+                    addressString=smu_address,
+                    serialBaud=smu_baud,
+                )
+            self.sm_idn = self.sm.idn
 
-        # set up smu terminals
-        self.sm.setTerminals(front=smu_front_terminals)
-        self.sm.setWires(twoWire=smu_two_wire)
+            # set up smu terminals
+            self.sm.setTerminals(front=smu_front_terminals)
+            self.sm.setWires(twoWire=smu_two_wire)
 
-        # instantiate max-power tracker object based on smu
-        self.mppt = mppt(self.sm)
+            # instantiate max-power tracker object based on smu
+            self.mppt = mppt(self.sm)
+
+            self._connected_instruments.append(self.sm)
 
     def connect_lia(
         self,
@@ -144,20 +161,23 @@ class fabric:
                 * 0 : RS232
                 * 1 : GPIB
         """
-        if dummy is True:
-            self.lia = virtual_sr830.sr830(return_int=True)
-        elif lia_address is None:
+        if (lia_address is None) & (dummy is False):
             return
         else:
-            self.lia = sr830.sr830(return_int=True, check_errors=True)
+            if dummy is True:
+                self.lia = virtual_sr830.sr830(return_int=True)
+            else:
+                self.lia = sr830.sr830(return_int=True, check_errors=True)
 
-        # default lia_output_interface is RS232
-        self.lia.connect(
-            resource_name=lia_address,
-            output_interface=lia_output_interface,
-            set_default_configuration=True,
-        )
-        self.lia_idn = self.lia.get_id()
+            # default lia_output_interface is RS232
+            self.lia.connect(
+                resource_name=lia_address,
+                output_interface=lia_output_interface,
+                set_default_configuration=True,
+            )
+            self.lia_idn = self.lia.get_id()
+
+            self._connected_instruments.append(self.lia)
 
     def connect_monochromator(
         self,
@@ -184,14 +204,17 @@ class fabric:
         mono_baud : int
             Baud rate for serial communication with the monochromator.
         """
-        if dummy is True:
-            self.mono = virtual_sp2150.sp2150()
-        elif mono_address is None:
+        if (mono_address is None) & (dummy is False):
             return
         else:
-            self.mono = sp2150.sp2150()
-        self.mono.connect(resource_name=mono_address)
-        self.mono.set_scan_speed(1000)
+            if dummy is True:
+                self.mono = virtual_sp2150.sp2150()
+            else:
+                self.mono = sp2150.sp2150()
+            self.mono.connect(resource_name=mono_address)
+            self.mono.set_scan_speed(1000)
+
+            self._connected_instruments.append(self.mono)
 
     def connect_solarsim(self, dummy=False, visa_lib="@py", light_address=None):
         """Create solar simulator connection.
@@ -207,36 +230,16 @@ class fabric:
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
         """
-        if dummy is True:
-            self.le = virt.illumination()
-        elif light_address is None:
+        if (light_address is None) & (dummy is False):
             return
         else:
-            self.le = illumination(address=light_address)
-        self.le.connect()
+            if dummy is True:
+                self.le = virt.illumination()
+            else:
+                self.le = illumination(address=light_address)
+            self.le.connect()
 
-    def connect_controller(
-        self, dummy=False, controller_address=None,
-    ):
-        """Create mux and stage controller connection.
-
-        Parameters
-        ----------
-        dummy : bool
-            Choose whether or not to make all instruments virtual. Useful for testing
-            control logic.
-        controller_address : str
-            VISA resource name for the multiplexor and stage controller. If `None` is
-            given a virtual instrument is created.
-        """
-        if dummy is True:
-            self.controller = virt.controller()
-        elif controller_address is None:
-            pass
-        else:
-            self.controller = controller(address=controller_address)
-
-        self.controller.connect()
+            self._connected_instruments.append(self.le)
 
     def connect_psu(
         self,
@@ -263,15 +266,68 @@ class fabric:
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
         """
-        if dummy is True:
-            self.psu = virtual_dp800.dp800()
-        elif psu_address is None:
+        if (psu_address is None) & (dummy is False):
             return
         else:
-            self.psu = dp800.dp800()
+            if dummy is True:
+                self.psu = virtual_dp800.dp800()
+            else:
+                self.psu = dp800.dp800()
 
-        self.psu.connect(resource_name=psu_address)
-        self.psu_idn = self.psu.get_id()
+            self.psu.connect(resource_name=psu_address)
+            self.psu_idn = self.psu.get_id()
+
+            self._connected_instruments.append(self.psu)
+
+    def connect_pcb(self, dummy=False, pcb_address=None):
+        """Add control PCB attributes to class.
+
+        PCB commands run in their own context manager so this isn't a real connect
+        method. It just enables the PCB methods to function.
+
+        Adds a class as an attribute rather than returning an object.
+
+        Not necessary to append to list of connected instruments.
+
+        Parameters
+        ----------
+        pcb_address : str
+            Control PCB address string.
+        """
+        if (pcb_address is None) & (dummy is False):
+            return
+        else:
+            if dummy is True:
+                self.pcb_address = "dummy"
+                self.pcb = virt.pcb
+            else:
+                self.pcb_address = pcb_address
+                self.pcb = pcb
+
+    def connect_motion(self, dummy=False, motion_address=None):
+        """Add motion controller attributes to class.
+
+        Motion commands run in their own context manager so this isn't a real connect
+        method. It just enables the motion methods to function.
+
+        Adds a class as an attribute rather than returning an object.
+
+        Not necessary to append to list of connected instruments.
+
+        Parameters
+        ----------
+        motion_address : str
+            Control PCB address string.
+        """
+        if (motion_address is None) & (dummy is False):
+            return
+        else:
+            if dummy is True:
+                self.motion_address = "dummy"
+                self.motion = virt.motion
+            else:
+                self.motion_address = motion_address
+                self.motion = motion
 
     def connect_instruments(
         self,
@@ -282,7 +338,8 @@ class fabric:
         smu_baud=57600,
         smu_front_terminals=False,
         smu_two_wire=False,
-        controller_address=None,
+        pcb_address=None,
+        motion_address=None,
         light_address=None,
         lia_address=None,
         lia_terminator="\r",
@@ -318,8 +375,8 @@ class fabric:
             Flag whether to use the front terminals of the source-measure unit.
         smu_two_wire : bool
             Flag whether to measure in two-wire mode. If `False` measure in four-wire mode.
-        controller_address : str
-            VISA resource name for the multiplexor and stage controller. If `None` is
+        pcb_address : str
+            VISA resource name for the multiplexor and stage pcb. If `None` is
             given a virtual instrument is created.
         light_address : str
             VISA resource name for the light engine. If `None` is given a virtual
@@ -384,10 +441,6 @@ class fabric:
             dummy=dummy, visa_lib=visa_lib, light_address=light_address
         )
 
-        self.connect_controller(
-            dummy=dummy, controller_address=controller_address,
-        )
-
         self.connect_psu(
             dummy=dummy,
             visa_lib=visa_lib,
@@ -396,18 +449,14 @@ class fabric:
             psu_baud=psu_baud,
         )
 
+        self.connect_pcb(dummy, pcb_address)
+
+        self.connect_motion(dummy, mono_address)
+
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
-        self.sm.disconnect()
-        self.lia.disconnect()
-        self.mono.disconnect()
-        self.controller.disconnect()
-        self.le.disconnect()
-        self.psu.disconnect()
-
-    def hardware_test(self, substrates_to_test):
-        """Test hardware."""
-        pass
+        for instr in self._connected_instruments:
+            instr.disconnect()
 
     def measure_spectrum(self, recipe=None):
         """Measure the spectrum of the light source.
@@ -463,18 +512,27 @@ class fabric:
         pixel : dict
             Pixel information
         """
-        if pixel["position"] is not None:
-            self.goto_stage_position(
-                pixel["position"], handler=handler, handler_kwargs=handler_kwargs
-            )
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            if pixel["position"] is not None:
+                me.goto(pixel["position"])
 
-        # connect pixel
-        if pixel["array_loc"] is not None:
-            row = pixel["array_loc"][0]
-            col = pixel["array_loc"][1]
-            self.controller.set_mux(row, col, pixel["pixel"])
-        else:
-            self.controller.clear_mux()
+            # connect pixel
+            if (substrate := pixel["sub_name"]) is not None:
+                p.pix_picker(substrate, pixel["pixel"])
+            else:
+                p.disconnect_all()
+
+    def set_experiment_relay(self, exp_relay):
+        """Choose EQE or IV connection.
+
+        Parameters
+        ----------
+        exp_relay : {"eqe", "iv"}
+            Experiment name: either "eqe" or "iv" corresponding to relay.
+        """
+        with self.pcb(self.pcb_address) as p:
+            p.get(exp_relay)
 
     def slugify(self, value, allow_unicode=False):
         """Convert string to slug.
@@ -761,189 +819,31 @@ class fabric:
 
         return data
 
-    def home_stage(self, expected_lengths, timeout=120, length_poll_sleep=0.1):
-        """Home the stage.
+    def home_stage(self):
+        """Home the stage."""
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            return me.home()
 
-        Parameters
-        ----------
-        expected_lengths : list of int
-            Expected lengths of each stage in steps.
-        timeout : float
-            Timeout in seconds. Raise an error if it takes longer than expected to home
-            the stage.
-        length_poll_sleep : float
-            Time to wait in seconds before polling the current length of the stage to
-            determine whether homing has finished.
-
-        Returns
-        -------
-        response : dict
-            Dictionary containing return code, message, and lengths. Error codes are
-            defined as follows:
-
-                * -1 : Timeout error.
-                * -2 : Programming error.
-                * -3 : Unexpected axis length. Probably stalled during homing.
-                * -4 : Response error.
-        """
-        for i, l in enumerate(expected_lengths):
-            r = self.controller.home(i + 1)
-            if r != "":
-                msg = f"Homing the stage along axis {i + 1} failed: {r}."
-                lengths = []
-                code = -4
-                return {"code": code, "msg": msg, "lengths": lengths}
-            elif self.controller.tn.empty_response is True:
-                msg = "Programming error"
-                lengths = []
-                code = -2
-                return {"code": code, "msg": msg, "lengths": lengths}
-
-        t0 = time.time()
-        dt = 0
-        lengths = []
-        while dt < timeout:
-            for i, l in enumerate(expected_lengths):
-                lengths[i] = self.controller.get_length(i + 1)
-                if (lengths[i] > 0) & (round_sf(lengths[i], 1) != round_sf(l, 1)):
-                    # if a stage length is returned but it's unexpected there was
-                    # probably a stall
-                    msg = (
-                        f"Returned {lengths[i]} steps for axis {i + 1} but was "
-                        + f"expecting {l} steps. The stage probably stalled."
-                    )
-                    code = -3
-                    return {"code": code, "msg": msg, "lengths": lengths}
-            if all([l > 0 for l in lengths]):
-                # axis lengths have been returned for all axes
-                msg = f"Axis lengths are {lengths} steps, as expected."
-                code = 0
-                return {"code": code, "msg": msg, "lengths": lengths}
-            time.sleep(length_poll_sleep)
-            dt = time.time() - t0
-
-        msg = "Timeout error"
-        code = -2
-        return {"code": code, "msg": msg, "lengths": lengths}
-
-    def read_stage_position(self, axes, handler=None, handler_kwargs={}):
-        """Read the current stage position along all available axes.
-
-        Parameters
-        ----------
-        axes : int
-            Number of available stage axes.
-        handler : handler object
-            Handler with handle_data method to process stage position data.
-
-        Returns
-        -------
-        loc : dict
-            Response dictionary including stage position in steps along each axis as
-            well as return code and message:
-
-                * 0 : Read position successfully.
-                * -1 : Command not accepted. Stage probably isn't homed / has stalled.
-                * -2 : Programming error.
-        """
-        loc = []
-        for axis in range(1, axes + 1, 1):
-            r = self.controller.get_position(axis)
-            if r != "":
-                msg = "Command not accepted. Stage probably isn't homed / has stalled."
-                code = -1
-                return {"msg": msg, "code": code, "loc": loc}
-            elif self.controller.tn.empty_response is True:
-                msg = "Programming error"
-                code = -2
-                return {"msg": msg, "code": code, "loc": loc}
-            loc.append(r)
-
-        if handler is not None:
-            handler(loc, **handler_kwargs)
-
-        msg = "Read position successfully."
-        code = 0
-        return {"msg": msg, "code": code, "loc": loc}
+    def read_stage_position(self):
+        """Read the current stage position along all available axes."""
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            return me.get_position()
 
     def goto_stage_position(
-        self,
-        position,
-        timeout=60,
-        position_poll_sleep=0.5,
-        handler=None,
-        handler_kwargs={},
+        self, position,
     ):
         """Go to stage position in steps.
 
-        Uses polling to determine when stage motion is complete.
-
         Parameters
         ----------
-        position : list of int
-            Number of steps along each available stage to move to.
-        timeout : float
-            Timeout in seconds. Raise an error if it takes longer than expected to
-            reach the required position.
-        position_poll_sleep : float
-            Time to wait in s before polling the current position of the stage to
-            determine whether the required position has been reached.
-        handler : handler object
-            Handler to pass to read_stage_position method to process stage position
-            during goto.
-        handler_kwargs : dict
-            Keyword arguments to pass to data handler.
-
-        Returns
-        -------
-        response : dict
-            Return value:
-
-                * 0 : Reached position successfully.
-                * -1 : Command not accepted. Stage probably isn't homed / has stalled.
-                * -2 : Max retries / timeout exceeded.
-                * -3 : Programming error.
-                * -4 : Read position error.
+        position : list of float
+            Position in mm along each available stage to move to.
         """
-        # must be a whole number of steps
-        position = [round(p) for p in position]
-
-        for i, pos in enumerate(position):
-            r = self.controller.goto(i + 1, pos)
-            if r != "":
-                msg = "Command not accepted. Stage probably isn't homed / has stalled."
-                code = -1
-                return {"msg": msg, "code": code}
-            elif self.controller.tn.empty_response is True:
-                msg = "Programming error"
-                code = -3
-                return {"msg": msg, "code": code}
-
-        # goto commands accepted
-        loc = []
-        t0 = time.time()
-        now = 0
-        # periodically poll for position
-        while (loc != position) and (now < timeout):
-            # ask for current position and return if error on read
-            response = self.read_stage_position(len(position), handler, handler_kwargs)
-            if response["code"] < 0:
-                msg = f"Read position error: {response['msg']}."
-                code = -4
-                return {"msg": msg, "code": code}
-            loc = response["loc"]
-            time.sleep(position_poll_sleep)
-            now = time.time() - t0
-        # exited above loop because of microtimeout, retry
-        if now > timeout:
-            msg = "Goto timeout exceeded."
-            code = -2
-            return {"msg": msg, "code": code}
-        else:
-            # we got there
-            msg = "Reached position successfully."
-            code = 0
-            return {"msg": msg, "code": code}
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            return me.goto(position)
 
     def check_all_contacts(
         self, rows, columns, pixels, handler=None, handler_kwargs={}
@@ -978,7 +878,7 @@ class fabric:
 
         failed = 0
         for r, c, p in mux_list:
-            self.controller.set_mux(r, c, p)
+            self.pcb.set_mux(r, c, p)
             if self.sm.contact_check() is True:
                 failed += 1
                 if handler is not None:
@@ -1019,9 +919,9 @@ class fabric:
             if pixel["array_loc"] is not None:
                 row = pixel["array_loc"][0]
                 col = pixel["array_loc"][1]
-                self.controller.set_mux(row, col, pixel["pixel"])
+                self.pcb.set_mux(row, col, pixel["pixel"])
             else:
-                self.controller.clear_mux()
+                self.pcb.clear_mux()
 
             if self.sm.contact_check() is True:
                 failed += 1
