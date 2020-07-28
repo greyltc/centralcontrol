@@ -21,13 +21,19 @@ class motion:
         print("Connected to virtual motion controller")
 
     def move(self, mm):
-        print("Virtually moving {:}mm".format(mm))
+        return 0
 
     def goto(self, mm):
-        print("Virtually moving to {:}mm".format(mm))
+        return 0
 
     def home(self):
-        print("Virtually homing")
+        return 0
+
+    def estop(self):
+        return 0
+
+    def get_position(self):
+        return []
 
 
 class illumination:
