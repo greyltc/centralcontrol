@@ -515,13 +515,16 @@ class fabric:
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
             if pixel["position"] is not None:
-                me.goto(pixel["position"])
+                resp = me.goto(pixel["position"])
 
-            # connect pixel
-            if (substrate := pixel["sub_name"]) is not None:
-                p.pix_picker(substrate, pixel["pixel"])
-            else:
-                p.disconnect_all()
+            if resp == 0:
+                # connect pixel
+                if (substrate := pixel["sub_name"]) is not None:
+                    resp = p.pix_picker(substrate, pixel["pixel"])
+                else:
+                    resp = p.get("s")
+
+        return resp
 
     def set_experiment_relay(self, exp_relay):
         """Choose EQE or IV connection.
@@ -532,7 +535,7 @@ class fabric:
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
         with self.pcb(self.pcb_address) as p:
-            p.get(exp_relay)
+            resp = p.get(exp_relay)
 
     def slugify(self, value, allow_unicode=False):
         """Convert string to slug.

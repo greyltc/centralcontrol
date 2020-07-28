@@ -221,9 +221,13 @@ def _calibrate_psu(request, mqtthost):
                 last_label = label
 
             # move to pixel
-            measurement.pixel_setup(
+            resp = measurement.pixel_setup(
                 pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
             )
+
+            if resp != 0:
+                _log(f"Stage/mux error: {resp}!", "error", **{"mqttc": mqttc})
+                break
 
             timestamp = get_timestamp()
 
@@ -872,9 +876,13 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             last_label = label
 
         # move to pixel
-        measurement.pixel_setup(
+        resp = measurement.pixel_setup(
             pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
         )
+
+        if resp != 0:
+            _log(f"Stage/mux error: {resp}!", "error", **{"mqttc": mqttc})
+            break
 
         # init parameters derived from steadystate measurements
         ssvoc = None
@@ -888,7 +896,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         else:
             handler = None
             handler_kwargs = {}
-        
+
         timestamp = get_timestamp()
 
         # turn on light
@@ -1171,9 +1179,13 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             last_label = label
 
         # move to pixel
-        measurement.pixel_setup(
+        resp = measurement.pixel_setup(
             pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
         )
+
+        if resp != 0:
+            _log(f"Stage/mux error: {resp}!", "error", **{"mqttc": mqttc})
+            break
 
         _log(
             f"Scanning EQE from {args["eqe_start"]} nm to {args["eqe_end"]} nm",
@@ -1278,6 +1290,7 @@ def _run(request, mqtthost):
         # measure i-v-t
         if len(iv_pixel_queue) > 0:
             try:
+                _calibrate_spectrum(request, mqtthost)
                 _ivt(iv_pixel_queue, request, measurement, mqttc)
             except ValueError as e:
                 _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
