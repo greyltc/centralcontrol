@@ -91,35 +91,38 @@ def process_eqe(payload):
     """
     print("processing eqe...")
 
-    # read measurement
-    meas = payload["data"]
-    meas_wl = meas[1]
-    meas_sig = meas[-1]
+    if eqe_calibration is not {}:
+        # read measurement
+        meas = payload["data"]
+        meas_wl = meas[1]
+        meas_sig = meas[-1]
 
-    # get interpolation object
-    cal = np.array(eqe_calibration)
-    cal_wls = cal[:, 1]
-    cal_sig = cal[:, -1]
-    f_cal = sp.interpolate.interp1d(
-        cal_wls, cal_sig, kind="linear", bounds_error=False, fill_value=0
-    )
+        # get interpolation object
+        cal = np.array(eqe_calibration)
+        cal_wls = cal[:, 1]
+        cal_sig = cal[:, -1]
+        f_cal = sp.interpolate.interp1d(
+            cal_wls, cal_sig, kind="linear", bounds_error=False, fill_value=0
+        )
 
-    # look up ref eqe
-    ref_wls = config["reference"]["calibration"]["eqe"]["wls"]
-    ref_eqe = config["reference"]["calibration"]["eqe"]["eqe"]
-    f_ref = sp.interpolate.interp1d(
-        ref_wls, ref_eqe, kind="linear", bounds_error=False, fill_value=0
-    )
+        # look up ref eqe
+        ref_wls = config["reference"]["calibration"]["eqe"]["wls"]
+        ref_eqe = config["reference"]["calibration"]["eqe"]["eqe"]
+        f_ref = sp.interpolate.interp1d(
+            ref_wls, ref_eqe, kind="linear", bounds_error=False, fill_value=0
+        )
 
-    # calculate eqe and append to data
-    meas_eqe = f_ref(meas_wl) * meas_sig / f_cal(meas_wl)
-    meas.append(meas_eqe)
+        # calculate eqe and append to data
+        meas_eqe = f_ref(meas_wl) * meas_sig / f_cal(meas_wl)
+        meas.append(meas_eqe)
 
-    # publish
-    payload["data"] = meas
-    _publish("data/processed/eqe_measurement", pickle.dumps(payload))
+        # publish
+        payload["data"] = meas
+        _publish("data/processed/eqe_measurement", pickle.dumps(payload))
 
-    print("eqe processed!")
+        print("eqe processed!")
+    else:
+        print("no eqe calibration available")
 
 
 def _publish(topic, payload):
