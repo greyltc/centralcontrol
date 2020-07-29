@@ -99,71 +99,38 @@ def save_calibration(payload, kind, extra=None):
     if save_folder.exists() is False:
         save_folder.mkdir()
 
+    # format timestamp into something human readable including
     timestamp = payload["timestamp"]
     # local timezone
     timezone = datetime.now().astimezone().tzinfo
     fmt = "[%Y-%m-%d]_[%H-%M-%S_%z]"
     human_timestamp = datetime.fromtimestamp(timestamp, tz=timezone).strftime(f"{fmt}")
 
+    data = payload["data"]
+
     if kind == "eqe":
         print("saving eqe...")
         idn = payload["diode"]
-        data = payload["data"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_eqe.cal")
-        print(save_path)
-        if save_path.exists() is False:
-            print("saving...")
-            with open(save_path, "w", newline="\n") as f:
-                f.writelines(eqe_header)
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{kind}.cal")
+        header = eqe_header
     elif kind == "spectrum":
-        timestamp = payload["timestamp"]
-        data = payload["data"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_spectrum.cal")
-        if save_path.exists() is False:
-            with open(save_path, "w", newline="\n") as f:
-                f.writelines(spectrum_cal_header)
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
-    elif kind == "solarsim_diode":
+        save_path = save_folder.joinpath(f"{human_timestamp}_{kind}.cal")
+        header = spectrum_cal_header
+    elif (kind == "solarsim_diode") or (kind == "rtd"):
         idn = payload["diode"]
-        timestamp = payload["timestamp"]
-        data = payload["data"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_solarsim.cal")
-        print(save_path)
-        if save_path.exists() is False:
-            with open(save_path, "w", newline="\n") as f:
-                f.writelines(iv_header)
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{kind}.cal")
+        header = iv_header
     elif kind == "psu":
         idn = payload["diode"]
-        timestamp = payload["timestamp"]
-        data = payload["data"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}_psu.cal")
-        if save_path.exists() is False:
-            with open(save_path, "w", newline="\n") as f:
-                f.writelines(psu_cal_header)
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
-    elif kind == "rtd":
-        idn = payload["diode"]
-        timestamp = payload["timestamp"]
-        data = payload["data"]
-        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_rtd.cal")
-        if save_path.exists() is False:
-            with open(save_path, "w", newline="\n") as f:
-                f.writelines(iv_header)
-            with open(save_path, "a", newline="\n") as f:
-                writer = csv.writer(f, delimiter="\t")
-                writer.writerows(data)
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}_{kind}.cal")
+        header = psu_cal_header
 
-    print(save_path)
+    if save_path.exists() is False:
+        with open(save_path, "w", newline="\n") as f:
+            f.writelines(header)
+        with open(save_path, "a", newline="\n") as f:
+            writer = csv.writer(f, delimiter="\t")
+            writer.writerows(data)
 
 
 def save_run_settings(payload):
