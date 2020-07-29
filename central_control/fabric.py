@@ -107,7 +107,8 @@ class fabric:
         smu_front_terminals : bool
             Flag whether to use the front terminals of the source-measure unit.
         smu_two_wire : bool
-            Flag whether to measure in two-wire mode. If `False` measure in four-wire mode.
+            Flag whether to measure in two-wire mode. If `False` measure in four-wire
+            mode.
         """
         if (smu_address is None) & (dummy is False):
             return
@@ -378,7 +379,8 @@ class fabric:
         smu_front_terminals : bool
             Flag whether to use the front terminals of the source-measure unit.
         smu_two_wire : bool
-            Flag whether to measure in two-wire mode. If `False` measure in four-wire mode.
+            Flag whether to measure in two-wire mode. If `False` measure in four-wire
+            mode.
         pcb_address : str
             VISA resource name for the multiplexor and stage pcb. If `None` is
             given a virtual instrument is created.
@@ -687,7 +689,7 @@ class fabric:
         raw = self.mppt.launch_tracker(
             duration=duration,
             NPLC=NPLC,
-            step_delay=step_delay,
+            stepDelay=step_delay,
             extra=extra,
             handler=handler,
             handler_kwargs=handler_kwargs,
@@ -852,50 +854,6 @@ class fabric:
             me = self.motion(self.motion_address, p)
             return me.goto(position)
 
-    def check_all_contacts(
-        self, rows, columns, pixels, handler=None, handler_kwargs={}
-    ):
-        """Perform contact check on all pixels in the system.
-
-        Parameters
-        ----------
-        rows : int
-            Number of rows in the substrate array.
-        columns : int
-            Number of columns in the substrate array.
-        pixels : int
-            Number of pixels on each pcb adapter in the system. Assumes all adapaters
-            are the same.
-        handler : handler callback
-            Handler that acts on failed contact check reports.
-        handler_kwargs : dict
-            Keyword arguments required by the handler.
-
-        Returns
-        -------
-        fail_msg : str
-            Pass/fail summary.
-        """
-        mux_list = [
-            [r + 1, c + 1, p + 1]
-            for r in range(rows)
-            for c in range(columns)
-            for p in range(pixels)
-        ]
-
-        failed = 0
-        for r, c, p in mux_list:
-            self.pcb.set_mux(r, c, p)
-            if self.sm.contact_check() is True:
-                failed += 1
-                if handler is not None:
-                    handler(
-                        f"Contact check FAILED! Row: {r}, col: {c}, pixel: {p}",
-                        **handler_kwargs,
-                    )
-
-        return f"{failed}/{len(mux_list)} pixels failed the contact check."
-
     def contact_check(self, pixel_queue, handler=None, handler_kwargs={}):
         """Perform contact checks on a queue of pixels.
 
@@ -923,12 +881,11 @@ class fabric:
             # add id str to handlers to display on plots
             idn = f"{label}_pixel{pix}"
 
-            if pixel["array_loc"] is not None:
-                row = pixel["array_loc"][0]
-                col = pixel["array_loc"][1]
-                self.pcb.set_mux(row, col, pixel["pixel"])
-            else:
-                self.pcb.clear_mux()
+            with self.pcb(self.pcb_address) as p:
+                if pixel["sub_name"] is not None:
+                    resp = p.pix_picker(pixel["sub_name"], pixel["pixel"])
+                else:
+                    resp = p.get("s")
 
             if self.sm.contact_check() is True:
                 failed += 1
