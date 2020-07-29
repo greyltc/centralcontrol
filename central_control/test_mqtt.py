@@ -7,6 +7,12 @@ timestamp = time.time()
 
 def test_saver():
     """Test the saver client."""
+
+    run_payload = {
+        "args": {"destination": f"{timestamp}_test_data"},
+        "config": {"test": "test"},
+    }
+
     raw_ivt_data = [1, 1, 1, 1]
     raw_ivt_payload = {
         "data": raw_ivt_data,
@@ -62,35 +68,36 @@ def test_saver():
     }
 
     cal_eqe_data = [raw_eqe_data, raw_eqe_data, raw_eqe_data]
-    cal_eqe_payload = {"data": cal_eqe_data, "idn": "test", "timestamp": timestamp}
+    cal_eqe_payload = {"data": cal_eqe_data, "diode": "test", "timestamp": timestamp}
 
     cal_spectrum_data = [[1, 1], [1, 1], [1, 1]]
     cal_spectrum_payload = {
         "data": cal_spectrum_data,
-        "idn": "test",
         "timestamp": timestamp,
     }
 
     cal_solarsim_diode_data = [raw_ivt_data, raw_ivt_data, raw_ivt_data]
     cal_solarsim_diode_payload = {
         "data": cal_solarsim_diode_data,
-        "idn": "test",
+        "diode": "test",
         "timestamp": timestamp,
     }
 
     cal_rtd_data = cal_solarsim_diode_data
     cal_rtd_payload = {
         "data": cal_rtd_data,
-        "idn": "test",
+        "diode": "test",
         "timestamp": timestamp,
     }
 
     cal_psu_data = [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
     cal_psu_payload = {
         "data": cal_psu_data,
-        "idn": "test",
+        "diode": "test",
         "timestamp": timestamp,
     }
+
+    mqttc.publish("measurement/run", pickle.dumps(run_payload), 2).wait_for_publish()
 
     mqttc.publish(
         "data/raw/vt_measurement", pickle.dumps(raw_ivt_payload), 2
@@ -138,6 +145,12 @@ def test_saver():
     ).wait_for_publish()
     mqttc.publish(
         "calibration/psu/ch1", pickle.dumps(cal_psu_payload), 2
+    ).wait_for_publish()
+    mqttc.publish(
+        "calibration/psu/ch2", pickle.dumps(cal_psu_payload), 2
+    ).wait_for_publish()
+    mqttc.publish(
+        "calibration/psu/ch3", pickle.dumps(cal_psu_payload), 2
     ).wait_for_publish()
 
 

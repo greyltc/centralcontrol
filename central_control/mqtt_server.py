@@ -1371,5 +1371,10 @@ if __name__ == "__main__":
     mqttc.on_message = on_message
     mqttc.connect(cli_args.MQTTHOST)
     mqttc.subscribe("measurement/#", qos=2)
-    mqttc.publish("measurement/status", pickle.dumps("Ready"), 2, retain=True).wait_for_publish()
+    publish.single(
+        "measurement/status",
+        pickle.dumps("Ready"),
+        qos=2,
+        hostname=cli_args.MQTTHOST,
+    )
     mqttc.loop_forever()

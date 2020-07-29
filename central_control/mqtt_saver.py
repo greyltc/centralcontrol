@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 
 import paho.mqtt.client as mqtt
+import paho.mqtt.publish as publish
 import yaml
 
 
@@ -36,12 +37,15 @@ def save_data(payload, kind, processed=False):
     processed : bool
         Flag for highlighting when data has been processed.
     """
-    if payload["sweep"] == "dark":
-        prefix = "d"
-    elif payload["sweep"] == "light":
-        prefix = "l"
+    if kind == "iv_measurement":
+        if payload["sweep"] == "dark":
+            prefix = "d"
+        elif payload["sweep"] == "light":
+            prefix = "l"
     else:
         prefix = ""
+
+    print(f"Saving {kind} data...")
 
     exp = f"{prefix}{kind.replace('_measurement', '')}"
 
@@ -56,8 +60,6 @@ def save_data(payload, kind, processed=False):
             save_folder.mkdir()
 
     save_path = save_folder.joinpath(f"{payload['idn']}_{exp_timestamp}.{exp}")
-
-    print(save_path)
 
     # create file with header if pixel
     if save_path.exists() is False:
@@ -76,7 +78,7 @@ def save_data(payload, kind, processed=False):
     # append data to file
     with open(save_path, "a", newline="\n") as f:
         writer = csv.writer(f, delimiter="\t")
-        if exp == "iv":
+        if (exp == "liv") or (exp == "div"):
             writer.writerows(payload["data"])
         else:
             writer.writerow(payload["data"])
@@ -94,7 +96,7 @@ def save_calibration(payload, kind, extra=None):
     extra : str
         Extra information about the calibration type added to the filename.
     """
-    print("saving calibration...")
+    print(f"Saving {kind} calibration...")
     save_folder = pathlib.Path("calibration")
     if save_folder.exists() is False:
         save_folder.mkdir()
@@ -109,7 +111,6 @@ def save_calibration(payload, kind, extra=None):
     data = payload["data"]
 
     if kind == "eqe":
-        print("saving eqe...")
         idn = payload["diode"]
         save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{kind}.cal")
         header = eqe_header
@@ -162,8 +163,7 @@ def save_run_settings(payload):
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
     payload = pickle.loads(msg.payload)
-    print(msg.topic)
-    print(payload)
+    print(msg.topic, payload)
     topic_list = msg.topic.split("/")
 
     if (topic := topic_list[0]) == "data":
@@ -176,7 +176,6 @@ def on_message(mqttc, obj, msg):
             subtopic1 = topic_list[2]
         else:
             subtopic1 = None
-        print(topic_list[1])
         save_calibration(payload, topic_list[1], subtopic1)
     elif msg.topic == "measurement/run":
         save_run_settings(payload)
@@ -203,12 +202,17 @@ if __name__ == "__main__":
     client_id = f"saver-{uuid.uuid4().hex}"
 
     mqttc = mqtt.Client(client_id)
+    mqttc.will_set("saver/status", pickle.dumps(f"{client_id} offline"), 2, retain=True)
     mqttc.on_message = on_message
     mqttc.connect(args.mqtthost)
     mqttc.subscribe("data/#", qos=2)
     mqttc.subscribe("calibration/#", qos=2)
     mqttc.subscribe("measurement/#", qos=2)
-
-    print("connected!")
-
+    publish.single(
+        "saver/status",
+        pickle.dumps(f"{client_id} ready"),
+        qos=2,
+        hostname=args.mqtthost,
+    )
+    print(f"{client_id} connected!")
     mqttc.loop_forever()
