@@ -97,7 +97,7 @@ def _calibrate_eqe(request, mqtthost):
         if int(args["eqe_devs"], 16) > 0:
             # if the bitmask isn't empty
             try:
-                pixel_queue = _build_q(args, experiment="eqe")
+                pixel_queue = _build_q(request, experiment="eqe")
             except ValueError as e:
                 # there was a problem with the labels and/or layouts list
                 _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
@@ -148,7 +148,7 @@ def _calibrate_psu(request, mqtthost):
         if int(args["eqe_devs"], 16) > 0:
             # if the bitmask isn't empty
             try:
-                pixel_queue = _build_q(args, experiment="eqe")
+                pixel_queue = _build_q(request, experiment="eqe")
             except ValueError as e:
                 # there was a problem with the labels and/or layouts list
                 _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
@@ -315,7 +315,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
         if int(args["iv_devs"], 16) > 0:
             # if the bitmask isn't empty
             try:
-                pixel_queue = _build_q(args, experiment="eqe")
+                pixel_queue = _build_q(request, experiment="eqe")
             except ValueError as e:
                 # there was a problem with the labels and/or layouts list
                 _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
@@ -369,7 +369,7 @@ def _calibrate_rtd(request, mqtthost):
         if int(args["iv_devs"], 16) > 0:
             # if the bitmask isn't empty
             try:
-                pixel_queue = _build_q(args, experiment="eqe")
+                pixel_queue = _build_q(request, experiment="eqe")
             except ValueError as e:
                 # there was a problem with the labels and/or layouts list
                 _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
@@ -572,7 +572,7 @@ def _contact_check(request, mqtthost):
             # convert int back to bitmask, overriding iv_pixel_address for build_q
             args["iv_devs"] = format(merge_int, b_len_str)
 
-            iv_pixel_queue = _build_q(args, experiment="solarsim")
+            iv_pixel_queue = _build_q(request, experiment="solarsim")
         except ValueError as e:
             # there was a problem with the labels and/or layouts list
             _log("CONTACT CHECK ABORTED! " + str(e), "error", **{"mqttc": mqttc})
@@ -1325,7 +1325,7 @@ def _run(request, mqtthost):
 
         if args["iv_devs"] is not None:
             try:
-                iv_pixel_queue = _build_q(args, experiment="solarsim")
+                iv_pixel_queue = _build_q(request, experiment="solarsim")
             except ValueError as e:
                 # there was a problem with the labels and/or layouts list
                 _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
@@ -1335,7 +1335,7 @@ def _run(request, mqtthost):
 
         if args["eqe_devs"] is not None:
             try:
-                eqe_pixel_queue = _build_q(args, experiment="eqe")
+                eqe_pixel_queue = _build_q(request, experiment="eqe")
             except ValueError as e:
                 _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
                 return

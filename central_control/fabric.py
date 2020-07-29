@@ -40,8 +40,9 @@ class fabric:
 
     def __init__(self):
         """Get software revision."""
-        self.software_revision = __version__
-        print("Software revision: {:s}".format(self.software_revision))
+        # self.software_revision = __version__
+        # print("Software revision: {:s}".format(self.software_revision))
+        pass
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
