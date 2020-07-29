@@ -40,7 +40,7 @@ class fabric:
 
     def __init__(self):
         """Get software revision."""
-        self.software_revision = central_control.__version__
+        self.software_revision = __version__
         print("Software revision: {:s}".format(self.software_revision))
 
     def __enter__(self):

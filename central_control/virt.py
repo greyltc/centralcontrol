@@ -302,7 +302,7 @@ class pcb:
     """
         pass
 
-    def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
+    def set_keepalive_linux(self, sock, after_idle_sec=1, interval_sec=3, max_fails=5):
         """Set TCP keepalive on an open socket.
 
     It activates after 1 second (after_idle_sec) of idleness,
@@ -311,7 +311,7 @@ class pcb:
     """
         pass
 
-    def set_keepalive_osx(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
+    def set_keepalive_osx(self, sock, after_idle_sec=1, interval_sec=3, max_fails=5):
         """Set TCP keepalive on an open socket.
 
     sends a keepalive ping once every 3 seconds (interval_sec)

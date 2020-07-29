@@ -77,47 +77,57 @@ class wavelabs:
     wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
     
     """
-    self.protocol, location = address.split('://')
-    self.host, self.port = location.split(':')
-    self.port = int(self.port)
-    
-  def __del__(self):
-    try:
-      self.sock_file.close()
-      self.connection.close()
-    except:
-      pass
-    
-    try:
-      self.server.server_close()
-    except:
-      pass    
+        self.protocol, location = address.split("://")
+        self.host, self.port = location.split(":")
+        self.port = int(self.port)
 
-  def recvXML(self):
-    """reads xml object from socket"""
-    target = self.XMLHandler()
-    parser = ET.XMLParser(target=target)
-    while not target.done_parsing:
-      parser.feed(self.connection.recv(1024))
-    parser.close()
-    if target.error != 0:
-      print("Got error number {:} from WaveLabs software: {:}".format(target.error, target.error_message))
-    return target
+    def __del__(self):
+        try:
+            self.sock_file.close()
+            self.connection.close()
+        except:
+            pass
 
-  def startServer(self):
-    """define a server which listens for the wevelabs software to connect"""
-    self.iseq = 0
+        try:
+            self.server.server_close()
+        except:
+            pass
 
-    self.server = socketserver.TCPServer((self.host, self.port), socketserver.StreamRequestHandler, bind_and_activate = False)
-    self.server.timeout = None  # never timeout when waiting for the wavelabs software to connect
-    self.server.allow_reuse_address = True
-    self.server.server_bind()
-    self.server.server_activate()
-    
-  def connect(self):
-    """
-    generic connect method, does what's appropriate for getting comms up based on self.protocol
-    """
+    def recvXML(self):
+        """reads xml object from socket"""
+        target = self.XMLHandler()
+        parser = ET.XMLParser(target=target)
+        while not target.done_parsing:
+            parser.feed(self.connection.recv(1024))
+        parser.close()
+        if target.error != 0:
+            print(
+                "Got error number {:} from WaveLabs software: {:}".format(
+                    target.error, target.error_message
+                )
+            )
+        return target
+
+    def startServer(self):
+        """define a server which listens for the wevelabs software to connect"""
+        self.iseq = 0
+
+        self.server = socketserver.TCPServer(
+            (self.host, self.port),
+            socketserver.StreamRequestHandler,
+            bind_and_activate=False,
+        )
+        self.server.timeout = (
+            None  # never timeout when waiting for the wavelabs software to connect
+        )
+        self.server.allow_reuse_address = True
+        self.server.server_bind()
+        self.server.server_activate()
+
+    def connect(self):
+        """
+        generic connect method, does what's appropriate for getting comms up based on self.protocol
+        """
         if self.protocol == "wavelabs":
             self.startServer()
             self.awaitConnection()
@@ -392,7 +402,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     # wl = wavelabs('wavelabs://0.0.0.0:3334')  # for direct connection
-    wl = wavelabs("wavelabs-relay://solarsim.lan:3335")  #  for comms via relay
+    wl = wavelabs("wavelabs-relay://solarsim.lan:3335")  # for comms via relay
     print("Connecting to light engine...")
     wl.connect()
     old_intensity = wl.getRecipeParam(param="Intensity")

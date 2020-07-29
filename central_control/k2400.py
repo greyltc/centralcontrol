@@ -431,7 +431,7 @@ class k2400:
         self.sm.write(":SYST:CCH:RES 2")
 
         # set 4-wire mode
-        self.setWires(self, twoWire=False)
+        self.setWires(twoWire=False)
 
         # enable contact check pass/fail to be mapped to DIO
         self.sm.write(":CALC2:LIM4:STAT ON")

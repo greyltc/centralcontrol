@@ -18,7 +18,7 @@ import numpy as np
 import yaml
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
-import central_control.fabric
+from central_control.fabric import fabric
 
 
 def get_args():
@@ -52,11 +52,11 @@ def start_process(target, args):
             pickle.dumps("Busy"),
             qos=2,
             retain=True,
-            hostname=cli_args.MQTTHOST,
+            hostname=cli_args.mqtthost,
         )
     else:
         payload = {"level": "warning", "msg": "Measurement server busy!"}
-        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.MQTTHOST)
+        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
 
 
 def stop_process():
@@ -70,7 +70,7 @@ def stop_process():
             "level": "warning",
             "msg": "Nothing to stop. Measurement server is idle.",
         }
-        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.MQTTHOST)
+        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
 
 
 def _calibrate_eqe(request, mqtthost):
@@ -83,7 +83,8 @@ def _calibrate_eqe(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("calibrating eqe...")
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         # create temporary mqtt client
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
@@ -119,6 +120,8 @@ def _calibrate_eqe(request, mqtthost):
 
         mqttc.stop()
 
+    print("EQE calibration finished.")
+
 
 def _calibrate_psu(request, mqtthost):
     """Measure the reference photodiode as a funtcion of LED current.
@@ -130,7 +133,9 @@ def _calibrate_psu(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Calibrating psu...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -238,6 +243,8 @@ def _calibrate_psu(request, mqtthost):
 
         mqttc.stop()
 
+    print("Finished calibrating PSU.")
+
 
 def _calibrate_spectrum(request, mqtthost):
     """Measure the solar simulator spectrum using it's internal spectrometer.
@@ -249,7 +256,9 @@ def _calibrate_spectrum(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Calibrating spectrum...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -279,6 +288,8 @@ def _calibrate_spectrum(request, mqtthost):
 
         mqttc.stop()
 
+    print("Spectrum calibration complete.")
+
 
 def _calibrate_solarsim_diodes(request, mqtthost):
     """Calibrate the solar simulator using photodiodes.
@@ -290,7 +301,9 @@ def _calibrate_solarsim_diodes(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("calibrating solar sim diodes")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -329,6 +342,8 @@ def _calibrate_solarsim_diodes(request, mqtthost):
 
         mqttc.stop()
 
+    print("Solar sim diode calibration complete.")
+
 
 def _calibrate_rtd(request, mqtthost):
     """Calibrate RTD's for temperature measurement.
@@ -340,7 +355,9 @@ def _calibrate_rtd(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Calibrating rtds...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -373,6 +390,8 @@ def _calibrate_rtd(request, mqtthost):
 
         mqttc.stop()
 
+    print("RTD calibration complete.")
+
 
 def _home(request, mqtthost):
     """Home the stage.
@@ -384,7 +403,9 @@ def _home(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Homing...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -409,6 +430,8 @@ def _home(request, mqtthost):
 
         mqttc.stop()
 
+    print("Homing complete.")
+
 
 def _goto(request, mqtthost):
     """Go to a stage position.
@@ -420,7 +443,9 @@ def _goto(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Goto...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -446,6 +471,8 @@ def _goto(request, mqtthost):
 
         mqttc.stop()
 
+    print("Goto complete.")
+
 
 def _read_stage(request, mqtthost):
     """Read the stage position.
@@ -457,7 +484,9 @@ def _read_stage(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Reading stage...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -486,6 +515,8 @@ def _read_stage(request, mqtthost):
 
         mqttc.stop()
 
+    print("Read stage complete.")
+
 
 def _contact_check(request, mqtthost):
     """Perform contact check.
@@ -497,7 +528,9 @@ def _contact_check(request, mqtthost):
     request : dict
         Request dictionary sent to the server.
     """
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    print("Performing contact check...")
+
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -553,6 +586,8 @@ def _contact_check(request, mqtthost):
         _log("Contact check complete!", "info", **{"mqttc": mqttc})
 
         mqttc.stop()
+
+    print("Contact check complete.")
 
 
 def _get_substrate_positions(config, experiment):
@@ -853,6 +888,8 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             "info",
             **{"mqttc": mqttc},
         )
+
+        print(f"{pixel}")
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
@@ -1178,6 +1215,8 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             **{"mqttc": mqttc},
         )
 
+        print(f"{pixel}")
+
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
 
@@ -1260,13 +1299,15 @@ def _run(request, mqtthost):
     mqtthost : str
         MQTT broker IP address or host name.
     """
+    print("Running measurement...")
+
     args = request["args"]
 
     # calibrate spectrum if required
     if args["iv_devs"] is not None:
         _calibrate_spectrum(request, mqtthost)
 
-    with central_control.fabric.fabric() as measurement, MQTTQueuePublisher() as mqttc:
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.will_set("measurement/status", pickle.dumps("Ready"), 2, True)
         mqttc.run(mqtthost)
 
@@ -1319,6 +1360,8 @@ def _run(request, mqtthost):
         # close mqtt client cleanly
         mqttc.stop()
 
+    print("Measurement complete.")
+
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT message.
@@ -1329,27 +1372,29 @@ def on_message(mqttc, obj, msg):
     """
     request = pickle.loads(msg.payload)
 
+    print(request)
+
     # perform a requested action
     if (action := msg.topic.split("/")[-1]) == "run":
-        start_process(_run, (request, cli_args.MQTTHOST,))
+        start_process(_run, (request, cli_args.mqtthost,))
     elif action == "stop":
         stop_process()
     elif action == "calibrate_eqe":
-        start_process(_calibrate_eqe, (request, cli_args.MQTTHOST,))
+        start_process(_calibrate_eqe, (request, cli_args.mqtthost,))
     elif action == "calibrate_psu":
-        start_process(_calibrate_psu, (request, cli_args.MQTTHOST,))
+        start_process(_calibrate_psu, (request, cli_args.mqtthost,))
     elif action == "calibrate_solarsim_diodes":
-        start_process(_calibrate_solarsim_diodes, (request, cli_args.MQTTHOST,))
+        start_process(_calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
     elif action == "calibrate_spectrum":
-        start_process(_calibrate_spectrum, (request, cli_args.MQTTHOST,))
+        start_process(_calibrate_spectrum, (request, cli_args.mqtthost,))
     elif action == "calibrate_rtd":
-        start_process(_calibrate_rtd, (request, cli_args.MQTTHOST,))
+        start_process(_calibrate_rtd, (request, cli_args.mqtthost,))
     elif action == "home":
-        start_process(_home, (request, cli_args.MQTTHOST,))
+        start_process(_home, (request, cli_args.mqtthost,))
     elif action == "goto":
-        start_process(_goto, (request, cli_args.MQTTHOST,))
+        start_process(_goto, (request, cli_args.mqtthost,))
     elif action == "read_stage":
-        start_process(_read_stage, (request, cli_args.MQTTHOST,))
+        start_process(_read_stage, (request, cli_args.mqtthost,))
 
 
 # required when using multiprocessing in windows, advised on other platforms
@@ -1367,10 +1412,10 @@ if __name__ == "__main__":
     mqttc = mqtt.Client(client_id=client_id)
     mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
     mqttc.on_message = on_message
-    mqttc.connect(cli_args.MQTTHOST)
+    mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
     publish.single(
-        "measurement/status", pickle.dumps("Ready"), qos=2, hostname=cli_args.MQTTHOST,
+        "measurement/status", pickle.dumps("Ready"), qos=2, hostname=cli_args.mqtthost,
     )
     print(f"{client_id} connected!")
     mqttc.loop_forever()
