@@ -752,13 +752,14 @@ def _handle_measurement_data(data, **kwargs):
     """
     kind = kwargs["kind"]
     idn = kwargs["idn"]
+    pixel = kwargs["pixel"]
     try:
         sweep = kwargs["sweep"]
     except KeyError:
         sweep = ""
     mqttc = kwargs["mqttc"]
 
-    payload = {"data": data, "idn": idn, "clear": False, "end": False, "sweep": sweep}
+    payload = {"data": data, "idn": idn, "pixel": pixel, "clear": False, "end": False, "sweep": sweep}
     mqttc.append_payload(f"data/raw/{kind}", pickle.dumps(payload))
 
 
@@ -903,6 +904,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         # choose data handler
         if calibration is False:
             handler = _handle_measurement_data
+            handler_kwargs = {"idn": idn, "pixel": pixel, "mqttc": mqttc}
         else:
             handler = None
             handler_kwargs = {}
@@ -1215,7 +1217,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             handler_kwargs = {}
         else:
             handler = _handle_measurement_data
-            handler_kwargs = {"idn": idn, "mqttc": mqttc}
+            handler_kwargs = {"idn": idn, "pixel": pixel, "mqttc": mqttc}
 
         # clear eqe plot
         mqttc.append_payload("plot/eqe/clear", pickle.dumps(""))

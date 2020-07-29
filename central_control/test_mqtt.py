@@ -7,7 +7,6 @@ timestamp = time.time()
 
 def test_saver():
     """Test the saver client."""
-
     run_payload = {
         "args": {"destination": f"{timestamp}_test_data"},
         "config": {"test": "test"},
@@ -20,6 +19,7 @@ def test_saver():
         "clear": False,
         "end": False,
         "sweep": "light",
+        "pixel": {"area": 1},
     }
 
     raw_iv_data = [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3]]
@@ -29,6 +29,7 @@ def test_saver():
         "clear": False,
         "end": False,
         "sweep": "light",
+        "pixel": {"area": 1},
     }
 
     raw_eqe_data = [1] * 14
@@ -38,6 +39,7 @@ def test_saver():
         "clear": False,
         "end": False,
         "sweep": "",
+        "pixel": {"area": 1},
     }
 
     processed_ivt_data = [1, 1, 1, 1, 2, 2]
@@ -47,6 +49,7 @@ def test_saver():
         "clear": False,
         "end": False,
         "sweep": "light",
+        "pixel": {"area": 1},
     }
 
     processed_iv_data = [[1, 1, 1, 1, 2, 2], [1, 1, 1, 1, 2, 2], [1, 1, 1, 1, 2, 2]]
@@ -56,6 +59,7 @@ def test_saver():
         "clear": False,
         "end": False,
         "sweep": "light",
+        "pixel": {"area": 1},
     }
 
     processed_eqe_data = [1] * 15
@@ -65,6 +69,7 @@ def test_saver():
         "clear": False,
         "end": False,
         "sweep": "",
+        "pixel": {"area": 1},
     }
 
     cal_eqe_data = [raw_eqe_data, raw_eqe_data, raw_eqe_data]
@@ -154,12 +159,78 @@ def test_saver():
     ).wait_for_publish()
 
 
+def test_analyser():
+    run_payload = {
+        "args": {"destination": f"{timestamp}_test_data"},
+        "config": {
+            "reference": {"calibration": {"eqe": {"wls": [0, 1, 2], "eqe": [2, 2, 2]}}}
+        },
+    }
+
+    raw_ivt_data = [1, 1, 1, 1]
+    raw_ivt_payload = {
+        "data": raw_ivt_data,
+        "idn": "test",
+        "clear": False,
+        "end": False,
+        "sweep": "light",
+        "pixel": {"area": 1},
+    }
+
+    raw_iv_data = [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3]]
+    raw_iv_payload = {
+        "data": raw_iv_data,
+        "idn": "test",
+        "clear": False,
+        "end": False,
+        "sweep": "light",
+        "pixel": {"area": 1},
+    }
+
+    raw_eqe_data = [1] * 14
+    raw_eqe_payload = {
+        "data": raw_eqe_data,
+        "idn": "test",
+        "clear": False,
+        "end": False,
+        "sweep": "",
+        "pixel": {"area": 1},
+    }
+
+    cal_eqe_data = [[0 for i in raw_eqe_data], raw_eqe_data, [2 for i in raw_eqe_data]]
+    cal_eqe_payload = {"data": cal_eqe_data, "diode": "test", "timestamp": timestamp}
+
+    mqttc.publish(
+        "calibration/eqe", pickle.dumps(cal_eqe_payload), 2
+    ).wait_for_publish()
+
+    mqttc.publish("measurement/run", pickle.dumps(run_payload), 2).wait_for_publish()
+
+    mqttc.publish(
+        "data/raw/vt_measurement", pickle.dumps(raw_ivt_payload), 2
+    ).wait_for_publish()
+    mqttc.publish(
+        "data/raw/it_measurement", pickle.dumps(raw_ivt_payload), 2
+    ).wait_for_publish()
+    mqttc.publish(
+        "data/raw/mppt_measurement", pickle.dumps(raw_ivt_payload), 2
+    ).wait_for_publish()
+    mqttc.publish(
+        "data/raw/iv_measurement", pickle.dumps(raw_iv_payload), 2
+    ).wait_for_publish()
+    mqttc.publish(
+        "data/raw/eqe_measurement", pickle.dumps(raw_eqe_payload), 2
+    ).wait_for_publish()
+
+
 if __name__ == "__main__":
     mqttc = mqtt.Client()
     mqttc.connect("127.0.0.1")
     mqttc.loop_start()
 
-    test_saver()
+    # test_saver()
+
+    test_analyser()
 
     mqttc.loop_stop()
     mqttc.disconnect()

@@ -2,13 +2,14 @@
 
 import argparse
 import pickle
+import threading
 import uuid
 
 import numpy as np
 import scipy as sp
 
 import scipy.interpolate
-from mqtt_tools.queue_publisher import MQTTQueuePublisher
+import paho.mqtt.client as mqtt
 
 
 def get_args():
@@ -23,52 +24,62 @@ def get_args():
     return parser.parse_args()
 
 
-def process_ivt(payload, mqttc):
+def process_ivt(payload, kind):
     """Calculate derived I-V-t parameters.
 
     Parameters
     ----------
     payload : dict
         Payload dictionary.
-    mqttc : MQTTQueuePublisher
-        MQTT queue publisher client.
+    kind : str
+        Kind of measurement data.
     """
+    print("processing ivt...")
+
     data = payload["data"]
-    area = payload["area"]
+    area = payload["pixel"]["area"]
 
     # calculate current density in mA/cm2
     j = data[1] * 1000 / area
+    p = data[0] * j
     data.append(j)
+    data.append(p)
 
     # add processed data back into payload to be sent on
     payload["data"] = data
-    payload = pickle.dump(payload)
-    mqttc.append_payload("data/processed", payload)
+    payload = pickle.dumps(payload)
+    _publish(f"data/processed/{kind}", payload)
+
+    print("ivt processed!")
 
 
-def process_iv(payload, mqttc):
+def process_iv(payload):
     """Calculate derived I-V parameters.
 
     Parameters
     ----------
     payload : dict
         Payload dictionary.
-    mqttc : MQTTQueuePublisher
-        MQTT queue publisher client.
     """
+    print("processing iv...")
+
     data = np.array(payload["data"])
-    area = payload["area"]
+    area = payload["pixel"]["area"]
 
     # calculate current density in mA/cm2
     j = data[:, 1] * 1000 / area
-    data[:, 4] = j
+    p = data[:, 0] * j
+    data = np.append(data, j.reshape(len(p), 1), axis=1)
+    data = np.append(data, p.reshape(len(p), 1), axis=1)
 
     # add processed data back into payload to be sent on
-    payload["data"] = data
-    mqttc.append_payload("data/processed", pickle.dump(payload))
+    payload["data"] = data.tolist()
+    _publish("data/processed/iv_measurement", pickle.dumps(payload))
+
+    print("iv processed...")
 
 
-def process_eqe(payload, mqttc):
+def process_eqe(payload):
     """Calculate EQE.
 
     Parameters
@@ -78,29 +89,26 @@ def process_eqe(payload, mqttc):
     mqttc : MQTTQueuePublisher
         MQTT queue publisher client.
     """
+    print("processing eqe...")
+
     # read measurement
     meas = payload["data"]
     meas_wl = meas[1]
     meas_sig = meas[-1]
 
     # get interpolation object
-    cal = np.array(eqe_calibration["data"])
+    cal = np.array(eqe_calibration)
     cal_wls = cal[:, 1]
     cal_sig = cal[:, -1]
     f_cal = sp.interpolate.interp1d(
-        cal_wls, cal_sig, kind="cubic", bounds_error=False, fill_value=0
+        cal_wls, cal_sig, kind="linear", bounds_error=False, fill_value=0
     )
 
     # look up ref eqe
-    diode = config["experiments"]["eqe"]["calibration_diode"]
-    ref_wls = config["calibration_diodes"][diode]["eqe"]["eqe_calibration_settings"][
-        "eqe"
-    ]["wls"]
-    ref_eqe = config["calibration_diodes"][diode]["eqe"]["eqe_calibration_settings"][
-        "eqe"
-    ]["eqe"]
+    ref_wls = config["reference"]["calibration"]["eqe"]["wls"]
+    ref_eqe = config["reference"]["calibration"]["eqe"]["eqe"]
     f_ref = sp.interpolate.interp1d(
-        ref_wls, ref_eqe, kind="cubic", bounds_error=False, fill_value=0
+        ref_wls, ref_eqe, kind="linear", bounds_error=False, fill_value=0
     )
 
     # calculate eqe and append to data
@@ -109,30 +117,35 @@ def process_eqe(payload, mqttc):
 
     # publish
     payload["data"] = meas
-    mqttc.append_payload("data/processed", pickle.dump(payload))
+    _publish("data/processed/eqe_measurement", pickle.dumps(payload))
+
+    print("eqe processed!")
 
 
-def process_spectrum(mqttc):
-    """Convert spectrum measurement into spectral irradiance.
+def _publish(topic, payload):
+    print("attempt publish...")
 
+    t = threading.Thread(target=_publish_worker, args=(topic, payload,))
+    t.start()
+
+
+def _publish_worker(topic, payload):
+    """Publish something over MQTT with a fresh client.
+    
     Parameters
     ----------
-    payload : dict
-        Payload dictionary.
-    mqttc : MQTTQueuePublisher
-        MQTT queue publisher client.
+    topic : str
+        Topic to publish to.
+    payload : 
     """
-    # look up calibration and measurement data
-    cal = np.array(config["solarsim"]["spectral_calibration"]["cal"])
-    meas = np.array(spectrum_calibration["data"])
+    print(f"publishing...")
 
-    # calculate spectral irradiance in W/m^2/nm and append to cal dict
-    irr = meas[:, 1] * cal
-    meas[:, 2] = irr
-    spectrum_calibration["data"] = meas.tolist()
-
-    # publish processed spectrum
-    mqttc.append_payload("data/processed", pickle.dump(spectrum_calibration))
+    mqttc = mqtt.Client()
+    mqttc.connect(args.mqtthost)
+    mqttc.loop_start()
+    mqttc.publish(topic, payload, 2).wait_for_publish()
+    mqttc.loop_stop()
+    mqttc.disconnect()
 
 
 def read_eqe_cal(payload):
@@ -145,46 +158,9 @@ def read_eqe_cal(payload):
     """
     global eqe_calibration
 
-    eqe_calibration = payload["calibration"]
+    print("reading eqe cal...")
 
-
-def read_psu_cal(payload):
-    """Read calibration from payload.
-
-    Parameters
-    ----------
-    payload : dict
-        Payload dictionary.
-    """
-    global psu_calibration
-
-    psu_calibration = payload["calibration"]
-
-
-def read_solarsim_diode_cal(payload):
-    """Read calibration from payload.
-
-    Parameters
-    ----------
-    payload : dict
-        Payload dictionary.
-    """
-    global solarsim_diode_calibration
-
-    solarsim_diode_calibration = payload["calibration"]
-
-
-def read_spactrum_cal(payload):
-    """Read calibration from payload.
-
-    Parameters
-    ----------
-    payload : dict
-        Payload dictionary.
-    """
-    global spectrum_calibration
-
-    spectrum_calibration = payload["calibration"]
+    eqe_calibration = payload["data"]
 
 
 def read_config(payload):
@@ -197,54 +173,35 @@ def read_config(payload):
     """
     global config
 
+    print("reading config...")
+
     config = payload["config"]
-
-
-def send_calibration_status(mqttc):
-    """Send calibration status."""
-    # gather status of each calibration
-    calibration_status = {
-        "eqe": eqe_calibration != {},
-        "psu": psu_calibration != {},
-        "spectrum": spectrum_calibration != {},
-        "solarsim_diode": solarsim_diode_calibration != {},
-    }
-
-    # publish status
-    payload = pickle.dump(calibration_status)
-    mqttc.append_payload("control/calibration_check_response", payload)
 
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT message."""
-    payload = pickle.load(msg.payload)
+    payload = pickle.loads(msg.payload)
 
-    if (topic := msg.topic) == "data/raw":
-        if (measurement := payload["measurement"]) in [
+    print(msg.topic, payload)
+
+    topic_list = msg.topic.split("/")
+
+    if (topic_list[0] == "data") and (topic_list[1] == "raw"):
+        if (measurement := topic_list[2]) in [
             "vt_measurement",
             "it_measurement",
             "mppt_measurement",
         ]:
-            process_ivt(payload, mqttc)
+            process_ivt(payload, measurement)
         elif measurement == "iv_measurement":
-            process_iv(payload, mqttc)
+            process_iv(payload)
         elif measurement == "eqe_measurement":
-            process_eqe(payload, mqttc)
-    elif topic == "data/calibration":
-        if (measurement := payload["measurement"]) == "eqe_calibration":
+            process_eqe(payload)
+    elif topic_list[0] == "calibration":
+        if (measurement := topic_list[1]) == "eqe":
             read_eqe_cal(payload)
-        elif measurement == "psu_calibration":
-            read_psu_cal(payload)
-        elif measurement == "solarsim_diode":
-            read_solarsim_diode_cal(payload)
-        elif measurement == "spectrum_calibration":
-            read_spactrum_cal(payload)
-    elif topic == "measurement/request":
+    elif msg.topic == "measurement/run":
         read_config(payload)
-        if payload["action"] == "run":
-            process_spectrum(mqttc)
-    elif topic == "control/calibration_check_request":
-        send_calibration_status(mqttc)
 
 
 if __name__ == "__main__":
@@ -253,27 +210,24 @@ if __name__ == "__main__":
     # init empty dicts for caching latest data
     config = {}
     eqe_calibration = {}
-    psu_calibration = {}
-    spectrum_calibration = {}
-    solarsim_diode_calibration = {}
 
     # create mqtt client id
     client_id = f"analyser-{uuid.uuid4().hex}"
 
-    with MQTTQueuePublisher() as mqtt_analyser:
-        mqtt_analyser.on_message = on_message
+    # mqtt_pub = mqtt.Client()
+    # mqtt_pub.connect(args.mqtthost)
 
-        # connect MQTT client to broker
-        mqtt_analyser.connect(args.MQTTHOST)
+    mqtt_analyser = mqtt.Client(client_id)
+    mqtt_analyser.on_message = on_message
 
-        # subscribe to data and request topics
-        mqtt_analyser.subscribe("data/raw", qos=2)
-        mqtt_analyser.subscribe("data/calibration", qos=2)
-        mqtt_analyser.subscribe("measurement/request", qos=2)
-        mqtt_analyser.subscribe("control/calibration_check_request", qos=2)
+    # connect MQTT client to broker
+    mqtt_analyser.connect(args.mqtthost)
 
-        # start publisher queue for processing responses
-        mqtt_analyser.loop_start()
-        mqtt_analyser.start_q()
+    # subscribe to data and request topics
+    mqtt_analyser.subscribe("data/raw/#", qos=2)
+    mqtt_analyser.subscribe("calibration/eqe", qos=2)
+    mqtt_analyser.subscribe("measurement/run", qos=2)
 
-        mqtt_analyser.loop_forever()
+    print(f"{client_id} connected!")
+
+    mqtt_analyser.loop_forever()
