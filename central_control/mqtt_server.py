@@ -32,23 +32,6 @@ def get_args():
     return parser.parse_args()
 
 
-def yaml_include(loader, node):
-    """Load tagged yaml files into root file."""
-    with open(node.value) as f:
-        return yaml.load(f, Loader=yaml.FullLoader)
-
-
-# bind include function to !include tags in yaml config file
-yaml.add_constructor("!include", yaml_include)
-
-
-def load_config_from_file():
-    """Load the configuration file into memory."""
-    # try to load the configuration file from the current working directory
-    with open("measurement_config.yaml", "r") as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-
-
 def start_process(target, args):
     """Start a new process to perform an action if no process is running.
 
@@ -87,17 +70,6 @@ def stop_process():
             "msg": "Nothing to stop. Measurement server is idle.",
         }
         publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.MQTTHOST)
-
-
-def get_timestamp():
-    """Create a human readable formatted timestamp string.
-
-    Returns
-    -------
-    timestamp : str
-        Formatted timestamp.
-    """
-    return time.time()
 
 
 def _calibrate_eqe(request, mqtthost):
@@ -237,7 +209,7 @@ def _calibrate_psu(request, mqtthost):
                 _log(f"Stage/mux error: {resp}! Aborting calibration!", "error", **{"mqttc": mqttc})
                 break
 
-            timestamp = get_timestamp()
+            timestamp = time.time()
 
             # perform measurement
             for channel in [1, 2, 3]:
@@ -278,7 +250,7 @@ def _calibrate_spectrum(request, mqtthost):
 
         config = request["config"]
 
-        timestamp = get_timestamp()
+        timestamp = time.time()
 
         measurement.connect_instruments(
             dummy=False,
@@ -603,11 +575,11 @@ def _get_substrate_positions(config, experiment):
         Absolute substrate centre co-ordinates. Each sublist contains the positions
         along each axis.
     """
-    experiment_centre = config["experiment"][experiment]["positions"]
-
+    experiment_centre = config["stage"]["experiment_positions"][experiment]
+    
     # read in number substrates in the array along each axis
     substrate_number = config["substrates"]["number"]
-
+    
     # get number of substrate centres between the centre and the edge of the
     # substrate array along each axis, e.g. if there are 4 rows, there are 1.5
     # substrate centres to the outermost substrate
@@ -629,12 +601,12 @@ def _get_substrate_positions(config, experiment):
     for offset, spacing, number, centre in zip(
         substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
     ):
-        abs_offset = offset * spacing + centre
-        axis_pos.append(np.linspace(-abs_offset, abs_offset, number))
+        abs_offset = offset * spacing
+        axis_pos.append(np.linspace(-abs_offset + centre, abs_offset + centre, number))
 
     # create array of positions
     substrate_centres = list(itertools.product(*axis_pos))
-
+    
     return substrate_centres
 
 
@@ -691,7 +663,7 @@ def _build_q(request, experiment):
         # read in pixel positions from layout in config file
         config_pos = config["substrates"]["layouts"][layout]["positions"]
         pixel_positions = []
-        for pos in range(len(config_pos)):
+        for pos in config_pos:
             abs_pixel_position = [int(x + y) for x, y in zip(pos, centre)]
             pixel_positions.append(abs_pixel_position)
 
@@ -700,11 +672,11 @@ def _build_q(request, experiment):
             "sub_name": sub_name,
             "layout": layout,
             "pcb_name": pcb_name,
-            "pcb_contact_pads": config[pcb_name]["pcb_contact_pads"],
-            "pcb_resistor": config[pcb_name]["pcb_resistor"],
-            "pixels": config[layout]["pixels"],
+            "pcb_contact_pads": config["substrates"]["adapters"][pcb_name]["pcb_contact_pads"],
+            "pcb_resistor": config["substrates"]["adapters"][pcb_name]["pcb_resistor"],
+            "pixels": config["substrates"]["layouts"][layout]["pixels"],
             "pixel_positions": pixel_positions,
-            "areas": config[layout]["areas"],
+            "areas": config["substrates"]["layouts"][layout]["areas"],
         }
         substrate_q.append(substrate_dict)
 
@@ -713,10 +685,12 @@ def _build_q(request, experiment):
     # TODO: return support for pixel strings that aren't hex bitmasks
     # convert hex bitmask string into bit list where 1's and 0's represent whether
     # a pixel should be measured or not, respectively
-    bitmask = [int(x) for x in bin(int(pixel_address_string, 16))[2:]]
-    # reverse so index 0 is first pixel
+    b_len = len(bin(16**(len(pixel_address_string) - 2) - 1))
+    fmt = f"#0{b_len}b"
+    bitmask = format(int(pixel_address_string, 16), fmt)
+    bitmask = [int(x) for x in bitmask[2:]]
     bitmask.reverse()
-
+    
     # build pixel queue
     pixel_q = collections.deque()
     for substrate in substrate_q:
@@ -909,7 +883,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             handler = None
             handler_kwargs = {}
 
-        timestamp = get_timestamp()
+        timestamp = time.time()
 
         # turn on light
         measurement.le.on()
@@ -1223,7 +1197,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         mqttc.append_payload("plot/eqe/clear", pickle.dumps(""))
 
         # get human-readable timestamp
-        timestamp = get_timestamp()
+        timestamp = time.time()
 
         num_points = 1 + int(np.absolute(args["eqe_end"] - args["eqe_start"]) / args["eqe_step"])
 

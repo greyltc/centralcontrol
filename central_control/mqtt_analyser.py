@@ -140,6 +140,7 @@ def _publish_worker(topic, payload):
     topic : str
         Topic to publish to.
     payload : 
+        Serialised payload to publish.
     """
     print(f"publishing...")
 

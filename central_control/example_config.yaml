@@ -24,11 +24,11 @@ visa:
 
 # stage and mux controller
 controller:
-    address: 172.0.0.3
+    address: null
 
 # source-measure unit(s)
 smu:
-    address: ASRL1::INSTR
+    address: null
     baud: 57600
     terminator: '\n'
     # if front terminals is false, use rear terminals
@@ -37,18 +37,18 @@ smu:
     two_wire: false
 
 solarsim:
-    address: wavelabs-relay://127.0.0.1:3335
-    spectral_calibration: !include example_solarsim_cal.yaml
+    uri: null
+#    spectral_calibration: !include example_solarsim_cal.yaml
 
 # lock-in amplifier
 lia:
-    address: ASRL2::INSTR
+    address: null
     terminator: '\r'
     baud: 9600
     output_interface: 0
 
 monochromator:
-    address: ASRL3::INSTR
+    address: null
     terminator: '\r'
     baud: 9600
     grating_change_wls: [1200]
@@ -56,7 +56,7 @@ monochromator:
 
 # LED power supply unit
 psu:
-    address: ASRL4::INSTR
+    address: null
     terminator: '\r'
     baud: 9600
     ch1_voltage: 30
@@ -68,17 +68,16 @@ psu:
         current_step: 0.1
 
 stage:
-    # stage lengths in steps along each available axis.
+    # stage lengths in mm along each available axis.
     # parsed as a list where indices reference axes as: 0: x-axis, 1: y-aixs, 2: z-axis.
     # comment out or leave blank if no stage is connected.
-    length: [5586691, 2401541]
-    # mm per step
-    steplength: 0.000155
-    # approx steps/s
-    speed: 186000
+    length: [850, 350]
+    # approx mm/s
+    speed: 29
     experiment_positions:
-        solarsim: [5000000, 1200000]
-        eqe: [1000000, 1200000]
+        solarsim: [200, 250]
+        eqe: [800, 250]
+    custom_positions: {"Load Position": 23, "Test spot A": 88.54241, "Midway": 62.5, "Offline Position": 120}
 
 # i-v-t measurement settings
 ivt:
