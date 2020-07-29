@@ -5,6 +5,8 @@ import pathlib
 import pickle
 import uuid
 
+from datetime import datetime
+
 import paho.mqtt.client as mqtt
 import yaml
 
@@ -24,7 +26,7 @@ spectrum_cal_header = "wls (nm)\traw (counts)\n"
 psu_cal_header = "voltage (v)\tcurrent (A)\ttime (s)\tstatus\tpsu_current (A)\n"
 
 
-def save_data(payload, processed=False):
+def save_data(payload, kind, processed=False):
     """Save data to text file.
 
     Parameters
@@ -34,10 +36,15 @@ def save_data(payload, processed=False):
     processed : bool
         Flag for highlighting when data has been processed.
     """
-    kind = payload["kind"]
-    data = payload["data"]
+    if payload["sweep"] == "dark":
+        prefix = "d"
+    elif payload["sweep"] == "light":
+        prefix = "l"
+    else:
+        prefix = ""
 
-    exp = kind.replace("_measurement", "")
+    exp = f"{prefix}{kind.replace('_measurement', '')}"
+
     if folder is not None:
         save_folder = folder
     else:
@@ -45,8 +52,12 @@ def save_data(payload, processed=False):
 
     if processed is True:
         save_folder = save_folder.joinpath("processed")
+        if save_folder.exists() is False:
+            save_folder.mkdir()
 
-    save_path = save_folder.joinpath(f"{data['id']}_{exp_timestamp}.{exp}")
+    save_path = save_folder.joinpath(f"{payload['idn']}_{exp_timestamp}.{exp}")
+
+    print(save_path)
 
     # create file with header if pixel
     if save_path.exists() is False:
@@ -66,81 +77,93 @@ def save_data(payload, processed=False):
     with open(save_path, "a", newline="\n") as f:
         writer = csv.writer(f, delimiter="\t")
         if exp == "iv":
-            writer.writerows(data)
+            writer.writerows(payload["data"])
         else:
-            writer.writerow(data)
+            writer.writerow(payload["data"])
 
 
-def save_calibration(payload):
+def save_calibration(payload, kind, extra=None):
     """Save calibration data.
 
     Parameters
     ----------
     mqttc : mqtt.Client
         MQTT save client.
+    kind : str
+        Kind of calibration data.
+    extra : str
+        Extra information about the calibration type added to the filename.
     """
+    print("saving calibration...")
     save_folder = pathlib.Path("calibration")
+    if save_folder.exists() is False:
+        save_folder.mkdir()
 
-    cal_packet = payload["data"]
+    timestamp = payload["timestamp"]
+    # local timezone
+    timezone = datetime.now().astimezone().tzinfo
+    fmt = "[%Y-%m-%d]_[%H-%M-%S_%z]"
+    human_timestamp = datetime.fromtimestamp(timestamp, tz=timezone).strftime(f"{fmt}")
 
-    if (kind := payload["kind"]) == "eqe_calibration":
-        for key, value in cal_packet:
-            diode = key
-            timestamp = value["timestamp"]
-            data = value["data"]
-            save_path = save_folder.joinpath(f"{timestamp}_{diode}_eqe.cal")
-            if save_path.exists() is False:
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines(eqe_header)
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
-    elif kind == "spectrum_calibration":
-        timestamp = cal_packet["timestamp"]
-        data = cal_packet["data"]
-        save_path = save_folder.joinpath(f"{timestamp}_spectrum.cal")
+    if kind == "eqe":
+        print("saving eqe...")
+        idn = payload["diode"]
+        data = payload["data"]
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_eqe.cal")
+        print(save_path)
+        if save_path.exists() is False:
+            print("saving...")
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines(eqe_header)
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerows(data)
+    elif kind == "spectrum":
+        timestamp = payload["timestamp"]
+        data = payload["data"]
+        save_path = save_folder.joinpath(f"{human_timestamp}_spectrum.cal")
         if save_path.exists() is False:
             with open(save_path, "w", newline="\n") as f:
                 f.writelines(spectrum_cal_header)
             with open(save_path, "a", newline="\n") as f:
                 writer = csv.writer(f, delimiter="\t")
                 writer.writerows(data)
-    elif kind == "solarsim_diode_calibration":
-        for key, value in cal_packet:
-            diode = key
-            timestamp = value["timestamp"]
-            data = value["data"]
-            save_path = save_folder.joinpath(f"{timestamp}_{diode}_solarsim.cal")
-            if save_path.exists() is False:
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines(iv_header)
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
-    elif kind == "psu_calibration":
-        for key, value in cal_packet:
-            diode = key
-            timestamp = value["timestamp"]
-            data = value["data"]
-            save_path = save_folder.joinpath(f"{timestamp}_{diode}_psu.cal")
-            if save_path.exists() is False:
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines(psu_cal_header)
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
-    elif kind == "rtd_calibration":
-        for key, value in cal_packet:
-            rtd = key
-            timestamp = value["timestamp"]
-            data = value["data"]
-            save_path = save_folder.joinpath(f"{timestamp}_{rtd}_rtd.cal")
-            if save_path.exists() is False:
-                with open(save_path, "w", newline="\n") as f:
-                    f.writelines(iv_header)
-                with open(save_path, "a", newline="\n") as f:
-                    writer = csv.writer(f, delimiter="\t")
-                    writer.writerows(data)
+    elif kind == "solarsim_diode":
+        idn = payload["diode"]
+        timestamp = payload["timestamp"]
+        data = payload["data"]
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_solarsim.cal")
+        print(save_path)
+        if save_path.exists() is False:
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines(iv_header)
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerows(data)
+    elif kind == "psu":
+        idn = payload["diode"]
+        timestamp = payload["timestamp"]
+        data = payload["data"]
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_{extra}_psu.cal")
+        if save_path.exists() is False:
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines(psu_cal_header)
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerows(data)
+    elif kind == "rtd":
+        idn = payload["diode"]
+        timestamp = payload["timestamp"]
+        data = payload["data"]
+        save_path = save_folder.joinpath(f"{human_timestamp}_{idn}_rtd.cal")
+        if save_path.exists() is False:
+            with open(save_path, "w", newline="\n") as f:
+                f.writelines(iv_header)
+            with open(save_path, "a", newline="\n") as f:
+                writer = csv.writer(f, delimiter="\t")
+                writer.writerows(data)
+
+    print(save_path)
 
 
 def save_run_settings(payload):
@@ -171,15 +194,24 @@ def save_run_settings(payload):
 
 def on_message(mqttc, obj, msg):
     """Act on an MQTT msg."""
-    payload = pickle.load(msg.payload)
+    payload = pickle.loads(msg.payload)
+    print(msg.topic)
+    print(payload)
+    topic_list = msg.topic.split("/")
 
-    if (topic := msg.topic) == "data/raw":
-        save_data(payload)
-    elif topic == "data/processed":
-        save_data(payload, processed=True)
-    elif msg.topic.split("/")[0] == "calibration":
-        save_calibration(payload)
-    elif topic == "measurement/run":
+    if (topic := topic_list[0]) == "data":
+        if (subtopic0 := topic_list[1]) == "raw":
+            save_data(payload, topic_list[2])
+        elif subtopic0 == "processed":
+            save_data(payload, topic_list[2], True)
+    elif topic == "calibration":
+        if topic_list[1] == "psu":
+            subtopic1 = topic_list[2]
+        else:
+            subtopic1 = None
+        print(topic_list[1])
+        save_calibration(payload, topic_list[1], subtopic1)
+    elif msg.topic == "measurement/run":
         save_run_settings(payload)
 
 
@@ -206,9 +238,10 @@ if __name__ == "__main__":
     mqttc = mqtt.Client(client_id)
     mqttc.on_message = on_message
     mqttc.connect(args.mqtthost)
-    mqttc.subscribe("data/raw", qos=2)
-    mqttc.subscribe("data/processed", qos=2)
+    mqttc.subscribe("data/#", qos=2)
     mqttc.subscribe("calibration/#", qos=2)
-    mqttc.subscribe("measurement/request", qos=2)
+    mqttc.subscribe("measurement/#", qos=2)
+
+    print("connected!")
 
     mqttc.loop_forever()

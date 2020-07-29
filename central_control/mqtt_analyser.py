@@ -40,10 +40,6 @@ def process_ivt(payload, mqttc):
     j = data[1] * 1000 / area
     data.append(j)
 
-    # calculate power density
-    p = j * data[0]
-    data.append(p)
-
     # add processed data back into payload to be sent on
     payload["data"] = data
     payload = pickle.dump(payload)
@@ -66,10 +62,6 @@ def process_iv(payload, mqttc):
     # calculate current density in mA/cm2
     j = data[:, 1] * 1000 / area
     data[:, 4] = j
-
-    # calculate power density in mW/cm2
-    p = j * data[0]
-    data[:, 5] = p
 
     # add processed data back into payload to be sent on
     payload["data"] = data
