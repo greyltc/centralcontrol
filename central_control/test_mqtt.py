@@ -459,10 +459,8 @@ def test_run():
 
 def test_stop():
     test_run()
-    time.sleep(1)
-    mqttc.publish(
-        "measurement/stop", pickle.dumps({"args": args, "config": config}), 2
-    ).wait_for_publish()
+    time.sleep(10)
+    mqttc.publish("measurement/stop", pickle.dumps("stop"), 2).wait_for_publish()
 
 
 def test_cal_eqe():
@@ -493,15 +491,15 @@ def test_cal_spectrum():
     ).wait_for_publish()
 
 
-def test_contact_check():
-    mqttc.publish(
-        "measurement/contact_check", pickle.dumps({"args": args, "config": config}), 2,
-    ).wait_for_publish()
-
-
 def test_cal_rtd():
     mqttc.publish(
         "measurement/calibrate_rtd", pickle.dumps({"args": args, "config": config}), 2
+    ).wait_for_publish()
+
+
+def test_contact_check():
+    mqttc.publish(
+        "measurement/contact_check", pickle.dumps({"args": args, "config": config}), 2,
     ).wait_for_publish()
 
 
@@ -542,7 +540,11 @@ if __name__ == "__main__":
 
     # test_cal_rtd()
 
-    test_run()
+    # test_contact_check()
+
+    # test_run()
+
+    test_stop()
 
     mqttc.loop_stop()
     mqttc.disconnect()
