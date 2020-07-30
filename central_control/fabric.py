@@ -801,7 +801,7 @@ class fabric:
             Current step in amps.
         """
         currents = np.linspace(
-            0, max_current, (max_current / current_step) + 1, endpoint=True
+            0, max_current, int(max_current / current_step) + 1, endpoint=True
         )
 
         # set smu to short circuit and enable output
@@ -821,6 +821,7 @@ class fabric:
             measurement = self.sm.measure()
             measurement.append(current)
             data.append(measurement)
+            print(measurement)
 
         # disable PSU
         self.psu.set_apply(channel=channel, voltage="MAX", current=0)

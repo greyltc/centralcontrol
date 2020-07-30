@@ -182,7 +182,7 @@ def _calibrate_psu(request, mqtthost):
             smu_front_terminals=config["smu"]["front_terminals"],
             smu_two_wire=config["smu"]["two_wire"],
             pcb_address=config["controller"]["uri"],
-            motion_address=config["motion"]["uri"],
+            motion_address=config["stage"]["uri"],
             psu_address=config["psu"]["address"],
             psu_terminator=config["psu"]["terminator"],
             psu_baud=config["psu"]["baud"],
@@ -191,6 +191,7 @@ def _calibrate_psu(request, mqtthost):
         # using smu to measure the current from the photodiode
         measurement.set_experiment_relay("iv")
 
+        last_label = None
         while len(pixel_queue) > 0:
             pixel = pixel_queue.popleft()
             label = pixel["label"]
@@ -203,6 +204,8 @@ def _calibrate_psu(request, mqtthost):
 
             # add id str to handlers to display on plots
             idn = f"{label}_pixel{pix}"
+
+            print(pixel)
 
             # we have a new substrate
             if last_label != label:

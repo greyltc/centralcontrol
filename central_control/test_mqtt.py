@@ -521,9 +521,9 @@ if __name__ == "__main__":
 
     # test_analyser()
 
-    test_cal_eqe()
+    # test_cal_eqe()
 
-    # test_cal_psu()
+    test_cal_psu()
 
     # test_cal_spectrum()
 
