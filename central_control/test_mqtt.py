@@ -546,7 +546,7 @@ if __name__ == "__main__":
 
     # test_cal_rtd()
 
-    # test_contact_check()
+    test_contact_check()
 
     # test_run()
 
@@ -554,7 +554,7 @@ if __name__ == "__main__":
 
     # test_busy()
 
-    test_home()
+    # test_home()
 
     # test_goto()
 

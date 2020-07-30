@@ -1,7 +1,7 @@
 import mpmath
 import os
 import time
-import numpy
+import numpy as np
 
 
 class motion:
@@ -315,7 +315,7 @@ class k2400:
                 I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n)
             )
         )
-        self.V = float(numpy.real_if_close(numpy.complex(Voc)))
+        self.V = float(np.real_if_close(np.complex(Voc)))
 
     # recompute device current
     def updateCurrent(self):
@@ -341,7 +341,7 @@ class k2400:
                 / (Vth * n * (Rs + Rsh))
             )
         ) / (Rs * (Rs + Rsh))
-        self.I = float(-1 * numpy.real_if_close(numpy.complex(I)))
+        self.I = float(-1 * np.real_if_close(np.complex(I)))
 
     def write(self, command):
         if ":source:current " in command:
@@ -373,20 +373,20 @@ class k2400:
     def query_values(self, command):
         if command == "READ?":
             if self.sweepMode:
-                sweepArray = numpy.array([], dtype=numpy.float_).reshape(0, 4)
-                voltages = numpy.linspace(self.sweepStart, self.sweepEnd, self.nPoints)
+                sweepArray = np.array([], dtype=np.float_).reshape(0, 4)
+                voltages = np.linspace(self.sweepStart, self.sweepEnd, self.nPoints)
                 for i in range(len(voltages)):
                     self.V = voltages[i]
                     self.updateCurrent()
                     time.sleep(self.measurementTime)
-                    measurementLine = numpy.array(
+                    measurementLine = np.array(
                         [self.V, self.I, time.time() - self.t0, self.status]
                     )
-                    sweepArray = numpy.vstack([sweepArray, measurementLine])
+                    sweepArray = np.vstack([sweepArray, measurementLine])
                 return sweepArray.tolist()
             else:  # non sweep mode
                 time.sleep(self.measurementTime)
-                measurementLine = numpy.array(
+                measurementLine = np.array(
                     [self.V, self.I, time.time() - self.t0, self.status]
                 )
                 return measurementLine.tolist()
@@ -398,8 +398,8 @@ class k2400:
 
     def measureUntil(
         self,
-        t_dwell=numpy.inf,
-        measurements=numpy.inf,
+        t_dwell=np.inf,
+        measurements=np.inf,
         cb=lambda x: None,
         handler=None,
         handler_kwargs={},
@@ -437,6 +437,20 @@ class k2400:
 
     def setStepDelay(self, stepDelay=-1):
         pass
+
+    def contact_check(self):
+        """Perform contact check.
+
+        Returns
+        -------
+        failed : bool
+            `True` if contact check fails (contact resistance too high). `False` if
+            all is well.
+        """
+        if np.random.rand() > 0.9:
+            return True
+        else:
+            return False
 
 
 class pcb:

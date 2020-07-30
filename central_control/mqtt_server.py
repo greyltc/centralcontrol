@@ -644,6 +644,9 @@ def _contact_check(request, mqtthost):
         response = measurement.contact_check(
             iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc}
         )
+
+        print(response)
+
         _log(response, "info", **{"mqttc": mqttc})
 
         _log("Contact check complete!", "info", **{"mqttc": mqttc})
