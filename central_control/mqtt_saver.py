@@ -39,15 +39,15 @@ def save_data(payload, kind, processed=False):
     """
     if kind == "iv_measurement":
         if payload["sweep"] == "dark":
-            prefix = "d"
+            exp_prefix = "d"
         elif payload["sweep"] == "light":
-            prefix = "l"
+            exp_prefix = "l"
     else:
-        prefix = ""
+        exp_prefix = ""
 
     print(f"Saving {kind} data...")
 
-    exp = f"{prefix}{kind.replace('_measurement', '')}"
+    exp = f"{exp_prefix}{kind.replace('_measurement', '')}"
 
     if folder is not None:
         save_folder = folder
@@ -56,10 +56,15 @@ def save_data(payload, kind, processed=False):
 
     if processed is True:
         save_folder = save_folder.joinpath("processed")
+        file_prefix = "processed_"
         if save_folder.exists() is False:
             save_folder.mkdir()
+    else:
+        file_prefix = ""
 
-    save_path = save_folder.joinpath(f"{payload['idn']}_{exp_timestamp}.{exp}")
+    save_path = save_folder.joinpath(
+        f"{file_prefix}{payload['idn']}_{exp_timestamp}.{exp}"
+    )
 
     print(save_path)
 
