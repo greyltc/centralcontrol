@@ -17,7 +17,7 @@ class us:
 
   otter_safe_x = 54.6875 # xaxis safe location to home y for otter (in mm)
 
-  def __init__(self, pcb_object, expected_lengths, steps_per_mm=motor_steps_per_rev*micro_stepping/screw_pitch, extra=''):
+  def __init__(self, pcb_object, expected_lengths, keepout_zones, steps_per_mm=motor_steps_per_rev*micro_stepping/screw_pitch, extra=''):
     """
     sets up the microstepper object
     needs handle to active PCB class object
@@ -27,6 +27,7 @@ class us:
     self.extra = extra
     self.expected_lengths = expected_lengths # this gets converted to steps in connect()
     self.homed = None
+    self.keepout_zones = keepout_zones
 
   def __del__(self):
       pass
@@ -410,7 +411,11 @@ class us:
         if (axl is not None) and (axl > 0):
           axmin = ebs
           axmax = axl - ebs
-          if new_pos[i] >= axmin and new_pos[i] <= axmax:
+          koz = self.keepout_zones[self.axes.index(ax)]
+          if len(koz) == 0:
+            koz += [-10] # something that's never enforced for no keepout
+            koz += [-10]
+          if (new_pos[i] >= axmin and new_pos[i] <= axmax) and not (new_pos[i] >= koz[0]*self.steps_per_mm and new_pos[i] <= koz[1]*self.steps_per_mm):
             ret = 0
           else:
             ret = -6
@@ -467,7 +472,7 @@ if __name__ == "__main__":
   import pcb
   pcb_address = "10.46.0.239"
   with pcb.pcb(pcb_address, ignore_adapter_resistors=True) as p:
-    me = us(p, expected_lengths= [250-125], steps_per_mm=6400, extra = '')
+    me = us(p, expected_lengths=[250-125], keepout_zones=[[20,30]], steps_per_mm=6400, extra = '')
 
     print('Connecting')
     result = me.connect()
@@ -496,6 +501,15 @@ if __name__ == "__main__":
       print("Movement done.")
     else:
       raise(ValueError(f'GOTO failed with {result}'))
+    time.sleep(1)
+
+    print('GOingTO keepout zone')
+    keepo = [25]
+    result = me.goto(keepo)
+    if (result == 0):
+      raise(ValueError("Movement done. (bad)"))
+    else:
+      print(f'GOTO failed with {result} (yay!)')
     time.sleep(1)
       
     print('Moving all axes 2cm forward via move')
