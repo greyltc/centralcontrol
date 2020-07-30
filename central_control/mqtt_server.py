@@ -275,13 +275,13 @@ def _calibrate_spectrum(request, mqtthost):
         config = request["config"]
         args = request["args"]
 
-        timestamp = time.time()
-
         measurement.connect_instruments(
             dummy=args["dummy"],
             visa_lib=config["visa"]["visa_lib"],
             light_address=config["solarsim"]["uri"],
         )
+
+        timestamp = time.time()
 
         spectrum = measurement.measure_spectrum()
 

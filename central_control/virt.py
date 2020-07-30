@@ -1,4 +1,5 @@
 import mpmath
+import os
 import time
 import numpy
 
@@ -47,7 +48,26 @@ class illumination:
         """
     sets up communication to light source
     """
-        self.address = address
+        print(address)
+        addr_split = address.split(sep="://", maxsplit=1)
+        protocol = addr_split[0]
+        print(protocol)
+        if protocol.lower() == "env":
+            env_var = addr_split[1]
+            if env_var in os.environ:
+                address = os.environ.get(env_var)
+            else:
+                raise ValueError(
+                    "Environment Variable {:} could not be found".format(env_var)
+                )
+            addr_split = address.split(sep="://", maxsplit=1)
+            protocol = addr_split[0]
+
+        if protocol.lower().startswith("wavelabs"):
+            self.light_engine = wavelabs(address=address)
+            self.wavelabs = True
+        elif protocol.lower() == ("ftdi"):
+            self.light_engine = Newport(address=address)
 
     def connect(self):
         print("Connected to virtual lightsource")
@@ -66,6 +86,136 @@ class illumination:
 
     def disconnect(self):
         print("Disconnecting light source")
+
+
+class wavelabs:
+    """interface to the wavelabs LED solar simulator"""
+
+    iseq = 0  # sequence number for comms with wavelabs software
+    protocol = "wavelabs"  # communication method for talking to the wavelabs light engine, wavelabs for direct, wavelabs-relay for relay
+    default_recipe = "am1_5_1_sun"
+    port = 3334  # 3334 for direct connection, 3335 for through relay service
+    host = (
+        "0.0.0.0"  # 0.0.0.0 for direct connection, localhost for through relay service
+    )
+
+    def __init__(self, address="wavelabs://0.0.0.0:3334"):
+        """
+    sets up the wavelabs object
+    address is a string of the format:
+    wavelabs://listen_ip:listen_port (should probably be wavelabs://0.0.0.0:3334)
+    or
+    wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
+    
+    """
+        self.protocol, location = address.split("://")
+        self.host, self.port = location.split(":")
+        self.port = int(self.port)
+
+    def recvXML(self):
+        """reads xml object from socket"""
+        pass
+
+    def startServer(self):
+        """define a server which listens for the wevelabs software to connect"""
+        pass
+
+    def connect(self):
+        """
+        generic connect method, does what's appropriate for getting comms up based on self.protocol
+        """
+        if self.protocol == "wavelabs":
+            print("connected to wavelabs")
+        elif self.protocol == "wavelabs-relay":
+            print("connected to wavelabs relay")
+        else:
+            print(
+                "WRNING: Got unexpected wavelabs comms protocol: {:}".format(
+                    self.protocol
+                )
+            )
+
+    def disconnect(self):
+        """Disconnect server."""
+        print("disconnecting wavelabs server")
+
+    def awaitConnection(self):
+        """returns once the wavelabs program has connected"""
+        pass
+
+    def connectToRelay(self):
+        """forms connection to the relay server"""
+        pass
+
+    def startFreeFloat(
+        self,
+        time=0,
+        intensity_relative=100,
+        intensity_sensor=0,
+        channel_nums=["8"],
+        channel_values=[50.0],
+    ):
+        """starts/modifies/ends a free-float run"""
+        pass
+
+    def activateRecipe(self, recipe_name=default_recipe):
+        """activate a solar sim recipe by name"""
+        print(f"activating recipe: {recipe_name}")
+
+    def waitForResultAvailable(self, timeout=10000, run_ID=None):
+        """wait for result from a recipe to be available"""
+        pass
+
+    def waitForRunFinished(self, timeout=10000, run_ID=None):
+        """wait for the current run to finish"""
+        pass
+
+    def getRecipeParam(
+        self, recipe_name=default_recipe, step=1, device="Light", param="Intensity"
+    ):
+        return 1
+
+    def getDataSeries(
+        self,
+        step=1,
+        device="LE",
+        curve_name="Irradiance-Wavelength",
+        attributes="raw",
+        run_ID=None,
+    ):
+        """returns a data series from SinusGUI"""
+        ret = [
+            {
+                "data": {
+                    "Wavelenght": [300, 400, 500, 600, 700, 800, 900, 1100],
+                    "Irradiance": [1, 1, 1, 1, 1, 1, 1, 1],
+                }
+            }
+        ]
+
+        return ret
+
+    def setRecipeParam(
+        self,
+        recipe_name=default_recipe,
+        step=1,
+        device="Light",
+        param="Intensity",
+        value=100.0,
+    ):
+        pass
+
+    def on(self):
+        """starts the last activated recipe"""
+        return 1
+
+    def off(self):
+        """cancel a currently running recipe"""
+        pass
+
+    def exitProgram(self):
+        """closes the wavelabs solar sim program on the wavelabs PC"""
+        print("Exiting WaveLabs program")
 
 
 class k2400:

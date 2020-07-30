@@ -240,7 +240,7 @@ class fabric:
             return
         else:
             if dummy is True:
-                self.le = virt.illumination()
+                self.le = virt.illumination(address=light_address)
             else:
                 self.le = illumination(address=light_address)
             self.le.connect()

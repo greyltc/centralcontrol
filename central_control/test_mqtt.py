@@ -187,7 +187,7 @@ config = {
         "terminator": "\\n",
         "two_wire": False,
     },
-    "solarsim": {"uri": None},
+    "solarsim": {"uri": "wavelabs://127.0.0.1:1111"},
     "stage": {
         "uri": None,
         "custom_positions": {
@@ -523,9 +523,9 @@ if __name__ == "__main__":
 
     # test_cal_eqe()
 
-    test_cal_psu()
+    # test_cal_psu()
 
-    # test_cal_spectrum()
+    test_cal_spectrum()
 
     # test_cal_solarsim_diodes()
 
