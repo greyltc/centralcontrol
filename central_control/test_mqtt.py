@@ -525,11 +525,11 @@ if __name__ == "__main__":
 
     # test_cal_psu()
 
-    test_cal_spectrum()
+    # test_cal_spectrum()
 
     # test_cal_solarsim_diodes()
 
-    # test_cal_rtd()
+    test_cal_rtd()
 
     # test_run()
 

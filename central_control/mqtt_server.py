@@ -368,6 +368,10 @@ def _calibrate_rtd(request, mqtthost):
 
         _log("Calibrating RTDs...", "info", **{"mqttc": mqttc})
 
+        request["args"]["i_dwell"] = 0
+        request["args"]["v_dwell"] = 0
+        request["args"]["mppt_dwell"] = 0
+
         args = request["args"]
 
         # get pixel queue
