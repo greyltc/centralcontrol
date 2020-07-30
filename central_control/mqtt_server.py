@@ -209,7 +209,7 @@ def _calibrate_psu(request, mqtthost):
             label = pixel["label"]
             pix = pixel["pixel"]
             _log(
-                f"\nOperating on substrate {label}, pixel {pix}...",
+                f"Operating on substrate {label}, pixel {pix}...",
                 "info",
                 **{"mqttc": mqttc},
             )
