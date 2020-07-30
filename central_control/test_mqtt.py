@@ -521,6 +521,12 @@ def test_read():
     ).wait_for_publish()
 
 
+def test_busy():
+    test_run()
+    time.sleep(10)
+    test_run()
+
+
 if __name__ == "__main__":
     mqttc = mqtt.Client()
     mqttc.connect("127.0.0.1")
@@ -544,7 +550,9 @@ if __name__ == "__main__":
 
     # test_run()
 
-    test_stop()
+    # test_stop()
+
+    test_busy()
 
     mqttc.loop_stop()
     mqttc.disconnect()
