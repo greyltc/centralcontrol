@@ -17,6 +17,13 @@ class motion:
     ]  # mm from home to the centers of A, B, C, D, E, F, G, H substrates
     photodiode_location = 315  # mm
 
+    def __init__(self, address="", pcb_object=None):
+        """
+    sets up communication to motion controller
+    """
+        self.address = address
+        self.p = pcb_object
+
     def connect(self):
         print("Connected to virtual motion controller")
 
@@ -37,6 +44,12 @@ class motion:
 
 
 class illumination:
+    def __init__(self, address=""):
+        """
+    sets up communication to light source
+    """
+        self.address = address
+
     def connect(self):
         print("Connected to virtual lightsource")
 
@@ -52,13 +65,16 @@ class illumination:
     def close(self):
         pass
 
+    def disconnect(self):
+        print("Disconnecting light source")
+
 
 class k2400:
     """Solar cell device simulator (looks like k2400 class)
   """
 
     def __init__(self):
-        idn = "Virtual Sourcemeter"
+        self.idn = "Virtual Sourcemeter"
         self.t0 = time.time()
         self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
 
@@ -83,6 +99,8 @@ class k2400:
         self.sweepEnd = 0
 
         self.status = 0
+
+        self.src = "VOLT"
 
     def setNPLC(self, nplc):
         return
@@ -253,6 +271,15 @@ class k2400:
     def close(self):
         pass
 
+    def setTerminals(self, front=True):
+        print(f"Front terminals: {front}")
+
+    def setWires(self, twoWire=True):
+        print(f"Two wire: {twoWire}")
+
+    def disconnect(self):
+        print("Disconnecting SMU")
+
 
 class pcb:
     """Mux and stage controller."""
@@ -277,19 +304,19 @@ class pcb:
         return found
 
     def pix_picker(self, substrate, pixel, suppressWarning=False):
-        return True
+        return 0
 
     def write(self, cmd):
         pass
 
     def query(self, query):
-        return "virtual response"
+        return 0
 
     def get(self, cmd):
         """
     sends cmd to the pcb and returns the relevant command response
     """
-        return "virtual response"
+        return 0
 
     def getADCCounts(self, chan):
         """makes adc readings.

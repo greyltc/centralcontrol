@@ -132,7 +132,100 @@ def load_config_from_file():
     return config
 
 
-config = load_config_from_file()
+# config = load_config_from_file()
+config = {
+    "controller": {"uri": None},
+    "ivt": {"percent_beyond_voc": 25, "voltage_beyond_isc": 0.1},
+    "lia": {"address": None, "baud": 9600, "output_interface": 0, "terminator": "\\r"},
+    "monochromator": {
+        "address": None,
+        "baud": 9600,
+        "filter_change_wls": [370, 640, 715, 765],
+        "grating_change_wls": [1200],
+        "terminator": "\\r",
+    },
+    "network": {"archive": "ftp://test:21/drop", "live_data_uri": "https://google.com"},
+    "psu": {
+        "address": None,
+        "baud": 9600,
+        "calibration": {"current_step": 0.1, "max_current": 1},
+        "ch1_voltage": 30,
+        "ch2_voltage": 30,
+        "ch3_voltage": 5,
+        "terminator": "\\r",
+    },
+    "reference": {
+        "calibration": {
+            "eqe": {
+                "eqe": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                "wls": [
+                    350,
+                    400,
+                    450,
+                    500,
+                    550,
+                    600,
+                    650,
+                    700,
+                    750,
+                    800,
+                    850,
+                    900,
+                    950,
+                    1000,
+                    1050,
+                    1100,
+                ],
+            }
+        },
+        "spectra": {"AM1.5G": {"irr": [1, 1, 1], "wls": [0, 1, 2]}},
+    },
+    "smu": {
+        "address": None,
+        "baud": 57600,
+        "front_terminals": False,
+        "terminator": "\\n",
+        "two_wire": False,
+    },
+    "solarsim": {"uri": None},
+    "stage": {
+        "uri": None,
+        "custom_positions": {
+            "Load Position": 23,
+            "Midway": 62.5,
+            "Offline Position": 120,
+            "Test spot A": 88.54241,
+        },
+        "experiment_positions": {"eqe": [800, 200], "solarsim": [200, 200]},
+        "length": [850, 350],
+        "speed": 29,
+    },
+    "substrates": {
+        "active_layout": "6px_1in",
+        "adapters": {
+            "6px_1in_pcb": {"pcb_contact_pads": 6, "pcb_resistor": 0},
+            "6px_30mm_pcb": {"pcb_contact_pads": 6, "pcb_resistor": 0},
+        },
+        "layout_names": ["6px_1in"],
+        "layouts": {
+            "4px_30mm": {
+                "areas": [0.15, 0, 1.0, 0.15, 0.15, 0],
+                "pcb_name": "6px_30mm_pcb",
+                "pixels": [1, 3, 4, 5],
+                "positions": [[-6, 1], [0, 1], [0, 1], [0, 1], [6, 1], [0, 1]],
+            },
+            "6px_1in": {
+                "areas": [0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+                "pcb_name": "6px_1in_pcb",
+                "pixels": [1, 2, 3, 4, 5, 6],
+                "positions": [[-5, 2], [-5, 2], [0, 3], [0, 4], [5, 5], [5, 6]],
+            },
+        },
+        "number": [2, 4],
+        "spacing": [35, 30],
+    },
+    "visa": {"visa_lib": "@py"},
+}
 
 
 def test_saver():

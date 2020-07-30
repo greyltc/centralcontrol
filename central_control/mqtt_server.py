@@ -78,10 +78,10 @@ def _calibrate_eqe(request, mqtthost):
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
     """
     print("calibrating eqe...")
     with fabric() as measurement, MQTTQueuePublisher() as mqttc:
@@ -117,8 +117,6 @@ def _calibrate_eqe(request, mqtthost):
         _eqe(pixel_queue, request, mqttc, measurement, calibration=True)
 
         _log("EQE calibration complete!", "info", **{"mqttc": mqttc})
-
-        mqttc.stop()
 
     print("EQE calibration finished.")
 
@@ -168,13 +166,13 @@ def _calibrate_psu(request, mqtthost):
         # connect instruments
         measurement.connect_instruments(
             dummy=False,
-            visa_lib=config["visa"]["visa-lib"],
+            visa_lib=config["visa"]["visa_lib"],
             smu_address=config["smu"]["address"],
             smu_terminator=config["smu"]["terminator"],
             smu_baud=config["smu"]["baud"],
             smu_front_terminals=config["smu"]["front_terminals"],
             smu_two_wire=config["smu"]["two_wire"],
-            pcb_address=config["pcb"]["uri"],
+            pcb_address=config["controller"]["uri"],
             motion_address=config["motion"]["uri"],
             psu_address=config["psu"]["address"],
             psu_terminator=config["psu"]["terminator"],
@@ -270,7 +268,7 @@ def _calibrate_spectrum(request, mqtthost):
 
         measurement.connect_instruments(
             dummy=False,
-            visa_lib=config["visa"]["visa-lib"],
+            visa_lib=config["visa"]["visa_lib"],
             light_address=config["solarsim"]["address"],
         )
 
@@ -415,7 +413,7 @@ def _home(request, mqtthost):
 
         measurement.connect_instruments(
             dummy=False,
-            pcb_address=config["pcb"]["uri"],
+            pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -458,7 +456,7 @@ def _goto(request, mqtthost):
 
         measurement.connect_instruments(
             dummy=False,
-            pcb_address=config["pcb"]["uri"],
+            pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -496,7 +494,7 @@ def _read_stage(request, mqtthost):
 
         measurement.connect_instruments(
             dummy=False,
-            pcb_address=config["pcb"]["uri"],
+            pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -541,13 +539,13 @@ def _contact_check(request, mqtthost):
 
         measurement.connect_instruments(
             dummy=False,
-            visa_lib=config["visa"]["visa-lib"],
+            visa_lib=config["visa"]["visa_lib"],
             smu_address=config["smu"]["address"],
             smu_terminator=config["smu"]["terminator"],
             smu_baud=config["smu"]["baud"],
             smu_front_terminals=config["smu"]["front_terminals"],
             smu_two_wire=config["smu"]["two_wire"],
-            pcb_address=config["pcb"]["uri"],
+            pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -847,16 +845,21 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
     config = request["config"]
     args = request["args"]
 
+    try:
+        dummy = args["dummy"]
+    except KeyError:
+        dummy = False
+
     # connect instruments
     measurement.connect_instruments(
-        dummy=False,
-        visa_lib=config["visa"]["visa-lib"],
+        dummy=dummy,
+        visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        pcb_address=config["pcb"]["uri"],
+        pcb_address=config["controller"]["uri"],
         motion_address=config["stage"]["uri"],
         light_address=config["solarsim"]["address"],
     )
@@ -1177,16 +1180,21 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
     config = request["config"]
     args = request["args"]
 
+    try:
+        dummy = args["dummy"]
+    except KeyError:
+        dummy = False
+
     # connect instruments
     measurement.connect_instruments(
-        dummy=False,
-        visa_lib=config["visa"]["visa-lib"],
+        dummy=dummy,
+        visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        pcb_address=config["pcb"]["uri"],
+        pcb_address=config["controller"]["uri"],
         motion_address=config["stage"]["uri"],
         lia_address=config["lia"]["address"],
         lia_terminator=config["lia"]["terminator"],
@@ -1199,23 +1207,24 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
 
     measurement.set_experiment_relay("eqe")
 
-    resp = measurement.goto_stage_position(config["experiment_positions"]["eqe"])
+    resp = measurement.goto_stage_position(
+        config["stage"]["experiment_positions"]["eqe"]
+    )
 
     if resp != 0:
         _log(f"Stage/mux error: {resp}! Aborting run!", "error", **{"mqttc": mqttc})
         return
 
+    last_label = None
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
         label = pixel["label"]
         pix = pixel["pixel"]
         _log(
-            f"\nOperating on substrate {label}, pixel {pix}...",
+            f"Operating on substrate {label}, pixel {pix}...",
             "info",
             **{"mqttc": mqttc},
         )
-
-        print(f"{pixel}")
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
