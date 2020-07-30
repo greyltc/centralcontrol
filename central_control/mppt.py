@@ -108,7 +108,9 @@ class mppt:
                 self.Vmpp * 1000, initial_soak
             )
         )
-        q = self.sm.measureUntil(t_dwell=initial_soak, handler=handler)
+        q = self.sm.measureUntil(
+            t_dwell=initial_soak, handler=handler, handler_kwargs=handler_kwargs
+        )
         # use most recent current measurement as Impp
         self.Impp = q[-1][1]
         if self.current_compliance is None:
@@ -125,7 +127,9 @@ class mppt:
         if algo == "basic":
             if len(params) == 0:
                 # use defaults
-                pptv = self.really_dumb_tracker(duration, callback, handler=handler)
+                pptv = self.really_dumb_tracker(
+                    duration, callback, handler=handler, handler_kwargs=handler_kwargs
+                )
             else:
                 params = params.split(":")
                 if len(params) != 2:
@@ -141,11 +145,14 @@ class mppt:
                     dAngleMax=params[0],
                     dwell_time=params[1],
                     handler=handler,
+                    handler_kwargs=handler_kwargs,
                 )
         elif algo == "gradient_descent":
             # use defaults
             if len(params) == 0:
-                pptv = self.gradient_descent(duration, callback, handler=handler)
+                pptv = self.gradient_descent(
+                    duration, callback, handler=handler, handler_kwargs=handler_kwargs
+                )
             else:
                 params = params.split(":")
                 if len(params) != 3:
@@ -162,6 +169,7 @@ class mppt:
                     min_step=params[1],
                     fade_in=params[2],
                     handler=handler,
+                    handler_kwargs=handler_kwargs,
                 )
         else:
             print(
@@ -187,6 +195,7 @@ class mppt:
         min_step=0.001,
         fade_in=10,
         handler=None,
+        handler_kwargs={},
     ):
         """
     gradient descent MPPT algorithm
@@ -226,7 +235,9 @@ class mppt:
                 alpha = given_alpha
 
             # apply new voltage and record a measurement
-            v, i, abort = self.measure(W, handler=handler)
+            v, i, abort = self.measure(
+                W, handler=handler, handler_kwargs=handler_kwargs
+            )
             this = (v, i)
             if (
                 this[0] == last[0]
@@ -253,7 +264,7 @@ class mppt:
         del self.q
         return q
 
-    def measure(self, v_set, handler=None):
+    def measure(self, v_set, handler=None, handler_kwargs={}):
         """
     sets the voltage and makes a measurement
     #returns abort = true and shuts off the sourcemeter output
@@ -264,7 +275,7 @@ class mppt:
         self.sm.setOutput(v_set)
         measurement = self.sm.measure()
         if handler is not None:
-            handler(measurement)
+            handler(measurement, **handler_kwargs)
         [v, i, tx, status] = measurement
         abort = False
         # if v * i > 0:
@@ -275,7 +286,13 @@ class mppt:
         return v, i, abort
 
     def really_dumb_tracker(
-        self, duration, callback=None, dAngleMax=7, dwell_time=10, handler=None
+        self,
+        duration,
+        callback=None,
+        dAngleMax=7,
+        dwell_time=10,
+        handler=None,
+        handler_kwargs={},
     ):
         """
     A super dumb maximum power point tracking algorithm that
@@ -314,7 +331,9 @@ class mppt:
             highEdgeTouched = False
             lowEdgeTouched = False
             while not abort and not (highEdgeTouched and lowEdgeTouched):
-                v, i, abort = self.measure(v_set, handler=handler)
+                v, i, abort = self.measure(
+                    v_set, handler=handler, handler_kwargs=handler_kwargs
+                )
 
                 i_explore = numpy.append(i_explore, i)
                 v_explore = numpy.append(v_explore, v)
@@ -405,9 +424,16 @@ class mppt:
                 )
             )
             if callback != None:
-                dq = self.sm.measureUntil(t_dwell=dwell, cb=callback)
+                dq = self.sm.measureUntil(
+                    t_dwell=dwell,
+                    cb=callback,
+                    handler=handler,
+                    handler_kwargs=handler_kwargs,
+                )
             else:
-                dq = self.sm.measureUntil(t_dwell=dwell)
+                dq = self.sm.measureUntil(
+                    t_dwell=dwell, handler=handler, handler_kwargs=handler_kwargs
+                )
             Impp = dq[-1][1]
             self.q.extend(dq)
 

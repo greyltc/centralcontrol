@@ -61,6 +61,8 @@ def save_data(payload, kind, processed=False):
 
     save_path = save_folder.joinpath(f"{payload['idn']}_{exp_timestamp}.{exp}")
 
+    print(save_path)
+
     # create file with header if pixel
     if save_path.exists() is False:
         with open(save_path, "w", newline="\n") as f:
@@ -145,7 +147,7 @@ def save_run_settings(payload):
     global folder
     global exp_timestamp
 
-    folder = pathlib.Path(payload["args"]["destination"])
+    folder = pathlib.Path(payload["args"]["run_name"])
     if folder.exists() is False:
         folder.mkdir()
 

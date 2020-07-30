@@ -33,7 +33,7 @@ args = {
         "sc6",
     ],
     "eqe_start": 300.0,
-    "eqe_step": 5.0,
+    "eqe_step": 100.0,
     "eqe_subs_dev_nums": [1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6],
     "eqe_subs_labels": [
         "bad devices",
@@ -53,7 +53,7 @@ args = {
     "goto_x": 62.5,
     "goto_y": 0.0,
     "goto_z": 0.0,
-    "i_dwell": 1.0,
+    "i_dwell": 3.0,
     "i_dwell_check": True,
     "i_dwell_value": 0.0,
     "i_dwell_value_ma": 0.0,
@@ -106,7 +106,7 @@ args = {
     "sweep_check": True,
     "sweep_end": -0.2,
     "sweep_start": 1.2,
-    "v_dwell": 1.0,
+    "v_dwell": 3.0,
     "v_dwell_check": True,
     "v_dwell_value": 0.0,
 }
@@ -134,11 +134,16 @@ def load_config_from_file():
 
 # config = load_config_from_file()
 config = {
-    "controller": {"uri": None},
+    "controller": {"uri": "127.0.0.1"},
     "ivt": {"percent_beyond_voc": 25, "voltage_beyond_isc": 0.1},
-    "lia": {"address": None, "baud": 9600, "output_interface": 0, "terminator": "\\r"},
+    "lia": {
+        "address": "127.0.0.1",
+        "baud": 9600,
+        "output_interface": 0,
+        "terminator": "\\r",
+    },
     "monochromator": {
-        "address": None,
+        "address": "127.0.0.1",
         "baud": 9600,
         "filter_change_wls": [370, 640, 715, 765],
         "grating_change_wls": [1200],
@@ -146,7 +151,7 @@ config = {
     },
     "network": {"archive": "ftp://test:21/drop", "live_data_uri": "https://google.com"},
     "psu": {
-        "address": None,
+        "address": "127.0.0.1",
         "baud": 9600,
         "calibration": {"current_step": 0.1, "max_current": 1},
         "ch1_voltage": 30,
@@ -181,7 +186,7 @@ config = {
         "spectra": {"AM1.5G": {"irr": [1, 1, 1], "wls": [0, 1, 2]}},
     },
     "smu": {
-        "address": None,
+        "address": "127.0.0.1",
         "baud": 57600,
         "front_terminals": False,
         "terminator": "\\n",
@@ -189,7 +194,7 @@ config = {
     },
     "solarsim": {"uri": "wavelabs://127.0.0.1:1111"},
     "stage": {
-        "uri": None,
+        "uri": "127.0.0.1",
         "custom_positions": {
             "Load Position": 23,
             "Midway": 62.5,
@@ -488,6 +493,12 @@ def test_cal_spectrum():
     ).wait_for_publish()
 
 
+def test_contact_check():
+    mqttc.publish(
+        "measurement/contact_check", pickle.dumps({"args": args, "config": config}), 2,
+    ).wait_for_publish()
+
+
 def test_cal_rtd():
     mqttc.publish(
         "measurement/calibrate_rtd", pickle.dumps({"args": args, "config": config}), 2
@@ -529,9 +540,9 @@ if __name__ == "__main__":
 
     # test_cal_solarsim_diodes()
 
-    test_cal_rtd()
+    # test_cal_rtd()
 
-    # test_run()
+    test_run()
 
     mqttc.loop_stop()
     mqttc.disconnect()

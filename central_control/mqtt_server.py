@@ -123,7 +123,7 @@ def _calibrate_eqe(request, mqtthost):
             }
             pixel_queue = collections.deque(pixel_dict)
 
-        _eqe(pixel_queue, request, mqttc, measurement, calibration=True)
+        _eqe(pixel_queue, request, measurement, mqttc, calibration=True)
 
         _log("EQE calibration complete!", "info", **{"mqttc": mqttc})
 
@@ -939,7 +939,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             mqttc.append_payload("plot/vt/clear", pickle.dumps(""))
             print("i_dwell")
             if calibration is False:
-                handler_kwargs = {"kind": "vt_measurement", "idn": idn, "mqttc": mqttc}
+                handler_kwargs["kind"] = "vt_measurement"
 
             vt = measurement.steady_state(
                 t_dwell=args["i_dwell"],
@@ -953,7 +953,6 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 handler_kwargs=handler_kwargs,
             )
 
-            print(type(vt))
             data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
@@ -965,7 +964,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         if args["sweep_check"] is True:
             # detmine type of sweeps to perform
             if (s := args["lit_sweep"]) == 0:
-                sweeps = ["dark", "ligh"]
+                sweeps = ["dark", "light"]
             elif s == 1:
                 sweeps = ["light", "dark"]
             elif s == 2:
@@ -998,12 +997,8 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 )
 
                 if calibration is False:
-                    handler_kwargs = {
-                        "kind": "iv_measurement",
-                        "idn": idn,
-                        "sweep": sweep,
-                        "mqttc": mqttc,
-                    }
+                    handler_kwargs["kind"] = "iv_measurement"
+                    handler_kwargs["sweep"] = sweep
 
                 iv1 = measurement.sweep(
                     sourceVoltage=True,
@@ -1037,12 +1032,8 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 )
 
                 if calibration is False:
-                    handler_kwargs = {
-                        "kind": "iv_measurement",
-                        "idn": idn,
-                        "sweep": sweep,
-                        "mqttc": mqttc,
-                    }
+                    handler_kwargs["kind"] = "iv_measurement"
+                    handler_kwargs["sweep"] = sweep
 
                 iv2 = measurement.sweep(
                     sourceVoltage=True,
@@ -1097,11 +1088,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             mqttc.append_payload("plot/mppt/clear", pickle.dumps(""))
 
             if calibration is False:
-                handler_kwargs = {
-                    "kind": "mppt_measurement",
-                    "idn": idn,
-                    "mqttc": mqttc,
-                }
+                handler_kwargs["kind"] = "mppt_measurement"
 
             # measure voc for 1s to initialise mppt
             vt = measurement.steady_state(
@@ -1137,7 +1124,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             print("v_dwell")
 
             if calibration is False:
-                handler_kwargs = {"kind": "it_measurement", "idn": idn, "mqttc": mqttc}
+                handler_kwargs["kind"] = "it_measurement"
 
             it = measurement.steady_state(
                 t_dwell=args["v_dwell"],
@@ -1165,7 +1152,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 )
 
 
-def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
+def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
     """Run through pixel queue of EQE measurements.
 
     Paramters
@@ -1202,6 +1189,7 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         mono_address=config["monochromator"]["address"],
         mono_terminator=config["monochromator"]["terminator"],
         mono_baud=config["monochromator"]["baud"],
+        psu_address=config["psu"]["address"],
     )
 
     measurement.set_experiment_relay("eqe")
@@ -1214,6 +1202,9 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
         _log(f"Stage/mux error: {resp}! Aborting run!", "error", **{"mqttc": mqttc})
         return
 
+    print(pixel_queue)
+    time.sleep(10)
+
     last_label = None
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
@@ -1224,6 +1215,8 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             "info",
             **{"mqttc": mqttc},
         )
+
+        print(pixel)
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
@@ -1258,7 +1251,12 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
             handler_kwargs = {}
         else:
             handler = _handle_measurement_data
-            handler_kwargs = {"idn": idn, "pixel": pixel, "mqttc": mqttc}
+            handler_kwargs = {
+                "kind": "eqe_measurement",
+                "idn": idn,
+                "pixel": pixel,
+                "mqttc": mqttc,
+            }
 
         # clear eqe plot
         mqttc.append_payload("plot/eqe/clear", pickle.dumps(""))
@@ -1321,10 +1319,6 @@ def _run(request, mqtthost):
 
         _log("Starting run...", "info", **{"mqttc": mqttc})
 
-        if args["dummy"] is True:
-            args["iv_devs"] = format(1, f"#0{len(args['iv_devs'])}x")
-            args["eqe_devs"] = args["iv_devs"]
-
         if args["iv_devs"] is not None:
             try:
                 iv_pixel_queue = _build_q(request, experiment="solarsim")
@@ -1343,6 +1337,9 @@ def _run(request, mqtthost):
                 return
         else:
             eqe_pixel_queue = []
+
+        print(iv_pixel_queue)
+        print(eqe_pixel_queue)
 
         # measure i-v-t
         if len(iv_pixel_queue) > 0:
@@ -1390,6 +1387,8 @@ def on_message(mqttc, obj, msg):
         start_process(_calibrate_spectrum, (request, cli_args.mqtthost,))
     elif action == "calibrate_rtd":
         start_process(_calibrate_rtd, (request, cli_args.mqtthost,))
+    elif action == "contact_check":
+        start_process(_contact_check, (request, cli_args.mqtthost,))
     elif action == "home":
         start_process(_home, (request, cli_args.mqtthost,))
     elif action == "goto":

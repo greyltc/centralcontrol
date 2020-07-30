@@ -416,6 +416,8 @@ class k2400:
             measurement = self.measure()
             data.append(measurement)
             cb(measurement)
+            if handler is not None:
+                handler(measurement, **handler_kwargs)
         return data
 
     def measure(self):

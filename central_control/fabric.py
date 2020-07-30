@@ -79,7 +79,7 @@ class fabric:
 
         return compliance_i
 
-    def connect_smu(
+    def _connect_smu(
         self,
         dummy=False,
         visa_lib="@py",
@@ -111,30 +111,27 @@ class fabric:
             Flag whether to measure in two-wire mode. If `False` measure in four-wire
             mode.
         """
-        if (smu_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.sm = virt.k2400()
         else:
-            if dummy is True:
-                self.sm = virt.k2400()
-            else:
-                self.sm = k2400(
-                    visa_lib=visa_lib,
-                    terminator=smu_terminator,
-                    addressString=smu_address,
-                    serialBaud=smu_baud,
-                )
-            self.sm_idn = self.sm.idn
+            self.sm = k2400(
+                visa_lib=visa_lib,
+                terminator=smu_terminator,
+                addressString=smu_address,
+                serialBaud=smu_baud,
+            )
+        self.sm_idn = self.sm.idn
 
-            # set up smu terminals
-            self.sm.setTerminals(front=smu_front_terminals)
-            self.sm.setWires(twoWire=smu_two_wire)
+        # set up smu terminals
+        self.sm.setTerminals(front=smu_front_terminals)
+        self.sm.setWires(twoWire=smu_two_wire)
 
-            # instantiate max-power tracker object based on smu
-            self.mppt = mppt(self.sm)
+        # instantiate max-power tracker object based on smu
+        self.mppt = mppt(self.sm)
 
-            self._connected_instruments.append(self.sm)
+        self._connected_instruments.append(self.sm)
 
-    def connect_lia(
+    def _connect_lia(
         self,
         dummy=False,
         visa_lib="@py",
@@ -167,25 +164,22 @@ class fabric:
                 * 0 : RS232
                 * 1 : GPIB
         """
-        if (lia_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.lia = virtual_sr830.sr830(return_int=True)
         else:
-            if dummy is True:
-                self.lia = virtual_sr830.sr830(return_int=True)
-            else:
-                self.lia = sr830.sr830(return_int=True, check_errors=True)
+            self.lia = sr830.sr830(return_int=True, check_errors=True)
 
-            # default lia_output_interface is RS232
-            self.lia.connect(
-                resource_name=lia_address,
-                output_interface=lia_output_interface,
-                set_default_configuration=True,
-            )
-            self.lia_idn = self.lia.get_id()
+        # default lia_output_interface is RS232
+        self.lia.connect(
+            resource_name=lia_address,
+            output_interface=lia_output_interface,
+            set_default_configuration=True,
+        )
+        self.lia_idn = self.lia.get_id()
 
-            self._connected_instruments.append(self.lia)
+        self._connected_instruments.append(self.lia)
 
-    def connect_monochromator(
+    def _connect_monochromator(
         self,
         dummy=False,
         visa_lib="@py",
@@ -210,19 +204,16 @@ class fabric:
         mono_baud : int
             Baud rate for serial communication with the monochromator.
         """
-        if (mono_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.mono = virtual_sp2150.sp2150()
         else:
-            if dummy is True:
-                self.mono = virtual_sp2150.sp2150()
-            else:
-                self.mono = sp2150.sp2150()
-            self.mono.connect(resource_name=mono_address)
-            self.mono.set_scan_speed(1000)
+            self.mono = sp2150.sp2150()
+        self.mono.connect(resource_name=mono_address)
+        self.mono.set_scan_speed(1000)
 
-            self._connected_instruments.append(self.mono)
+        self._connected_instruments.append(self.mono)
 
-    def connect_solarsim(self, dummy=False, visa_lib="@py", light_address=None):
+    def _connect_solarsim(self, dummy=False, visa_lib="@py", light_address=None):
         """Create solar simulator connection.
 
         Parameters
@@ -236,18 +227,15 @@ class fabric:
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
         """
-        if (light_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.le = virt.illumination(address=light_address)
         else:
-            if dummy is True:
-                self.le = virt.illumination(address=light_address)
-            else:
-                self.le = illumination(address=light_address)
-            self.le.connect()
+            self.le = illumination(address=light_address)
+        self.le.connect()
 
-            self._connected_instruments.append(self.le)
+        self._connected_instruments.append(self.le)
 
-    def connect_psu(
+    def _connect_psu(
         self,
         dummy=False,
         visa_lib="@py",
@@ -272,20 +260,17 @@ class fabric:
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
         """
-        if (psu_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.psu = virtual_dp800.dp800()
         else:
-            if dummy is True:
-                self.psu = virtual_dp800.dp800()
-            else:
-                self.psu = dp800.dp800()
+            self.psu = dp800.dp800()
 
-            self.psu.connect(resource_name=psu_address)
-            self.psu_idn = self.psu.get_id()
+        self.psu.connect(resource_name=psu_address)
+        self.psu_idn = self.psu.get_id()
 
-            self._connected_instruments.append(self.psu)
+        self._connected_instruments.append(self.psu)
 
-    def connect_pcb(self, dummy=False, pcb_address=None):
+    def _connect_pcb(self, dummy=False, pcb_address=None):
         """Add control PCB attributes to class.
 
         PCB commands run in their own context manager so this isn't a real connect
@@ -300,17 +285,14 @@ class fabric:
         pcb_address : str
             Control PCB address string.
         """
-        if (pcb_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.pcb_address = "dummy"
+            self.pcb = virt.pcb
         else:
-            if dummy is True:
-                self.pcb_address = "dummy"
-                self.pcb = virt.pcb
-            else:
-                self.pcb_address = pcb_address
-                self.pcb = pcb
+            self.pcb_address = pcb_address
+            self.pcb = pcb
 
-    def connect_motion(self, dummy=False, motion_address=None):
+    def _connect_motion(self, dummy=False, motion_address=None):
         """Add motion controller attributes to class.
 
         Motion commands run in their own context manager so this isn't a real connect
@@ -325,15 +307,12 @@ class fabric:
         motion_address : str
             Control PCB address string.
         """
-        if (motion_address is None) & (dummy is False):
-            return
+        if dummy is True:
+            self.motion_address = "dummy"
+            self.motion = virt.motion
         else:
-            if dummy is True:
-                self.motion_address = "dummy"
-                self.motion = virt.motion
-            else:
-                self.motion_address = motion_address
-                self.motion = motion
+            self.motion_address = motion_address
+            self.motion = motion
 
     def connect_instruments(
         self,
@@ -417,48 +396,55 @@ class fabric:
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
         """
-        self.connect_smu(
-            dummy=dummy,
-            visa_lib=visa_lib,
-            smu_address=smu_address,
-            smu_terminator=smu_terminator,
-            smu_baud=smu_baud,
-            smu_front_terminals=smu_front_terminals,
-            smu_two_wire=smu_two_wire,
-        )
+        if smu_address is not None:
+            self._connect_smu(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                smu_address=smu_address,
+                smu_terminator=smu_terminator,
+                smu_baud=smu_baud,
+                smu_front_terminals=smu_front_terminals,
+                smu_two_wire=smu_two_wire,
+            )
 
-        self.connect_lia(
-            dummy=dummy,
-            visa_lib=visa_lib,
-            lia_address=lia_address,
-            lia_terminator=lia_terminator,
-            lia_baud=lia_baud,
-            lia_output_interface=lia_output_interface,
-        )
+        if lia_address is not None:
+            self._connect_lia(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                lia_address=lia_address,
+                lia_terminator=lia_terminator,
+                lia_baud=lia_baud,
+                lia_output_interface=lia_output_interface,
+            )
 
-        self.connect_monochromator(
-            dummy=dummy,
-            visa_lib=visa_lib,
-            mono_address=mono_address,
-            mono_terminator=mono_terminator,
-            mono_baud=mono_baud,
-        )
+        if mono_address is not None:
+            self._connect_monochromator(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                mono_address=mono_address,
+                mono_terminator=mono_terminator,
+                mono_baud=mono_baud,
+            )
 
-        self.connect_solarsim(
-            dummy=dummy, visa_lib=visa_lib, light_address=light_address
-        )
+        if light_address is not None:
+            self._connect_solarsim(
+                dummy=dummy, visa_lib=visa_lib, light_address=light_address
+            )
 
-        self.connect_psu(
-            dummy=dummy,
-            visa_lib=visa_lib,
-            psu_address=psu_address,
-            psu_terminator=psu_terminator,
-            psu_baud=psu_baud,
-        )
+        if psu_address is not None:
+            self._connect_psu(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                psu_address=psu_address,
+                psu_terminator=psu_terminator,
+                psu_baud=psu_baud,
+            )
 
-        self.connect_pcb(dummy, pcb_address)
+        if pcb_address is not None:
+            self._connect_pcb(dummy, pcb_address)
 
-        self.connect_motion(dummy, mono_address)
+        if motion_address is not None:
+            self._connect_motion(dummy, motion_address)
 
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
