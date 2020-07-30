@@ -1,7 +1,6 @@
 import mpmath
 import time
 import numpy
-from collections import deque
 
 
 class motion:
@@ -105,7 +104,7 @@ class k2400:
     def setNPLC(self, nplc):
         return
 
-    def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1):
+    def setupDC(self, sourceVoltage=True, compliance=0.1, setPoint=1, senseRange="f"):
         if sourceVoltage:
             src = "voltage"
             snc = "current"
@@ -122,10 +121,9 @@ class k2400:
         sourceVoltage=True,
         compliance=0.1,
         nPoints=101,
-        stepDelay=-1,
         start=0,
         end=1,
-        streaming=False,
+        senseRange="f",
     ):
         """setup for a sweep operation
     """
@@ -137,11 +135,11 @@ class k2400:
             src = "current"
             snc = "voltage"
         self.src = src
-        self.nPoints = nPoints
+        self.nPoints = int(nPoints)
         self.sweepMode = True
         self.sweepStart = start
         self.sweepEnd = end
-        self.dV = abs(float(self.query_values(":source:voltage:step?")))
+        self.dV = self.query_values(":source:voltage:step?")
 
     def setOutput(self, outVal):
         self.write(":source:{:s} {:.6f}".format(self.src, outVal))
@@ -235,21 +233,26 @@ class k2400:
                         [self.V, self.I, time.time() - self.t0, self.status]
                     )
                     sweepArray = numpy.vstack([sweepArray, measurementLine])
-                return sweepArray
+                return sweepArray.tolist()
             else:  # non sweep mode
                 time.sleep(self.measurementTime)
                 measurementLine = numpy.array(
                     [self.V, self.I, time.time() - self.t0, self.status]
                 )
-                return measurementLine
+                return measurementLine.tolist()
         elif command == ":source:voltage:step?":
             dV = (self.sweepEnd - self.sweepStart) / self.nPoints
-            return numpy.array([dV])
+            return abs(dV)
         else:
             raise ValueError("What?")
 
     def measureUntil(
-        self, t_dwell=numpy.inf, measurements=numpy.inf, cb=lambda x: None
+        self,
+        t_dwell=numpy.inf,
+        measurements=numpy.inf,
+        cb=lambda x: None,
+        handler=None,
+        handler_kwargs={},
     ):
         """Meakes measurements until termination conditions are met
     supports a callback after every measurement
@@ -257,13 +260,13 @@ class k2400:
     """
         i = 0
         t_end = time.time() + t_dwell
-        q = deque()
+        data = []
         while (i < measurements) and (time.time() < t_end):
             i = i + 1
             measurement = self.measure()
-            q.append(measurement)
+            data.append(measurement)
             cb(measurement)
-        return q
+        return data
 
     def measure(self):
         return self.query_values("READ?")
@@ -279,6 +282,9 @@ class k2400:
 
     def disconnect(self):
         print("Disconnecting SMU")
+
+    def setStepDelay(self, stepDelay=-1):
+        pass
 
 
 class pcb:

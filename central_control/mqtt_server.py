@@ -44,6 +44,15 @@ def start_process(target, args):
     """
     global process
 
+    # inject dummy key if necessary
+    request = args[0]
+    if "dummy" not in request["args"].keys():
+        request["args"]["dummy"] = False
+        args = (
+            request,
+            args[1],
+        )
+
     if process.is_alive() is False:
         process = multiprocessing.Process(target=target, args=args)
         process.start()
@@ -165,7 +174,7 @@ def _calibrate_psu(request, mqtthost):
 
         # connect instruments
         measurement.connect_instruments(
-            dummy=False,
+            dummy=args["dummy"],
             visa_lib=config["visa"]["visa_lib"],
             smu_address=config["smu"]["address"],
             smu_terminator=config["smu"]["terminator"],
@@ -239,8 +248,6 @@ def _calibrate_psu(request, mqtthost):
 
         _log("LED PSU calibration complete!", "info", **{"mqttc": mqttc})
 
-        mqttc.stop()
-
     print("Finished calibrating PSU.")
 
 
@@ -263,13 +270,14 @@ def _calibrate_spectrum(request, mqtthost):
         _log("Calibrating solar simulator spectrum...", "info", **{"mqttc": mqttc})
 
         config = request["config"]
+        args = request["args"]
 
         timestamp = time.time()
 
         measurement.connect_instruments(
-            dummy=False,
+            dummy=args["dummy"],
             visa_lib=config["visa"]["visa_lib"],
-            light_address=config["solarsim"]["address"],
+            light_address=config["solarsim"]["uri"],
         )
 
         spectrum = measurement.measure_spectrum()
@@ -283,8 +291,6 @@ def _calibrate_spectrum(request, mqtthost):
         _log(
             "Finished calibrating solar simulator spectrum!", "info", **{"mqttc": mqttc}
         )
-
-        mqttc.stop()
 
     print("Spectrum calibration complete.")
 
@@ -338,8 +344,6 @@ def _calibrate_solarsim_diodes(request, mqtthost):
 
         _log("Solar simulator diode calibration complete!", "info", **{"mqttc": mqttc})
 
-        mqttc.stop()
-
     print("Solar sim diode calibration complete.")
 
 
@@ -386,8 +390,6 @@ def _calibrate_rtd(request, mqtthost):
 
         _log("RTD calibration complete!", "info", **{"mqttc": mqttc})
 
-        mqttc.stop()
-
     print("RTD calibration complete.")
 
 
@@ -410,9 +412,10 @@ def _home(request, mqtthost):
         _log("Homing stage...", "info", **{"mqttc": mqttc})
 
         config = request["config"]
+        args = request["args"]
 
         measurement.connect_instruments(
-            dummy=False,
+            dummy=args["dummy"],
             pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
@@ -425,8 +428,6 @@ def _home(request, mqtthost):
             _log(f"Home failed with result: {homed}", "error", **{"mqttc": mqttc})
 
         _log("Homing complete!", "info", **{"mqttc": mqttc})
-
-        mqttc.stop()
 
     print("Homing complete.")
 
@@ -453,9 +454,10 @@ def _goto(request, mqtthost):
         position = [args["goto_x"], args["goto_y"]]
 
         config = request["config"]
+        args = request["args"]
 
         measurement.connect_instruments(
-            dummy=False,
+            dummy=args["dummy"],
             pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
@@ -466,8 +468,6 @@ def _goto(request, mqtthost):
             _log(f"Goto failed with result: {goto}", "error", **{"mqttc": mqttc})
 
         _log("Goto complete!", "info", **{"mqttc": mqttc})
-
-        mqttc.stop()
 
     print("Goto complete.")
 
@@ -491,9 +491,10 @@ def _read_stage(request, mqtthost):
         _log(f"Reading stage position...", "info", **{"mqttc": mqttc})
 
         config = request["config"]
+        args = request["args"]
 
         measurement.connect_instruments(
-            dummy=False,
+            dummy=args["dummy"],
             pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
@@ -510,8 +511,6 @@ def _read_stage(request, mqtthost):
             )
 
         _log("Read complete!", "info", **{"mqttc": mqttc})
-
-        mqttc.stop()
 
     print("Read stage complete.")
 
@@ -538,7 +537,7 @@ def _contact_check(request, mqtthost):
         config = request["config"]
 
         measurement.connect_instruments(
-            dummy=False,
+            dummy=args["dummy"],
             visa_lib=config["visa"]["visa_lib"],
             smu_address=config["smu"]["address"],
             smu_terminator=config["smu"]["terminator"],
@@ -582,8 +581,6 @@ def _contact_check(request, mqtthost):
         _log(response, "info", **{"mqttc": mqttc})
 
         _log("Contact check complete!", "info", **{"mqttc": mqttc})
-
-        mqttc.stop()
 
     print("Contact check complete.")
 
@@ -845,14 +842,9 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
     config = request["config"]
     args = request["args"]
 
-    try:
-        dummy = args["dummy"]
-    except KeyError:
-        dummy = False
-
     # connect instruments
     measurement.connect_instruments(
-        dummy=dummy,
+        dummy=args["dummy"],
         visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
@@ -861,7 +853,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         smu_two_wire=config["smu"]["two_wire"],
         pcb_address=config["controller"]["uri"],
         motion_address=config["stage"]["uri"],
-        light_address=config["solarsim"]["address"],
+        light_address=config["solarsim"]["uri"],
     )
 
     # set the master experiment relay
@@ -938,7 +930,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         if args["i_dwell"] > 0:
             # clear v@constant I plot
             mqttc.append_payload("plot/vt/clear", pickle.dumps(""))
-
+            print("i_dwell")
             if calibration is False:
                 handler_kwargs = {"kind": "vt_measurement", "idn": idn, "mqttc": mqttc}
 
@@ -954,6 +946,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 handler_kwargs=handler_kwargs,
             )
 
+            print(type(vt))
             data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
@@ -987,6 +980,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 sense_range = "f"
 
             if args["sweep_check"] is True:
+                print("sweep 1")
                 start = args["sweep_start"]
                 end = args["sweep_end"]
 
@@ -1012,7 +1006,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     stepDelay=source_delay,
                     start=start,
                     end=end,
-                    NPLC=args["scan_nplc"],
+                    NPLC=args["nplc"],
                     handler=handler,
                     handler_kwargs=handler_kwargs,
                 )
@@ -1024,6 +1018,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 )
 
             if args["return_switch"] is True:
+                print("sweep 2")
                 # sweep the opposite way to sweep 1
                 start = end
                 end = start
@@ -1050,7 +1045,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     stepDelay=source_delay,
                     start=start,
                     end=end,
-                    NPLC=args["scan_nplc"],
+                    NPLC=args["nplc"],
                     handler=handler,
                     handler_kwargs=handler_kwargs,
                 )
@@ -1090,7 +1085,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 "info",
                 **{"mqttc": mqttc},
             )
-
+            print("mppt dwell")
             # clear mppt plot
             mqttc.append_payload("plot/mppt/clear", pickle.dumps(""))
 
@@ -1113,12 +1108,12 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 handler=handler,
                 handler_kwargs=handler_kwargs,
             )
-            measurement.mppt.Voc = vt[-1]
+            measurement.mppt.Voc = vt[-1][0]
 
             mt = measurement.track_max_power(
                 args["mppt_dwell"],
                 NPLC=args["nplc"],
-                stepDelay=args["source_delay"],
+                step_delay=args["source_delay"],
                 extra=args["mppt_params"],
                 handler=handler,
                 handler_kwargs=handler_kwargs,
@@ -1132,8 +1127,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             # clear I@constant V plot
             mqttc.append_payload("plot/it/clear", pickle.dumps(""))
 
+            print("v_dwell")
+
             if calibration is False:
-                handler_kwagrgs = {"kind": "it_measurement", "idn": idn, "mqttc": mqttc}
+                handler_kwargs = {"kind": "it_measurement", "idn": idn, "mqttc": mqttc}
 
             it = measurement.steady_state(
                 t_dwell=args["v_dwell"],
@@ -1144,7 +1141,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 senseRange="a",
                 setPoint=args["v_dwell_value"],
                 handler=handler,
-                handler_kwargs=handler_kwagrgs,
+                handler_kwargs=handler_kwargs,
             )
 
             data += it
@@ -1180,14 +1177,9 @@ def _eqe(pixel_queue, request, mqttc, measurement, calibration=False):
     config = request["config"]
     args = request["args"]
 
-    try:
-        dummy = args["dummy"]
-    except KeyError:
-        dummy = False
-
     # connect instruments
     measurement.connect_instruments(
-        dummy=dummy,
+        dummy=args["dummy"],
         visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
@@ -1322,13 +1314,7 @@ def _run(request, mqtthost):
 
         _log("Starting run...", "info", **{"mqttc": mqttc})
 
-        # build up the queue of pixels to run through
-        try:
-            dummy = args["dummy"]
-        except KeyError:
-            dummy = False
-
-        if dummy is True:
+        if args["dummy"] is True:
             args["iv_devs"] = format(1, f"#0{len(args['iv_devs'])}x")
             args["eqe_devs"] = args["iv_devs"]
 
@@ -1367,7 +1353,6 @@ def _run(request, mqtthost):
         _log("Run complete!", "info", **{"mqttc": mqttc})
 
         # close mqtt client cleanly
-        mqttc.stop()
 
     print("Measurement complete.")
 

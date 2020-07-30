@@ -544,6 +544,8 @@ class fabric:
         with self.pcb(self.pcb_address) as p:
             resp = p.get(exp_relay)
 
+        return resp
+
     def slugify(self, value, allow_unicode=False):
         """Convert string to slug.
 
@@ -619,11 +621,11 @@ class fabric:
         self.sm.write(
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
-        q = self.sm.measureUntil(
+        raw = self.sm.measureUntil(
             t_dwell=t_dwell, handler=handler, handler_kwargs=handler_kwargs
         )
 
-        return q
+        return raw
 
     def sweep(
         self,

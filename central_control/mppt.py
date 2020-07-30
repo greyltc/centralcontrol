@@ -50,6 +50,7 @@ class mppt:
         stepDelay=-1,
         extra="basic://7:10",
         handler=None,
+        handler_kwargs={},
     ):
         """Launch maxiumum power point tracker.
 
