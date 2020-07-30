@@ -134,7 +134,7 @@ def _publish(topic, payload):
 
 def _publish_worker(topic, payload):
     """Publish something over MQTT with a fresh client.
-    
+
     Parameters
     ----------
     topic : str

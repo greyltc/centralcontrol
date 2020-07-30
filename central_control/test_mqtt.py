@@ -6,7 +6,7 @@ import yaml
 
 timestamp = time.time()
 
-args = {
+test_args = {
     "ad_switch": True,
     "chan1": 0.0,
     "chan1_ma": 0.0,
@@ -110,7 +110,7 @@ args = {
     "v_dwell_check": True,
     "v_dwell_value": 0.0,
 }
-args["dummy"] = True
+test_args["dummy"] = True
 
 
 def yaml_include(loader, node):
@@ -133,7 +133,7 @@ def load_config_from_file():
 
 
 # config = load_config_from_file()
-config = {
+test_config = {
     "controller": {"uri": "127.0.0.1"},
     "ivt": {"percent_beyond_voc": 25, "voltage_beyond_isc": 0.1},
     "lia": {
@@ -235,10 +235,7 @@ config = {
 
 def test_saver():
     """Test the saver client."""
-    run_payload = {
-        "args": {"destination": f"{timestamp}_test_data"},
-        "config": {"test": "test"},
-    }
+    run_payload = {"args": test_args, "config": test_config}
 
     raw_ivt_data = [1, 1, 1, 1]
     raw_ivt_payload = {
@@ -388,12 +385,7 @@ def test_saver():
 
 
 def test_analyser():
-    run_payload = {
-        "args": {"destination": f"{timestamp}_test_data"},
-        "config": {
-            "reference": {"calibration": {"eqe": {"wls": [0, 1, 2], "eqe": [2, 2, 2]}}}
-        },
-    }
+    run_payload = {"args": test_args, "config": test_config}
 
     raw_ivt_data = [1, 1, 1, 1]
     raw_ivt_payload = {
@@ -453,7 +445,7 @@ def test_analyser():
 
 def test_run():
     mqttc.publish(
-        "measurement/run", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/run", pickle.dumps({"args": test_args, "config": test_config}), 2
     ).wait_for_publish()
 
 
@@ -465,20 +457,24 @@ def test_stop():
 
 def test_cal_eqe():
     mqttc.publish(
-        "measurement/calibrate_eqe", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/calibrate_eqe",
+        pickle.dumps({"args": test_args, "config": test_config}),
+        2,
     ).wait_for_publish()
 
 
 def test_cal_psu():
     mqttc.publish(
-        "measurement/calibrate_psu", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/calibrate_psu",
+        pickle.dumps({"args": test_args, "config": test_config}),
+        2,
     ).wait_for_publish()
 
 
 def test_cal_solarsim_diodes():
     mqttc.publish(
         "measurement/calibrate_solarsim_diodes",
-        pickle.dumps({"args": args, "config": config}),
+        pickle.dumps({"args": test_args, "config": test_config}),
         2,
     ).wait_for_publish()
 
@@ -486,38 +482,44 @@ def test_cal_solarsim_diodes():
 def test_cal_spectrum():
     mqttc.publish(
         "measurement/calibrate_spectrum",
-        pickle.dumps({"args": args, "config": config}),
+        pickle.dumps({"args": test_args, "config": test_config}),
         2,
     ).wait_for_publish()
 
 
 def test_cal_rtd():
     mqttc.publish(
-        "measurement/calibrate_rtd", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/calibrate_rtd",
+        pickle.dumps({"args": test_args, "config": test_config}),
+        2,
     ).wait_for_publish()
 
 
 def test_contact_check():
     mqttc.publish(
-        "measurement/contact_check", pickle.dumps({"args": args, "config": config}), 2,
+        "measurement/contact_check",
+        pickle.dumps({"args": test_args, "config": test_config}),
+        2,
     ).wait_for_publish()
 
 
 def test_home():
     mqttc.publish(
-        "measurement/home", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/home", pickle.dumps({"args": test_args, "config": test_config}), 2
     ).wait_for_publish()
 
 
 def test_goto():
     mqttc.publish(
-        "measurement/goto", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/goto", pickle.dumps({"args": test_args, "config": test_config}), 2
     ).wait_for_publish()
 
 
 def test_read():
     mqttc.publish(
-        "measurement/read_stage", pickle.dumps({"args": args, "config": config}), 2
+        "measurement/read_stage",
+        pickle.dumps({"args": test_args, "config": test_config}),
+        2,
     ).wait_for_publish()
 
 
@@ -546,9 +548,9 @@ if __name__ == "__main__":
 
     # test_cal_rtd()
 
-    test_contact_check()
+    # test_contact_check()
 
-    # test_run()
+    test_run()
 
     # test_stop()
 

@@ -850,6 +850,31 @@ def _handle_measurement_data(data, **kwargs):
     mqttc.append_payload(f"data/raw/{kind}", pickle.dumps(payload))
 
 
+def _clear_plot(**kwargs):
+    """Publish measurement data.
+
+    Parameters
+    ----------
+    data : list
+        List of data to publish.
+    **kwargs : dict
+        Dictionary of additional keyword arguments required by handler.
+    """
+    kind = kwargs["kind"]
+    idn = kwargs["idn"]
+    mqttc = kwargs["mqttc"]
+
+    payload = {
+        "data": "",
+        "idn": idn,
+        "pixel": "",
+        "clear": True,
+        "end": False,
+        "sweep": "",
+    }
+    mqttc.append_payload(f"data/raw/{kind}", pickle.dumps(payload))
+
+
 def _handle_stage_data(data, **kwargs):
     """Publish stage position data.
 
@@ -1005,11 +1030,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
         # steady state v@constant I measured here - usually Voc
         if args["i_dwell"] > 0:
-            # clear v@constant I plot
-            mqttc.append_payload("plot/vt/clear", pickle.dumps(""))
             print("i_dwell")
             if calibration is False:
                 handler_kwargs["kind"] = "vt_measurement"
+                _clear_plot(**handler_kwargs)
 
             vt = measurement.steady_state(
                 t_dwell=args["i_dwell"],
@@ -1046,14 +1070,16 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
         # perform sweeps
         for sweep in sweeps:
-            # clear iv plot
-            mqttc.append_payload("plot/iv/clear", pickle.dumps(""))
-
             if sweep == "dark":
                 measurement.le.off()
                 sense_range = "a"
             else:
                 sense_range = "f"
+
+            if calibration is False:
+                handler_kwargs["kind"] = "iv_measurement"
+                handler_kwargs["sweep"] = sweep
+                _clear_plot(**handler_kwargs)
 
             if args["sweep_check"] is True:
                 print("sweep 1")
@@ -1065,10 +1091,6 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     "info",
                     **{"mqttc": mqttc},
                 )
-
-                if calibration is False:
-                    handler_kwargs["kind"] = "iv_measurement"
-                    handler_kwargs["sweep"] = sweep
 
                 iv1 = measurement.sweep(
                     sourceVoltage=True,
@@ -1092,18 +1114,14 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             if args["return_switch"] is True:
                 print("sweep 2")
                 # sweep the opposite way to sweep 1
-                start = end
-                end = start
+                start = args["sweep_end"]
+                end = args["sweep_start"]
 
                 _log(
                     f"Sweeping voltage from {start} V to {end} V",
                     "info",
                     **{"mqttc": mqttc},
                 )
-
-                if calibration is False:
-                    handler_kwargs["kind"] = "iv_measurement"
-                    handler_kwargs["sweep"] = sweep
 
                 iv2 = measurement.sweep(
                     sourceVoltage=True,
@@ -1154,11 +1172,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 **{"mqttc": mqttc},
             )
             print("mppt dwell")
-            # clear mppt plot
-            mqttc.append_payload("plot/mppt/clear", pickle.dumps(""))
 
             if calibration is False:
                 handler_kwargs["kind"] = "mppt_measurement"
+                _clear_plot(**handler_kwargs)
 
             # measure voc for 1s to initialise mppt
             vt = measurement.steady_state(
@@ -1187,14 +1204,11 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             data += mt
 
         if args["v_dwell"] > 0:
-            # steady state I@constant V measured here - usually Isc
-            # clear I@constant V plot
-            mqttc.append_payload("plot/it/clear", pickle.dumps(""))
-
             print("v_dwell")
 
             if calibration is False:
                 handler_kwargs["kind"] = "it_measurement"
+                _clear_plot(**handler_kwargs)
 
             it = measurement.steady_state(
                 t_dwell=args["v_dwell"],
@@ -1324,9 +1338,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
                 "pixel": pixel,
                 "mqttc": mqttc,
             }
-
-        # clear eqe plot
-        mqttc.append_payload("plot/eqe/clear", pickle.dumps(""))
+            _clear_plot(**handler_kwargs)
 
         # get human-readable timestamp
         timestamp = time.time()
