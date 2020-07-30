@@ -65,7 +65,8 @@ class pcb:
     if not win:
       raise ValueError('Did not see welcome message from pcb')
 
-    #print(f"Connected to control PCB running firmware version {self.get('v')}")
+    version = self.get('v')
+    #print(f"Connected to control PCB running firmware version {version}")
 
     substrates = self.substrateSearch()
     resistors = {}  # dict of measured resistor values where the key is the associated substrate
@@ -263,7 +264,7 @@ class pcb:
 
 # testing
 if __name__ == "__main__":
-  pcb_address = '10.46.0.239'
+  pcb_address = '10.42.0.239'
   with pcb(pcb_address, ignore_adapter_resistors=True) as p:
     print(f"Mux Check result = {p.get('c')}")
     print(f"Stage Check result = {p.get('e')}")

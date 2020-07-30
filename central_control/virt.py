@@ -28,8 +28,14 @@ class illumination():
     pass  
 
 class pcb():
+  def __init__(self, *args, **kwargs):
+    pass
   def pix_picker(self, substrate, pixel, suppressWarning=False):
     return True
+  def __enter__(self):
+    return(self)
+  def __exit__(self, a, b, c):
+    pass
 
 class k2400():
   """Solar cell device simulator (looks like k2400 class)

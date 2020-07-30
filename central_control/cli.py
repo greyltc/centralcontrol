@@ -5,6 +5,8 @@
 
 import central_control # for __version__
 from central_control.fabric import fabric
+from central_control.pcb import pcb
+import central_control.virt as virt
 
 import sys
 import argparse
@@ -186,155 +188,161 @@ class cli:
       pass  # there's probably just no server gui running
     
     # connect to PCB and sourcemeter
-    l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.sm_address, visaTerminator=args.sm_terminator, visaBaud=args.sm_baud, lightAddress=args.light_address, motionAddress=args.motion_address, pcbAddress=args.pcb_address, ignore_adapter_resistors=args.ignore_adapter_resistors)
-    
-    if args.dummy:
-      args.pixel_address = 'A1'
+    if args.dummy == True:
+      pcbc = virt.pcb
     else:
-      if args.rear == False:
-        l.sm.setTerminals(front=True)
-      if args.four_wire == False:
-        l.sm.setWires(twoWire=True)
+      pcbc = pcb
     
-    # build up the queue of pixels to run through
-    if args.pixel_address is not None:
-      pixel_que = self.buildQ(args.pixel_address)
-    else:
-      pixel_que = []
-
-    if args.test_hardware:
-      if pixel_que is []:
-        holders_to_test = l.pcb.substratesConnected
-      else:
-        #turn the address que into a string of substrates
-        mash = ''
-        for pix in pixel_que:
-          mash = mash + pix[0][0]
-        # delete the numbers
-        # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
-        holders_to_test = ''.join(sorted(set(mash))) # remove dupes
-      l.hardwareTest(holders_to_test.upper())
-    else:  # if we do the hardware test, don't then scan pixels
-      #  do run setup things now like diode calibration and opening the data storage file
-      if args.calibrate_diodes == True:
-        diode_cal = True
-      else:
-        diode_cal = args.diode_calibration_values
-      intensity = l.runSetup(args.operator, diode_cal, ignore_diodes=args.ignore_diodes, run_description=args.run_description)
-
-      # record all arguments into the run file
-      l.f.create_group('args')
-      for attr, value in args.__dict__.items():
-        l.f['args'].attrs[attr] = str(value)
-
-      if args.calibrate_diodes == True:
-        d1_cal = intensity[0]
-        d2_cal = intensity[1]
-        print('Setting present intensity diode readings to be used as future 1.0 sun refrence values: [{:}, {:}]'.format(d1_cal, d2_cal))
-        # save the newly read diode calibraion values to the prefs file
-        config = configparser.ConfigParser()
-        config.read(self.config_file_fullpath)
-        config[self.config_section]['diode_calibration_values'] = str([d1_cal, d2_cal])
-        with open(self.config_file_fullpath, 'w') as configfile:
-          config.write(configfile)
-
-      if args.sweep or args.snaith or args.mppt > 0:
-        last_substrate = None
-        # scan through the pixels and do the requested measurements
-        for pixel in pixel_que:
-          substrate = pixel[0][0].upper()
-          pix = pixel[0][1]
-          print('\nOperating on substrate {:s}, pixel {:s}...'.format(substrate, pix))
-          if last_substrate != substrate:  # we have a new substrate
-            print('New substrate using "{:}" layout!'.format(pixel[3]))
-            last_substrate = substrate
-            variable_pairs = []
-            for key, value in self.args.experimental_parameter.items():
-              variable_pairs.append([key, value.pop()])
-
-            substrate_ready = l.substrateSetup(position=substrate, variable_pairs=variable_pairs, layout_name=pixel[3])
+    with pcbc(address=args.pcb_address, ignore_adapter_resistors=args.ignore_adapter_resistors) as self.l.pcb:
+      l.connect(dummy=args.dummy, visa_lib=args.visa_lib, visaAddress=args.sm_address, visaTerminator=args.sm_terminator, visaBaud=args.sm_baud, lightAddress=args.light_address, motionAddress=args.motion_address)
       
-          pixel_ready = l.pixelSetup(pixel, t_dwell_voc = args.t_prebias, voltage_compliance = args.voltage_compliance_override)  #  steady state Voc measured here
-          if pixel_ready and substrate_ready:
-            
-            if type(args.current_compliance_override) == float:
-              compliance = args.current_compliance_override
-            else:
-              compliance = l.compliance_guess  # we have to just guess what the current complaince should be here
-              # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
-            l.mppt.current_compliance = compliance
-              
-            if args.sweep:
-              # now sweep from Voc --> Isc
-              if type(args.scan_high_override) == float:
-                start = args.scan_high_override
-              else:
-                start = l.Voc
-              if type(args.scan_low_override) == float:
-                end = args.scan_low_override
-              else:
-                end = 0
+      if args.dummy:
+        args.pixel_address = 'A1'
+      else:
+        if args.rear == False:
+          l.sm.setTerminals(front=True)
+        if args.four_wire == False:
+          l.sm.setWires(twoWire=True)
       
-              message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
-              sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='a', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
-              l.registerMeasurements(sv, 'Sweep')
-              
-              (Pmax_sweep, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
-              l.mppt.Vmpp = Vmpp
+      # build up the queue of pixels to run through
+      if args.pixel_address is not None:
+        pixel_que = self.buildQ(args.pixel_address)
+      else:
+        pixel_que = []
+
+      if args.test_hardware:
+        if pixel_que is []:
+          holders_to_test = l.pcb.substratesConnected
+        else:
+          #turn the address que into a string of substrates
+          mash = ''
+          for pix in pixel_que:
+            mash = mash + pix[0][0]
+          # delete the numbers
+          # mash = mash.translate({48:None,49:None,50:None,51:None,52:None,53:None,54:None,55:None,56:None})
+          holders_to_test = ''.join(sorted(set(mash))) # remove dupes
+        l.hardwareTest(holders_to_test.upper())
+      else:  # if we do the hardware test, don't then scan pixels
+        #  do run setup things now like diode calibration and opening the data storage file
+        if args.calibrate_diodes == True:
+          diode_cal = True
+        else:
+          diode_cal = args.diode_calibration_values
+        intensity = l.runSetup(args.operator, diode_cal, ignore_diodes=args.ignore_diodes, run_description=args.run_description)
+
+        # record all arguments into the run file
+        l.f.create_group('args')
+        for attr, value in args.__dict__.items():
+          l.f['args'].attrs[attr] = str(value)
+
+        if args.calibrate_diodes == True:
+          d1_cal = intensity[0]
+          d2_cal = intensity[1]
+          print('Setting present intensity diode readings to be used as future 1.0 sun refrence values: [{:}, {:}]'.format(d1_cal, d2_cal))
+          # save the newly read diode calibraion values to the prefs file
+          config = configparser.ConfigParser()
+          config.read(self.config_file_fullpath)
+          config[self.config_section]['diode_calibration_values'] = str([d1_cal, d2_cal])
+          with open(self.config_file_fullpath, 'w') as configfile:
+            config.write(configfile)
+
+        if args.sweep or args.snaith or args.mppt > 0:
+          last_substrate = None
+          # scan through the pixels and do the requested measurements
+          for pixel in pixel_que:
+            substrate = pixel[0][0].upper()
+            pix = pixel[0][1]
+            print('\nOperating on substrate {:s}, pixel {:s}...'.format(substrate, pix))
+            if last_substrate != substrate:  # we have a new substrate
+              print('New substrate using "{:}" layout!'.format(pixel[3]))
+              last_substrate = substrate
+              variable_pairs = []
+              for key, value in self.args.experimental_parameter.items():
+                variable_pairs.append([key, value.pop()])
+
+              substrate_ready = l.substrateSetup(position=substrate, variable_pairs=variable_pairs, layout_name=pixel[3])
+        
+            pixel_ready = l.pixelSetup(pixel, t_dwell_voc = args.t_prebias, voltage_compliance = args.voltage_compliance_override)  #  steady state Voc measured here
+            if pixel_ready and substrate_ready:
               
               if type(args.current_compliance_override) == float:
                 compliance = args.current_compliance_override
               else:
-                compliance = abs(sv[-1][1] * 2)  # take the last measurement*2 to be our compliance limit
+                compliance = l.compliance_guess  # we have to just guess what the current complaince should be here
+                # TODO: probably need the user to tell us when it's a dark scan to get the sensativity we need in that case
               l.mppt.current_compliance = compliance
-      
-            # steady state Isc measured here
-            iscs = l.steadyState(t_dwell=args.t_prebias, NPLC = 10, sourceVoltage=True, compliance=compliance, senseRange ='a', setPoint=0)
-            l.registerMeasurements(iscs, 'I_sc dwell')
-      
-            l.Isc = iscs[-1][1]  # take the last measurement to be Isc
-            l.f[l.position+'/'+l.pixel].attrs['Isc'] = l.Isc 
-            l.mppt.Isc = l.Isc
-            
-            if type(args.current_compliance_override) == float:
-              compliance = args.current_compliance_override
-            else:
-              # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
-              # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
-              # otherwise, set it to be 2x of Isc            
-              if abs(l.Isc) < 0.000005:
-                compliance = 0.00001
-              else:
-                compliance = abs(l.Isc * 2)          
-            l.mppt.current_compliance = compliance
+                
+              if args.sweep:
+                # now sweep from Voc --> Isc
+                if type(args.scan_high_override) == float:
+                  start = args.scan_high_override
+                else:
+                  start = l.Voc
+                if type(args.scan_low_override) == float:
+                  end = args.scan_low_override
+                else:
+                  end = 0
         
-            if args.snaith:
-              # "snaithing" is a sweep from Isc --> Voc * (1+ l.percent_beyond_voc)
-              if type(args.scan_low_override) == float:
-                start = args.scan_low_override
-              else:
-                start = 0
-              if type(args.scan_high_override) == float:
-                end = args.scan_high_override
-              else:
-                end = l.Voc * ((100 + l.percent_beyond_voc) / 100)
-      
-              message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
-        
-              sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
-              l.registerMeasurements(sv, 'Snaith')
-              (Pmax_snaith, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
-              if abs(Pmax_snaith) > abs(Pmax_sweep):
+                message = 'Sweeping voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
+                sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='a', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
+                l.registerMeasurements(sv, 'Sweep')
+                
+                (Pmax_sweep, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
                 l.mppt.Vmpp = Vmpp
+                
+                if type(args.current_compliance_override) == float:
+                  compliance = args.current_compliance_override
+                else:
+                  compliance = abs(sv[-1][1] * 2)  # take the last measurement*2 to be our compliance limit
+                l.mppt.current_compliance = compliance
         
-            if (args.mppt > 0):
-              message = 'Tracking maximum power point for {:} seconds'.format(args.mppt)
-              l.track_max_power(args.mppt, message, extra=args.mppt_params)
-  
-            l.pixelComplete()
-      l.runDone()
-    l.sm.outOn(on=False)
-    print("Program complete.")
+              # steady state Isc measured here
+              iscs = l.steadyState(t_dwell=args.t_prebias, NPLC = 10, sourceVoltage=True, compliance=compliance, senseRange ='a', setPoint=0)
+              l.registerMeasurements(iscs, 'I_sc dwell')
+        
+              l.Isc = iscs[-1][1]  # take the last measurement to be Isc
+              l.f[l.position+'/'+l.pixel].attrs['Isc'] = l.Isc 
+              l.mppt.Isc = l.Isc
+              
+              if type(args.current_compliance_override) == float:
+                compliance = args.current_compliance_override
+              else:
+                # if the measured steady state Isc was below 5 microamps, set the compliance to 10uA (this is probaby a dark curve)
+                # we don't need the accuracy of the lowest current sense range (I think) and we'd rather have the compliance headroom
+                # otherwise, set it to be 2x of Isc            
+                if abs(l.Isc) < 0.000005:
+                  compliance = 0.00001
+                else:
+                  compliance = abs(l.Isc * 2)          
+              l.mppt.current_compliance = compliance
+          
+              if args.snaith:
+                # "snaithing" is a sweep from Isc --> Voc * (1+ l.percent_beyond_voc)
+                if type(args.scan_low_override) == float:
+                  start = args.scan_low_override
+                else:
+                  start = 0
+                if type(args.scan_high_override) == float:
+                  end = args.scan_high_override
+                else:
+                  end = l.Voc * ((100 + l.percent_beyond_voc) / 100)
+        
+                message = 'Snaithing voltage from {:.0f} mV to {:.0f} mV'.format(start*1000, end*1000)
+          
+                sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
+                l.registerMeasurements(sv, 'Snaith')
+                (Pmax_snaith, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+                if abs(Pmax_snaith) > abs(Pmax_sweep):
+                  l.mppt.Vmpp = Vmpp
+          
+              if (args.mppt > 0):
+                message = 'Tracking maximum power point for {:} seconds'.format(args.mppt)
+                l.track_max_power(args.mppt, message, extra=args.mppt_params)
+    
+              l.pixelComplete()
+        l.runDone()
+      l.sm.outOn(on=False)
+      print("Program complete.")
         
   def get_args(self):
     """Get CLI arguments and options"""
@@ -463,7 +471,7 @@ class cli:
       
       user_areas = deque(self.args.area)  # device areas given to us by the user
       for pxad in q:
-        this_substrate = pxad[0]
+        this_substrate = pxad[0].upper()
         this_pixel = int(pxad[1])
         area = using_layouts[this_substrate]['pixelareas'][this_pixel - 1]
         

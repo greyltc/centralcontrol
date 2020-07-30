@@ -10,7 +10,6 @@ from collections import deque
 
 import central_control.virt as virt
 from central_control.k2400 import k2400
-from central_control.pcb import pcb
 from central_control.mppt import mppt
 from central_control.illumination import illumination
 from central_control.motion import motion
@@ -77,10 +76,10 @@ class fabric:
 
     if dummy:
       self.sm = virt.k2400()
-      self.pcb = virt.pcb()
+      #self.pcb = virt.pcb()
     else:
       self.sm = k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
-      self.pcb = pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
+      #self.pcb = pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
     self.sm_idn = self.sm.idn
       
     self.mppt = mppt(self.sm)
