@@ -1,5 +1,5 @@
 from central_control.wavelabs import wavelabs
-from central_control.newport import Newport
+#from central_control.newport import Newport
 import os
 
 class illumination:

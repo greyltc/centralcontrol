@@ -422,7 +422,7 @@ class cli:
         pixel_in_q = False
         if len(pixel) == 2:
           pixel_int = int(pixel[1])
-          if (pixel[0] in self.l.pcb.substratesConnected) and (pixel_int >= 1 and pixel_int <= 8):
+          if (pixel[0].upper() in self.l.pcb.substratesConnected) and (pixel_int >= 1 and pixel_int <= 8):
             q.append(pixel)  #  only put good pixels in the queue
             pixel_in_q = True
         if pixel_in_q == False:
@@ -441,6 +441,7 @@ class cli:
         if p != n:
           raise ValueError('{:} Values were given for experimental parameter "{:}", but we are measuring {:} substrate(s).'.format(p, key, n))
       for substrate in substrates:
+        substrate = substrate.upper()
         r_value = self.l.pcb.resistors[substrate]
         valid_layouts = {}
         for key, value in self.layouts.items():
