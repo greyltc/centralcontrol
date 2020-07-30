@@ -552,7 +552,13 @@ if __name__ == "__main__":
 
     # test_stop()
 
-    test_busy()
+    # test_busy()
+
+    test_home()
+
+    # test_goto()
+
+    # test_read()
 
     mqttc.loop_stop()
     mqttc.disconnect()

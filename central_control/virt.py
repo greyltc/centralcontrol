@@ -34,7 +34,7 @@ class motion:
         return 0
 
     def home(self):
-        return 0
+        return []
 
     def estop(self):
         return 0

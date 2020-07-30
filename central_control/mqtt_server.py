@@ -503,7 +503,7 @@ def _goto(request, mqtthost):
         _log(f"Moving to stage position...", "info", **{"mqttc": mqttc})
 
         args = request["args"]
-        position = [args["goto_x"], args["goto_y"]]
+        position = [args["goto_x"], args["goto_y"], args["goto_z"]]
 
         config = request["config"]
         args = request["args"]
