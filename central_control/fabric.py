@@ -392,7 +392,7 @@ class fabric:
       abv = 'V' if sourceVoltage else 'A'
       message = 'Sweeping {:s} from {:.0f} m{:s} to {:.0f} m{:s}'.format(word, start, abv, end, abv)
     self.insertStatus(message)
-    raw = self.sm.measure()
+    raw = self.sm.measure(nPoints)
     sweepValues = np.array(list(zip(*[iter(raw)]*4)), dtype=self.measurement_datatype)
 
     return sweepValues
