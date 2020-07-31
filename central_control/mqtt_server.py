@@ -1529,7 +1529,11 @@ if __name__ == "__main__":
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
     publish.single(
-        "measurement/status", pickle.dumps("Ready"), qos=2, hostname=cli_args.mqtthost,
+        "measurement/status",
+        pickle.dumps("Ready"),
+        qos=2,
+        retain=True,
+        hostname=cli_args.mqtthost,
     )
     print(f"{client_id} connected!")
 
