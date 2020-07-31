@@ -1532,4 +1532,7 @@ if __name__ == "__main__":
         "measurement/status", pickle.dumps("Ready"), qos=2, hostname=cli_args.mqtthost,
     )
     print(f"{client_id} connected!")
+
+    if cli_args.dummy is True:
+        print("*** Running in dummy mode! ***")
     mqttc.loop_forever()
