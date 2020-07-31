@@ -190,7 +190,7 @@ class us:
           ret = self.goto(safex, axes=1, block=True, timeout=time_left)
           if ret == 0: # ax1 safe loaction reached
             time_left = timeout - (time.time() - t0)
-            ret = self.home(axis=2, block=True, timeout=time_left)
+            ret = self.home(axis=2, block=True, timeout=time_left, enable_otter=False)
             if isinstance(ret, list):  # ax2 homed
               dims[1] = ret[0]
               ret = dims
