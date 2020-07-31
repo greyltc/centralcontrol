@@ -1,5 +1,10 @@
 AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
 
+[Unit]
+After=network-online.target
+Wants=network-online.target
+Description=Starts the Utility Handler service
+
 [Service]
 #WorkingDirectory=/tmp
 Environment=PYTHONPATH=/opt/software/python
