@@ -1,7 +1,7 @@
 # configuration settings not settable in gui
 #
-# makes use an !include tag to load additional config settings from other yaml files.
-# Load this file with PyYAML as follows:
+# Can make use of an !include tag with a file path to load additional config settings
+# from other yaml files. If using the tag, load this file with PyYAML as follows:
 #
 # import yaml
 # 
@@ -17,7 +17,7 @@
 
 network:
     archive: ftp://test:21/drop
-    live_data_uri: https://google.com
+    live_data_uri: "127.0.0.1"
 
 visa:
     visa_lib: '@py'
@@ -140,7 +140,9 @@ substrates:
 # miscellaneous reference data
 reference:
     # spectral irradiance data
-    spectra:
-        AM1.5G: !include example_am15g.yaml
+    spectra: null
+    # device calibration data
     calibration:
-        eqe: !include example_pd1_eqe.yaml
+        eqe:
+          wls: [350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100]
+          eqe: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
