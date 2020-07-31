@@ -131,7 +131,7 @@ class us:
   def home(self, axis=-1, block=True, timeout = 80, enable_otter=True):
     ret = -9
     t0 = time.time()
-    if (('otter' in self.extra) and (enable otter == True)):
+    if (('otter' in self.extra) and (enable_otter == True)):
       if (axis == -1) and (block == True):
         time_left = timeout - (time.time() - t0)
         ret = self.otter_home(safex=self.otter_safe_x, timeout=time_left)
