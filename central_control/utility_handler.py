@@ -57,9 +57,12 @@ def manager():
     while True:
         cmd_msg = filter_cmd(cmdq.get())
         if cmd_msg['cmd'] == 'estop':
+            try:
                 with pcb.pcb(cmd_msg['pcb'], timeout=10) as p:
                     p.get('b')
                 log_msg('Emergency stop done. Re-Homing required before any further movements.',lvl=logging.INFO)
+            except:
+                log_msg(f'Unable to complete task.',lvl=logging.WARNING)
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
