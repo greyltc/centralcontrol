@@ -179,12 +179,13 @@ def worker():
             log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
             try:
                 with rm.open_resource(task['lia_address'], baud_rate=9600) as lia:
+                    lia.read_termination = '\r'
                     log_msg('Lock-in connection initiated',lvl=logging.INFO)
                     log_msg(f'Lock-in identification string: {lia.query("*IDN?").strip()}',lvl=logging.INFO)
             except:
                 log_msg(f'Could not talk to lock-in',lvl=logging.WARNING)
             
-            log_msg(f"Checking monochromator@{task['lia_address']}...",lvl=logging.INFO)
+            log_msg(f"Checking monochromator@{task['mono_address']}...",lvl=logging.INFO)
             try:
                 with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
                     log_msg('Monochromator connection initiated',lvl=logging.INFO)
