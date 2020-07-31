@@ -110,7 +110,6 @@ test_args = {
     "v_dwell_check": True,
     "v_dwell_value": 0.0,
 }
-test_args["dummy"] = True
 
 # config = load_config_from_file()
 test_config = {

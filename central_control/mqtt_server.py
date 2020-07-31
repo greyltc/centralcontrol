@@ -25,6 +25,13 @@ def get_args():
     """Get arguments parsed from the command line."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
+        "-d",
+        "--dummy",
+        default=False,
+        action="store_true",
+        help="Run the server in dummy mode using virtual instruments.",
+    )
+    parser.add_argument(
         "--mqtthost",
         default="127.0.0.1",
         help="IP address or hostname of MQTT broker.",
@@ -43,15 +50,6 @@ def start_process(target, args):
         Arguments required by the function.
     """
     global process
-
-    # inject dummy key if necessary
-    request = args[0]
-    if "dummy" not in request["args"].keys():
-        request["args"]["dummy"] = False
-        args = (
-            request,
-            args[1],
-        )
 
     if process.is_alive() is False:
         process = multiprocessing.Process(target=target, args=args)
@@ -89,7 +87,7 @@ def stop_process():
         publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
 
 
-def _calibrate_eqe(request, mqtthost):
+def _calibrate_eqe(request, mqtthost, dummy):
     """Measure the EQE reference photodiode.
 
     Parameters
@@ -98,6 +96,8 @@ def _calibrate_eqe(request, mqtthost):
         Request dictionary sent to the server.
     mqtthost : str
         MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("calibrating eqe...")
     with fabric() as measurement, MQTTQueuePublisher() as mqttc:
@@ -129,7 +129,7 @@ def _calibrate_eqe(request, mqtthost):
             }
             pixel_queue = collections.deque(pixel_dict)
 
-        _eqe(pixel_queue, request, measurement, mqttc, calibration=True)
+        _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
 
         _log("EQE calibration complete!", "info", **{"mqttc": mqttc})
 
@@ -143,15 +143,17 @@ def _calibrate_eqe(request, mqtthost):
     )
 
 
-def _calibrate_psu(request, mqtthost):
+def _calibrate_psu(request, mqtthost, dummy):
     """Measure the reference photodiode as a funtcion of LED current.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Calibrating psu...")
 
@@ -186,7 +188,7 @@ def _calibrate_psu(request, mqtthost):
 
         # connect instruments
         measurement.connect_instruments(
-            dummy=args["dummy"],
+            dummy=dummy,
             visa_lib=config["visa"]["visa_lib"],
             smu_address=config["smu"]["address"],
             smu_terminator=config["smu"]["terminator"],
@@ -273,15 +275,17 @@ def _calibrate_psu(request, mqtthost):
     )
 
 
-def _calibrate_spectrum(request, mqtthost):
+def _calibrate_spectrum(request, mqtthost, dummy):
     """Measure the solar simulator spectrum using it's internal spectrometer.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Calibrating spectrum...")
 
@@ -291,10 +295,9 @@ def _calibrate_spectrum(request, mqtthost):
         _log("Calibrating solar simulator spectrum...", "info", **{"mqttc": mqttc})
 
         config = request["config"]
-        args = request["args"]
 
         measurement.connect_instruments(
-            dummy=args["dummy"],
+            dummy=dummy,
             visa_lib=config["visa"]["visa_lib"],
             light_address=config["solarsim"]["uri"],
         )
@@ -323,15 +326,17 @@ def _calibrate_spectrum(request, mqtthost):
     )
 
 
-def _calibrate_solarsim_diodes(request, mqtthost):
+def _calibrate_solarsim_diodes(request, mqtthost, dummy):
     """Calibrate the solar simulator using photodiodes.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("calibrating solar sim diodes")
 
@@ -364,7 +369,7 @@ def _calibrate_solarsim_diodes(request, mqtthost):
             pixel_queue = collections.deque(pixel_dict)
 
         try:
-            _ivt(pixel_queue, request, measurement, mqttc, calibration=True)
+            _ivt(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
         except ValueError as e:
             _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
             return
@@ -382,15 +387,17 @@ def _calibrate_solarsim_diodes(request, mqtthost):
     )
 
 
-def _calibrate_rtd(request, mqtthost):
+def _calibrate_rtd(request, mqtthost, dummy):
     """Calibrate RTD's for temperature measurement.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Calibrating rtds...")
 
@@ -421,7 +428,15 @@ def _calibrate_rtd(request, mqtthost):
             )
 
         try:
-            _ivt(pixel_queue, request, measurement, mqttc, calibration=True, rtd=True)
+            _ivt(
+                pixel_queue,
+                request,
+                measurement,
+                mqttc,
+                dummy,
+                calibration=True,
+                rtd=True,
+            )
         except ValueError as e:
             _log("CALIBRATION ABORTED! " + str(e), "error", **{"mqttc": mqttc})
             return
@@ -439,15 +454,17 @@ def _calibrate_rtd(request, mqtthost):
     )
 
 
-def _home(request, mqtthost):
+def _home(request, mqtthost, dummy):
     """Home the stage.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Homing...")
 
@@ -457,10 +474,9 @@ def _home(request, mqtthost):
         _log("Homing stage...", "info", **{"mqttc": mqttc})
 
         config = request["config"]
-        args = request["args"]
 
         measurement.connect_instruments(
-            dummy=args["dummy"],
+            dummy=dummy,
             pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
@@ -485,15 +501,17 @@ def _home(request, mqtthost):
     )
 
 
-def _goto(request, mqtthost):
+def _goto(request, mqtthost, dummy):
     """Go to a stage position.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Goto...")
 
@@ -509,7 +527,7 @@ def _goto(request, mqtthost):
         args = request["args"]
 
         measurement.connect_instruments(
-            dummy=args["dummy"],
+            dummy=dummy,
             pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
@@ -532,15 +550,17 @@ def _goto(request, mqtthost):
     )
 
 
-def _read_stage(request, mqtthost):
+def _read_stage(request, mqtthost, dummy):
     """Read the stage position.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Reading stage...")
 
@@ -550,10 +570,9 @@ def _read_stage(request, mqtthost):
         _log(f"Reading stage position...", "info", **{"mqttc": mqttc})
 
         config = request["config"]
-        args = request["args"]
 
         measurement.connect_instruments(
-            dummy=args["dummy"],
+            dummy=dummy,
             pcb_address=config["controller"]["uri"],
             motion_address=config["stage"]["uri"],
         )
@@ -582,15 +601,17 @@ def _read_stage(request, mqtthost):
     )
 
 
-def _contact_check(request, mqtthost):
+def _contact_check(request, mqtthost, dummy):
     """Perform contact check.
 
     Parameters
     ----------
-    mqttc : MQTTQueuePublisher object
-        MQTT queue publisher.
     request : dict
         Request dictionary sent to the server.
+    mqtthost : str
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Performing contact check...")
 
@@ -603,7 +624,7 @@ def _contact_check(request, mqtthost):
         config = request["config"]
 
         measurement.connect_instruments(
-            dummy=args["dummy"],
+            dummy=dummy,
             visa_lib=config["visa"]["visa_lib"],
             smu_address=config["smu"]["address"],
             smu_terminator=config["smu"]["terminator"],
@@ -923,7 +944,9 @@ def _log(msg, level, **kwargs):
     mqttc.append_payload("log", pickle.dumps(payload))
 
 
-def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False):
+def _ivt(
+    pixel_queue, request, measurement, mqttc, dummy=False, calibration=False, rtd=False
+):
     """Run through pixel queue of i-v-t measurements.
 
     Paramters
@@ -932,10 +955,12 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         Queue of dictionaries of pixels to measure.
     request : dict
         Experiment arguments.
-    mqttc : MQTTQueuePublisher
-        MQTT queue publisher client.
     measurement : measurement logic object
         Object controlling instruments and measurements.
+    mqttc : MQTTQueuePublisher
+        MQTT queue publisher client.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     calibration : bool
         Calibration flag.
     rtd : bool
@@ -946,7 +971,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
     # connect instruments
     measurement.connect_instruments(
-        dummy=args["dummy"],
+        dummy=dummy,
         visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
@@ -1236,7 +1261,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 )
 
 
-def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
+def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=False):
     """Run through pixel queue of EQE measurements.
 
     Paramters
@@ -1245,10 +1270,12 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
         Queue of dictionaries of pixels to measure.
     request : dict
         Experiment arguments.
-    mqttc : MQTTQueuePublisher
-        MQTT queue publisher client.
     measurement : measurement logic object
         Object controlling instruments and measurements.
+    mqttc : MQTTQueuePublisher
+        MQTT queue publisher client.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     calibration : bool
         Calibration flag.
     """
@@ -1257,7 +1284,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
 
     # connect instruments
     measurement.connect_instruments(
-        dummy=args["dummy"],
+        dummy=dummy,
         visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
         smu_terminator=config["smu"]["terminator"],
@@ -1374,15 +1401,17 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
             )
 
 
-def _run(request, mqtthost):
+def _run(request, mqtthost, dummy):
     """Act on command line instructions.
 
     Parameters
     ----------
     request : dict
-        Dictionary of configuration settings and measurement arguments.
+        Request dictionary sent to the server.
     mqtthost : str
-        MQTT broker IP address or host name.
+        MQTT broker IP address or hostname.
+    dummy : bool
+        Flag for dummy mode using virtual instruments.
     """
     print("Running measurement...")
 
@@ -1390,7 +1419,7 @@ def _run(request, mqtthost):
 
     # calibrate spectrum if required
     if args["iv_devs"] is not None:
-        _calibrate_spectrum(request, mqtthost)
+        _calibrate_spectrum(request, mqtthost, dummy)
 
     with fabric() as measurement, MQTTQueuePublisher() as mqttc:
         mqttc.run(mqtthost)
@@ -1419,14 +1448,14 @@ def _run(request, mqtthost):
         # measure i-v-t
         if len(iv_pixel_queue) > 0:
             try:
-                _ivt(iv_pixel_queue, request, measurement, mqttc)
+                _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
             except ValueError as e:
                 _log("RUN ABORTED! " + str(e), "error", **{"mqttc": mqttc})
                 return
 
         # measure eqe
         if len(eqe_pixel_queue) > 0:
-            _eqe(eqe_pixel_queue, request, measurement, mqttc)
+            _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
 
         # report complete
         _log("Run complete!", "info", **{"mqttc": mqttc})
@@ -1455,27 +1484,31 @@ def on_message(mqttc, obj, msg):
 
     # perform a requested action
     if (action := msg.topic.split("/")[-1]) == "run":
-        start_process(_run, (request, cli_args.mqtthost,))
+        start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "stop":
         stop_process()
     elif action == "calibrate_eqe":
-        start_process(_calibrate_eqe, (request, cli_args.mqtthost,))
+        start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "calibrate_psu":
-        start_process(_calibrate_psu, (request, cli_args.mqtthost,))
+        start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "calibrate_solarsim_diodes":
-        start_process(_calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
+        start_process(
+            _calibrate_solarsim_diodes, (request, cli_args.mqtthost, cli_args.dummy,)
+        )
     elif action == "calibrate_spectrum":
-        start_process(_calibrate_spectrum, (request, cli_args.mqtthost,))
+        start_process(
+            _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+        )
     elif action == "calibrate_rtd":
-        start_process(_calibrate_rtd, (request, cli_args.mqtthost,))
+        start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "contact_check":
-        start_process(_contact_check, (request, cli_args.mqtthost,))
+        start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "home":
-        start_process(_home, (request, cli_args.mqtthost,))
+        start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "goto":
-        start_process(_goto, (request, cli_args.mqtthost,))
+        start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "read_stage":
-        start_process(_read_stage, (request, cli_args.mqtthost,))
+        start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
 
 
 # required when using multiprocessing in windows, advised on other platforms
