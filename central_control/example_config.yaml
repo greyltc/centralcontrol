@@ -16,7 +16,7 @@
 
 
 network:
-    archive: ftp://test:21/drop
+    MQTTHOST: "127.0.0.1"
     live_data_uri: "127.0.0.1"
 
 visa:
@@ -24,31 +24,31 @@ visa:
 
 # stage and mux controller
 controller:
-    address: null
+    address: "10.46.0.239"
 
 # source-measure unit(s)
 smu:
-    address: null
+    address: ASRL/dev/ttyUSB0::INSTR
     baud: 57600
-    terminator: '\n'
+    terminator: '\r\n'
     # if front terminals is false, use rear terminals
     front_terminals: false
     # if 2 wire is false, use 4 wire
     two_wire: false
 
 solarsim:
-    uri: null
+    uri: wavelabs://127.0.0.1:3334
 #    spectral_calibration: !include example_solarsim_cal.yaml
 
 # lock-in amplifier
 lia:
-    address: null
+    address: ASRL/dev/ttyUSB1::INSTR
     terminator: '\r'
     baud: 9600
     output_interface: 0
 
 monochromator:
-    address: null
+    address: ASRL/dev/ttyUSB2::INSTR
     terminator: '\r'
     baud: 9600
     grating_change_wls: [1200]
@@ -56,7 +56,7 @@ monochromator:
 
 # LED power supply unit
 psu:
-    address: null
+    address: TCPIP0::10.46.0.190::INSTR
     terminator: '\r'
     baud: 9600
     ch1_voltage: 30
@@ -71,7 +71,7 @@ stage:
     # stage lengths in mm along each available axis.
     # parsed as a list where indices reference axes as: 0: x-axis, 1: y-aixs, 2: z-axis.
     # comment out or leave blank if no stage is connected.
-    length: [850, 350]
+    uri: us://125/6400
     # approx mm/s
     speed: 29
     experiment_positions:
@@ -145,4 +145,4 @@ reference:
     calibration:
         eqe:
           wls: [350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100]
-          eqe: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+          eqe: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]

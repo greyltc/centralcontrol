@@ -57,7 +57,7 @@ test_args = {
     "i_dwell_check": True,
     "i_dwell_value": 0.0,
     "i_dwell_value_ma": 0.0,
-    "iv_devs": "0x000000000FFF",
+    "iv_devs": "0x0000000000FF",
     "iv_selections": [
         "sa1",
         "sa2",
