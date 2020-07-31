@@ -981,7 +981,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         label = pixel["label"]
         pix = pixel["pixel"]
         _log(
-            f"\nOperating on substrate {label}, pixel {pix}...",
+            f"Operating on substrate {label}, pixel {pix}...",
             "info",
             **{"mqttc": mqttc},
         )
