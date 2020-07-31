@@ -57,9 +57,12 @@ def manager():
     while True:
         cmd_msg = filter_cmd(cmdq.get())
         if cmd_msg['cmd'] == 'estop':
-                with pcb.pcb(cmd_msg['pcb']) as p:
+            try:
+                with pcb.pcb(cmd_msg['pcb'], timeout=10) as p:
                     p.get('b')
                 log_msg('Emergency stop done. Re-Homing required before any further movements.',lvl=logging.INFO)
+            except:
+                log_msg(f'Unable to complete task.',lvl=logging.WARNING)
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
@@ -73,79 +76,82 @@ def manager():
 def worker():
     while True:
         task = taskq.get()
-        if task['cmd'] == 'home':
-            with pcb.pcb(task['pcb']) as p:
-                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                mo.connect()
-                result = mo.home()
-                if isinstance(result, list) or (result == 0):
-                    log_msg('Homing procedure complete.',lvl=logging.INFO)
+        try:
+            if task['cmd'] == 'home':
+                with pcb.pcb(task['pcb'], timeout=1) as p:
+                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                    mo.connect()
+                    result = mo.home()
+                    if isinstance(result, list) or (result == 0):
+                        log_msg('Homing procedure complete.',lvl=logging.INFO)
+                    else:
+                        log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
+
+            # send the stage some place
+            elif task['cmd'] == 'goto':
+                with pcb.pcb(task['pcb'], timeout=1) as p:
+                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                    mo.connect()
+                    result = mo.goto(task['pos'])
+                    if result != 0:
+                        log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
+
+            # handle any generic PCB command that has an empty return on success
+            elif task['cmd'] == 'for_pcb':
+                with pcb.pcb(task['pcb'], timeout=1) as p:
+                    # special case for pixel selection to avoid parallel connections
+                    if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
+                        p.get('s')  # deselect all before selecting one
+                    result = p.get(task['pcb_cmd'])
+                if result == '':
+                    log_msg(f"Command acknowledged: {task['pcb_cmd']}",lvl=logging.DEBUG)
                 else:
-                    log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
+                    log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
 
-        # send the stage some place
-        elif task['cmd'] == 'goto':
-            with pcb.pcb(task['pcb']) as p:
-                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                mo.connect()
-                result = mo.goto(task['pos'])
-                if result != 0:
-                    log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
+            # get the stage location
+            elif task['cmd'] == 'read_stage':
+                with pcb.pcb(task['pcb'], timeout=1) as p:
+                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                    mo.connect()
+                    pos = mo.get_position()
+                payload = {'pos': pos}
+                payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+                output = {'destination':'response', 'payload': payload}  # post the position to the response channel
+                outputq.put(output)
 
-        # handle any generic PCB command that has an empty return on success
-        elif task['cmd'] == 'for_pcb':
-            with pcb.pcb(task['pcb']) as p:
-                # special case for pixel selection to avoid parallel connections
-                if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
-                    p.get('s')  # deselect all before selecting one
-                result = p.get(task['pcb_cmd'])
-            if result == '':
-                log_msg(f"Command acknowledged: {task['pcb_cmd']}",lvl=logging.DEBUG)
-            else:
-                log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
-
-        # get the stage location
-        elif task['cmd'] == 'read_stage':
-            with pcb.pcb(task['pcb']) as p:
-                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                mo.connect()
-                pos = mo.get_position()
-            payload = {'pos': pos}
-            payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-            output = {'destination':'response', 'payload': payload}  # post the position to the response channel
-            outputq.put(output)
-
-        # device round robin commands
-        elif task['cmd'] == 'round_robin':
-            with pcb.pcb(task['pcb']) as p:
-                p.get('s') # make sure we're starting with nothing selected
-                if task['type'] == 'current':
-                    pass  # TODO: smu measure current command goes here
-                for sel in task['devices']:
-                    p.get(sel)  # select the device
+            # device round robin commands
+            elif task['cmd'] == 'round_robin':
+                with pcb.pcb(task['pcb'], timeout=1) as p:
+                    p.get('s') # make sure we're starting with nothing selected
                     if task['type'] == 'current':
                         pass  # TODO: smu measure current command goes here
-                    elif task['type'] == 'rtd':
-                        pass  # TODO: smu resistance command goes here
-                    elif task['type'] == 'connectivity':
-                        pass  # TODO: smu connectivity command goes here
-                    p.get('s') # deselect the device
+                    for sel in task['devices']:
+                        p.get(sel)  # select the device
+                        if task['type'] == 'current':
+                            pass  # TODO: smu measure current command goes here
+                        elif task['type'] == 'rtd':
+                            pass  # TODO: smu resistance command goes here
+                        elif task['type'] == 'connectivity':
+                            pass  # TODO: smu connectivity command goes here
+                        p.get('s') # deselect the device
 
 
-                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                mo.connect()
-                pos = mo.get_position()
-                
-            #payload = {'pos': pos}
-            #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-            #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
-            #outputq.put(output)
+                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                    mo.connect()
+                    pos = mo.get_position()
+                    
+                #payload = {'pos': pos}
+                #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+                #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
+                #outputq.put(output)
+        except:
+            log_msg(f'Unable to complete task.',lvl=logging.WARNING)
 
         # system health check
-        elif task['cmd'] == 'check_health':
+        if task['cmd'] == 'check_health':
             log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
             try:
-                with pcb.pcb(task['pcb']) as p:
+                with pcb.pcb(task['pcb'], timeout=1) as p:
                     log_msg('Controller connection initiated',lvl=logging.INFO)
                     log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
                     log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)

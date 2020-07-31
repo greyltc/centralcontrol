@@ -642,7 +642,7 @@ class fabric:
             senseRange=senseRange,
         )
 
-        raw = self.sm.measure()
+        raw = self.sm.measure(nPoints)
 
         if handler is not None:
             handler(raw, **handler_kwargs)
