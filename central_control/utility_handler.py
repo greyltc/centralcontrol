@@ -74,7 +74,7 @@ def worker():
     while True:
         task = taskq.get()
         if task['cmd'] == 'home':
-            with pcb.pcb(task['pcb'], timeout=10) as p:
+            with pcb.pcb(task['pcb'], timeout=1) as p:
                 mo = motion.motion(address=task['stage_uri'], pcb_object=p)
                 mo.connect()
                 result = mo.home()
@@ -85,7 +85,7 @@ def worker():
 
         # send the stage some place
         elif task['cmd'] == 'goto':
-            with pcb.pcb(task['pcb'], timeout=10) as p:
+            with pcb.pcb(task['pcb'], timeout=1) as p:
                 mo = motion.motion(address=task['stage_uri'], pcb_object=p)
                 mo.connect()
                 result = mo.goto(task['pos'])
@@ -94,7 +94,7 @@ def worker():
 
         # handle any generic PCB command that has an empty return on success
         elif task['cmd'] == 'for_pcb':
-            with pcb.pcb(task['pcb'], timeout=10) as p:
+            with pcb.pcb(task['pcb'], timeout=1) as p:
                 # special case for pixel selection to avoid parallel connections
                 if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
                     p.get('s')  # deselect all before selecting one
@@ -106,7 +106,7 @@ def worker():
 
         # get the stage location
         elif task['cmd'] == 'read_stage':
-            with pcb.pcb(task['pcb'], timeout=10) as p:
+            with pcb.pcb(task['pcb'], timeout=1) as p:
                 mo = motion.motion(address=task['stage_uri'], pcb_object=p)
                 mo.connect()
                 pos = mo.get_position()
@@ -117,7 +117,7 @@ def worker():
 
         # device round robin commands
         elif task['cmd'] == 'round_robin':
-            with pcb.pcb(task['pcb'], timeout=10) as p:
+            with pcb.pcb(task['pcb'], timeout=1) as p:
                 p.get('s') # make sure we're starting with nothing selected
                 if task['type'] == 'current':
                     pass  # TODO: smu measure current command goes here
@@ -145,7 +145,7 @@ def worker():
         elif task['cmd'] == 'check_health':
             log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
             try:
-                with pcb.pcb(task['pcb'], timeout=10) as p:
+                with pcb.pcb(task['pcb'], timeout=1) as p:
                     log_msg('Controller connection initiated',lvl=logging.INFO)
                     log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
                     log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
