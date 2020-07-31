@@ -420,7 +420,7 @@ class k2400:
                 handler(measurement, **handler_kwargs)
         return data
 
-    def measure(self):
+    def measure(self, nPoints=1):
         return self.query_values("READ?")
 
     def close(self):

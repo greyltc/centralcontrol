@@ -6,88 +6,100 @@ import os
 
 
 class pcb:
-        """
+    """
     Interface for talking to my control PCB
     """
-    write_terminator = '\r\n'
-    #read_terminator = b'\r\n' # probably don't care. all whitespace gets stripped anyway
-    prompt = b'>>> '
-    
-    substrateList = 'HGFEDCBA'  # all the possible substrates
+
+    write_terminator = "\r\n"
+    # read_terminator = b'\r\n' # probably don't care. all whitespace gets stripped anyway
+    prompt = b">>> "
+
+    substrateList = "HGFEDCBA"  # all the possible substrates
     # TODO: this is out of date. with otter it's not one substrate per mux board anymore.
     # unsure of the implications, if any right now
-    
-    substratesConnected = ''  # the ones we've detected
-    adapters = []  # list of tuples of adapter boards: (substrate_letter, resistor_value)
+
+    substratesConnected = ""  # the ones we've detected
+    adapters = (
+        []
+    )  # list of tuples of adapter boards: (substrate_letter, resistor_value)
 
     class MyTelnet(Telnet):
         def read_response(self, timeout=None):
             found_prompt = False
             resp = self.read_until(pcb.prompt, timeout=None)
-        if resp.endswith(pcb.prompt):
-            found_prompt = True
-        ret = resp.rstrip(pcb.prompt).decode().strip()
-        if len(resp) == 0:
-            ret = None  # nothing came back (likely a timeout)
-        return ret, found_prompt
+
+            if resp.endswith(pcb.prompt):
+                found_prompt = True
+            ret = resp.rstrip(pcb.prompt).decode().strip()
+            if len(resp) == 0:
+                ret = None  # nothing came back (likely a timeout)
+            return ret, found_prompt
 
     def send_cmd(self, cmd):
         if not cmd.endswith(pcb.write_terminator.decode()):
             self.write(cmd.encode())
         else:
-            self.write(cmd.encode()+pcb.write_terminator)
+            self.write(cmd.encode() + pcb.write_terminator)
         self.sock.sendall()
 
-    def __init__(self, address, ignore_adapter_resistors=True, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
-        self.timeout = timeout # pcb has this many seconds to respond
+    def __init__(
+        self,
+        address,
+        ignore_adapter_resistors=True,
+        timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+    ):
+        self.timeout = timeout  # pcb has this many seconds to respond
         self.ignore_adapter_resistors = ignore_adapter_resistors
 
-        addr_split = address.split(':')
+        addr_split = address.split(":")
         if len(addr_split) == 1:
             port = 23  # default port
             host = addr_split[0]
         else:
-            host, port = address.split(':')
+            host, port = address.split(":")
 
         self.host = host
         self.port = int(port)
 
-
-  def __enter__(self):
+    def __enter__(self):
         self.tn = self.MyTelnet(self.host, self.port, timeout=self.timeout)
         self.sf = self.tn.sock.makefile("rwb", buffering=0)
 
-        if os.name != 'nt':
-            pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
+        if os.name != "nt":
+            pcb.set_keepalive_linux(
+                self.tn.sock
+            )  # let's try to keep our connection alive!
 
         welcome_message, win = self.tn.read_response()
 
         if not win:
-            raise ValueError('Did not see welcome message from pcb')
+            raise ValueError("Did not see welcome message from pcb")
 
-        version = self.get('v')
-        #print(f"Connected to control PCB running firmware version {version}")
+        version = self.get("v")
+        # print(f"Connected to control PCB running firmware version {version}")
 
         substrates = self.substrateSearch()
-        resistors = {}  # dict of measured resistor values where the key is the associated substrate
+        resistors = (
+            {}
+        )  # dict of measured resistor values where the key is the associated substrate
 
-    if substrates == 0x00:
-        print('No multiplexer board detected.')
-    else:
-        found = "Found MUX board(s): "
-        for i in range(len(self.substrateList)):
-            substrate = self.substrateList[i]
-            mask = 0x01 << (7-i)
-            if (mask & substrates) != 0x00:
-                self.substratesConnected = self.substratesConnected + substrate
-                if self.ignore_adapter_resistors:
-                    resistors[substrate] = 0
-            else:
-                resistors[substrate] = self.get('d'+substrate)
-            found = found + substrate
-        #print(found)
-    self.resistors = resistors
-    return(self)
+        if substrates == 0x00:
+            print("No multiplexer board detected.")
+        else:
+            found = "Found MUX board(s): "
+            for i in range(len(self.substrateList)):
+                substrate = self.substrateList[i]
+                mask = 0x01 << (7 - i)
+                if (mask & substrates) != 0x00:
+                    self.substratesConnected = self.substratesConnected + substrate
+                    if self.ignore_adapter_resistors:
+                        resistors[substrate] = 0
+                else:
+                    resistors[substrate] = self.get("d" + substrate)
+                found = found + substrate
+            # print(found)
+        self.resistors = resistors
+        return self
 
     def __exit__(self, type, value, traceback):
         try:
@@ -113,7 +125,7 @@ class pcb:
             cmd = "c" + substrates[i]
             answer = self.get(cmd)
             if answer == "":  # empty answer means mux board found
-                found |= 0x01 << (7-i)
+                found |= 0x01 << (7 - i)
         return found
 
     def pix_picker(self, substrate, pixel, suppressWarning=False):
@@ -122,21 +134,25 @@ class pcb:
         retries = 5
         try_num = 0
         while try_num < retries:
-        try:
-            cmd = "s" + substrate + str(pixel)
-            answer, ready = self.query(cmd)
-        except:
-            pass
-        if ready:
-            if answer == '':
-                break
-        retries += 1
+            try:
+                cmd = "s" + substrate + str(pixel)
+                answer, ready = self.query(cmd)
+            except:
+                pass
+            if ready:
+                if answer == "":
+                    break
+            retries += 1
 
         if ready:
-            if answer == '':
+            if answer == "":
                 win = True
             else:
-                print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
+                print(
+                    'WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(
+                        cmd, answer
+                    )
+                )
         else:
             raise (ValueError("Comms are out of sync with the PCB"))
 
@@ -233,7 +249,7 @@ class pcb:
             cmd = "ADC" + str(chan)
 
         return int(self.get(cmd))
- 
+
     def disconnect_all(self):
         """ Opens all the switches
     """
