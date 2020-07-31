@@ -178,7 +178,7 @@ def worker():
             
             log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
             try:
-                with rm.open_resource(task['lia_address'], baud_rate=9600, ) as lia:
+                with rm.open_resource(task['lia_address'], baud_rate=9600) as lia:
                     log_msg('Lock-in connection initiated',lvl=logging.INFO)
                     log_msg(f'Lock-in identification string: {lia.query("*IDN?").strip()}',lvl=logging.INFO)
             except:
