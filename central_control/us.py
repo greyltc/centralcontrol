@@ -12,7 +12,7 @@ class us:
   micro_stepping = 256 # microsteps/step
   screw_pitch = 8.0  # mm/rev
 
-  allowed_length_deviation = 1 # measured length can deviate from expected length by up to this, in mm
+  allowed_length_deviation = 3 # measured length can deviate from expected length by up to this, in mm
   end_buffers = 5 # don't allow movement to within this many mm of the stage ends (needed to prevent potential homing issues)
 
   otter_safe_x = 54.6875 # xaxis safe location to home y for otter (in mm)
