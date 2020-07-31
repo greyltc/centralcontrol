@@ -1,9 +1,9 @@
-AssertPathExists=/opt/software/source/central-control/central_control/utility-handler.py
+AssertPathExists=/opt/software/source/central-control/central_control/config/utility-handler.py
 
 [Service]
 #WorkingDirectory=/tmp
 Environment=PYTHONPATH=/opt/software/python
-ExecStart=python /opt/software/source/central-control/central_control/utility-handler.py
+ExecStart=python /opt/software/source/central-control/central_control/config/utility-handler.py
 Restart=always
 PrivateTmp=true
 NoNewPrivileges=true
