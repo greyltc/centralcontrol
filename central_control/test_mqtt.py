@@ -113,7 +113,7 @@ test_args = {
 
 # config = load_config_from_file()
 test_config = {
-    "controller": {"uri": "127.0.0.1"},
+    "controller": {"address": "127.0.0.1"},
     "ivt": {"percent_beyond_voc": 25, "voltage_beyond_isc": 0.1},
     "lia": {
         "address": "127.0.0.1",

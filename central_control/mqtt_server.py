@@ -978,7 +978,7 @@ def _ivt(
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        pcb_address=config["controller"]["uri"],
+        pcb_address=config["controller"]["address"],
         motion_address=config["stage"]["uri"],
         light_address=config["solarsim"]["uri"],
     )
