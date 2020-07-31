@@ -54,7 +54,7 @@ class pcb:
 
 
   def __enter__(self):
-    self.tn = self.MyTelnet(self.host, self.port)
+    self.tn = self.MyTelnet(self.host, self.port, timeout=self.timeout)
     self.sf = self.tn.sock.makefile("rwb", buffering=0)
 
     if os.name != 'nt':
