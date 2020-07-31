@@ -128,10 +128,10 @@ class us:
   # -4 the otter stage can not home one axis alone, nor can it do non-blocking homes
   # -5 otter home failed because stage 1 was not the expected length
   # -9 if there was a programming error
-  def home(self, axis=-1, block=True, timeout = 80):
+  def home(self, axis=-1, block=True, timeout = 80, enable_otter=True):
     ret = -9
     t0 = time.time()
-    if 'otter' in self.extra:
+    if (('otter' in self.extra) and (enable otter == True)):
       if (axis == -1) and (block == True):
         time_left = timeout - (time.time() - t0)
         ret = self.otter_home(safex=self.otter_safe_x, timeout=time_left)
@@ -180,7 +180,7 @@ class us:
     ret = self.jog(2, direction='b', block=True, timeout=timeout)
     if (ret == 0):  # ax2 jogged to motor end extreme
       time_left = timeout - (time.time() - t0)
-      ret = self.home(axis=1, block=True, timeout=time_left)
+      ret = self.home(axis=1, block=True, timeout=time_left, enable_otter=False)
       if isinstance(ret, list): # ax1 homed
         dims[0] = ret
         ret = self.check_lengths(1)
