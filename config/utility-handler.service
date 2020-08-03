@@ -8,7 +8,7 @@ Description=Starts the Utility Handler service
 [Service]
 Environment=PYTHONPATH=/opt/software/python
 #ExecStart=python /opt/software/source/central-control/central_control/utility_handler.py
-ExecStart=python -m central_control.utility_handler.py 127.0.0.1
+ExecStart=python -m central_control.utility_handler 127.0.0.1
 Restart=always
 PrivateTmp=true
 NoNewPrivileges=true
