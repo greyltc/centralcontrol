@@ -2,10 +2,10 @@
 import paho.mqtt.client as mqtt
 import argparse
 import pickle
-import us
-import pcb
+import central_control.us
+import central_control.pcb
 import threading, queue
-import motion
+import central_control.motion
 import logging
 from collections.abc import Iterable
 import pyvisa
@@ -18,7 +18,6 @@ taskq = queue.Queue()
 
 # for outgoing messages
 outputq = queue.Queue()
-
 
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, flags, rc):
