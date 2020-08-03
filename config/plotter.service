@@ -1,5 +1,4 @@
- 
-#AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
+ #AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
 
 [Unit]
 After=network-online.target
