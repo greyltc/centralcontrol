@@ -3,7 +3,7 @@
 [Unit]
 After=network-online.target
 Wants=network-online.target
-Description=Starts the Utility Handler service
+Description=The Utility Handler service
 
 [Service]
 Environment=PYTHONPATH=/opt/software/python
