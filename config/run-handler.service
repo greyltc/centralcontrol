@@ -3,7 +3,7 @@
 [Unit]
 After=network-online.target
 Wants=network-online.target
-Description=Starts the measurement run handler service
+Description=The measurement run handler service
 
 [Service]
 Environment=PYTHONPATH=/opt/software/python
