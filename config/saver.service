@@ -6,7 +6,7 @@ Wants=network-online.target
 Description=Starts the data saver service
 
 [Service]
-WorkingDirectory=%h
+WorkingDirectory=%h/data
 Environment=PYTHONPATH=/opt/software/python
 ExecStart=python -m saver.saver -mqtthost 127.0.0.1
 Restart=always
