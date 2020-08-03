@@ -1,0 +1,16 @@
+#AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
+
+[Unit]
+After=network-online.target
+Wants=network-online.target
+Description=Starts the measurement run handler service
+
+[Service]
+Environment=PYTHONPATH=/opt/software/python
+ExecStart=python -m central_control_dev.mqtt_server --mqtthost 127.0.0.1
+Restart=always
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
