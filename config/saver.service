@@ -1,0 +1,16 @@
+#AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
+
+[Unit]
+After=network-online.target
+Wants=network-online.target
+Description=Starts the data saver service
+
+[Service]
+Environment=PYTHONPATH=/opt/software/python
+ExecStart=python -m saver.saver -mqtthost 127.0.0.1
+Restart=always
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
