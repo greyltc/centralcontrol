@@ -1,4 +1,4 @@
-AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
+#AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
 
 [Unit]
 After=network-online.target
@@ -8,7 +8,8 @@ Description=Starts the Utility Handler service
 [Service]
 #WorkingDirectory=/tmp
 Environment=PYTHONPATH=/opt/software/python
-ExecStart=python /opt/software/source/central-control/central_control/utility_handler.py
+#ExecStart=python /opt/software/source/central-control/central_control/utility_handler.py
+ExecStart=python -m central_control.utility_handler.py
 Restart=always
 PrivateTmp=true
 NoNewPrivileges=true
