@@ -213,7 +213,7 @@ def sender(mqttc):
 
 
 if __name__ == "__main__":
-    debug = True
+    debug = False
     if debug == False:
         parser = argparse.ArgumentParser(description='Handle gui stage commands')
         parser.add_argument('address', type=str, help='ip address/hostname of the mqtt server')
