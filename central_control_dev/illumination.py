@@ -1,5 +1,6 @@
-from central_control.wavelabs import wavelabs
-#from central_control.newport import Newport
+from central_control_dev.wavelabs import wavelabs
+
+# from central_control_dev.newport import Newport
 import os
 
 

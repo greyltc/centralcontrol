@@ -12,13 +12,13 @@ import inspect
 from collections import deque
 import warnings
 
-import central_control.virt as virt
-from central_control.k2400 import k2400
-from central_control.pcb import pcb
-from central_control.motion import motion
-from central_control.mppt import mppt
-from central_control.illumination import illumination
-import central_control  # for __version__
+import central_control_dev.virt as virt
+from central_control_dev.k2400 import k2400
+from central_control_dev.pcb import pcb
+from central_control_dev.motion import motion
+from central_control_dev.mppt import mppt
+from central_control_dev.illumination import illumination
+import central_control_dev  # for __version__
 
 import sr830
 import sp2150
