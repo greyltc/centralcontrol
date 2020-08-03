@@ -3,7 +3,7 @@
 [Unit]
 After=network-online.target
 Wants=network-online.target
-Description=Starts the data saver service
+Description=The data saver service
 
 [Service]
 WorkingDirectory=%h/data
