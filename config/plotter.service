@@ -7,7 +7,7 @@ Description=Starts the live data plotter service
 
 [Service]
 Environment=PYTHONPATH=/opt/software/python
-ExecStart=python -m plotter.plotter
+ExecStart=python -m plotter.plotter -mqtthost 127.0.0.1 -dashhost 127.0.0.1
 Restart=always
 PrivateTmp=true
 NoNewPrivileges=true
