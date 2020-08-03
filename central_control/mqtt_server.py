@@ -195,7 +195,7 @@ def _calibrate_psu(request, mqtthost, dummy):
             smu_baud=config["smu"]["baud"],
             smu_front_terminals=config["smu"]["front_terminals"],
             smu_two_wire=config["smu"]["two_wire"],
-            pcb_address=config["controller"]["uri"],
+            pcb_address=config["controller"]["address"],
             motion_address=config["stage"]["uri"],
             psu_address=config["psu"]["address"],
             psu_terminator=config["psu"]["terminator"],
@@ -477,7 +477,7 @@ def _home(request, mqtthost, dummy):
 
         measurement.connect_instruments(
             dummy=dummy,
-            pcb_address=config["controller"]["uri"],
+            pcb_address=config["controller"]["address"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -528,7 +528,7 @@ def _goto(request, mqtthost, dummy):
 
         measurement.connect_instruments(
             dummy=dummy,
-            pcb_address=config["controller"]["uri"],
+            pcb_address=config["controller"]["address"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -573,7 +573,7 @@ def _read_stage(request, mqtthost, dummy):
 
         measurement.connect_instruments(
             dummy=dummy,
-            pcb_address=config["controller"]["uri"],
+            pcb_address=config["controller"]["address"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -631,7 +631,7 @@ def _contact_check(request, mqtthost, dummy):
             smu_baud=config["smu"]["baud"],
             smu_front_terminals=config["smu"]["front_terminals"],
             smu_two_wire=config["smu"]["two_wire"],
-            pcb_address=config["controller"]["uri"],
+            pcb_address=config["controller"]["address"],
             motion_address=config["stage"]["uri"],
         )
 
@@ -886,7 +886,7 @@ def _clear_plot(**kwargs):
     mqttc = kwargs["mqttc"]
 
     payload = {
-        "data": "",
+        "data": [],
         "idn": idn,
         "pixel": "",
         "clear": True,
@@ -1291,7 +1291,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        pcb_address=config["controller"]["uri"],
+        pcb_address=config["controller"]["address"],
         motion_address=config["stage"]["uri"],
         lia_address=config["lia"]["address"],
         lia_terminator=config["lia"]["terminator"],
@@ -1535,8 +1535,10 @@ if __name__ == "__main__":
         retain=True,
         hostname=cli_args.mqtthost,
     )
+
     print(f"{client_id} connected!")
 
     if cli_args.dummy is True:
         print("*** Running in dummy mode! ***")
+
     mqttc.loop_forever()
