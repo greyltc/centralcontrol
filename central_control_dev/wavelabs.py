@@ -65,7 +65,7 @@ class wavelabs:
         host="0.0.0.0",
         port=3334,
         relay=False,
-        timeout=None,
+        connection_timeout=None,
         default_recipe="am1_5_1_sun",
     ):
         """
@@ -81,7 +81,7 @@ class wavelabs:
         self.port = port
         self.def_port_non_relay = 3334
         self.def_port_relay = 3335
-        self.timeout = timeout
+        self.timeout = connection_timeout
         self.default_recipe = default_recipe
 
     def __del__(self):
@@ -121,24 +121,29 @@ class wavelabs:
             bind_and_activate=False,
         )
         self.server.timeout = (
-            self.timeout
-        )  # timeout when waiting for the wavelabs software to connect
+            self.timeout / 10
+        )  # INNER timeout when waiting for the wavelabs software to connect
         self.server.allow_reuse_address = True
         self.server.server_bind()
         self.server.server_activate()
 
+    #  0 is success
+    # -1 is timeout
+    # something else is not set recipe error
+    # -3 is programming error
     def connect(self):
         """
     generic connect method, does what's appropriate for getting comms up based on self.relay, returns 0 on successful connection
     (aka successful setting of )
     """
-        ret = -1
+        ret = -3
         if self.relay == False:
             if self.port is None:
                 self.port = self.def_port_non_relay
             self.startServer()
-            self.awaitConnection()
-            ret = self.activateRecipe(self.default_recipe)
+            ret = self.awaitConnection()
+            if ret == 0:
+                ret = self.activateRecipe(self.default_recipe)
         else:  # relay
             if self.port is None:
                 self.port = self.def_port_relay
@@ -146,15 +151,33 @@ class wavelabs:
             ret = self.activateRecipe(self.default_recipe)
         return ret
 
+    #  0 is success
+    # -1 is timeout
+    # -3 is programming error
     def awaitConnection(self):
         """returns once the wavelabs program has connected"""
+        t0 = time.time()
+        timeout = self.timeout
+        ret = -3
         requestNotVerified = True
-        while requestNotVerified:
-            request, client_address = self.server.get_request()
-            if self.server.verify_request(request, client_address):
-                self.sock_file = request.makefile(mode="rwb")
-                self.connection = request
-                requestNotVerified = False
+        time_left = timeout - (time.time() - t0)
+        old_tout = self.server.socket.gettimeout()
+        self.server.socket.settimeout(self.timeout / 10)
+        while requestNotVerified and (time_left > 0):
+            try:
+                request, client_address = self.server.get_request()
+                if self.server.verify_request(request, client_address):
+                    self.sock_file = request.makefile(mode="rwb")
+                    self.connection = request
+                    requestNotVerified = False
+                    ret = 0
+            except:
+                pass
+            time_left = timeout - (time.time() - t0)
+        if time_left <= 0:
+            ret = -1
+        self.server.socket.settimeout(old_tout)
+        return ret
 
     def connectToRelay(self):
         """forms connection to the relay server"""
@@ -483,3 +506,4 @@ if __name__ == "__main__":
         )
         time.sleep(disco_sleep / 1000)
     wl.startFreeFloat()  # stop freefloat
+
