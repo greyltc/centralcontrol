@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import socketserver
 import xml.etree.cElementTree as ET
 import time
@@ -9,12 +7,6 @@ class wavelabs:
     """interface to the wavelabs LED solar simulator"""
 
     iseq = 0  # sequence number for comms with wavelabs software
-    protocol = "wavelabs"  # communication method for talking to the wavelabs light engine, wavelabs for direct, wavelabs-relay for relay
-    default_recipe = "am1_5_1_sun"
-    port = 3334  # 3334 for direct connection, 3335 for through relay service
-    host = (
-        "0.0.0.0"  # 0.0.0.0 for direct connection, localhost for through relay service
-    )
 
     class XMLHandler:
         """
@@ -68,7 +60,14 @@ class wavelabs:
         def close(self):
             pass
 
-    def __init__(self, address="wavelabs://0.0.0.0:3334"):
+    def __init__(
+        self,
+        host="0.0.0.0",
+        port=3334,
+        relay=False,
+        timeout=None,
+        default_recipe="am1_5_1_sun",
+    ):
         """
     sets up the wavelabs object
     address is a string of the format:
@@ -77,9 +76,13 @@ class wavelabs:
     wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
     
     """
-        self.protocol, location = address.split("://")
-        self.host, self.port = location.split(":")
-        self.port = int(self.port)
+        self.relay = relay
+        self.host = host
+        self.port = port
+        self.def_port_non_relay = 3334
+        self.def_port_relay = 3335
+        self.timeout = timeout
+        self.default_recipe = default_recipe
 
     def __del__(self):
         try:
@@ -118,33 +121,30 @@ class wavelabs:
             bind_and_activate=False,
         )
         self.server.timeout = (
-            None  # never timeout when waiting for the wavelabs software to connect
-        )
+            self.timeout
+        )  # timeout when waiting for the wavelabs software to connect
         self.server.allow_reuse_address = True
         self.server.server_bind()
         self.server.server_activate()
 
     def connect(self):
         """
-        generic connect method, does what's appropriate for getting comms up based on self.protocol
-        """
-        if self.protocol == "wavelabs":
+    generic connect method, does what's appropriate for getting comms up based on self.relay, returns 0 on successful connection
+    (aka successful setting of )
+    """
+        ret = -1
+        if self.relay == False:
+            if self.port is None:
+                self.port = self.def_port_non_relay
             self.startServer()
             self.awaitConnection()
-            self.activateRecipe(self.default_recipe)
-        elif self.protocol == "wavelabs-relay":
+            ret = self.activateRecipe(self.default_recipe)
+        else:  # relay
+            if self.port is None:
+                self.port = self.def_port_relay
             self.connectToRelay()
-            self.activateRecipe(self.default_recipe)
-        else:
-            print(
-                "WRNING: Got unexpected wavelabs comms protocol: {:}".format(
-                    self.protocol
-                )
-            )
-
-    def disconnect(self):
-        """Disconnect server."""
-        self.server.server_close()
+            ret = self.activateRecipe(self.default_recipe)
+        return ret
 
     def awaitConnection(self):
         """returns once the wavelabs program has connected"""
@@ -194,8 +194,10 @@ class wavelabs:
         if response.error != 0:
             print("ERROR: FreeFloat command could not be handled")
 
-    def activateRecipe(self, recipe_name=default_recipe):
+    def activateRecipe(self, recipe_name=None):
         """activate a solar sim recipe by name"""
+        if recipe_name is None:
+            recipe_name = self.default_recipe
         root = ET.Element("WLRC")
         ET.SubElement(root, "ActivateRecipe", iSeq=str(self.iseq), sRecipe=recipe_name)
         self.iseq = self.iseq + 1
@@ -208,6 +210,7 @@ class wavelabs:
                     recipe_name
                 )
             )
+        return response
 
     def waitForResultAvailable(self, timeout=10000, run_ID=None):
         """wait for result from a recipe to be available"""
@@ -257,8 +260,10 @@ class wavelabs:
             print("ERROR: Failed to wait for run finish")
 
     def getRecipeParam(
-        self, recipe_name=default_recipe, step=1, device="Light", param="Intensity"
+        self, recipe_name=None, step=1, device="Light", param="Intensity"
     ):
+        if recipe_name is None:
+            recipe_name = self.default_recipe
         ret = None
         root = ET.Element("WLRC")
         ET.SubElement(
@@ -331,13 +336,10 @@ class wavelabs:
         return ret
 
     def setRecipeParam(
-        self,
-        recipe_name=default_recipe,
-        step=1,
-        device="Light",
-        param="Intensity",
-        value=100.0,
+        self, recipe_name=None, step=1, device="Light", param="Intensity", value=100.0
     ):
+        if recipe_name is None:
+            recipe_name = self.default_recipe
         root = ET.Element("WLRC")
         ET.SubElement(
             root,
@@ -402,7 +404,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     # wl = wavelabs('wavelabs://0.0.0.0:3334')  # for direct connection
-    wl = wavelabs("wavelabs-relay://solarsim.lan:3335")  # for comms via relay
+    wl = wavelabs("wavelabs-relay://solarsim.lan:3335")  #  for comms via relay
     print("Connecting to light engine...")
     wl.connect()
     old_intensity = wl.getRecipeParam(param="Intensity")
@@ -481,4 +483,3 @@ if __name__ == "__main__":
         )
         time.sleep(disco_sleep / 1000)
     wl.startFreeFloat()  # stop freefloat
-

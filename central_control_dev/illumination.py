@@ -12,10 +12,13 @@ class illumination:
 
     light_engine = None
 
-    def __init__(self, address=""):
+    def __init__(self, address="", default_recipe="am1_5_1_sun"):
         """
     sets up communication to light source
     """
+
+        initial_connect_timeout = 10  # s
+
         addr_split = address.split(sep="://", maxsplit=1)
         protocol = addr_split[0]
         if protocol.lower() == "env":
@@ -30,20 +33,32 @@ class illumination:
             protocol = addr_split[0]
 
         if protocol.lower().startswith("wavelabs"):
-            self.light_engine = wavelabs(address=address)
-            self.wavelabs = True
-        elif protocol.lower() == ("ftdi"):
-            self.light_engine = Newport(address=address)
+            location = addr_split[1]
+            ls = location.split(":")
+            host = ls[0]
+            if len(ls) == 1:
+                port = None
+            else:
+                port = int(ls[1])
+            if "relay" in protocol.lower():
+                relay = True
+            else:
+                relay = False
+            self.light_engine = wavelabs(
+                host=host,
+                port=port,
+                relay=relay,
+                timeout=initial_connect_timeout,
+                default_recipe=default_recipe,
+            )
+        # elif protocol.lower() == ('ftdi'):
+        #  self.light_engine = Newport(address=address)
 
     def connect(self):
         """
     makes connection to light source
     """
-        self.light_engine.connect()
-
-    def disconnect(self):
-        """Disconnect light source."""
-        self.light_engine.disconnect()
+        return self.light_engine.connect()
 
     def on(self):
         """
@@ -56,3 +71,4 @@ class illumination:
     turns light off
     """
         self.light_engine.off()
+
