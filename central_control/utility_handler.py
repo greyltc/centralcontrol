@@ -201,10 +201,13 @@ def worker():
             log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
             try:
                 le = illumination(address=task['le_address'], default_recipe=task['le_recipe'])
-                if le.connect() == 0:
+                con_res = le.connect()
+                if con_res == 0:
                     log_msg('Light engine connection successful',lvl=logging.INFO)
+                elif (con_res == -1):
+                    log_msg("Timeout waiting for wavelabs to connect",lvl=logging.WARNING)
                 else:
-                    log_msg(f"Unable to connect to light engine and activate {task['le_recipe']}",lvl=logging.WARNING)
+                    log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}",lvl=logging.WARNING)
             except:
                 log_msg(f'Could not talk to light engine',lvl=logging.WARNING)
 
