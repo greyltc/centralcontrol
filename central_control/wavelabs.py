@@ -144,7 +144,7 @@ class wavelabs:
     ret = -3
     requestNotVerified = True
     time_left = timeout - (time.time() - t0)
-    while requestNotVerified and time_left > 0:
+    while requestNotVerified and (time_left > 0):
       request, client_address = self.server.get_request()
       if self.server.verify_request(request, client_address):
         self.sock_file = request.makefile(mode="rwb")
