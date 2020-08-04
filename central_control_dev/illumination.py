@@ -60,6 +60,9 @@ class illumination:
     """
         return self.light_engine.connect()
 
+    def disconnect(self):
+        self.light_engine.__del__()
+
     def on(self):
         """
     turns light on
