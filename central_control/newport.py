@@ -26,7 +26,7 @@ class Newport:
         self.gpio.write(0xff)
         self.state = self.gpio.read()
 
-    def getSpectrum(self):
+    def get_spectrum(self):
         x = []
         y = []
         return (x,y)
