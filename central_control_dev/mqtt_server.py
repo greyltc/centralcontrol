@@ -1256,6 +1256,7 @@ def _ivt(
         if calibration is True:
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
             if rtd is True:
+                print("RTD")
                 mqttc.append_payload("calibration/rtd", pickle.dumps(diode_dict))
             else:
                 mqttc.append_payload(
