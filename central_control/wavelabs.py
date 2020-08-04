@@ -198,7 +198,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Recipe '{:}' could not be activated, check that it exists".format(recipe_name))
-    return response
+    return response.error
       
   def waitForResultAvailable(self, timeout=10000, run_ID=None):
     """wait for result from a recipe to be available"""
