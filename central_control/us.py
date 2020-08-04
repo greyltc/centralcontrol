@@ -414,7 +414,10 @@ class us:
           if len(koz) == 0:
             koz += [-10] # something that's never enforced for no keepout
             koz += [-10]
-          if (new_pos[i] >= axmin and new_pos[i] <= axmax) and not (new_pos[i] >= koz[0]*self.steps_per_mm and new_pos[i] <= koz[1]*self.steps_per_mm):
+          koz_min = min(koz)*self.steps_per_mm
+          koz_max = max(koz)*self.steps_per_mm
+          print(f"i={i}, np={new_pos[i]}, axmin={axmin}, axmax={axmax}, kozmin={koz_min}, kozmin={koz_max}")
+          if (new_pos[i] >= axmin and new_pos[i] <= axmax) and not (new_pos[i] >= koz_min and new_pos[i] <= koz_max):
             ret = 0
           else:
             ret = -6
