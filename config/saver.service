@@ -9,6 +9,7 @@ Description=The data saver service
 WorkingDirectory=%h/data
 Environment=PYTHONPATH=/opt/software/python
 ExecStart=python -m saver.saver -mqtthost 127.0.0.1
+RestartSec=3
 Restart=always
 PrivateTmp=true
 NoNewPrivileges=true
