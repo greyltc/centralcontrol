@@ -495,6 +495,7 @@ class fabric:
         """
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
+            me.connect()
             if pixel["position"] is not None:
                 resp = me.goto(pixel["position"])
 
@@ -810,12 +811,14 @@ class fabric:
         """Home the stage."""
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
+            me.connect()
             return me.home()
 
     def read_stage_position(self):
         """Read the current stage position along all available axes."""
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
+            me.connect()
             return me.get_position()
 
     def goto_stage_position(
@@ -830,6 +833,7 @@ class fabric:
         """
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
+            me.connect()
             return me.goto(position)
 
     def contact_check(self, pixel_queue, handler=None, handler_kwargs={}):
