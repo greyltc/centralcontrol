@@ -2,10 +2,10 @@
 import paho.mqtt.client as mqtt
 import argparse
 import pickle
-import central_control.us
-import central_control.pcb
+import central_control.us as us
+import central_control.pcb as pcb
 import threading, queue
-import central_control.motion
+import central_control.motion as motion
 import logging
 from collections.abc import Iterable
 import pyvisa
