@@ -196,7 +196,7 @@ class k2400:
 
     def disconnect(self):
         """Close VISA resource."""
-        self.sm.outOn(False)
+        self.outOn(False)
         self.sm.close()
 
     def setWires(self, twoWire=False):
