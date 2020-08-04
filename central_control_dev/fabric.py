@@ -213,7 +213,9 @@ class fabric:
 
         self._connected_instruments.append(self.mono)
 
-    def _connect_solarsim(self, dummy=False, visa_lib="@py", light_address=None):
+    def _connect_solarsim(
+        self, dummy=False, visa_lib="@py", light_address=None, light_recipe=None
+    ):
         """Create solar simulator connection.
 
         Parameters
@@ -228,9 +230,11 @@ class fabric:
             instrument is created.
         """
         if dummy is True:
-            self.le = virt.illumination(address=light_address)
+            self.le = virt.illumination(
+                address=light_address, default_recipe=light_recipe
+            )
         else:
-            self.le = illumination(address=light_address)
+            self.le = illumination(address=light_address, default_recipe=light_recipe)
         self.le.connect()
 
         self._connected_instruments.append(self.le)
@@ -326,6 +330,7 @@ class fabric:
         pcb_address=None,
         motion_address=None,
         light_address=None,
+        light_recipe=None,
         lia_address=None,
         lia_terminator="\r",
         lia_baud=9600,
@@ -367,6 +372,8 @@ class fabric:
         light_address : str
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
+        light_recipe : str
+            Recipe name.
         lia_address : str
             VISA resource name for the lock-in amplifier. If `None` is given a virtual
             instrument is created.
@@ -428,7 +435,10 @@ class fabric:
 
         if light_address is not None:
             self._connect_solarsim(
-                dummy=dummy, visa_lib=visa_lib, light_address=light_address
+                dummy=dummy,
+                visa_lib=visa_lib,
+                light_address=light_address,
+                light_recipe=light_recipe,
             )
 
         if psu_address is not None:
@@ -466,31 +476,11 @@ class fabric:
         raw_spectrum : list
             Raw spectrum measurements in arbitrary units.
         """
-        if recipe is not None:
-            # choose the recipe
-            self.le.light_engine.activateRecipe(recipe)
-
-        # edit the recipe for the intensity measurement but store old values so it
-        # can be changed back after
-        old_duration = self.le.light_engine.getRecipeParam(param="Duration")
-        new_duration = 1
-        self.le.light_engine.setRecipeParam(param="Duration", value=new_duration * 1000)
-
-        # run recipe
-        run_ID = self.le.light_engine.on()
-        self.le.light_engine.waitForRunFinished(run_ID=run_ID)
-        self.le.light_engine.waitForResultAvailable(run_ID=run_ID)
-
         # get spectrum data
-        raw_spectrum = self.le.light_engine.getDataSeries(run_ID=run_ID)[0]
-        wls = raw_spectrum["data"]["Wavelenght"]
-        raw_irr = raw_spectrum["data"]["Irradiance"]
-        data = np.array([[w, i] for w, i in zip(wls, raw_irr)])
+        wls, counts = self.le.get_spectrum()
+        data = [[wl, count] for wl, count in zip(wls, counts)]
 
-        # reset recipe
-        self.le.light_engine.setRecipeParam(param="Duration", value=old_duration)
-
-        return data.tolist()
+        return data
 
     def run_done(self):
         """Turn off light engine and smu."""

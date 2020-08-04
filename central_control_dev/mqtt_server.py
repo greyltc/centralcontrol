@@ -295,11 +295,13 @@ def _calibrate_spectrum(request, mqtthost, dummy):
         _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
 
         config = request["config"]
+        args = request["args"]
 
         measurement.connect_instruments(
             dummy=dummy,
             visa_lib=config["visa"]["visa_lib"],
             light_address=config["solarsim"]["uri"],
+            light_recipe=args["light_recipe"],
         )
 
         timestamp = time.time()
@@ -985,6 +987,7 @@ def _ivt(
         pcb_address=config["controller"]["address"],
         motion_address=config["stage"]["uri"],
         light_address=config["solarsim"]["uri"],
+        light_recipe=args["light_recipe"],
     )
 
     # set the master experiment relay

@@ -422,6 +422,24 @@ class wavelabs:
         if response.error != 0:
             print("ERROR: Could not exit WaveLabs program")
 
+    def get_spectrum(self):
+        x = []
+        y = []
+        try:
+            old_duration = int(wl.getRecipeParam(param="Duration"))
+            wl.setRecipeParam(param="Duration", value=1000)
+            run_ID = wl.on()
+            wl.waitForRunFinished(run_ID=run_ID)
+            wl.waitForResultAvailable(run_ID=run_ID)
+            spectra = wl.getDataSeries(run_ID=run_ID)
+            wl.setRecipeParam(param="Duration", value=old_duration)
+            spectrum = spectra[0]
+            x = spectrum["data"]["Wavelenght"]
+            y = spectrum["data"]["Irradiance"]
+        except:
+            pass
+        return (x, y)
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

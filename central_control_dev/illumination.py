@@ -12,12 +12,12 @@ class illumination:
 
     light_engine = None
 
-    def __init__(self, address="", default_recipe="am1_5_1_sun"):
+    def __init__(self, address="", default_recipe="am1_5_1_sun", connection_timeout=10):
         """
     sets up communication to light source
     """
 
-        initial_connect_timeout = 10  # s
+        connection_timeout = connection_timeout  # s
 
         addr_split = address.split(sep="://", maxsplit=1)
         protocol = addr_split[0]
@@ -48,7 +48,7 @@ class illumination:
                 host=host,
                 port=port,
                 relay=relay,
-                timeout=initial_connect_timeout,
+                connection_timeout=connection_timeout,
                 default_recipe=default_recipe,
             )
         # elif protocol.lower() == ('ftdi'):
@@ -72,3 +72,8 @@ class illumination:
     """
         self.light_engine.off()
 
+    def get_spectrum(self):
+        """
+    fetches a spectrum if the light engine supports it
+    """
+        return self.light_engine.get_spectrum()

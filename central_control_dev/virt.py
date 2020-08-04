@@ -44,11 +44,12 @@ class motion:
 
 
 class illumination:
-    def __init__(self, address=""):
+    def __init__(self, address="", default_recipe="am1_5_1_sun", connection_timeout=10):
         """
     sets up communication to light source
     """
         print(address)
+        connection_timeout = connection_timeout  # s
         addr_split = address.split(sep="://", maxsplit=1)
         protocol = addr_split[0]
         print(protocol)
@@ -64,10 +65,24 @@ class illumination:
             protocol = addr_split[0]
 
         if protocol.lower().startswith("wavelabs"):
-            self.light_engine = wavelabs(address=address)
-            self.wavelabs = True
-        elif protocol.lower() == ("ftdi"):
-            self.light_engine = Newport(address=address)
+            location = addr_split[1]
+            ls = location.split(":")
+            host = ls[0]
+            if len(ls) == 1:
+                port = None
+            else:
+                port = int(ls[1])
+            if "relay" in protocol.lower():
+                relay = True
+            else:
+                relay = False
+            self.light_engine = wavelabs(
+                host=host,
+                port=port,
+                relay=relay,
+                connection_timeout=connection_timeout,
+                default_recipe=default_recipe,
+            )
 
     def connect(self):
         print("Connected to virtual lightsource")
@@ -87,6 +102,9 @@ class illumination:
     def disconnect(self):
         print("Disconnecting light source")
 
+    def get_spectrum(self):
+        return [300, 500, 700, 900, 1100], [1, 1, 1, 1, 1]
+
 
 class wavelabs:
     """interface to the wavelabs LED solar simulator"""
@@ -99,7 +117,14 @@ class wavelabs:
         "0.0.0.0"  # 0.0.0.0 for direct connection, localhost for through relay service
     )
 
-    def __init__(self, address="wavelabs://0.0.0.0:3334"):
+    def __init__(
+        self,
+        host="0.0.0.0",
+        port=3334,
+        relay=False,
+        connection_timeout=None,
+        default_recipe="am1_5_1_sun",
+    ):
         """
     sets up the wavelabs object
     address is a string of the format:
@@ -108,9 +133,13 @@ class wavelabs:
     wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
     
     """
-        self.protocol, location = address.split("://")
-        self.host, self.port = location.split(":")
-        self.port = int(self.port)
+        self.relay = relay
+        self.host = host
+        self.port = port
+        self.def_port_non_relay = 3334
+        self.def_port_relay = 3335
+        self.timeout = connection_timeout
+        self.default_recipe = default_recipe
 
     def recvXML(self):
         """reads xml object from socket"""
