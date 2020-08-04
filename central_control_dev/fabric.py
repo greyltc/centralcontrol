@@ -237,8 +237,6 @@ class fabric:
             self.le = illumination(address=light_address, default_recipe=light_recipe)
         self.le.connect()
 
-        self._connected_instruments.append(self.le)
-
     def _connect_psu(
         self,
         dummy=False,

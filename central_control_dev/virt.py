@@ -99,9 +99,6 @@ class illumination:
     def close(self):
         pass
 
-    def disconnect(self):
-        print("Disconnecting light source")
-
     def get_spectrum(self):
         return [300, 500, 700, 900, 1100], [1, 1, 1, 1, 1]
 
