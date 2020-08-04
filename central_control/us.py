@@ -101,6 +101,7 @@ class us:
         if (driver_length < el + ald) and (driver_length > el - ald):
           ret = 0
         else:
+          print(f"{driver_length} is not on ({el-ald},{el+ald})")
           ret = -1
           break
       else:
@@ -183,7 +184,7 @@ class us:
       time_left = timeout - (time.time() - t0)
       ret = self.home(axis=1, block=True, timeout=time_left, enable_otter=False)
       if isinstance(ret, list): # ax1 homed
-        dims[0] = ret
+        dims[0] = ret[0]
         ret = self.check_lengths(1)
         if ret == 0: # ax1 is the expected length
           time_left = timeout - (time.time() - t0)
