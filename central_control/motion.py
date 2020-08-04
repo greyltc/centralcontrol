@@ -22,7 +22,7 @@ class motion:
       self.photodiode_location = self.motion_engine.photodiode_location
     elif address.startswith('us://'):  # uStepperS via i2c via ethernet connected pcb
       content = address.lstrip('us://')
-      pieces = content.split('/', maxsplit=2)
+      pieces = content.split('/')
       expected_lengths_in_mm = pieces[0]
       steps_per_mm = float(pieces[1])
 

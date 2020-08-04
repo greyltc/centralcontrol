@@ -156,9 +156,6 @@ class us:
             ret = self.wait_for_home_or_jog(axis=axis, timeout=time_left)
           else: # non-blocking home
             ret = 0
-    if isinstance(ret,list):
-      mm = [x/self.steps_per_mm for x in ret]
-      ret = mm
     return(ret)
 
 
@@ -446,6 +443,7 @@ class us:
               q.append(self.pcb.get(f'r{ax}'))
               if (q[0] == q[1]):
                 if (q[0] != new_pos[i]): # check if we ended where we want to be
+                  print(f"Goto Wanted:{new_pos[i]/self.steps_per_mm}, Got: {q[0]/self.steps_per_mm}")
                   ret = -8
                 else:
                   if ret != -8: # this error case needs to stick
