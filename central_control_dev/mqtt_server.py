@@ -945,7 +945,7 @@ def _log(msg, level, **kwargs):
     mqttc = kwargs["mqttc"]
 
     payload = {"level": level, "msg": msg}
-    mqttc.append_payload("log", pickle.dumps(payload))
+    mqttc.append_payload("measurement/log", pickle.dumps(payload))
 
 
 def _ivt(
