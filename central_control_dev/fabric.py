@@ -167,7 +167,7 @@ class fabric:
         if dummy is True:
             self.lia = virtual_sr830.sr830(return_int=True)
         else:
-            self.lia = sr830.sr830(return_int=True, check_errors=True)
+            self.lia = sr830.sr830(return_int=True, check_errors=False)
 
         # default lia_output_interface is RS232
         self.lia.connect(
