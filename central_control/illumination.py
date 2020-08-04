@@ -60,3 +60,9 @@ class illumination:
     turns light off
     """
     self.light_engine.off()
+  
+  def get_spectrum(self):
+    """
+    fetches a spectrum if the light engine supports it
+    """
+    self.light_engine.get_spectrum()

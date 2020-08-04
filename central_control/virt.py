@@ -18,12 +18,17 @@ class motion():
 class illumination():
   def connect(self):
     print ("Connected to virtual lightsource")
+    return(0)
   def activateRecipe(self, recipe):
     print ("Light engine recipe '{:}' virtually activated.".format(recipe))
   def on(self):
     print("Virtual light turned on")
   def off(self):
     print("Virtual light turned off")
+  def get_spectrum(self):
+    print("Virtual light turned off")
+    print("Giving you a virtual spectrum")
+    return ([],[])  # TODO: make this not empty
   def close(self):
     pass  
 

@@ -26,6 +26,11 @@ class Newport:
         self.gpio.write(0xff)
         self.state = self.gpio.read()
 
+    def getSpectrum(self):
+        x = []
+        y = []
+        return (x,y)
+
 if __name__ == "__main__":
     from os import environ
     address = environ.get('FTDI_DEVICE', 'ftdi://ftdi:232/1')    
