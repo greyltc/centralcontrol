@@ -129,7 +129,7 @@ class us:
   # -4 the otter stage can not home one axis alone, nor can it do non-blocking homes
   # -5 otter home failed because stage 1 was not the expected length
   # -9 if there was a programming error
-  def home(self, axis=-1, block=True, timeout = 80, enable_otter=True):
+  def home(self, axis=-1, block=True, timeout = 130, enable_otter=True):
     ret = -9
     t0 = time.time()
     if (('otter' in self.extra) and (enable_otter == True)):
