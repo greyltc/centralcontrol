@@ -59,16 +59,26 @@ def manager():
             try:
                 with pcb.pcb(cmd_msg['pcb'], timeout=10) as p:
                     p.get('b')
-                log_msg('Emergency stop done. Re-Homing required before any further movements.',lvl=logging.INFO)
+                log_msg('Emergency stop done. Re-Homing required before any further movements.', lvl=logging.INFO)
             except:
-                log_msg(f'Unable to complete task.',lvl=logging.WARNING)
+                log_msg(f'Unable to complete task.', lvl=logging.WARNING)
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
         else:
-            log_msg('Backend busy. Command rejected.',lvl=logging.WARNING)
+            log_msg('Backend busy. Command rejected.', lvl=logging.WARNING)
         cmdq.task_done()
 
+# asks for the current stage position and sends it up to /response
+def get_stage(pcba, uri):
+    with pcb.pcb(pcba, timeout=1) as p:
+        mo = motion.motion(address=uri, pcb_object=p)
+        mo.connect()
+        pos = mo.get_position()
+    payload = {'pos': pos}
+    payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+    output = {'destination':'response', 'payload': payload}  # post the position to the response channel
+    outputq.put(output)
 
 # work gets done here so that we don't do any processing on the mqtt network thread
 # can block and be slow. new commands that come in while this is working will be rejected
@@ -83,6 +93,7 @@ def worker():
                     result = mo.home()
                     if isinstance(result, list) or (result == 0):
                         log_msg('Homing procedure complete.',lvl=logging.INFO)
+                        get_stage(task['pcb'], task['stage_uri'])
                     else:
                         log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
 
@@ -94,6 +105,7 @@ def worker():
                     result = mo.goto(task['pos'])
                     if result != 0:
                         log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
+                    get_stage(task['pcb'], task['stage_uri'])
 
             # handle any generic PCB command that has an empty return on success
             elif task['cmd'] == 'for_pcb':
@@ -109,14 +121,7 @@ def worker():
 
             # get the stage location
             elif task['cmd'] == 'read_stage':
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                    mo.connect()
-                    pos = mo.get_position()
-                payload = {'pos': pos}
-                payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-                output = {'destination':'response', 'payload': payload}  # post the position to the response channel
-                outputq.put(output)
+                get_stage(task['pcb'], task['stage_uri'])
 
             # device round robin commands
             elif task['cmd'] == 'round_robin':
@@ -135,9 +140,9 @@ def worker():
                         p.get('s') # deselect the device
 
 
-                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                    mo.connect()
-                    pos = mo.get_position()
+                    #mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                    #mo.connect()
+                    #pos = mo.get_position()
                     
                 #payload = {'pos': pos}
                 #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)

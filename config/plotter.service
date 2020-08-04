@@ -7,6 +7,7 @@ Description=The live data plotter service
 
 [Service]
 Environment=PYTHONPATH=/opt/software/python
+Environment=PYTHONUNBUFFERED=tomato_casserol
 ExecStart=python -m plotter.plotter -mqtthost 127.0.0.1 -dashhost 127.0.0.1
 RestartSec=3
 Restart=always
