@@ -9,12 +9,12 @@ class illumination:
   """
   light_engine = None
 
-  def __init__(self, address='', default_recipe='am1_5_1_sun'):
+  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout = 10):
     """
     sets up communication to light source
     """
 
-    initial_connect_timeout = 10 # s
+    connection_timeout = connection_timeout # s
 
     addr_split = address.split(sep='://', maxsplit=1)
     protocol = addr_split[0]
@@ -39,7 +39,7 @@ class illumination:
         relay = True
       else:
         relay = False
-      self.light_engine = wavelabs(host=host, port=port, relay=relay, timeout=initial_connect_timeout, default_recipe=default_recipe)
+      self.light_engine = wavelabs(host=host, port=port, relay=relay, connection_timeout=connection_timeout, default_recipe=default_recipe)
     #elif protocol.lower() == ('ftdi'):
     #  self.light_engine = Newport(address=address)
 

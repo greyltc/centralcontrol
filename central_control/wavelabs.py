@@ -59,7 +59,7 @@ class wavelabs:
     def close(self):
       pass  
 
-  def __init__(self, host="0.0.0.0", port=3334, relay=False, timeout=None, default_recipe='am1_5_1_sun'):
+  def __init__(self, host="0.0.0.0", port=3334, relay=False, connection_timeout=None, default_recipe='am1_5_1_sun'):
     """
     sets up the wavelabs object
     address is a string of the format:
@@ -73,7 +73,7 @@ class wavelabs:
     self.port = port
     self.def_port_non_relay = 3334
     self.def_port_relay = 3335
-    self.timeout = timeout
+    self.timeout = connection_timeout
     self.default_recipe = default_recipe
     
   def __del__(self):
