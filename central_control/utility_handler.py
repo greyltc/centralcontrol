@@ -200,11 +200,11 @@ def worker():
 
             log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
             try:
-                le = illumination(address=task['le_address'], default_recipe=task['recipe'])
+                le = illumination(address=task['le_address'], default_recipe=task['le_recipe'])
                 if le.connect() == 0:
                     log_msg('Light engine connection successful',lvl=logging.INFO)
                 else:
-                    log_msg(f"Unable to connect to light engine and activate {task['recipe']}",lvl=logging.WARNING)
+                    log_msg(f"Unable to connect to light engine and activate {task['le_recipe']}",lvl=logging.WARNING)
             except:
                 log_msg(f'Could not talk to light engine',lvl=logging.WARNING)
 
