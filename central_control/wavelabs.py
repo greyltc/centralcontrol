@@ -144,16 +144,22 @@ class wavelabs:
     ret = -3
     requestNotVerified = True
     time_left = timeout - (time.time() - t0)
+    old_tout = self.server.socket.gettimeout()
+    self.server.socket.settimeout(self.timeout/10)
     while requestNotVerified and (time_left > 0):
-      request, client_address = self.server.get_request()
-      if self.server.verify_request(request, client_address):
-        self.sock_file = request.makefile(mode="rwb")
-        self.connection = request
-        requestNotVerified = False
-        ret = 0
+      try:
+        request, client_address = self.server.get_request()
+        if self.server.verify_request(request, client_address):
+          self.sock_file = request.makefile(mode="rwb")
+          self.connection = request
+          requestNotVerified = False
+          ret = 0
+      except:
+        pass
       time_left = timeout - (time.time() - t0)
     if time_left <= 0:
       ret = -1
+    self.server.socket.settimeout(old_tout)
     return (ret)
         
   def connectToRelay(self):
