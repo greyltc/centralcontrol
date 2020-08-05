@@ -1528,7 +1528,7 @@ if __name__ == "__main__":
     cli_args = get_args()
 
     config = {
-        "visa": {"visa-lib": "@py"},
+        "visa": {"visa_lib": "@py"},
         "solarsim": {"uri": "wavelabs://0.0.0.0:3334"},
     }
     args = {"light_recipe": "AM1.5G"}
