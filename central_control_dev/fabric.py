@@ -506,6 +506,9 @@ class fabric:
                 else:
                     resp = p.get("s")
 
+            if resp is True:
+                resp = 0
+
         return resp
 
     def set_experiment_relay(self, exp_relay):

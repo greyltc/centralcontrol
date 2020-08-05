@@ -33,7 +33,7 @@ test_args = {
         "sc6",
     ],
     "eqe_start": 300.0,
-    "eqe_step": 100.0,
+    "eqe_steps": 10.0,
     "eqe_subs_dev_nums": [1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6],
     "eqe_subs_labels": [
         "bad devices",
@@ -173,7 +173,7 @@ test_config = {
     },
     "solarsim": {"uri": "wavelabs://127.0.0.1:1111"},
     "stage": {
-        "uri": "127.0.0.1",
+        "uri": "us://875,375/6400/[[],[0,70]]/otter",
         "custom_positions": {
             "Load Position": 23,
             "Midway": 62.5,
