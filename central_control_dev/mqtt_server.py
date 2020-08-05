@@ -20,6 +20,8 @@ import yaml
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
 from central_control_dev.fabric import fabric
 
+multiprocessing.allow_connection_pickling()
+
 
 def get_args():
     """Get arguments parsed from the command line."""
