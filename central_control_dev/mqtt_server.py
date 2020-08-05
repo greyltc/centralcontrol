@@ -1389,10 +1389,6 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         # get human-readable timestamp
         timestamp = time.time()
 
-        num_points = 1 + int(
-            np.absolute(args["eqe_end"] - args["eqe_start"]) / args["eqe_step"]
-        )
-
         # perform measurement
         eqe = measurement.eqe(
             psu_ch1_voltage=config["psu"]["ch1_voltage"],
@@ -1404,7 +1400,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             smu_voltage=args["eqe_bias"],
             start_wl=args["eqe_start"],
             end_wl=args["eqe_end"],
-            num_points=num_points,
+            num_points=args["eqe_steps"],
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             integration_time=args["eqe_int"],
