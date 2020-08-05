@@ -642,6 +642,7 @@ class fabric:
         )
 
         raw = self.sm.measure(nPoints)
+        raw = [list(x) for x in list(zip(*[iter(raw)] * 4))]
 
         if handler is not None:
             handler(raw, **handler_kwargs)
