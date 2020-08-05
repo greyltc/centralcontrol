@@ -288,42 +288,40 @@ def _calibrate_spectrum(request, mqtthost, dummy):
     """
     print("Calibrating spectrum...")
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+    # try:
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-            _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
+        _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
 
-            config = request["config"]
-            args = request["args"]
+        config = request["config"]
+        args = request["args"]
 
-            measurement.connect_instruments(
-                dummy=dummy,
-                visa_lib=config["visa"]["visa_lib"],
-                light_address=config["solarsim"]["uri"],
-                light_recipe=args["light_recipe"],
-            )
-
-            timestamp = time.time()
-
-            spectrum = measurement.measure_spectrum()
-
-            # update spectrum  calibration data in atomic thread-safe way
-            spectrum_dict = {"data": spectrum, "timestamp": timestamp}
-
-            # publish calibration
-            mqttc.append_payload("calibration/spectrum", pickle.dumps(spectrum_dict))
-
-            _log(
-                "Finished calibrating solar simulator spectrum!", 20, **{"mqttc": mqttc}
-            )
-
-        print("Spectrum calibration complete.")
-    except Exception as e:
-        print(f"Exeption during calibration, {type(e)}, {str(e)}")
-        _log(
-            f"SPECTRUM CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc}
+        measurement.connect_instruments(
+            dummy=dummy,
+            visa_lib=config["visa"]["visa_lib"],
+            light_address=config["solarsim"]["uri"],
+            light_recipe=args["light_recipe"],
         )
+
+        timestamp = time.time()
+
+        spectrum = measurement.measure_spectrum()
+
+        # update spectrum  calibration data in atomic thread-safe way
+        spectrum_dict = {"data": spectrum, "timestamp": timestamp}
+
+        # publish calibration
+        mqttc.append_payload("calibration/spectrum", pickle.dumps(spectrum_dict))
+
+        _log("Finished calibrating solar simulator spectrum!", 20, **{"mqttc": mqttc})
+
+    print("Spectrum calibration complete.")
+    # except Exception as e:
+    #     print(f"Exeption during calibration, {type(e)}, {str(e)}")
+    #     _log(
+    #         f"SPECTRUM CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc}
+    #     )
 
     publish.single(
         "measurement/status",
@@ -1428,50 +1426,50 @@ def _run(request, mqtthost, dummy):
     if args["iv_devs"] is not None:
         _calibrate_spectrum(request, mqtthost, dummy)
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+    # try:
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-            _log("Starting run...", 20, **{"mqttc": mqttc})
+        _log("Starting run...", 20, **{"mqttc": mqttc})
 
-            if args["iv_devs"] is not None:
-                try:
-                    iv_pixel_queue = _build_q(request, experiment="solarsim")
-                except ValueError as e:
-                    # there was a problem with the labels and/or layouts list
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
-            else:
-                iv_pixel_queue = []
+        if args["iv_devs"] is not None:
+            try:
+                iv_pixel_queue = _build_q(request, experiment="solarsim")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                return
+        else:
+            iv_pixel_queue = []
 
-            if args["eqe_devs"] is not None:
-                try:
-                    eqe_pixel_queue = _build_q(request, experiment="eqe")
-                except ValueError as e:
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
-            else:
-                eqe_pixel_queue = []
+        if args["eqe_devs"] is not None:
+            try:
+                eqe_pixel_queue = _build_q(request, experiment="eqe")
+            except ValueError as e:
+                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                return
+        else:
+            eqe_pixel_queue = []
 
-            # measure i-v-t
-            if len(iv_pixel_queue) > 0:
-                try:
-                    _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
-                except ValueError as e:
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
+        # measure i-v-t
+        if len(iv_pixel_queue) > 0:
+            try:
+                _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+            except ValueError as e:
+                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                return
 
-            # measure eqe
-            if len(eqe_pixel_queue) > 0:
-                _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
+        # measure eqe
+        if len(eqe_pixel_queue) > 0:
+            _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
 
-            # report complete
-            _log("Run complete!", 20, **{"mqttc": mqttc})
+        # report complete
+        _log("Run complete!", 20, **{"mqttc": mqttc})
 
-        print("Measurement complete.")
-    except Exception as e:
-        print(f"Exeption during run, {type(e)}, {str(e)}")
-        _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+    print("Measurement complete.")
+    # except Exception as e:
+    #     print(f"Exeption during run, {type(e)}, {str(e)}")
+    #     _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
