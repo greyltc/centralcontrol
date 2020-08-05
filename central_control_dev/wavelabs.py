@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import socketserver
 import xml.etree.cElementTree as ET
 import time
@@ -87,6 +89,10 @@ class wavelabs:
     def __del__(self):
         try:
             self.sock_file.close()
+        except:
+            pass
+
+        try:
             self.connection.close()
         except:
             pass
@@ -233,7 +239,7 @@ class wavelabs:
                     recipe_name
                 )
             )
-        return response
+        return response.error
 
     def waitForResultAvailable(self, timeout=10000, run_ID=None):
         """wait for result from a recipe to be available"""
