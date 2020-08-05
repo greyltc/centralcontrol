@@ -199,7 +199,11 @@ def _calibrate_psu(request, mqtthost, dummy):
             )
 
             # using smu to measure the current from the photodiode
-            measurement.set_experiment_relay("iv")
+            resp = measurement.set_experiment_relay("iv")
+
+            if resp != "":
+                _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+                return
 
             last_label = None
             while len(pixel_queue) > 0:
@@ -1006,7 +1010,7 @@ def _ivt(
     # set the master experiment relay
     resp = measurement.set_experiment_relay("iv")
 
-    if resp != 0:
+    if resp != "":
         _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
         return
 
@@ -1322,7 +1326,11 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         psu_address=config["psu"]["address"],
     )
 
-    measurement.set_experiment_relay("eqe")
+    resp = measurement.set_experiment_relay("eqe")
+
+    if resp != "":
+        _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+        return
 
     last_label = None
     while len(pixel_queue) > 0:
