@@ -1400,7 +1400,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             smu_voltage=args["eqe_bias"],
             start_wl=args["eqe_start"],
             end_wl=args["eqe_end"],
-            num_points=args["eqe_step"],
+            num_points=int(args["eqe_step"]),
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             integration_time=args["eqe_int"],
