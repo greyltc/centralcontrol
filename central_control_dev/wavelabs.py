@@ -431,19 +431,24 @@ class wavelabs:
     def get_spectrum(self):
         x = []
         y = []
+        old_duration = None
         try:
-            old_duration = int(wl.getRecipeParam(param="Duration"))
-            wl.setRecipeParam(param="Duration", value=1000)
-            run_ID = wl.on()
-            wl.waitForRunFinished(run_ID=run_ID)
-            wl.waitForResultAvailable(run_ID=run_ID)
-            spectra = wl.getDataSeries(run_ID=run_ID)
-            wl.setRecipeParam(param="Duration", value=old_duration)
+            old_duration = int(self.getRecipeParam(param="Duration"))
+            self.setRecipeParam(param="Duration", value=1000)
+            run_ID = self.on()
+            self.waitForRunFinished(run_ID=run_ID)
+            self.waitForResultAvailable(run_ID=run_ID)
+            spectra = self.getDataSeries(run_ID=run_ID)
+            self.setRecipeParam(param="Duration", value=old_duration)
             spectrum = spectra[0]
             x = spectrum["data"]["Wavelenght"]
             y = spectrum["data"]["Irradiance"]
         except:
-            pass
+            if old_duration is not None:
+                try:
+                    self.setRecipeParam(param="Duration", value=old_duration)
+                except:
+                    pass
         return (x, y)
 
 
