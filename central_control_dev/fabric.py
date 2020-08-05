@@ -237,6 +237,8 @@ class fabric:
             self.le = illumination(address=light_address, default_recipe=light_recipe)
         self.le.connect()
 
+        self._connected_instruments.append(self.le)
+
     def _connect_psu(
         self,
         dummy=False,
@@ -457,7 +459,11 @@ class fabric:
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
         for instr in self._connected_instruments:
-            instr.disconnect()
+            if instr == self.le:
+                self.le.light_engine.__del__()
+                print("Called light engine __del__ method")
+            else:
+                instr.disconnect()
 
     def measure_spectrum(self, recipe=None):
         """Measure the spectrum of the light source.
