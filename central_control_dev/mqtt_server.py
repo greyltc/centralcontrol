@@ -1495,7 +1495,6 @@ def on_message(mqttc, obj, msg):
 
     # perform a requested action
     if (action := msg.topic.split("/")[-1]) == "run":
-        _calibrate_spectrum(request, cli_args.mqtthost, cli_args.dummy)
         start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
     elif action == "stop":
         stop_process()
@@ -1527,6 +1526,8 @@ def on_message(mqttc, obj, msg):
 if __name__ == "__main__":
     # get command line arguments
     cli_args = get_args()
+
+    _calibrate_spectrum(request, cli_args.mqtthost, cli_args.dummy)
 
     # create dummy process
     process = multiprocessing.Process()
