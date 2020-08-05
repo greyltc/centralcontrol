@@ -1153,7 +1153,7 @@ def _ivt(
                 )
 
                 data += iv1
-                
+
                 print(iv1, type(iv1))
 
                 Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.which_max_power(
@@ -1273,6 +1273,7 @@ def _ivt(
 
             data += it
 
+        measurement.le.off()
         measurement.sm.outOn(False)
 
         if calibration is True:
