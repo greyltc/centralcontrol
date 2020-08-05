@@ -26,7 +26,7 @@ class motion:
             "us://"
         ):  # uStepperS via i2c via ethernet connected pcb
             content = address.lstrip("us://")
-            pieces = content.split("/", maxsplit=2)
+            pieces = content.split("/")
             expected_lengths_in_mm = pieces[0]
             steps_per_mm = float(pieces[1])
 
@@ -42,28 +42,28 @@ class motion:
                 except:
                     keepout = [[]] * len(expected_lengths_in_mm)
                     extra = pieces[2]
-                    if len(pieces) == 4:
-                        extra = pieces[3]
+                if len(pieces) == 4:
+                    extra = pieces[3]
 
-        # so the format is now
-        # driver://csv list of expected lengths in mm/steps per mm/json formatted list of lists of max and min keepout zones/extra
-        # for example:
-        # us://875,375/6400/[[],[]]
+            # so the format is now
+            # driver://csv list of expected lengths in mm/steps per mm/json formatted list of lists of max and min keepout zones/extra
+            # for example:
+            # us://875,375/6400/[[],[]]
 
-        self.motion_engine = us(
-            pcb_object,
-            expected_lengths=expected_lengths_in_mm,
-            keepout_zones=keepout,
-            steps_per_mm=steps_per_mm,
-            extra=extra,
-        )
-        # self.substrate_centers = self.motion_engine.substrate_centers
-        # self.photodiode_location = self.motion_engine.photodiode_location
+            self.motion_engine = us(
+                pcb_object,
+                expected_lengths=expected_lengths_in_mm,
+                keepout_zones=keepout,
+                steps_per_mm=steps_per_mm,
+                extra=extra,
+            )
+            # self.substrate_centers = self.motion_engine.substrate_centers
+            # self.photodiode_location = self.motion_engine.photodiode_location
 
     def connect(self):
         """
-        makes connection to motion controller, blocking
-        """
+    makes connection to motion controller, blocking
+    """
         return self.motion_engine.connect()
 
     def move(self, mm):
