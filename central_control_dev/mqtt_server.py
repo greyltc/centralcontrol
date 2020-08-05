@@ -102,38 +102,38 @@ def _calibrate_eqe(request, mqtthost, dummy):
     print("calibrating eqe...")
 
     # catch all errors and report back to log
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            # create temporary mqtt client
-            mqttc.run(mqtthost)
+    # try:
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        # create temporary mqtt client
+        mqttc.run(mqtthost)
 
-            _log("Calibrating EQE...", 20, **{"mqttc": mqttc})
+        _log("Calibrating EQE...", 20, **{"mqttc": mqttc})
 
-            args = request["args"]
+        args = request["args"]
 
-            # get pixel queue
-            if int(args["eqe_devs"], 16) > 0:
-                pixel_queue = _build_q(request, experiment="eqe")
-            else:
-                # if it's emptpy, assume cal diode is connected externally
-                pixel_dict = {
-                    "label": args["label_tree"][0],
-                    "layout": None,
-                    "sub_name": None,
-                    "pixel": 0,
-                    "position": None,
-                    "area": None,
-                }
-                pixel_queue = collections.deque(pixel_dict)
+        # get pixel queue
+        if int(args["eqe_devs"], 16) > 0:
+            pixel_queue = _build_q(request, experiment="eqe")
+        else:
+            # if it's emptpy, assume cal diode is connected externally
+            pixel_dict = {
+                "label": args["label_tree"][0],
+                "layout": None,
+                "sub_name": None,
+                "pixel": 0,
+                "position": None,
+                "area": None,
+            }
+            pixel_queue = collections.deque(pixel_dict)
 
-            _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
+        _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
 
-            _log("EQE calibration complete!", 20, **{"mqttc": mqttc})
+        _log("EQE calibration complete!", 20, **{"mqttc": mqttc})
 
-        print("EQE calibration finished.")
-    except Exception as e:
-        print(f"Exeption during calibration, {type(e)}, {str(e)}")
-        _log(f"EQE CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+    print("EQE calibration finished.")
+    # except Exception as e:
+    #     print(f"Exeption during calibration, {type(e)}, {str(e)}")
+    #     _log(f"EQE CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
