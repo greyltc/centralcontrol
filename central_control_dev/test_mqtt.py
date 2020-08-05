@@ -171,7 +171,7 @@ test_config = {
         "terminator": "\\n",
         "two_wire": False,
     },
-    "solarsim": {"uri": "wavelabs://127.0.0.1:1111"},
+    "solarsim": {"uri": "wavelabs://0.0.0.0:3334"},
     "stage": {
         "uri": "us://875,375/6400/[[],[0,70]]/otter",
         "custom_positions": {
