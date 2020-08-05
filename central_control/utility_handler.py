@@ -202,6 +202,7 @@ def worker():
             try:
                 le = illumination(address=task['le_address'], default_recipe=task['le_recipe'])
                 con_res = le.connect()
+                le.light_engine.__del__()
                 if con_res == 0:
                     log_msg('Light engine connection successful',lvl=logging.INFO)
                 elif (con_res == -1):
