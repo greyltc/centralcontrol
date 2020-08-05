@@ -1326,14 +1326,6 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
 
     measurement.set_experiment_relay("eqe")
 
-    resp = measurement.goto_stage_position(
-        config["stage"]["experiment_positions"]["eqe"]
-    )
-
-    if resp != 0:
-        _log(f"Stage/mux error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
-        return
-
     last_label = None
     while len(pixel_queue) > 0:
         pixel = pixel_queue.popleft()
