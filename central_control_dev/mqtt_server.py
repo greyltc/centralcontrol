@@ -100,40 +100,41 @@ def _calibrate_eqe(request, mqtthost, dummy):
         Flag for dummy mode using virtual instruments.
     """
     print("calibrating eqe...")
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        # create temporary mqtt client
-        mqttc.run(mqtthost)
 
-        _log("Calibrating EQE...", 20, **{"mqttc": mqttc})
+    # catch all errors and report back to log
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            # create temporary mqtt client
+            mqttc.run(mqtthost)
 
-        args = request["args"]
+            _log("Calibrating EQE...", 20, **{"mqttc": mqttc})
 
-        # get pixel queue
-        if int(args["eqe_devs"], 16) > 0:
-            # if the bitmask isn't empty
-            try:
+            args = request["args"]
+
+            # get pixel queue
+            if int(args["eqe_devs"], 16) > 0:
                 pixel_queue = _build_q(request, experiment="eqe")
-            except ValueError as e:
-                # there was a problem with the labels and/or layouts list
-                _log("CALIBRATION ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
-        else:
-            # if it's emptpy, assume cal diode is connected externally
-            pixel_dict = {
-                "label": args["label_tree"][0],
-                "layout": None,
-                "sub_name": None,
-                "pixel": 0,
-                "position": None,
-                "area": None,
-            }
-            pixel_queue = collections.deque(pixel_dict)
+            else:
+                # if it's emptpy, assume cal diode is connected externally
+                pixel_dict = {
+                    "label": args["label_tree"][0],
+                    "layout": None,
+                    "sub_name": None,
+                    "pixel": 0,
+                    "position": None,
+                    "area": None,
+                }
+                pixel_queue = collections.deque(pixel_dict)
 
-        _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
+            _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
 
-        _log("EQE calibration complete!", 20, **{"mqttc": mqttc})
+            _log("EQE calibration complete!", 20, **{"mqttc": mqttc})
 
-    print("EQE calibration finished.")
+        print("EQE calibration finished.")
+    except Exception as e:
+        print(f"Exeption during calibration, {type(e)}, {str(e)}")
+        _log(f"EQE CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+
     publish.single(
         "measurement/status",
         pickle.dumps("Ready"),
@@ -157,115 +158,113 @@ def _calibrate_psu(request, mqtthost, dummy):
     """
     print("Calibrating psu...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Calibration LED PSU...", 20, **{"mqttc": mqttc})
+            _log("Calibration LED PSU...", 20, **{"mqttc": mqttc})
 
-        config = request["config"]
-        args = request["args"]
+            config = request["config"]
+            args = request["args"]
 
-        # get pixel queue
-        if int(args["eqe_devs"], 16) > 0:
-            # if the bitmask isn't empty
-            try:
+            # get pixel queue
+            if int(args["eqe_devs"], 16) > 0:
                 pixel_queue = _build_q(request, experiment="eqe")
-            except ValueError as e:
-                # there was a problem with the labels and/or layouts list
-                _log("CALIBRATION ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
-        else:
-            # if it's emptpy, assume cal diode is connected externally
-            pixel_dict = {
-                "label": args["label_tree"][0],
-                "layout": None,
-                "sub_name": None,
-                "pixel": 0,
-                "position": None,
-                "area": None,
-            }
-            pixel_queue = collections.deque(pixel_dict)
+            else:
+                # if it's emptpy, assume cal diode is connected externally
+                pixel_dict = {
+                    "label": args["label_tree"][0],
+                    "layout": None,
+                    "sub_name": None,
+                    "pixel": 0,
+                    "position": None,
+                    "area": None,
+                }
+                pixel_queue = collections.deque(pixel_dict)
 
-        # connect instruments
-        measurement.connect_instruments(
-            dummy=dummy,
-            visa_lib=config["visa"]["visa_lib"],
-            smu_address=config["smu"]["address"],
-            smu_terminator=config["smu"]["terminator"],
-            smu_baud=config["smu"]["baud"],
-            smu_front_terminals=config["smu"]["front_terminals"],
-            smu_two_wire=config["smu"]["two_wire"],
-            pcb_address=config["controller"]["address"],
-            motion_address=config["stage"]["uri"],
-            psu_address=config["psu"]["address"],
-            psu_terminator=config["psu"]["terminator"],
-            psu_baud=config["psu"]["baud"],
-        )
-
-        # using smu to measure the current from the photodiode
-        measurement.set_experiment_relay("iv")
-
-        last_label = None
-        while len(pixel_queue) > 0:
-            pixel = pixel_queue.popleft()
-            label = pixel["label"]
-            pix = pixel["pixel"]
-            _log(
-                f"Operating on substrate {label}, pixel {pix}...",
-                20,
-                **{"mqttc": mqttc},
+            # connect instruments
+            measurement.connect_instruments(
+                dummy=dummy,
+                visa_lib=config["visa"]["visa_lib"],
+                smu_address=config["smu"]["address"],
+                smu_terminator=config["smu"]["terminator"],
+                smu_baud=config["smu"]["baud"],
+                smu_front_terminals=config["smu"]["front_terminals"],
+                smu_two_wire=config["smu"]["two_wire"],
+                pcb_address=config["controller"]["address"],
+                motion_address=config["stage"]["uri"],
+                psu_address=config["psu"]["address"],
+                psu_terminator=config["psu"]["terminator"],
+                psu_baud=config["psu"]["baud"],
             )
 
-            # add id str to handlers to display on plots
-            idn = f"{label}_pixel{pix}"
+            # using smu to measure the current from the photodiode
+            measurement.set_experiment_relay("iv")
 
-            print(pixel)
-
-            # we have a new substrate
-            if last_label != label:
+            last_label = None
+            while len(pixel_queue) > 0:
+                pixel = pixel_queue.popleft()
+                label = pixel["label"]
+                pix = pixel["pixel"]
                 _log(
-                    f"New substrate using '{pixel['layout']}' layout!",
+                    f"Operating on substrate {label}, pixel {pix}...",
                     20,
                     **{"mqttc": mqttc},
                 )
-                last_label = label
 
-            # move to pixel
-            resp = measurement.pixel_setup(
-                pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
-            )
+                # add id str to handlers to display on plots
+                idn = f"{label}_pixel{pix}"
 
-            if resp != 0:
-                _log(
-                    f"Stage/mux error: {resp}! Aborting calibration!",
-                    40,
-                    **{"mqttc": mqttc},
-                )
-                break
+                print(pixel)
 
-            timestamp = time.time()
+                # we have a new substrate
+                if last_label != label:
+                    _log(
+                        f"New substrate using '{pixel['layout']}' layout!",
+                        20,
+                        **{"mqttc": mqttc},
+                    )
+                    last_label = label
 
-            # perform measurement
-            for channel in [1, 2, 3]:
-                psu_calibration = measurement.calibrate_psu(
-                    channel,
-                    config["psu"]["calibration"]["max_current"],
-                    config["psu"]["calibration"]["current_step"],
+                # move to pixel
+                resp = measurement.pixel_setup(
+                    pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
                 )
 
-                # update eqe diode calibration data in atomic thread-safe way
-                diode_dict = {
-                    "data": psu_calibration,
-                    "timestamp": timestamp,
-                    "diode": idn,
-                }
-                mqttc.append_payload(
-                    f"calibration/psu/ch{channel}", pickle.dumps(diode_dict)
-                )
+                if resp != 0:
+                    _log(
+                        f"Stage/mux error: {resp}! Aborting calibration!",
+                        40,
+                        **{"mqttc": mqttc},
+                    )
+                    break
 
-        _log("LED PSU calibration complete!", 20, **{"mqttc": mqttc})
+                timestamp = time.time()
 
-    print("Finished calibrating PSU.")
+                # perform measurement
+                for channel in [1, 2, 3]:
+                    psu_calibration = measurement.calibrate_psu(
+                        channel,
+                        config["psu"]["calibration"]["max_current"],
+                        config["psu"]["calibration"]["current_step"],
+                    )
+
+                    # update eqe diode calibration data in atomic thread-safe way
+                    diode_dict = {
+                        "data": psu_calibration,
+                        "timestamp": timestamp,
+                        "diode": idn,
+                    }
+                    mqttc.append_payload(
+                        f"calibration/psu/ch{channel}", pickle.dumps(diode_dict)
+                    )
+
+            _log("LED PSU calibration complete!", 20, **{"mqttc": mqttc})
+        print("Finished calibrating PSU.")
+    except Exception as e:
+        print(f"Exeption during calibration, {type(e)}, {str(e)}")
+        _log(f"PSU CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+
     publish.single(
         "measurement/status",
         pickle.dumps("Ready"),
@@ -289,34 +288,43 @@ def _calibrate_spectrum(request, mqtthost, dummy):
     """
     print("Calibrating spectrum...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
+            _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
 
-        config = request["config"]
-        args = request["args"]
+            config = request["config"]
+            args = request["args"]
 
-        measurement.connect_instruments(
-            dummy=dummy,
-            visa_lib=config["visa"]["visa_lib"],
-            light_address=config["solarsim"]["uri"],
-            light_recipe=args["light_recipe"],
+            measurement.connect_instruments(
+                dummy=dummy,
+                visa_lib=config["visa"]["visa_lib"],
+                light_address=config["solarsim"]["uri"],
+                light_recipe=args["light_recipe"],
+            )
+
+            timestamp = time.time()
+
+            spectrum = measurement.measure_spectrum()
+
+            # update spectrum  calibration data in atomic thread-safe way
+            spectrum_dict = {"data": spectrum, "timestamp": timestamp}
+
+            # publish calibration
+            mqttc.append_payload("calibration/spectrum", pickle.dumps(spectrum_dict))
+
+            _log(
+                "Finished calibrating solar simulator spectrum!", 20, **{"mqttc": mqttc}
+            )
+
+        print("Spectrum calibration complete.")
+    except Exception as e:
+        print(f"Exeption during calibration, {type(e)}, {str(e)}")
+        _log(
+            f"SPECTRUM CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc}
         )
 
-        timestamp = time.time()
-
-        spectrum = measurement.measure_spectrum()
-
-        # update spectrum  calibration data in atomic thread-safe way
-        spectrum_dict = {"data": spectrum, "timestamp": timestamp}
-
-        # publish calibration
-        mqttc.append_payload("calibration/spectrum", pickle.dumps(spectrum_dict))
-
-        _log("Finished calibrating solar simulator spectrum!", 20, **{"mqttc": mqttc})
-
-    print("Spectrum calibration complete.")
     publish.single(
         "measurement/status",
         pickle.dumps("Ready"),
@@ -340,43 +348,42 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
     """
     print("calibrating solar sim diodes")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Calibrating solar simulator diodes...", 20, **{"mqttc": mqttc})
+            _log("Calibrating solar simulator diodes...", 20, **{"mqttc": mqttc})
 
-        args = request["args"]
+            args = request["args"]
 
-        # get pixel queue
-        if int(args["iv_devs"], 16) > 0:
-            # if the bitmask isn't empty
-            try:
+            # get pixel queue
+            if int(args["iv_devs"], 16) > 0:
+                # if the bitmask isn't empty
                 pixel_queue = _build_q(request, experiment="eqe")
-            except ValueError as e:
-                # there was a problem with the labels and/or layouts list
-                _log("CALIBRATION ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
-        else:
-            # if it's emptpy, assume cal diode is connected externally
-            pixel_dict = {
-                "label": args["label_tree"][0],
-                "layout": None,
-                "sub_name": None,
-                "pixel": 0,
-                "position": None,
-                "area": None,
-            }
-            pixel_queue = collections.deque(pixel_dict)
+            else:
+                # if it's emptpy, assume cal diode is connected externally
+                pixel_dict = {
+                    "label": args["label_tree"][0],
+                    "layout": None,
+                    "sub_name": None,
+                    "pixel": 0,
+                    "position": None,
+                    "area": None,
+                }
+                pixel_queue = collections.deque(pixel_dict)
 
-        try:
             _ivt(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
-        except ValueError as e:
-            _log("CALIBRATION ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-            return
 
-        _log("Solar simulator diode calibration complete!", 20, **{"mqttc": mqttc})
+            _log("Solar simulator diode calibration complete!", 20, **{"mqttc": mqttc})
 
-    print("Solar sim diode calibration complete.")
+        print("Solar sim diode calibration complete.")
+    except Exception as e:
+        print(f"Exeption during calibration, {type(e)}, {str(e)}")
+        _log(
+            f"SOLARSIM DIODE CALIBRATION ABORTED! {type(e)} " + str(e),
+            40,
+            **{"mqttc": mqttc},
+        )
 
     publish.single(
         "measurement/status",
@@ -401,31 +408,28 @@ def _calibrate_rtd(request, mqtthost, dummy):
     """
     print("Calibrating rtds...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Calibrating RTDs...", 20, **{"mqttc": mqttc})
+            _log("Calibrating RTDs...", 20, **{"mqttc": mqttc})
 
-        request["args"]["i_dwell"] = 0
-        request["args"]["v_dwell"] = 0
-        request["args"]["mppt_dwell"] = 0
+            request["args"]["i_dwell"] = 0
+            request["args"]["v_dwell"] = 0
+            request["args"]["mppt_dwell"] = 0
 
-        args = request["args"]
+            args = request["args"]
 
-        # get pixel queue
-        if int(args["iv_devs"], 16) > 0:
-            # if the bitmask isn't empty
-            try:
+            # get pixel queue
+            if int(args["iv_devs"], 16) > 0:
+                # if the bitmask isn't empty
                 pixel_queue = _build_q(request, experiment="eqe")
-            except ValueError as e:
-                # there was a problem with the labels and/or layouts list
-                _log("CALIBRATION ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
-        else:
-            # if it's emptpy, report error
-            _log("CALIBRATION ABORTED! No devices selected.", 40, **{"mqttc": mqttc})
+            else:
+                # if it's emptpy, report error
+                _log(
+                    "CALIBRATION ABORTED! No devices selected.", 40, **{"mqttc": mqttc}
+                )
 
-        try:
             _ivt(
                 pixel_queue,
                 request,
@@ -435,13 +439,13 @@ def _calibrate_rtd(request, mqtthost, dummy):
                 calibration=True,
                 rtd=True,
             )
-        except ValueError as e:
-            _log("CALIBRATION ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-            return
 
-        _log("RTD calibration complete!", 20, **{"mqttc": mqttc})
+            _log("RTD calibration complete!", 20, **{"mqttc": mqttc})
 
-    print("RTD calibration complete.")
+        print("RTD calibration complete.")
+    except Exception as e:
+        print(f"Exeption during calibration, {type(e)}, {str(e)}")
+        _log(f"RTD CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
@@ -466,29 +470,33 @@ def _home(request, mqtthost, dummy):
     """
     print("Homing...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Homing stage...", 20, **{"mqttc": mqttc})
+            _log("Homing stage...", 20, **{"mqttc": mqttc})
 
-        config = request["config"]
+            config = request["config"]
 
-        measurement.connect_instruments(
-            dummy=dummy,
-            pcb_address=config["controller"]["address"],
-            motion_address=config["stage"]["uri"],
-        )
+            measurement.connect_instruments(
+                dummy=dummy,
+                pcb_address=config["controller"]["address"],
+                motion_address=config["stage"]["uri"],
+            )
 
-        homed = measurement.home_stage()
+            homed = measurement.home_stage()
 
-        if isinstance(homed, list):
-            _log(f"Stage lengths: {homed}", 20, **{"mqttc": mqttc})
-        else:
-            _log(f"Home failed with result: {homed}", 40, **{"mqttc": mqttc})
+            if isinstance(homed, list):
+                _log(f"Stage lengths: {homed}", 20, **{"mqttc": mqttc})
+            else:
+                _log(f"Home failed with result: {homed}", 40, **{"mqttc": mqttc})
 
-        _log("Homing complete!", 20, **{"mqttc": mqttc})
+            _log("Homing complete!", 20, **{"mqttc": mqttc})
 
-    print("Homing complete.")
+        print("Homing complete.")
+    except Exception as e:
+        print(f"Exeption during homing, {type(e)}, {str(e)}")
+        _log(f"HOMING ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
@@ -513,31 +521,35 @@ def _goto(request, mqtthost, dummy):
     """
     print("Goto...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log(f"Moving to stage position...", 20, **{"mqttc": mqttc})
+            _log(f"Moving to stage position...", 20, **{"mqttc": mqttc})
 
-        args = request["args"]
-        position = [args["goto_x"], args["goto_y"], args["goto_z"]]
+            args = request["args"]
+            position = [args["goto_x"], args["goto_y"], args["goto_z"]]
 
-        config = request["config"]
-        args = request["args"]
+            config = request["config"]
+            args = request["args"]
 
-        measurement.connect_instruments(
-            dummy=dummy,
-            pcb_address=config["controller"]["address"],
-            motion_address=config["stage"]["uri"],
-        )
+            measurement.connect_instruments(
+                dummy=dummy,
+                pcb_address=config["controller"]["address"],
+                motion_address=config["stage"]["uri"],
+            )
 
-        goto = measurement.goto_stage_position(position)
+            goto = measurement.goto_stage_position(position)
 
-        if goto < 0:
-            _log(f"Goto failed with result: {goto}", 40, **{"mqttc": mqttc})
+            if goto < 0:
+                _log(f"Goto failed with result: {goto}", 40, **{"mqttc": mqttc})
 
-        _log("Goto complete!", 20, **{"mqttc": mqttc})
+            _log("Goto complete!", 20, **{"mqttc": mqttc})
 
-    print("Goto complete.")
+        print("Goto complete.")
+    except Exception as e:
+        print(f"Exeption during goto, {type(e)}, {str(e)}")
+        _log(f"GOTO ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
@@ -562,33 +574,37 @@ def _read_stage(request, mqtthost, dummy):
     """
     print("Reading stage...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log(f"Reading stage position...", 20, **{"mqttc": mqttc})
+            _log(f"Reading stage position...", 20, **{"mqttc": mqttc})
 
-        config = request["config"]
+            config = request["config"]
 
-        measurement.connect_instruments(
-            dummy=dummy,
-            pcb_address=config["controller"]["address"],
-            motion_address=config["stage"]["uri"],
-        )
-
-        stage_pos = measurement.read_stage_position()
-
-        if isinstance(stage_pos, list):
-            _log(f"Stage lengths: {stage_pos}", 20, **{"mqttc": mqttc})
-        else:
-            _log(
-                f"Read position failed with result: {stage_pos}",
-                40,
-                **{"mqttc": mqttc},
+            measurement.connect_instruments(
+                dummy=dummy,
+                pcb_address=config["controller"]["address"],
+                motion_address=config["stage"]["uri"],
             )
 
-        _log("Read complete!", 20, **{"mqttc": mqttc})
+            stage_pos = measurement.read_stage_position()
 
-    print("Read stage complete.")
+            if isinstance(stage_pos, list):
+                _log(f"Stage lengths: {stage_pos}", 20, **{"mqttc": mqttc})
+            else:
+                _log(
+                    f"Read position failed with result: {stage_pos}",
+                    40,
+                    **{"mqttc": mqttc},
+                )
+
+            _log("Read complete!", 20, **{"mqttc": mqttc})
+
+        print("Read stage complete.")
+    except Exception as e:
+        print(f"Exeption during read stage, {type(e)}, {str(e)}")
+        _log(f"READ STAGE ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
@@ -613,28 +629,28 @@ def _contact_check(request, mqtthost, dummy):
     """
     print("Performing contact check...")
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Performing contact check...", 20, **{"mqttc": mqttc})
+            _log("Performing contact check...", 20, **{"mqttc": mqttc})
 
-        args = request["args"]
-        config = request["config"]
+            args = request["args"]
+            config = request["config"]
 
-        measurement.connect_instruments(
-            dummy=dummy,
-            visa_lib=config["visa"]["visa_lib"],
-            smu_address=config["smu"]["address"],
-            smu_terminator=config["smu"]["terminator"],
-            smu_baud=config["smu"]["baud"],
-            smu_front_terminals=config["smu"]["front_terminals"],
-            smu_two_wire=config["smu"]["two_wire"],
-            pcb_address=config["controller"]["address"],
-            motion_address=config["stage"]["uri"],
-        )
+            measurement.connect_instruments(
+                dummy=dummy,
+                visa_lib=config["visa"]["visa_lib"],
+                smu_address=config["smu"]["address"],
+                smu_terminator=config["smu"]["terminator"],
+                smu_baud=config["smu"]["baud"],
+                smu_front_terminals=config["smu"]["front_terminals"],
+                smu_two_wire=config["smu"]["two_wire"],
+                pcb_address=config["controller"]["address"],
+                motion_address=config["stage"]["uri"],
+            )
 
-        # make a pixel queue for the contact check
-        try:
+            # make a pixel queue for the contact check
             # get length of bitmask string
             b_len = len(args["iv_devs"])
 
@@ -655,22 +671,21 @@ def _contact_check(request, mqtthost, dummy):
             args["iv_devs"] = format(merge_int, b_len_str)
 
             iv_pixel_queue = _build_q(request, experiment="solarsim")
-        except ValueError as e:
-            # there was a problem with the labels and/or layouts list
-            _log("CONTACT CHECK ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-            return
 
-        response = measurement.contact_check(
-            iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc}
-        )
+            response = measurement.contact_check(
+                iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc}
+            )
 
-        print(response)
+            print(response)
 
-        _log(response, 20, **{"mqttc": mqttc})
+            _log(response, 20, **{"mqttc": mqttc})
 
-        _log("Contact check complete!", 20, **{"mqttc": mqttc})
+            _log("Contact check complete!", 20, **{"mqttc": mqttc})
 
-    print("Contact check complete.")
+        print("Contact check complete.")
+    except Exception as e:
+        print(f"Exeption during contact check, {type(e)}, {str(e)}")
+        _log(f"CONTACT CHECK ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
@@ -1425,46 +1440,50 @@ def _run(request, mqtthost, dummy):
     if args["iv_devs"] is not None:
         _calibrate_spectrum(request, mqtthost, dummy)
 
-    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-        mqttc.run(mqtthost)
+    try:
+        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+            mqttc.run(mqtthost)
 
-        _log("Starting run...", 20, **{"mqttc": mqttc})
+            _log("Starting run...", 20, **{"mqttc": mqttc})
 
-        if args["iv_devs"] is not None:
-            try:
-                iv_pixel_queue = _build_q(request, experiment="solarsim")
-            except ValueError as e:
-                # there was a problem with the labels and/or layouts list
-                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
-        else:
-            iv_pixel_queue = []
+            if args["iv_devs"] is not None:
+                try:
+                    iv_pixel_queue = _build_q(request, experiment="solarsim")
+                except ValueError as e:
+                    # there was a problem with the labels and/or layouts list
+                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                    return
+            else:
+                iv_pixel_queue = []
 
-        if args["eqe_devs"] is not None:
-            try:
-                eqe_pixel_queue = _build_q(request, experiment="eqe")
-            except ValueError as e:
-                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
-        else:
-            eqe_pixel_queue = []
+            if args["eqe_devs"] is not None:
+                try:
+                    eqe_pixel_queue = _build_q(request, experiment="eqe")
+                except ValueError as e:
+                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                    return
+            else:
+                eqe_pixel_queue = []
 
-        # measure i-v-t
-        if len(iv_pixel_queue) > 0:
-            try:
-                _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
-            except ValueError as e:
-                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                return
+            # measure i-v-t
+            if len(iv_pixel_queue) > 0:
+                try:
+                    _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                except ValueError as e:
+                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                    return
 
-        # measure eqe
-        if len(eqe_pixel_queue) > 0:
-            _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
+            # measure eqe
+            if len(eqe_pixel_queue) > 0:
+                _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
 
-        # report complete
-        _log("Run complete!", 20, **{"mqttc": mqttc})
+            # report complete
+            _log("Run complete!", 20, **{"mqttc": mqttc})
 
-    print("Measurement complete.")
+        print("Measurement complete.")
+    except Exception as e:
+        print(f"Exeption during run, {type(e)}, {str(e)}")
+        _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
