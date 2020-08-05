@@ -458,7 +458,8 @@ class fabric:
 
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
-        for instr in self._connected_instruments:
+        while len(self._connected_instruments) > 0:
+            instr = self._connected_instruments.pop()
             if instr == self.le:
                 self.le.light_engine.__del__()
                 print("Called light engine __del__ method")

@@ -1463,6 +1463,7 @@ def _run(request, mqtthost, dummy):
         if len(iv_pixel_queue) > 0:
             try:
                 _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                measurement.disconnect_all_instruments()
             except ValueError as e:
                 _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
                 return
