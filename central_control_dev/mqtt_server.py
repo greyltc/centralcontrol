@@ -114,6 +114,20 @@ def _calibrate_eqe(request, mqtthost, dummy):
         # get pixel queue
         if int(args["eqe_devs"], 16) > 0:
             pixel_queue = _build_q(request, experiment="eqe")
+
+            if len(pixel_queue) > 1:
+                _log(
+                    "Only one diode can be calibrated at a time but "
+                    + f"{len(pixel_queue)} were given. Only the first diode will be "
+                    + "measured.",
+                    30,
+                    **{"mqttc": mqttc},
+                )
+
+                # only take first pixel for a calibration
+                pixel_dict = pixel_queue[0]
+                pixel_queue = collections.deque(maxlen=1)
+                pixel_queue.append(pixel_dict)
         else:
             # if it's emptpy, assume cal diode is connected externally
             pixel_dict = {
