@@ -716,6 +716,7 @@ def _get_substrate_positions(config, experiment):
         along each axis.
     """
     experiment_centre = config["stage"]["experiment_positions"][experiment]
+    print(f"EQE centre: {experiment_centre}")
 
     # read in number substrates in the array along each axis
     substrate_number = config["substrates"]["number"]
@@ -733,6 +734,8 @@ def _get_substrate_positions(config, experiment):
         substrate_offsets.append(offset)
         substrate_total = substrate_total * number
 
+    print(f"Substrate offsets: {substrate_offsets}")
+
     # read in substrate spacing in mm along each axis into a list
     substrate_spacing = config["substrates"]["spacing"]
 
@@ -746,6 +749,8 @@ def _get_substrate_positions(config, experiment):
 
     # create array of positions
     substrate_centres = list(itertools.product(*axis_pos))
+
+    print(f"Substrate centres (absolute): {substrate_centres}")
 
     return substrate_centres
 
@@ -1345,6 +1350,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         )
 
         print("EQE measurement")
+        print(f"{pixel}")
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
