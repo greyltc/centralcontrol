@@ -816,7 +816,7 @@ def _build_q(request, experiment):
         config_pos = config["substrates"]["layouts"][layout]["positions"]
         pixel_positions = []
         for pos in config_pos:
-            abs_pixel_position = [int(x + y) for x, y in zip(pos, centre)]
+            abs_pixel_position = [x + y for x, y in zip(pos, centre)]
             pixel_positions.append(abs_pixel_position)
 
         substrate_dict = {
