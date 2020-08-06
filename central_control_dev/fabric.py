@@ -489,13 +489,18 @@ class fabric:
         self.le.off()
         self.sm.outOn(on=False)
 
-    def pixel_setup(self, pixel, handler=None, handler_kwargs={}):
-        """Move to pixel and connect it with mux.
+    def goto_pixel(self, pixel):
+        """Move to a pixel.
 
         Parameters
         ----------
         pixel : dict
-            Pixel information
+            Pixel information dictionary.
+
+        Returns
+        -------
+        response : int
+            Response code. 0 is good, everything else means fail.
         """
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
@@ -503,12 +508,33 @@ class fabric:
             if pixel["position"] is not None:
                 resp = me.goto(pixel["position"])
 
-            if resp == 0:
-                # connect pixel
-                if (substrate := pixel["sub_name"]) is not None:
+        return resp
+
+    def select_pixel(self, pixel):
+        """Select pixel on the mux.
+
+        Parameters
+        ----------
+        pixel : dict
+            Pixel information dictionary.
+
+        Returns
+        -------
+        response : int
+            Response code. 0 is good, everything else means fail.
+        """
+        with self.pcb(self.pcb_address) as p:
+            # connect pixel
+            if (substrate := pixel["sub_name"]) is not None:
+                # open all relays
+                resp = p.get("s")
+
+                if resp == 0:
+                    # select the correct pixel
                     resp = p.pix_picker(substrate, pixel["pixel"])
-                else:
-                    resp = p.get("s")
+            else:
+                # open all mux relays
+                resp = p.get("s")
 
             if resp is True:
                 resp = 0

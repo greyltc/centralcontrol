@@ -217,7 +217,11 @@ def _calibrate_psu(request, mqtthost, dummy):
             resp = measurement.set_experiment_relay("iv")
 
             if resp != "":
-                _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+                _log(
+                    f"Experiment relay error: {resp}! Aborting run",
+                    40,
+                    **{"mqttc": mqttc},
+                )
                 return
 
             last_label = None
@@ -246,16 +250,14 @@ def _calibrate_psu(request, mqtthost, dummy):
                     last_label = label
 
                 # move to pixel
-                resp = measurement.pixel_setup(
-                    pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
-                )
-
+                resp = measurement.goto_pixel(pixel)
                 if resp != 0:
-                    _log(
-                        f"Stage/mux error: {resp}! Aborting calibration!",
-                        40,
-                        **{"mqttc": mqttc},
-                    )
+                    _log(f"Stage error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+                    break
+
+                resp = measurement.select_pixel(pixel)
+                if resp != 0:
+                    _log(f"Mux error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
                     break
 
                 timestamp = time.time()
@@ -1044,7 +1046,7 @@ def _ivt(
     resp = measurement.set_experiment_relay("iv")
 
     if resp != "":
-        _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+        _log(f"Experiment relay error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
         return
 
     if args["ad_switch"] is True:
@@ -1075,12 +1077,15 @@ def _ivt(
             last_label = label
 
         # move to pixel
-        resp = measurement.pixel_setup(
-            pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
-        )
-
+        resp = measurement.goto_pixel(pixel)
         if resp != 0:
-            _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+            _log(f"Stage error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+            break
+
+        # select pixel
+        resp = measurement.select_pixel(pixel)
+        if resp != 0:
+            _log(f"Mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
             break
 
         # init parameters derived from steadystate measurements
@@ -1361,7 +1366,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
     resp = measurement.set_experiment_relay("eqe")
 
     if resp != "":
-        _log(f"Stage/mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+        _log(f"Experiment relay error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
         return
 
     last_label = None
@@ -1385,12 +1390,14 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             last_label = label
 
         # move to pixel
-        resp = measurement.pixel_setup(
-            pixel, handler=_handle_stage_data, handler_kwargs={"mqttc": mqttc}
-        )
-
+        resp = measurement.goto_pixel(pixel)
         if resp != 0:
-            _log(f"Stage/mux error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+            _log(f"Stage error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+            break
+
+        resp = measurement.select_pixel(pixel)
+        if resp != 0:
+            _log(f"Mux error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
             break
 
         _log(
