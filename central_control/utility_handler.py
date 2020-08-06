@@ -124,6 +124,14 @@ def worker():
             elif task['cmd'] == 'read_stage':
                 get_stage(task['pcb'], task['stage_uri'])
 
+            # zero the mono
+            elif task['cmd'] == 'mono_zero':
+                try:
+                    with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
+                        log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
+                except:
+                    log_msg(f'Unable to zero Monochromator',lvl=logging.WARNING)
+
             # device round robin commands
             elif task['cmd'] == 'round_robin':
                 with pcb.pcb(task['pcb'], timeout=1) as p:
