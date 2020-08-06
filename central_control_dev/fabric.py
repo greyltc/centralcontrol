@@ -808,7 +808,6 @@ class fabric:
             measurement = self.sm.measure()
             measurement.append(current)
             data.append(measurement)
-            print(measurement)
 
         # disable PSU
         self.psu.set_apply(channel=channel, voltage="MAX", current=0)
