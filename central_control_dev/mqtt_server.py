@@ -273,8 +273,12 @@ def _calibrate_psu(request, mqtthost, dummy):
                         "timestamp": timestamp,
                         "diode": idn,
                     }
+                    if channel == 3:
+                        retain = True
+                    else:
+                        retain = False
                     mqttc.append_payload(
-                        f"calibration/psu/ch{channel}", pickle.dumps(diode_dict)
+                        f"calibration/psu/ch{channel}", pickle.dumps(diode_dict), retain
                     )
 
             _log("LED PSU calibration complete!", 20, **{"mqttc": mqttc})
