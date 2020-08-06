@@ -745,12 +745,15 @@ def _get_substrate_positions(config, experiment):
         substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
     ):
         abs_offset = offset * spacing
+        print(f"Offset from experiment centre: {abs_offset}")
         axis_pos.append(np.linspace(-abs_offset + centre, abs_offset + centre, number))
 
     print(f"Positions along each axis: {axis_pos}")
 
     # create array of positions
-    substrate_centres = list(itertools.product(*axis_pos))
+    substrate_centres = []
+    for y in axis_pos[1]:
+        substrate_centres += [[x, y] for x in axis_pos[0]]
 
     print(f"Substrate centres (absolute): {substrate_centres}")
 
