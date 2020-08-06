@@ -130,6 +130,7 @@ def worker():
                     rm = pyvisa.ResourceManager()
                     with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
                         log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
+                        log_msg(mono.query("1 FILTER").strip(), lvl=logging.INFO)
                 except:
                     log_msg(f'Unable to zero Monochromator',lvl=logging.WARNING)
 
