@@ -127,6 +127,7 @@ def worker():
             # zero the mono
             elif task['cmd'] == 'mono_zero':
                 try:
+                    rm = pyvisa.ResourceManager()
                     with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
                         log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
                 except:
