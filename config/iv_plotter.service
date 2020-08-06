@@ -1,14 +1,12 @@
- #AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
-
 [Unit]
 After=network-online.target
 Wants=network-online.target
-Description=The live data plotter service
+Description=The I-V live data plotter service
 
 [Service]
 Environment=PYTHONPATH=/opt/software/python
 Environment=PYTHONUNBUFFERED=tomato_casserol
-ExecStart=python -m plotter.plotter -mqtthost 127.0.0.1 -dashhost 127.0.0.1
+ExecStart=python -m plotter.iv_plotter --mqtthost 127.0.0.1 --dashhost 127.0.0.1
 RestartSec=3
 Restart=always
 PrivateTmp=true
