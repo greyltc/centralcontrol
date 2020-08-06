@@ -316,7 +316,9 @@ def _calibrate_spectrum(request, mqtthost, dummy):
         spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
         # publish calibration
-        mqttc.append_payload("calibration/spectrum", pickle.dumps(spectrum_dict))
+        mqttc.append_payload(
+            "calibration/spectrum", pickle.dumps(spectrum_dict), retain=True
+        )
 
         _log("Finished calibrating solar simulator spectrum!", 20, **{"mqttc": mqttc})
 
@@ -1039,9 +1041,7 @@ def _ivt(
         pixel = pixel_queue.popleft()
         label = pixel["label"]
         pix = pixel["pixel"]
-        _log(
-            f"Operating on substrate {label}, pixel {pix}...", 20, **{"mqttc": mqttc},
-        )
+        print(f"Operating on substrate {label}, pixel {pix}...")
 
         print(f"{pixel}")
 
@@ -1050,11 +1050,7 @@ def _ivt(
 
         # check if there is have a new substrate
         if last_label != label:
-            _log(
-                f"New substrate using '{pixel['layout']}' layout!",
-                20,
-                **{"mqttc": mqttc},
-            )
+            print(f"New substrate using '{pixel['layout']}' layout!")
             last_label = label
 
         # move to pixel
@@ -1087,7 +1083,12 @@ def _ivt(
 
         # steady state v@constant I measured here - usually Voc
         if args["i_dwell"] > 0:
-            print("i_dwell")
+            _log(
+                f"Measuring voltage output at constant current on {idn}.",
+                20,
+                **{"mqttc": mqttc},
+            )
+
             if calibration is False:
                 handler_kwargs["kind"] = "vt_measurement"
                 _clear_plot(**handler_kwargs)
@@ -1139,15 +1140,13 @@ def _ivt(
                 _clear_plot(**handler_kwargs)
 
             if args["sweep_check"] is True:
-                print("sweep 1")
+                _log(
+                    f"Performing {sweep} sweep 1 on {idn}.", 20, **{"mqttc": mqttc},
+                )
                 start = args["sweep_start"]
                 end = args["sweep_end"]
 
-                _log(
-                    f"Sweeping voltage from {start} V to {end} V",
-                    20,
-                    **{"mqttc": mqttc},
-                )
+                print(f"Sweeping voltage from {start} V to {end} V")
 
                 iv1 = measurement.sweep(
                     sourceVoltage=True,
@@ -1164,23 +1163,19 @@ def _ivt(
 
                 data += iv1
 
-                print(iv1, type(iv1))
-
                 Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.which_max_power(
                     iv1
                 )
 
             if args["return_switch"] is True:
-                print("sweep 2")
+                _log(
+                    f"Performing {sweep} sweep 2 on {idn}.", 20, **{"mqttc": mqttc},
+                )
                 # sweep the opposite way to sweep 1
                 start = args["sweep_end"]
                 end = args["sweep_start"]
 
-                _log(
-                    f"Sweeping voltage from {start} V to {end} V",
-                    20,
-                    **{"mqttc": mqttc},
-                )
+                print(f"Sweeping voltage from {start} V to {end} V")
 
                 iv2 = measurement.sweep(
                     sourceVoltage=True,
@@ -1226,11 +1221,10 @@ def _ivt(
 
         if args["mppt_dwell"] > 0:
             _log(
-                f"Tracking maximum power point for {args['mppt_dwell']} seconds.",
-                20,
-                **{"mqttc": mqttc},
+                f"Performing max. power tracking on {idn}.", 20, **{"mqttc": mqttc},
             )
-            print("mppt dwell")
+
+            print(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
             if calibration is False:
                 handler_kwargs["kind"] = "mppt_measurement"
@@ -1263,7 +1257,11 @@ def _ivt(
             data += mt
 
         if args["v_dwell"] > 0:
-            print("v_dwell")
+            _log(
+                f"Measuring output current and constant voltage on {idn}.",
+                20,
+                **{"mqttc": mqttc},
+            )
 
             if calibration is False:
                 handler_kwargs["kind"] = "it_measurement"
@@ -1350,23 +1348,19 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         pixel = pixel_queue.popleft()
         label = pixel["label"]
         pix = pixel["pixel"]
-        _log(
-            f"Operating on substrate {label}, pixel {pix}...", 20, **{"mqttc": mqttc},
-        )
-
-        print("EQE measurement")
-        print(f"{pixel}")
 
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
 
+        _log(
+            f"Measuring EQE on {idn}", 20, **{"mqttc": mqttc},
+        )
+
+        print(f"{pixel}")
+
         # we have a new substrate
         if last_label != label:
-            _log(
-                f"New substrate using '{pixel['layout']}' layout!",
-                20,
-                **{"mqttc": mqttc},
-            )
+            print(f"New substrate using '{pixel['layout']}' layout!")
             last_label = label
 
         # move to pixel
@@ -1511,8 +1505,6 @@ def on_message(mqttc, obj, msg):
     report that it's busy.
     """
     request = pickle.loads(msg.payload)
-
-    print(request)
 
     # perform a requested action
     if (action := msg.topic.split("/")[-1]) == "run":

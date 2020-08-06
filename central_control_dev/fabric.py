@@ -463,7 +463,6 @@ class fabric:
             print(instr)
             if instr == self.le:
                 self.le.light_engine.__del__()
-                print("Called light engine __del__ method")
             else:
                 instr.disconnect()
 
