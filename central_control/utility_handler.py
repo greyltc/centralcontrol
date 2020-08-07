@@ -179,15 +179,34 @@ def worker():
             try:
                 with rm.open_resource(task['psu']) as psu:
                     log_msg('Power supply connection initiated',lvl=logging.INFO)
-                    log_msg(f'Power supply identification string: {psu.query("*IDN?").strip()}',lvl=logging.INFO)
+                    idn = psu.query("*IDN?")
+                    log_msg(f'Power supply identification string: {idn.strip()}',lvl=logging.INFO)
             except:
                 log_msg(f'Could not talk to PSU',lvl=logging.WARNING)
             
             log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
+            
+            # for sourcemeter
+            open_params = {}
+            open_params['resource_name'] = task['smu_address']
+            open_params['timeout'] = 300 # ms
+            if 'ASRL' in open_params['resource_name']:
+                open_params['read_termination'] = task['smu_le']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
+                open_params['write_termination'] = "\n" # this is not configuable via the instrument front panel (or in any way I guess)
+                open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
+                open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_XON_XOFF # this must be set by the user by interacting with the buttons on the instrument front panel
+            elif 'GPIB' in open_params['resource_name']:
+                open_params['read_termination'] = "\n"  # fixed to this in GPIB mode (the pyvisa will strip it)
+                open_params['io_protocol'] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
+            elif ('TCPIP' in open_params['resource_name']) and ('SOCKET' in open_params['resource_name']):
+                # GPIB <--> Ethernet adapter
+                pass
+
             try:
-                with rm.open_resource(task['smu_address'], baud_rate=task['smu_baud'], flow_control=pyvisa.constants.VI_ASRL_FLOW_XON_XOFF) as smu:
+                with rm.open_resource(**open_params) as smu:
                     log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
-                    log_msg(f'Sourcemeter identification string: {smu.query("*IDN?").strip()}',lvl=logging.INFO)
+                    idn = smu.query("*IDN?")
+                    log_msg(f'Sourcemeter identification string: {idn}',lvl=logging.INFO)
             except:
                 log_msg(f'Could not talk to sourcemeter',lvl=logging.WARNING)
             
@@ -196,7 +215,8 @@ def worker():
                 with rm.open_resource(task['lia_address'], baud_rate=9600) as lia:
                     lia.read_termination = '\r'
                     log_msg('Lock-in connection initiated',lvl=logging.INFO)
-                    log_msg(f'Lock-in identification string: {lia.query("*IDN?").strip()}',lvl=logging.INFO)
+                    idn = lia.query("*IDN?")
+                    log_msg(f'Lock-in identification string: {idn.strip()}',lvl=logging.INFO)
             except:
                 log_msg(f'Could not talk to lock-in',lvl=logging.WARNING)
             
@@ -204,7 +224,8 @@ def worker():
             try:
                 with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
                     log_msg('Monochromator connection initiated',lvl=logging.INFO)
-                    log_msg(f'Monochromator wavelength query result: {mono.query("?nm").strip()}',lvl=logging.INFO)
+                    qu = mono.query("?nm")
+                    log_msg(f'Monochromator wavelength query result: {qu.strip()}',lvl=logging.INFO)
             except:
                 log_msg(f'Could not talk to monochromator',lvl=logging.WARNING)
 
@@ -242,19 +263,10 @@ def sender(mqttc):
 
 
 if __name__ == "__main__":
-    debug = False
-    if debug == False:
-        parser = argparse.ArgumentParser(description='Handle gui stage commands')
-        parser.add_argument('address', type=str, help='ip address/hostname of the mqtt server')
-        parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
-
-        args = parser.parse_args()
-    else:
-        class Object(object):
-            pass
-        args = Object()
-        args.address = '127.0.0.1'
-        args.port = 1883
+    parser = argparse.ArgumentParser(description='Handle gui stage commands')
+    parser.add_argument('-a', '--address', type=str, default='127.0.0.1', help='ip address/hostname of the mqtt server')
+    parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
+    args = parser.parse_args()
 
     client = mqtt.Client()
     client.on_connect = on_connect
