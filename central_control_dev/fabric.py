@@ -796,6 +796,9 @@ class fabric:
             handler_kwargs,
         )
 
+        # return to white so light is visible
+        self.mono.goto_wavelength(0)
+
         return eqe_data
 
     def calibrate_psu(self, channel=1, max_current=1.0, current_step=0.1):
