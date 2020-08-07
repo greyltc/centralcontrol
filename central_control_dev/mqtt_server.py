@@ -741,7 +741,7 @@ def _get_substrate_positions(config, experiment):
         along each axis.
     """
     experiment_centre = config["stage"]["experiment_positions"][experiment]
-    print(f"EQE centre: {experiment_centre}")
+    print(f"{experiment} center: {experiment_centre}")
 
     # read in number substrates in the array along each axis
     substrate_number = config["substrates"]["number"]
@@ -777,8 +777,12 @@ def _get_substrate_positions(config, experiment):
 
     # create array of positions
     substrate_centres = []
-    for y in axis_pos[1]:
-        substrate_centres += [[x, y] for x in axis_pos[0]]
+    n_axes = len(axis_pos)
+    if n_axes == 2:
+        for y in axis_pos[1]:
+            substrate_centres += [[x, y] for x in axis_pos[0]]
+    elif n_axes == 1:
+        substrate_centres = [ [x] for x in axis_pos[0]]
 
     print(f"Substrate centres (absolute): {substrate_centres}")
 
