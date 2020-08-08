@@ -411,7 +411,7 @@ class k2400:
       vals = self.query_values(':read?')
     if len(vals) > 1:
       print(f"Approx sweep duration = {vals[-1][0] - vals[0][0]} s")
-    self.status = vals[-1][-1]
+    self.status = int(vals[-1][-1])
     return vals
 
   def measureUntil(self, t_dwell=float('Infinity'), measurements=float('Infinity'), cb=lambda x:None):
@@ -460,6 +460,8 @@ if __name__ == "__main__":
   # setup DC resistance measurement
   k.setupDC(auto_ohms=True)
 
+  print(f"One auto ohms measurement: {k.measure()}")
+
   # this sets up the trigger/reading method we'll use below
   k.write(':arm:source immediate')
   
@@ -484,6 +486,8 @@ if __name__ == "__main__":
   # setup DC current measurement at 0V measurement
   forceV = 0
   k.setupDC(setPoint=forceV)
+
+  print(f"One V=0 measurement: {k.measure()}")
 
   # this sets up the trigger/reading method we'll use below
   k.write(':arm:source immediate')
