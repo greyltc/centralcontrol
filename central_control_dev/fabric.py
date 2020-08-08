@@ -529,14 +529,14 @@ class fabric:
                 # open all relays
                 resp = p.get("s")
 
-                if resp == 0:
+                if resp == "":
                     # select the correct pixel
                     resp = p.pix_picker(substrate, pixel["pixel"])
             else:
                 # open all mux relays
                 resp = p.get("s")
 
-            if resp is True:
+            if resp == True:
                 resp = 0
 
         return resp
