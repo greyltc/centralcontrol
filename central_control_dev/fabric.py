@@ -619,7 +619,6 @@ class fabric:
         """
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
-        self.sm.setStepDelay(stepDelay)
         self.sm.setupDC(
             sourceVoltage=sourceVoltage,
             compliance=compliance,
@@ -629,8 +628,12 @@ class fabric:
         self.sm.write(
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
+        if handler is not None:
+            ss_cb = lambda raw : handler(raw, **handler_kwargs)
+        else:
+            ss_cb = lambda raw : None
         raw = self.sm.measureUntil(
-            t_dwell=t_dwell, handler=handler, handler_kwargs=handler_kwargs
+            t_dwell=t_dwell, cb=ss_cb
         )
 
         return raw
@@ -654,10 +657,10 @@ class fabric:
         progressing voltage or current setpoints.
         """
         self.sm.setNPLC(NPLC)
-        self.sm.setStepDelay(stepDelay)
         self.sm.setupSweep(
             sourceVoltage=sourceVoltage,
             compliance=compliance,
+            stepDelay=stepDelay,
             nPoints=nPoints,
             start=start,
             end=end,
@@ -665,7 +668,6 @@ class fabric:
         )
 
         raw = self.sm.measure(nPoints)
-        raw = [list(x) for x in list(zip(*[iter(raw)] * 4))]
 
         if handler is not None:
             handler(raw, **handler_kwargs)
@@ -891,28 +893,30 @@ class fabric:
             Pass/fail summary.
         """
         failed = 0
-        while len(pixel_queue) > 0:
-            # get pixel info
-            pixel = pixel_queue.popleft()
-            label = pixel["label"]
-            pix = pixel["pixel"]
+        self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
+        with self.pcb(self.pcb_address) as p:
+            while len(pixel_queue) > 0:
+                # get pixel info
+                pixel = pixel_queue.popleft()
+                label = pixel["label"]
+                pix = pixel["pixel"]
 
-            # add id str to handlers to display on plots
-            idn = f"{label}_pixel{pix}"
+                # add id str to handlers to display on plots
+                idn = f"{label}_pixel{pix}"
 
-            with self.pcb(self.pcb_address) as p:
                 if pixel["sub_name"] is not None:
                     resp = p.pix_picker(pixel["sub_name"], pixel["pixel"])
                 else:
                     resp = p.get("s")
 
-            if self.sm.contact_check() is True:
-                failed += 1
-                if handler is not None:
-                    handler(
-                        f"Contact check FAILED! Device: {idn}", **handler_kwargs,
-                    )
-
+                self.sm.measure()
+                if self.sm.contact_check() is True:
+                    failed += 1
+                    if handler is not None:
+                        handler(
+                            f"Contact check FAILED! Device: {idn}", **handler_kwargs,
+                        )
+        self.sm.outOn(False)
         return f"{failed} pixels failed the contact check."
 
 
