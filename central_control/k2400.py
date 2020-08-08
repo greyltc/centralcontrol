@@ -12,6 +12,7 @@ class k2400:
   idnContains = 'KEITHLEY'
   quiet=False
   idn = ''
+  status = 0
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
@@ -28,6 +29,11 @@ class k2400:
     self._setupSourcemeter(front=front, twoWire=twoWire)
 
   def __del__(self):
+    try:
+      self.sm.write(':output off')
+    except:
+      pass
+
     try:
       self.sm.close()
     except:
@@ -68,10 +74,10 @@ class k2400:
   def _getSourceMeter(self, rm):
     timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things acan back up and they're slow
     if 'ASRL' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\r", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF, 'parity': visa.constants.Parity.none, 'allow_dma': True}
+      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF, 'parity': visa.constants.Parity.none, 'allow_dma': True}
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and xon-xoff flow control."
     elif 'GPIB' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'write_termination': self.terminator}# , 'io_protocol': visa.constants.VI_HS488
+      openParams = {'resource_name': self.addressString, 'write_termination': "\n"}# , 'io_protocol': visa.constants.VI_HS488
       addrParts = self.addressString.split('::')
       board = addrParts[0][4:]
       address = addrParts[1]
@@ -80,7 +86,7 @@ class k2400:
       addrParts = self.addressString.split('::')
       host = addrParts[1]
       port = host = addrParts[2]
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': "\n"}
+      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': "\n", 'write_termination': "\n"}
       smCommsMsg = f"ERROR: Can't talk to sourcemeter\nTried Ethernet<-->Serial link via {host}:{port}\nThe sourcemeter's comms parameters must match the Ethernet<-->Serial adapter's parameters\nand the terminator should be configured as <CR>"
     else:
       smCommsMsg = "ERROR: Can't talk to sourcemeter"
@@ -190,7 +196,14 @@ class k2400:
     sm.write(':system:azero off')  # we'll do this once before every measurement
     sm.write(':system:azero:caching on')
 
-    # TODO: look into contact checking function of 2400 :system:ccheck
+    # enable/setup contact check :system:ccheck
+    opts = self.sm.query("*opt?")
+    if "CONTACT-CHECK" in opts.upper():
+      sm.write(':system:ccheck on')
+      sm.write(':system:ccheck:resistance 50')  # choices are 2, 15 or 50
+
+  def disconnect(self):
+    self.__del__()
 
   def setWires(self, twoWire=False):
     if twoWire:
@@ -249,7 +262,7 @@ class k2400:
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
     if sourceVoltage == False, we'll have a current source at setPoint amps with max voltage +/- compliance volts
-    auto_ohms = true will override everything and make the output data change to (time, resistance, current, status)
+    auto_ohms = true will override everything and make the output data change to (voltage,current,resistance,time,status)
     """
     sm = self.sm
     if auto_ohms == True:
@@ -388,7 +401,7 @@ class k2400:
   def measure(self, nPoints=1):
     """Makes a measurement and returns the result
     returns a list of measurements
-    a "measurement" is a tuple of length 4: voltage,current,time,statuss (or length 5: voltage,current,resistance,time,status if dc setup was done in ohms mode)
+    a "measurement" is a tuple of length 4: voltage,current,time,status (or length 5: voltage,current,resistance,time,status if dc setup was done in ohms mode)
     for a prior DC setup, the list will be 1 long.
     for a prior sweep setup, the list returned will be n sweep points long
     """
@@ -398,14 +411,15 @@ class k2400:
       vals = self.query_values(':read?')
     if len(vals) > 1:
       print(f"Approx sweep duration = {vals[-1][0] - vals[0][0]} s")
+    self.status = vals[-1][-1]
     return vals
 
   def measureUntil(self, t_dwell=float('Infinity'), measurements=float('Infinity'), cb=lambda x:None):
-    """Meakes a series of single dc measurements
+    """Makes a series of single dc measurements
     until termination conditions are met
     supports a callback after every measurement
     cb gets a measurement every time one is made
-    returns a list of measurements
+    returns a list of measurements, where each measurement is a tuple of length 4 normally, 5 for resistance
     """
     i = 0
     t_end = time.time() + t_dwell
@@ -417,6 +431,13 @@ class k2400:
       q.append(measurement)
       cb(measurement)
     return q
+  
+  def contact_check(self):
+    """
+    reports the result of the contact check that was done during the previous measurement
+    True for contacted. always true if the option is not installed
+    """
+    return ((self.status & (1<<18)) == 0)  # check the 18th bit of our status word
 
 # testing code
 if __name__ == "__main__":
@@ -457,6 +478,8 @@ if __name__ == "__main__":
   dc_mf = pd.DataFrame(dc_ma)
   print(f"===== {len(dc_mf)} auto ohms values in {mTime} seconds =====")
   #print(dc_mf.to_string(formatters={'status':'{0:024b}'.format}))
+
+  print(f"Contacted: {k.contact_check()}")
   
   # setup DC current measurement at 0V measurement
   forceV = 0

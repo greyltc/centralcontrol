@@ -175,7 +175,7 @@ class mppt:
     #this should protect the system from events like sudden open circuit or loss of light
     #causing the mppt to go haywire and asking the sourcemeter for dangerously high or low voltages
     """
-    self.sm.setOutput(v_set)
+    self.sm.setSource(v_set)
     measurement = self.sm.measure()
     [v, i, tx, status] = measurement
     abort = False
@@ -288,7 +288,7 @@ class mppt:
       #  break
       
       print("Teleporting to Mpp!")
-      self.sm.setOutput(Vmpp)
+      self.sm.setSource(Vmpp)
       
       #if time_left < dwell_time:
       #  dwell = time_left
