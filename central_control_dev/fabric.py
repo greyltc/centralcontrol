@@ -549,8 +549,10 @@ class fabric:
         exp_relay : {"eqe", "iv"}
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
-        with self.pcb(self.pcb_address) as p:
-            resp = p.get(exp_relay)
+        resp = ""
+        if 'otter' in self.motion_address:  # TODO: do this in some better way
+            with self.pcb(self.pcb_address) as p:
+                resp = p.get(exp_relay)
 
         return resp
 

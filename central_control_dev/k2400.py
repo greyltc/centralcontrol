@@ -402,7 +402,7 @@ class k2400:
     if self.sm.interface_type == visa.constants.InterfaceType.gpib:
       vals = self.sm.read_binary_values(data_points=nPoints*m_len)
     else:
-      vals = self.query_values(':read?')
+      vals = self.sm.query_ascii_values(':read?')
 
     # turn this into a list of tuples
     reshaped = list(zip(*[iter(vals)]*m_len))
