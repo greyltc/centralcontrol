@@ -99,12 +99,13 @@ class k2400:
         sm.send_ifc()  # linux-gpib can do this. windows can't?
     
     sm.clear()  # clear the interface
-
-    # discard all buffers
-    sm.flush(visa.constants.VI_READ_BUF_DISCARD)
-    sm.flush(visa.constants.VI_WRITE_BUF_DISCARD)
-    sm.flush(visa.constants.VI_IO_IN_BUF_DISCARD)
-    sm.flush(visa.constants.VI_IO_OUT_BUF_DISCARD)
+    
+    if sm.interface_type == visa.constants.InterfaceType.asrl:
+      # discard all buffers
+      sm.flush(visa.constants.VI_READ_BUF_DISCARD)
+      sm.flush(visa.constants.VI_WRITE_BUF_DISCARD)
+      sm.flush(visa.constants.VI_IO_IN_BUF_DISCARD)
+      sm.flush(visa.constants.VI_IO_OUT_BUF_DISCARD)
 
     try:
       sm.write('*RST')
@@ -229,18 +230,6 @@ class k2400:
 
   def write(self, toWrite):
     self.sm.write(toWrite)
-
-  def query_values(self, query):
-    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
-      vals = self.sm.query_binary_values(query)
-    else:
-      vals = self.sm.query_ascii_values(query)
-    if self.auto_ohms == False:
-      m_len = 4
-    else:
-      m_len = 5
-    realigned = list(zip(*[iter(vals)]*m_len))
-    return realigned
 
   def outOn(self, on=True):
     if on:
@@ -405,14 +394,23 @@ class k2400:
     for a prior DC setup, the list will be 1 long.
     for a prior sweep setup, the list returned will be n sweep points long
     """
+    if self.auto_ohms == False:
+      m_len = 4
+    else:
+      m_len = 5
+
     if self.sm.interface_type == visa.constants.InterfaceType.gpib:
-      vals = self.sm.read_binary_values(data_points=nPoints*4)
+      vals = self.sm.read_binary_values(data_points=nPoints*m_len)
     else:
       vals = self.query_values(':read?')
-    if len(vals) > 1:
-      print(f"Approx sweep duration = {vals[-1][0] - vals[0][0]} s")
-    self.status = int(vals[-1][-1])
-    return vals
+
+    # turn this into a list of tuples
+    reshaped = list(zip(*[iter(vals)]*m_len))
+
+    if len(reshaped) > 1:
+      print(f"Approx sweep duration = {reshaped[-1][0] - reshaped[0][0]} s")
+    self.status = int(reshaped[-1][-1])
+    return reshaped
 
   def measureUntil(self, t_dwell=float('Infinity'), measurements=float('Infinity'), cb=lambda x:None):
     """Makes a series of single dc measurements
@@ -443,17 +441,18 @@ class k2400:
 if __name__ == "__main__":
   import pandas as pd
   import numpy as np
+  start = time.time()
 
-  # connect to our instrument and use the front terminals
+  # connect to our instrument
   # for testing GPIB connections
-  #k = k2400(addressString='GPIB0::24::INSTR') # gpib address strings expect the thing to be configured for 488.1 comms
+  k = k2400(addressString='GPIB0::24::INSTR') # gpib address strings expect the thing to be configured for 488.1 comms
   
   # for testing Ethernet <--> Serial adapter connections, in this case the adapter must be configured properly via its web interface
   #k = k2400(addressString='TCPIP0::10.45.0.186::4000::SOCKET', front=True)
   start = time.time()
 
   # for serial connection testing expects flow control to be on, data bits =8 and parity = none
-  k = k2400(addressString='ASRL/dev/ttyS0::INSTR', terminator='\r', serialBaud=57600)
+  #k = k2400(addressString='ASRL/dev/ttyS0::INSTR', terminator='\r', serialBaud=57600)
 
   print(f"Connected to {k.addressString}")
 
