@@ -192,7 +192,7 @@ def worker():
             open_params['timeout'] = 300 # ms
             if 'ASRL' in open_params['resource_name']:  # data bits = 8, parity = none
                 open_params['read_termination'] = task['smu_le']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
-                open_params['write_termination'] = "\n" # this is not configuable via the instrument front panel (or in any way I guess)
+                open_params['write_termination'] = "\r" # this is not configuable via the instrument front panel (or in any way I guess)
                 open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
                 open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_XON_XOFF # this must be set by the user by interacting with the buttons on the instrument front panel
             elif 'GPIB' in open_params['resource_name']:
