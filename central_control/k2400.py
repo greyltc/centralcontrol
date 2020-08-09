@@ -29,10 +29,16 @@ class k2400:
     self._setupSourcemeter(front=front, twoWire=twoWire)
 
   def __del__(self):
-    try:
-      self.sm.write(':output off')
-    except:
-      pass
+    if sm.interface_type == visa.constants.InterfaceType.asrl:
+      try:
+        self.sm.write(':system:local')
+      except:
+        pass
+    else:
+      try:
+        self.sm.write(':output off')  # TODO send GTL over GPIB
+      except:
+        pass
 
     try:
       self.sm.close()
