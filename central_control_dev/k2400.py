@@ -445,15 +445,16 @@ if __name__ == "__main__":
 
   # connect to our instrument
   # for testing GPIB connections
-  k = k2400(addressString='GPIB0::24::INSTR') # gpib address strings expect the thing to be configured for 488.1 comms
+  #k = k2400(addressString='GPIB0::24::INSTR') # gpib address strings expect the thing to be configured for 488.1 comms
   
   # for testing Ethernet <--> Serial adapter connections, in this case the adapter must be configured properly via its web interface
   #k = k2400(addressString='TCPIP0::10.45.0.186::4000::SOCKET', front=True)
   start = time.time()
 
   # for serial connection testing expects flow control to be on, data bits =8 and parity = none
-  #k = k2400(addressString='ASRL/dev/ttyS0::INSTR', terminator='\r', serialBaud=57600)
-
+  ct0 = time.time()
+  k = k2400(addressString='ASRL/dev/ttyS0::INSTR', terminator='\r', serialBaud=57600)
+  print(f'SMU connect time = {time.time()-ct0}')
   print(f"Connected to {k.addressString}")
 
   # setup DC resistance measurement

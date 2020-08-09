@@ -1139,7 +1139,7 @@ def _ivt(
 
             # if this was at Voc, use the last measurement as estimate of Voc
             if args["i_dwell_value"] == 0:
-                ssvoc = vt[-1]
+                ssvoc = vt[-1][0]
                 measurement.mppt.Voc = ssvoc
 
         # if performing sweeps

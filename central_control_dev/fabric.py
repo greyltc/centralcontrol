@@ -111,6 +111,7 @@ class fabric:
             Flag whether to measure in two-wire mode. If `False` measure in four-wire
             mode.
         """
+        t0 = time.time()
         if dummy is True:
             self.sm = virt.k2400()
         else:
@@ -121,6 +122,7 @@ class fabric:
                 serialBaud=smu_baud,
             )
         self.sm_idn = self.sm.idn
+        print(f'SMU connect time = {time.time() - t0} s')
 
         # set up smu terminals
         self.sm.setTerminals(front=smu_front_terminals)
