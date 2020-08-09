@@ -18,7 +18,7 @@ class us:
     )
     end_buffers = 5  # don't allow movement to within this many mm of the stage ends (needed to prevent potential homing issues)
 
-    otter_safe_x = 550  # xaxis safe location to home y for otter (in mm)
+    otter_safe_x =650  # xaxis safe location to home y for otter (in mm)
 
     def __init__(
         self,
