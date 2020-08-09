@@ -29,10 +29,16 @@ class k2400:
     self._setupSourcemeter(front=front, twoWire=twoWire)
 
   def __del__(self):
-    try:
-      self.sm.write(':output off')
-    except:
-      pass
+    if self.sm.interface_type == visa.constants.InterfaceType.asrl:
+      try:
+        self.sm.write(':system:local')
+      except:
+        pass
+    else:
+      try:
+        self.sm.write(':output off')  # TODO send GTL over GPIB
+      except:
+        pass
 
     try:
       self.sm.close()
@@ -449,13 +455,11 @@ if __name__ == "__main__":
   
   # for testing Ethernet <--> Serial adapter connections, in this case the adapter must be configured properly via its web interface
   #k = k2400(addressString='TCPIP0::10.45.0.186::4000::SOCKET', front=True)
-  start = time.time()
 
   # for serial connection testing expects flow control to be on, data bits =8 and parity = none
-  ct0 = time.time()
+  con_time = time.time()
   k = k2400(addressString='ASRL/dev/ttyS0::INSTR', terminator='\r', serialBaud=57600)
-  print(f'SMU connect time = {time.time()-ct0}')
-  print(f"Connected to {k.addressString}")
+  print(f"Connected to {k.addressString} in {time.time()-con_time} seconds")
 
   # setup DC resistance measurement
   k.setupDC(auto_ohms=True)
