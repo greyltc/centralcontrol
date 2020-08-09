@@ -206,7 +206,7 @@ class k2400:
     # enable/setup contact check :system:ccheck
     opts = self.sm.query("*opt?")
     if "CONTACT-CHECK" in opts.upper():
-      sm.write(':system:ccheck on')
+      sm.write(':system:ccheck off')
       sm.write(':system:ccheck:resistance 50')  # choices are 2, 15 or 50
 
   def disconnect(self):
