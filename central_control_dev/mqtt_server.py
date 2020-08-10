@@ -1590,6 +1590,8 @@ if __name__ == "__main__":
     # create dummy process
     process = multiprocessing.Process()
 
+    msg_handler_thread = threading.Thread(target=msg_handler).start()
+
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"
 
@@ -1599,7 +1601,6 @@ if __name__ == "__main__":
     mqttc.on_message = on_message
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
-    mqttc.loop_start()
 
     publish.single(
         "measurement/status",
@@ -1614,5 +1615,4 @@ if __name__ == "__main__":
     if cli_args.dummy is True:
         print("*** Running in dummy mode! ***")
 
-    # start the message handler
-    msg_handler()
+    mqttc.loop_forever()
