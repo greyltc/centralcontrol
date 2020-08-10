@@ -6,7 +6,9 @@ import itertools
 import multiprocessing
 import os
 import pickle
+import queue
 import sys
+import threading
 import time
 import traceback
 import types
@@ -782,7 +784,7 @@ def _get_substrate_positions(config, experiment):
         for y in axis_pos[1]:
             substrate_centres += [[x, y] for x in axis_pos[0]]
     elif n_axes == 1:
-        substrate_centres = [ [x] for x in axis_pos[0]]
+        substrate_centres = [[x] for x in axis_pos[0]]
 
     print(f"Substrate centres (absolute): {substrate_centres}")
 
@@ -1537,42 +1539,59 @@ def _run(request, mqtthost, dummy):
     )
 
 
+# queue for storing incoming messages
+msg_queue = queue.Queue()
+
+
 def on_message(mqttc, obj, msg):
-    """Act on an MQTT message.
+    """Add an MQTT message to the message queue."""
+    msg_queue.put_nowait(msg)
+
+
+def msg_handler():
+    """Handle MQTT messages in the msg queue.
+
+    This function should run in a separate thread, polling the queue for messages.
 
     Actions that require instrument I/O run in a worker process. Only one action
     process can run at a time. If an action process is running the server will
     report that it's busy.
     """
-    request = pickle.loads(msg.payload)
+    while True:
+        msg = msg_queue.get()
 
-    # perform a requested action
-    if (action := msg.topic.split("/")[-1]) == "run":
-        start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "stop":
-        stop_process()
-    elif action == "calibrate_eqe":
-        start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "calibrate_psu":
-        start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "calibrate_solarsim_diodes":
-        start_process(
-            _calibrate_solarsim_diodes, (request, cli_args.mqtthost, cli_args.dummy,)
-        )
-    elif action == "calibrate_spectrum":
-        start_process(
-            _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
-        )
-    elif action == "calibrate_rtd":
-        start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "contact_check":
-        start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "home":
-        start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "goto":
-        start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "read_stage":
-        start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+        request = pickle.loads(msg.payload)
+
+        # perform a requested action
+        if (action := msg.topic.split("/")[-1]) == "run":
+            start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "stop":
+            stop_process()
+        elif action == "calibrate_eqe":
+            start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "calibrate_psu":
+            start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "calibrate_solarsim_diodes":
+            start_process(
+                _calibrate_solarsim_diodes,
+                (request, cli_args.mqtthost, cli_args.dummy,),
+            )
+        elif action == "calibrate_spectrum":
+            start_process(
+                _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+            )
+        elif action == "calibrate_rtd":
+            start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "contact_check":
+            start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "home":
+            start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "goto":
+            start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "read_stage":
+            start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+
+        msg_queue.task_done()
 
 
 # required when using multiprocessing in windows, advised on other platforms
@@ -1582,6 +1601,9 @@ if __name__ == "__main__":
 
     # create dummy process
     process = multiprocessing.Process()
+
+    # start message handler thread
+    msg_handler_thread = threading.Thread(target=msg_handler, daemon=True).start()
 
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"
