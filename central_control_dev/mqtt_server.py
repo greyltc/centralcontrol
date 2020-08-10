@@ -74,6 +74,7 @@ def stop_process():
     global process
 
     if process.is_alive() is True:
+        print("stopping process")
         process.terminate()
         publish.single(
             "measurement/status",
@@ -83,6 +84,7 @@ def stop_process():
             hostname=cli_args.mqtthost,
         )
     else:
+        print("process has stopped")
         payload = {
             "level": 30,
             "msg": "Nothing to stop. Measurement server is idle.",

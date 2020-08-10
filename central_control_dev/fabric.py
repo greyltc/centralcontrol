@@ -53,6 +53,7 @@ class fabric:
 
         Make sure everything gets cleaned up properly.
         """
+        
         self.disconnect_all_instruments()
 
     def compliance_current_guess(self, area=None):
