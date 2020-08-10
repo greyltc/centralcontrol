@@ -78,6 +78,11 @@ class wavelabs:
     
   def __del__(self):
     try:
+      self.off()
+    except:
+      pass
+
+    try:
       self.sock_file.close()
     except:
       pass
