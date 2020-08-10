@@ -108,7 +108,10 @@ class wavelabs:
     self.iseq = 0
 
     self.server = socketserver.TCPServer((self.host, self.port), socketserver.StreamRequestHandler, bind_and_activate = False)
-    self.server.timeout = self.timeout/10  # INNER timeout when waiting for the wavelabs software to connect
+    if self.timeout is None:
+      self.server.timeout = None
+    else:
+      self.server.timeout = self.timeout/10  # INNER timeout when waiting for the wavelabs software to connect
     self.server.allow_reuse_address = True
     self.server.server_bind()
     self.server.server_activate()
