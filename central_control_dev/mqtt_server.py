@@ -66,7 +66,9 @@ def start_process(target, args):
         )
     else:
         payload = {"level": 30, "msg": "Measurement server busy!"}
-        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
+        publish.single(
+            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
+        )
 
 
 def stop_process():
@@ -74,7 +76,6 @@ def stop_process():
     global process
 
     if process.is_alive() is True:
-        print("stopping process")
         process.terminate()
         publish.single(
             "measurement/status",
@@ -84,12 +85,13 @@ def stop_process():
             hostname=cli_args.mqtthost,
         )
     else:
-        print("process has stopped")
         payload = {
             "level": 30,
             "msg": "Nothing to stop. Measurement server is idle.",
         }
-        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
+        publish.single(
+            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
+        )
 
 
 def _calibrate_eqe(request, mqtthost, dummy):
