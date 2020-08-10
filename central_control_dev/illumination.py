@@ -65,7 +65,7 @@ class illumination:
     """
     fetches a spectrum if the light engine supports it
     """
-    self.light_engine.get_spectrum()
+    return self.light_engine.get_spectrum()
 
   def disconnect(self):
     """
