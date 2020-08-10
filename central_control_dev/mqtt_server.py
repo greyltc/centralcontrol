@@ -1523,12 +1523,10 @@ def _run(request, mqtthost, dummy):
             _log("Run complete!", 20, **{"mqttc": mqttc})
 
         print("Measurement complete.")
-    # except BaseException as e:
-    # if e is not KeyboardInterrupt:
-    #     traceback.print_exc()
-    #     _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
-    except:
-        pass
+    except BaseException as e:
+        if e is not KeyboardInterrupt:
+            traceback.print_exc()
+            _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
