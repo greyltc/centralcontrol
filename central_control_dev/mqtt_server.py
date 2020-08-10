@@ -66,7 +66,9 @@ def start_process(target, args):
         )
     else:
         payload = {"level": 30, "msg": "Measurement server busy!"}
-        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
+        publish.single(
+            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
+        )
 
 
 def stop_process():
@@ -87,7 +89,9 @@ def stop_process():
             "level": 30,
             "msg": "Nothing to stop. Measurement server is idle.",
         }
-        publish.single("log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
+        publish.single(
+            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
+        )
 
 
 def _calibrate_eqe(request, mqtthost, dummy):
@@ -330,6 +334,9 @@ def _calibrate_spectrum(request, mqtthost, dummy):
                 light_address=config["solarsim"]["uri"],
                 light_recipe=args["light_recipe"],
             )
+
+            # turn off light
+            measurement.le.off()
 
             timestamp = time.time()
 
@@ -1465,51 +1472,51 @@ def _run(request, mqtthost, dummy):
         hostname=mqtthost,
     )
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+    # try:
+    with fabric() as measurement, MQTTQueuePublisher() as mqttc:
+        mqttc.run(mqtthost)
 
-            _log("Starting run...", 20, **{"mqttc": mqttc})
+        _log("Starting run...", 20, **{"mqttc": mqttc})
 
-            if args["iv_devs"] is not None:
-                try:
-                    iv_pixel_queue = _build_q(request, experiment="solarsim")
-                except ValueError as e:
-                    # there was a problem with the labels and/or layouts list
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
-            else:
-                iv_pixel_queue = []
+        if args["iv_devs"] is not None:
+            try:
+                iv_pixel_queue = _build_q(request, experiment="solarsim")
+            except ValueError as e:
+                # there was a problem with the labels and/or layouts list
+                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                return
+        else:
+            iv_pixel_queue = []
 
-            if args["eqe_devs"] is not None:
-                try:
-                    eqe_pixel_queue = _build_q(request, experiment="eqe")
-                except ValueError as e:
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
-            else:
-                eqe_pixel_queue = []
+        if args["eqe_devs"] is not None:
+            try:
+                eqe_pixel_queue = _build_q(request, experiment="eqe")
+            except ValueError as e:
+                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                return
+        else:
+            eqe_pixel_queue = []
 
-            # measure i-v-t
-            if len(iv_pixel_queue) > 0:
-                try:
-                    _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
-                    measurement.disconnect_all_instruments()
-                except ValueError as e:
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
+        # measure i-v-t
+        if len(iv_pixel_queue) > 0:
+            try:
+                _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                measurement.disconnect_all_instruments()
+            except ValueError as e:
+                _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
+                return
 
-            # measure eqe
-            if len(eqe_pixel_queue) > 0:
-                _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
+        # measure eqe
+        if len(eqe_pixel_queue) > 0:
+            _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
 
-            # report complete
-            _log("Run complete!", 20, **{"mqttc": mqttc})
+        # report complete
+        _log("Run complete!", 20, **{"mqttc": mqttc})
 
-        print("Measurement complete.")
-    except Exception as e:
-        traceback.print_exc()
-        _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+    print("Measurement complete.")
+    # except BaseException as e:
+    #     traceback.print_exc()
+    #     _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
@@ -1526,7 +1533,37 @@ msg_queue = queue.Queue()
 
 def on_message(mqttc, obj, msg):
     """Add an MQTT message to the message queue."""
-    msg_queue.put_nowait(msg)
+    # msg_queue.put_nowait(msg)
+
+    request = pickle.loads(msg.payload)
+
+    # perform a requested action
+    if (action := msg.topic.split("/")[-1]) == "run":
+        start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "stop":
+        stop_process()
+    elif action == "calibrate_eqe":
+        start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "calibrate_psu":
+        start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "calibrate_solarsim_diodes":
+        start_process(
+            _calibrate_solarsim_diodes, (request, cli_args.mqtthost, cli_args.dummy,),
+        )
+    elif action == "calibrate_spectrum":
+        start_process(
+            _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+        )
+    elif action == "calibrate_rtd":
+        start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "contact_check":
+        start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "home":
+        start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "goto":
+        start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
+    elif action == "read_stage":
+        start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
 
 
 def msg_handler():
@@ -1541,37 +1578,6 @@ def msg_handler():
     while True:
         msg = msg_queue.get()
 
-        request = pickle.loads(msg.payload)
-
-        # perform a requested action
-        if (action := msg.topic.split("/")[-1]) == "run":
-            start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "stop":
-            stop_process()
-        elif action == "calibrate_eqe":
-            start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "calibrate_psu":
-            start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "calibrate_solarsim_diodes":
-            start_process(
-                _calibrate_solarsim_diodes,
-                (request, cli_args.mqtthost, cli_args.dummy,),
-            )
-        elif action == "calibrate_spectrum":
-            start_process(
-                _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
-            )
-        elif action == "calibrate_rtd":
-            start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "contact_check":
-            start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "home":
-            start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "goto":
-            start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "read_stage":
-            start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
-
         msg_queue.task_done()
 
 
@@ -1583,6 +1589,8 @@ if __name__ == "__main__":
     # create dummy process
     process = multiprocessing.Process()
 
+    # msg_handler_thread = threading.Thread(target=msg_handler).start()
+
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"
 
@@ -1592,7 +1600,6 @@ if __name__ == "__main__":
     mqttc.on_message = on_message
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
-    mqttc.loop_start()
 
     publish.single(
         "measurement/status",
@@ -1607,5 +1614,4 @@ if __name__ == "__main__":
     if cli_args.dummy is True:
         print("*** Running in dummy mode! ***")
 
-    # start the message handler
-    msg_handler()
+    mqttc.loop_forever()
