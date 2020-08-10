@@ -296,6 +296,7 @@ class k2400:
         self,
         sourceVoltage=True,
         compliance=0.1,
+        stepDelay=0.005,
         nPoints=101,
         start=0,
         end=1,

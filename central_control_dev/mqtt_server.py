@@ -6,7 +6,9 @@ import itertools
 import multiprocessing
 import os
 import pickle
+import queue
 import sys
+import threading
 import time
 import traceback
 import types
@@ -741,7 +743,7 @@ def _get_substrate_positions(config, experiment):
         along each axis.
     """
     experiment_centre = config["stage"]["experiment_positions"][experiment]
-    print(f"EQE centre: {experiment_centre}")
+    print(f"{experiment} center: {experiment_centre}")
 
     # read in number substrates in the array along each axis
     substrate_number = config["substrates"]["number"]
@@ -777,8 +779,12 @@ def _get_substrate_positions(config, experiment):
 
     # create array of positions
     substrate_centres = []
-    for y in axis_pos[1]:
-        substrate_centres += [[x, y] for x in axis_pos[0]]
+    n_axes = len(axis_pos)
+    if n_axes == 2:
+        for y in axis_pos[1]:
+            substrate_centres += [[x, y] for x in axis_pos[0]]
+    elif n_axes == 1:
+        substrate_centres = [[x] for x in axis_pos[0]]
 
     print(f"Substrate centres (absolute): {substrate_centres}")
 
@@ -1049,10 +1055,7 @@ def _ivt(
         _log(f"Experiment relay error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
         return
 
-    if args["ad_switch"] is True:
-        source_delay = -1
-    else:
-        source_delay = args["source_delay"]
+    source_delay = args["source_delay"]
 
     last_label = None
     # scan through the pixels and do the requested measurements
@@ -1093,14 +1096,14 @@ def _ivt(
 
         # get or estimate compliance current
         compliance_i = measurement.compliance_current_guess(pixel["area"])
+        measurement.mppt.current_compliance = compliance_i
 
         # choose data handler
         if calibration is False:
-            handler = _handle_measurement_data
             handler_kwargs = {"idn": idn, "pixel": pixel, "mqttc": mqttc}
+            handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
         else:
-            handler = None
-            handler_kwargs = {}
+            handler = lambda x:None
 
         timestamp = time.time()
 
@@ -1117,26 +1120,26 @@ def _ivt(
 
             if calibration is False:
                 handler_kwargs["kind"] = "vt_measurement"
+                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
 
             vt = measurement.steady_state(
                 t_dwell=args["i_dwell"],
                 NPLC=args["nplc"],
-                stepDelay=source_delay,
                 sourceVoltage=False,
                 compliance=3,
                 senseRange="a",
                 setPoint=args["i_dwell_value"],
-                handler=handler,
-                handler_kwargs=handler_kwargs,
+                handler=handler
             )
 
             data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
             if args["i_dwell_value"] == 0:
-                ssvoc = vt[-1]
-                measurement.mppt.Voc = ssvoc
+                ssvoc = vt[-1][0]
+            else:
+                ssvoc = None
 
         # if performing sweeps
         if args["sweep_check"] is True:
@@ -1163,6 +1166,7 @@ def _ivt(
             if calibration is False:
                 handler_kwargs["kind"] = "iv_measurement"
                 handler_kwargs["sweep"] = sweep
+                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
 
             if args["sweep_check"] is True:
@@ -1183,14 +1187,14 @@ def _ivt(
                     start=start,
                     end=end,
                     NPLC=args["nplc"],
-                    handler=handler,
-                    handler_kwargs=handler_kwargs,
+                    handler=handler
                 )
 
                 data += iv1
 
-                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.which_max_power(
-                    iv1
+                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(
+                    iv1,
+                    light=(sweep == "light")
                 )
 
             if args["return_switch"] is True:
@@ -1212,14 +1216,14 @@ def _ivt(
                     start=start,
                     end=end,
                     NPLC=args["nplc"],
-                    handler=handler,
-                    handler_kwargs=handler_kwargs,
+                    handler=handler
                 )
 
                 data += iv2
 
-                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.which_max_power(
-                    iv2
+                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(
+                    iv2,
+                    light=(sweep == "light")
                 )
 
             if sweep == "dark":
@@ -1243,7 +1247,6 @@ def _ivt(
         #     # compliance set before any measurements were taken.
         #     Vmpp = None
         # self.logic.mppt.Vmpp = Vmpp
-        measurement.mppt.current_compliance = compliance_i
 
         if args["mppt_dwell"] > 0:
             _log(
@@ -1254,29 +1257,18 @@ def _ivt(
 
             if calibration is False:
                 handler_kwargs["kind"] = "mppt_measurement"
+                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
-
-            # measure voc for 1s to initialise mppt
-            vt = measurement.steady_state(
-                t_dwell=1,
-                NPLC=args["nplc"],
-                stepDelay=args["source_delay"],
-                sourceVoltage=False,
-                compliance=3,
-                senseRange="a",
-                setPoint=0,
-                handler=handler,
-                handler_kwargs=handler_kwargs,
-            )
-            measurement.mppt.Voc = vt[-1][0]
+            
+            if ssvoc is not None:
+                # tell the mppt what our measured steady state Voc was
+                measurement.mppt.Voc = ssvoc
 
             mt = measurement.track_max_power(
                 args["mppt_dwell"],
                 NPLC=args["nplc"],
-                step_delay=args["source_delay"],
                 extra=args["mppt_params"],
-                handler=handler,
-                handler_kwargs=handler_kwargs,
+                handler=handler
             )
 
             data += vt
@@ -1291,18 +1283,17 @@ def _ivt(
 
             if calibration is False:
                 handler_kwargs["kind"] = "it_measurement"
+                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
 
             it = measurement.steady_state(
                 t_dwell=args["v_dwell"],
                 NPLC=args["nplc"],
-                stepDelay=source_delay,
                 sourceVoltage=True,
                 compliance=compliance_i,
                 senseRange="a",
                 setPoint=args["v_dwell_value"],
-                handler=handler,
-                handler_kwargs=handler_kwargs,
+                handler=handler
             )
 
             data += it
@@ -1408,16 +1399,15 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
 
         # determine how live measurement data will be handled
         if calibration is True:
-            handler = None
-            handler_kwargs = {}
+            handler = lambda x:None
         else:
-            handler = _handle_measurement_data
             handler_kwargs = {
                 "kind": "eqe_measurement",
                 "idn": idn,
                 "pixel": pixel,
                 "mqttc": mqttc,
             }
+            handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
             _clear_plot(**handler_kwargs)
 
         # get human-readable timestamp
@@ -1438,8 +1428,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             integration_time=args["eqe_int"],
-            handler=handler,
-            handler_kwargs=handler_kwargs,
+            handler=handler
         )
 
         # update eqe diode calibration data in
@@ -1533,42 +1522,59 @@ def _run(request, mqtthost, dummy):
     )
 
 
+# queue for storing incoming messages
+msg_queue = queue.Queue()
+
+
 def on_message(mqttc, obj, msg):
-    """Act on an MQTT message.
+    """Add an MQTT message to the message queue."""
+    msg_queue.put_nowait(msg)
+
+
+def msg_handler():
+    """Handle MQTT messages in the msg queue.
+
+    This function should run in a separate thread, polling the queue for messages.
 
     Actions that require instrument I/O run in a worker process. Only one action
     process can run at a time. If an action process is running the server will
     report that it's busy.
     """
-    request = pickle.loads(msg.payload)
+    while True:
+        msg = msg_queue.get()
 
-    # perform a requested action
-    if (action := msg.topic.split("/")[-1]) == "run":
-        start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "stop":
-        stop_process()
-    elif action == "calibrate_eqe":
-        start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "calibrate_psu":
-        start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "calibrate_solarsim_diodes":
-        start_process(
-            _calibrate_solarsim_diodes, (request, cli_args.mqtthost, cli_args.dummy,)
-        )
-    elif action == "calibrate_spectrum":
-        start_process(
-            _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
-        )
-    elif action == "calibrate_rtd":
-        start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "contact_check":
-        start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "home":
-        start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "goto":
-        start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "read_stage":
-        start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+        request = pickle.loads(msg.payload)
+
+        # perform a requested action
+        if (action := msg.topic.split("/")[-1]) == "run":
+            start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "stop":
+            stop_process()
+        elif action == "calibrate_eqe":
+            start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "calibrate_psu":
+            start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "calibrate_solarsim_diodes":
+            start_process(
+                _calibrate_solarsim_diodes,
+                (request, cli_args.mqtthost, cli_args.dummy,),
+            )
+        elif action == "calibrate_spectrum":
+            start_process(
+                _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+            )
+        elif action == "calibrate_rtd":
+            start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "contact_check":
+            start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "home":
+            start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "goto":
+            start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "read_stage":
+            start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+
+        msg_queue.task_done()
 
 
 # required when using multiprocessing in windows, advised on other platforms
@@ -1578,6 +1584,9 @@ if __name__ == "__main__":
 
     # create dummy process
     process = multiprocessing.Process()
+
+    # start message handler thread
+    msg_handler_thread = threading.Thread(target=msg_handler, daemon=True).start()
 
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"

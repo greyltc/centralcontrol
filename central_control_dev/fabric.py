@@ -111,6 +111,7 @@ class fabric:
             Flag whether to measure in two-wire mode. If `False` measure in four-wire
             mode.
         """
+        t0 = time.time()
         if dummy is True:
             self.sm = virt.k2400()
         else:
@@ -121,6 +122,7 @@ class fabric:
                 serialBaud=smu_baud,
             )
         self.sm_idn = self.sm.idn
+        print(f'SMU connect time = {time.time() - t0} s')
 
         # set up smu terminals
         self.sm.setTerminals(front=smu_front_terminals)
@@ -529,14 +531,14 @@ class fabric:
                 # open all relays
                 resp = p.get("s")
 
-                if resp == 0:
+                if resp == "":
                     # select the correct pixel
                     resp = p.pix_picker(substrate, pixel["pixel"])
             else:
                 # open all mux relays
                 resp = p.get("s")
 
-            if resp is True:
+            if resp == True:
                 resp = 0
 
         return resp
@@ -549,8 +551,10 @@ class fabric:
         exp_relay : {"eqe", "iv"}
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
-        with self.pcb(self.pcb_address) as p:
-            resp = p.get(exp_relay)
+        resp = ""
+        if 'otter' in self.motion_address:  # TODO: do this in some better way
+            with self.pcb(self.pcb_address) as p:
+                resp = p.get(exp_relay)
 
         return resp
 
@@ -583,13 +587,11 @@ class fabric:
         self,
         t_dwell=10,
         NPLC=10,
-        stepDelay=0.005,
         sourceVoltage=True,
         compliance=0.04,
         setPoint=0,
         senseRange="f",
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Make steady state measurements.
 
@@ -619,7 +621,6 @@ class fabric:
         """
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
-        self.sm.setStepDelay(stepDelay)
         self.sm.setupDC(
             sourceVoltage=sourceVoltage,
             compliance=compliance,
@@ -629,8 +630,9 @@ class fabric:
         self.sm.write(
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
+
         raw = self.sm.measureUntil(
-            t_dwell=t_dwell, handler=handler, handler_kwargs=handler_kwargs
+            t_dwell=t_dwell, cb=handler
         )
 
         return raw
@@ -645,8 +647,7 @@ class fabric:
         start=1,
         end=0,
         NPLC=1,
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Perform I-V measurement sweep.
 
@@ -654,32 +655,25 @@ class fabric:
         progressing voltage or current setpoints.
         """
         self.sm.setNPLC(NPLC)
-        self.sm.setStepDelay(stepDelay)
         self.sm.setupSweep(
             sourceVoltage=sourceVoltage,
             compliance=compliance,
+            stepDelay=stepDelay,
             nPoints=nPoints,
             start=start,
             end=end,
             senseRange=senseRange,
         )
 
-        raw = self.sm.measure(nPoints)
-        raw = [list(x) for x in list(zip(*[iter(raw)] * 4))]
-
-        if handler is not None:
-            handler(raw, **handler_kwargs)
-
+        handler(raw:=self.sm.measure(nPoints))
         return raw
 
     def track_max_power(
         self,
         duration=30,
         NPLC=-1,
-        step_delay=-1,
         extra="basic://7:10",
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Track maximum power point.
 
@@ -701,10 +695,8 @@ class fabric:
         raw = self.mppt.launch_tracker(
             duration=duration,
             NPLC=NPLC,
-            stepDelay=step_delay,
             extra=extra,
-            handler=handler,
-            handler_kwargs=handler_kwargs,
+            callback=handler
         )
 
         return raw
@@ -726,8 +718,7 @@ class fabric:
         integration_time=8,
         auto_gain=True,
         auto_gain_method="user",
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Run an EQE scan.
 
@@ -792,8 +783,7 @@ class fabric:
             integration_time,
             auto_gain,
             auto_gain_method,
-            handler,
-            handler_kwargs,
+            handler
         )
 
         # return to white so light is visible
@@ -824,7 +814,6 @@ class fabric:
         self.sm.setupDC(
             sourceVoltage=True, compliance=0.1, setPoint=0, senseRange="a",
         )
-        self.sm.outOn(True)
 
         # set up PSU
         self.psu.set_apply(channel=channel, voltage="MAX", current=0)
@@ -834,7 +823,7 @@ class fabric:
         for current in currents:
             self.psu.set_apply(channel=channel, voltage="MAX", current=current)
             time.sleep(1)
-            measurement = self.sm.measure()
+            measurement = list(self.sm.measure())
             measurement.append(current)
             data.append(measurement)
 
@@ -876,7 +865,7 @@ class fabric:
             me.connect()
             return me.goto(position)
 
-    def contact_check(self, pixel_queue, handler=None, handler_kwargs={}):
+    def contact_check(self, pixel_queue, handler=lambda x:None):
         """Perform contact checks on a queue of pixels.
 
         Parameters
@@ -894,28 +883,27 @@ class fabric:
             Pass/fail summary.
         """
         failed = 0
-        while len(pixel_queue) > 0:
-            # get pixel info
-            pixel = pixel_queue.popleft()
-            label = pixel["label"]
-            pix = pixel["pixel"]
+        self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
+        with self.pcb(self.pcb_address) as p:
+            while len(pixel_queue) > 0:
+                # get pixel info
+                pixel = pixel_queue.popleft()
+                label = pixel["label"]
+                pix = pixel["pixel"]
 
-            # add id str to handlers to display on plots
-            idn = f"{label}_pixel{pix}"
+                # add id str to handlers to display on plots
+                idn = f"{label}_pixel{pix}"
 
-            with self.pcb(self.pcb_address) as p:
                 if pixel["sub_name"] is not None:
                     resp = p.pix_picker(pixel["sub_name"], pixel["pixel"])
                 else:
                     resp = p.get("s")
 
-            if self.sm.contact_check() is True:
-                failed += 1
-                if handler is not None:
-                    handler(
-                        f"Contact check FAILED! Device: {idn}", **handler_kwargs,
-                    )
-
+                self.sm.measure()
+                if self.sm.contact_check() is True:
+                    failed += 1
+                    handler(f"Contact check FAILED! Device: {idn}")
+        self.sm.outOn(False)
         return f"{failed} pixels failed the contact check."
 
 
