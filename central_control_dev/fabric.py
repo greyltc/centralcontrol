@@ -53,8 +53,9 @@ class fabric:
 
         Make sure everything gets cleaned up properly.
         """
-        
+        print("exiting...")
         self.disconnect_all_instruments()
+        print("cleaned up successfully")
 
     def compliance_current_guess(self, area=None):
         """Guess what the compliance current should be for i-v-t measurements.
@@ -123,7 +124,7 @@ class fabric:
                 serialBaud=smu_baud,
             )
         self.sm_idn = self.sm.idn
-        print(f'SMU connect time = {time.time() - t0} s')
+        print(f"SMU connect time = {time.time() - t0} s")
 
         # set up smu terminals
         self.sm.setTerminals(front=smu_front_terminals)
@@ -461,6 +462,7 @@ class fabric:
 
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
+        print("disconnecting instruments...")
         while len(self._connected_instruments) > 0:
             instr = self._connected_instruments.pop()
             print(instr)
@@ -553,7 +555,7 @@ class fabric:
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
         resp = ""
-        if 'otter' in self.motion_address:  # TODO: do this in some better way
+        if "otter" in self.motion_address:  # TODO: do this in some better way
             with self.pcb(self.pcb_address) as p:
                 resp = p.get(exp_relay)
 
@@ -592,7 +594,7 @@ class fabric:
         compliance=0.04,
         setPoint=0,
         senseRange="f",
-        handler=lambda x:None
+        handler=lambda x: None,
     ):
         """Make steady state measurements.
 
@@ -632,9 +634,7 @@ class fabric:
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
 
-        raw = self.sm.measureUntil(
-            t_dwell=t_dwell, cb=handler
-        )
+        raw = self.sm.measureUntil(t_dwell=t_dwell, cb=handler)
 
         return raw
 
@@ -648,7 +648,7 @@ class fabric:
         start=1,
         end=0,
         NPLC=1,
-        handler=lambda x:None
+        handler=lambda x: None,
     ):
         """Perform I-V measurement sweep.
 
@@ -666,15 +666,11 @@ class fabric:
             senseRange=senseRange,
         )
 
-        handler(raw:=self.sm.measure(nPoints))
+        handler(raw := self.sm.measure(nPoints))
         return raw
 
     def track_max_power(
-        self,
-        duration=30,
-        NPLC=-1,
-        extra="basic://7:10",
-        handler=lambda x:None
+        self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None
     ):
         """Track maximum power point.
 
@@ -694,10 +690,7 @@ class fabric:
         message = "Tracking maximum power point for {:} seconds".format(duration)
 
         raw = self.mppt.launch_tracker(
-            duration=duration,
-            NPLC=NPLC,
-            extra=extra,
-            callback=handler
+            duration=duration, NPLC=NPLC, extra=extra, callback=handler
         )
 
         return raw
@@ -719,7 +712,7 @@ class fabric:
         integration_time=8,
         auto_gain=True,
         auto_gain_method="user",
-        handler=lambda x:None
+        handler=lambda x: None,
     ):
         """Run an EQE scan.
 
@@ -784,7 +777,7 @@ class fabric:
             integration_time,
             auto_gain,
             auto_gain_method,
-            handler
+            handler,
         )
 
         # return to white so light is visible
@@ -866,7 +859,7 @@ class fabric:
             me.connect()
             return me.goto(position)
 
-    def contact_check(self, pixel_queue, handler=lambda x:None):
+    def contact_check(self, pixel_queue, handler=lambda x: None):
         """Perform contact checks on a queue of pixels.
 
         Parameters

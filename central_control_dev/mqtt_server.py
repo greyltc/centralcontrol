@@ -333,6 +333,9 @@ def _calibrate_spectrum(request, mqtthost, dummy):
                 light_recipe=args["light_recipe"],
             )
 
+            # turn off light
+            measurement.le.off()
+
             timestamp = time.time()
 
             spectrum = measurement.measure_spectrum()
