@@ -1485,6 +1485,8 @@ def _run(request, mqtthost, dummy):
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
             mqttc.run(mqtthost)
 
+            raise ValueError("Test ValueError")
+
             _log("Starting run...", 20, **{"mqttc": mqttc})
 
             if args["iv_devs"] is not None:
