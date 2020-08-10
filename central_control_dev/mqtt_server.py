@@ -1528,6 +1528,7 @@ def _run(request, mqtthost, dummy):
     except KeyboardInterrupt:
         pass
     except Exception as e:
+        print("exception test")
         traceback.print_exc()
         _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
