@@ -79,6 +79,13 @@ def stop_process():
     if process.is_alive() is True:
         # process.terminate()
         os.kill(process.pid, signal.SIGINT)
+        payload = {
+            "level": 20,
+            "msg": "Request to stop completed!",
+        }
+        publish.single(
+            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
+        )
         publish.single(
             "measurement/status",
             pickle.dumps("Ready"),
@@ -1517,9 +1524,9 @@ def _run(request, mqtthost, dummy):
 
         print("Measurement complete.")
     except Exception as e:
-        print(type(e))
-        traceback.print_exc()
-        _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        if e is not KeyboardInterrupt:
+            traceback.print_exc()
+            _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
 
     publish.single(
         "measurement/status",
