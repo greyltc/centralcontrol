@@ -587,13 +587,11 @@ class fabric:
         self,
         t_dwell=10,
         NPLC=10,
-        stepDelay=0.005,
         sourceVoltage=True,
         compliance=0.04,
         setPoint=0,
         senseRange="f",
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Make steady state measurements.
 
@@ -632,12 +630,9 @@ class fabric:
         self.sm.write(
             ":arm:source immediate"
         )  # this sets up the trigger/reading method we'll use below
-        if handler is not None:
-            ss_cb = lambda raw : handler(raw, **handler_kwargs)
-        else:
-            ss_cb = lambda raw : None
+
         raw = self.sm.measureUntil(
-            t_dwell=t_dwell, cb=ss_cb
+            t_dwell=t_dwell, cb=handler
         )
 
         return raw
@@ -652,8 +647,7 @@ class fabric:
         start=1,
         end=0,
         NPLC=1,
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Perform I-V measurement sweep.
 
@@ -671,21 +665,15 @@ class fabric:
             senseRange=senseRange,
         )
 
-        raw = self.sm.measure(nPoints)
-
-        if handler is not None:
-            handler(raw, **handler_kwargs)
-
+        handler(raw:=self.sm.measure(nPoints))
         return raw
 
     def track_max_power(
         self,
         duration=30,
         NPLC=-1,
-        step_delay=-1,
         extra="basic://7:10",
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Track maximum power point.
 
@@ -707,10 +695,8 @@ class fabric:
         raw = self.mppt.launch_tracker(
             duration=duration,
             NPLC=NPLC,
-            stepDelay=step_delay,
             extra=extra,
-            handler=handler,
-            handler_kwargs=handler_kwargs,
+            callback=handler
         )
 
         return raw
@@ -732,8 +718,7 @@ class fabric:
         integration_time=8,
         auto_gain=True,
         auto_gain_method="user",
-        handler=None,
-        handler_kwargs={},
+        handler=lambda x:None
     ):
         """Run an EQE scan.
 
@@ -798,8 +783,7 @@ class fabric:
             integration_time,
             auto_gain,
             auto_gain_method,
-            handler,
-            handler_kwargs,
+            handler
         )
 
         return eqe_data
@@ -827,7 +811,6 @@ class fabric:
         self.sm.setupDC(
             sourceVoltage=True, compliance=0.1, setPoint=0, senseRange="a",
         )
-        self.sm.outOn(True)
 
         # set up PSU
         self.psu.set_apply(channel=channel, voltage="MAX", current=0)
@@ -837,7 +820,7 @@ class fabric:
         for current in currents:
             self.psu.set_apply(channel=channel, voltage="MAX", current=current)
             time.sleep(1)
-            measurement = self.sm.measure()
+            measurement = list(self.sm.measure())
             measurement.append(current)
             data.append(measurement)
 
@@ -879,7 +862,7 @@ class fabric:
             me.connect()
             return me.goto(position)
 
-    def contact_check(self, pixel_queue, handler=None, handler_kwargs={}):
+    def contact_check(self, pixel_queue, handler=lambda x:None):
         """Perform contact checks on a queue of pixels.
 
         Parameters
@@ -916,10 +899,7 @@ class fabric:
                 self.sm.measure()
                 if self.sm.contact_check() is True:
                     failed += 1
-                    if handler is not None:
-                        handler(
-                            f"Contact check FAILED! Device: {idn}", **handler_kwargs,
-                        )
+                    handler(f"Contact check FAILED! Device: {idn}")
         self.sm.outOn(False)
         return f"{failed} pixels failed the contact check."
 
