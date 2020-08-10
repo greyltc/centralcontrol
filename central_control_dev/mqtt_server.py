@@ -1535,37 +1535,7 @@ msg_queue = queue.Queue()
 
 def on_message(mqttc, obj, msg):
     """Add an MQTT message to the message queue."""
-    # msg_queue.put_nowait(msg)
-
-    request = pickle.loads(msg.payload)
-
-    # perform a requested action
-    if (action := msg.topic.split("/")[-1]) == "run":
-        start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "stop":
-        stop_process()
-    elif action == "calibrate_eqe":
-        start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "calibrate_psu":
-        start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "calibrate_solarsim_diodes":
-        start_process(
-            _calibrate_solarsim_diodes, (request, cli_args.mqtthost, cli_args.dummy,),
-        )
-    elif action == "calibrate_spectrum":
-        start_process(
-            _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
-        )
-    elif action == "calibrate_rtd":
-        start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "contact_check":
-        start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "home":
-        start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "goto":
-        start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
-    elif action == "read_stage":
-        start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+    msg_queue.put_nowait(msg)
 
 
 def msg_handler():
@@ -1580,6 +1550,37 @@ def msg_handler():
     while True:
         msg = msg_queue.get()
 
+        request = pickle.loads(msg.payload)
+
+        # perform a requested action
+        if (action := msg.topic.split("/")[-1]) == "run":
+            start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "stop":
+            stop_process()
+        elif action == "calibrate_eqe":
+            start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "calibrate_psu":
+            start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "calibrate_solarsim_diodes":
+            start_process(
+                _calibrate_solarsim_diodes,
+                (request, cli_args.mqtthost, cli_args.dummy,),
+            )
+        elif action == "calibrate_spectrum":
+            start_process(
+                _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+            )
+        elif action == "calibrate_rtd":
+            start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "contact_check":
+            start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "home":
+            start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "goto":
+            start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
+        elif action == "read_stage":
+            start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+
         msg_queue.task_done()
 
 
@@ -1591,8 +1592,6 @@ if __name__ == "__main__":
     # create dummy process
     process = multiprocessing.Process()
 
-    # msg_handler_thread = threading.Thread(target=msg_handler).start()
-
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"
 
@@ -1602,6 +1601,7 @@ if __name__ == "__main__":
     mqttc.on_message = on_message
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
+    mqttc.loop_start()
 
     publish.single(
         "measurement/status",
@@ -1616,4 +1616,4 @@ if __name__ == "__main__":
     if cli_args.dummy is True:
         print("*** Running in dummy mode! ***")
 
-    mqttc.loop_forever()
+    msg_handler()
