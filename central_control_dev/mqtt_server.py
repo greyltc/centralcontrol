@@ -1101,9 +1101,9 @@ def _ivt(
         # choose data handler
         if calibration is False:
             handler_kwargs = {"idn": idn, "pixel": pixel, "mqttc": mqttc}
-            handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
+            handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
         else:
-            handler = lambda x:None
+            handler = lambda x: None
 
         timestamp = time.time()
 
@@ -1120,7 +1120,7 @@ def _ivt(
 
             if calibration is False:
                 handler_kwargs["kind"] = "vt_measurement"
-                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
+                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
 
             vt = measurement.steady_state(
@@ -1130,7 +1130,7 @@ def _ivt(
                 compliance=3,
                 senseRange="a",
                 setPoint=args["i_dwell_value"],
-                handler=handler
+                handler=handler,
             )
 
             data += vt
@@ -1166,7 +1166,7 @@ def _ivt(
             if calibration is False:
                 handler_kwargs["kind"] = "iv_measurement"
                 handler_kwargs["sweep"] = sweep
-                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
+                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
 
             if args["sweep_check"] is True:
@@ -1187,14 +1187,13 @@ def _ivt(
                     start=start,
                     end=end,
                     NPLC=args["nplc"],
-                    handler=handler
+                    handler=handler,
                 )
 
                 data += iv1
 
                 Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(
-                    iv1,
-                    light=(sweep == "light")
+                    iv1, light=(sweep == "light")
                 )
 
             if args["return_switch"] is True:
@@ -1216,14 +1215,13 @@ def _ivt(
                     start=start,
                     end=end,
                     NPLC=args["nplc"],
-                    handler=handler
+                    handler=handler,
                 )
 
                 data += iv2
 
                 Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(
-                    iv2,
-                    light=(sweep == "light")
+                    iv2, light=(sweep == "light")
                 )
 
             if sweep == "dark":
@@ -1257,9 +1255,9 @@ def _ivt(
 
             if calibration is False:
                 handler_kwargs["kind"] = "mppt_measurement"
-                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
+                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
-            
+
             if ssvoc is not None:
                 # tell the mppt what our measured steady state Voc was
                 measurement.mppt.Voc = ssvoc
@@ -1268,7 +1266,7 @@ def _ivt(
                 args["mppt_dwell"],
                 NPLC=args["nplc"],
                 extra=args["mppt_params"],
-                handler=handler
+                handler=handler,
             )
 
             data += vt
@@ -1283,7 +1281,7 @@ def _ivt(
 
             if calibration is False:
                 handler_kwargs["kind"] = "it_measurement"
-                handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
+                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
                 _clear_plot(**handler_kwargs)
 
             it = measurement.steady_state(
@@ -1293,7 +1291,7 @@ def _ivt(
                 compliance=compliance_i,
                 senseRange="a",
                 setPoint=args["v_dwell_value"],
-                handler=handler
+                handler=handler,
             )
 
             data += it
@@ -1399,7 +1397,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
 
         # determine how live measurement data will be handled
         if calibration is True:
-            handler = lambda x:None
+            handler = lambda x: None
         else:
             handler_kwargs = {
                 "kind": "eqe_measurement",
@@ -1407,7 +1405,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
                 "pixel": pixel,
                 "mqttc": mqttc,
             }
-            handler = lambda raw:_handle_measurement_data(raw, **handler_kwargs)
+            handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
             _clear_plot(**handler_kwargs)
 
         # get human-readable timestamp
@@ -1428,7 +1426,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             integration_time=args["eqe_int"],
-            handler=handler
+            handler=handler,
         )
 
         # update eqe diode calibration data in
@@ -1585,9 +1583,6 @@ if __name__ == "__main__":
     # create dummy process
     process = multiprocessing.Process()
 
-    # start message handler thread
-    msg_handler_thread = threading.Thread(target=msg_handler, daemon=True).start()
-
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"
 
@@ -1597,6 +1592,8 @@ if __name__ == "__main__":
     mqttc.on_message = on_message
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
+    mqttc.loop_start()
+
     publish.single(
         "measurement/status",
         pickle.dumps("Ready"),
@@ -1610,4 +1607,5 @@ if __name__ == "__main__":
     if cli_args.dummy is True:
         print("*** Running in dummy mode! ***")
 
-    mqttc.loop_forever()
+    # start the message handler
+    msg_handler()
