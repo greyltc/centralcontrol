@@ -7,6 +7,7 @@ import multiprocessing
 import os
 import pickle
 import queue
+import signal
 import sys
 import threading
 import time
@@ -76,7 +77,8 @@ def stop_process():
     global process
 
     if process.is_alive() is True:
-        process.terminate()
+        # process.terminate()
+        os.kill(process.pid, signal.SIGINT)
         publish.single(
             "measurement/status",
             pickle.dumps("Ready"),
