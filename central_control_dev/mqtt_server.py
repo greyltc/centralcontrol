@@ -121,7 +121,8 @@ def _calibrate_eqe(request, mqtthost, dummy):
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
             # create temporary mqtt client
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Calibrating EQE...", 20, **{"mqttc": mqttc})
 
@@ -197,7 +198,8 @@ def _calibrate_psu(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Calibration LED PSU...", 20, **{"mqttc": mqttc})
 
@@ -344,7 +346,8 @@ def _calibrate_spectrum(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
 
@@ -414,7 +417,8 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Calibrating solar simulator diodes...", 20, **{"mqttc": mqttc})
 
@@ -480,7 +484,8 @@ def _calibrate_rtd(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Calibrating RTDs...", 20, **{"mqttc": mqttc})
 
@@ -549,7 +554,8 @@ def _home(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Homing stage...", 20, **{"mqttc": mqttc})
 
@@ -607,7 +613,8 @@ def _goto(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log(f"Moving to stage position...", 20, **{"mqttc": mqttc})
 
@@ -667,7 +674,8 @@ def _read_stage(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log(f"Reading stage position...", 20, **{"mqttc": mqttc})
 
@@ -729,7 +737,8 @@ def _contact_check(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Performing contact check...", 20, **{"mqttc": mqttc})
 
@@ -1543,7 +1552,8 @@ def _run(request, mqtthost, dummy):
 
     try:
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.run(mqtthost)
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
             _log("Starting run...", 20, **{"mqttc": mqttc})
 
