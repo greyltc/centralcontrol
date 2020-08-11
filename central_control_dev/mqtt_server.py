@@ -161,9 +161,16 @@ def _calibrate_eqe(request, mqtthost, dummy):
             _log("EQE calibration complete!", 20, **{"mqttc": mqttc})
 
         print("EQE calibration finished.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"EQE CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"EQE CALIBRATION ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -301,9 +308,16 @@ def _calibrate_psu(request, mqtthost, dummy):
 
             _log("LED PSU calibration complete!", 20, **{"mqttc": mqttc})
         print("Finished calibrating PSU.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"PSU CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"PSU CALIBRATION ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -364,10 +378,15 @@ def _calibrate_spectrum(request, mqtthost, dummy):
             )
 
         print("Spectrum calibration complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(
-            f"SPECTRUM CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc}
+        publish.single(
+            "measurement/log",
+            {"msg": f"SPECTRUM CALIBRATION ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
         )
 
     publish.single(
@@ -422,12 +441,18 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
             _log("Solar simulator diode calibration complete!", 20, **{"mqttc": mqttc})
 
         print("Solar sim diode calibration complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(
-            f"SOLARSIM DIODE CALIBRATION ABORTED! {type(e)} " + str(e),
-            40,
-            **{"mqttc": mqttc},
+        publish.single(
+            "measurement/log",
+            {
+                "msg": f"SOLARSIM DIODE CALIBRATION ABORTED! {type(e)} " + str(e),
+                "level": 40,
+            },
+            qos=2,
+            hostname=mqtthost,
         )
 
     publish.single(
@@ -488,9 +513,16 @@ def _calibrate_rtd(request, mqtthost, dummy):
             _log("RTD calibration complete!", 20, **{"mqttc": mqttc})
 
         print("RTD calibration complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"RTD CALIBRATION ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"RTD CALIBRATION ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -539,9 +571,16 @@ def _home(request, mqtthost, dummy):
             _log("Homing complete!", 20, **{"mqttc": mqttc})
 
         print("Homing complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"HOMING ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"HOMING ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -592,9 +631,16 @@ def _goto(request, mqtthost, dummy):
             _log("Goto complete!", 20, **{"mqttc": mqttc})
 
         print("Goto complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"GOTO ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"GOTO ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -647,9 +693,16 @@ def _read_stage(request, mqtthost, dummy):
             _log("Read complete!", 20, **{"mqttc": mqttc})
 
         print("Read stage complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"READ STAGE ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"READ STAGE ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -728,9 +781,16 @@ def _contact_check(request, mqtthost, dummy):
             _log("Contact check complete!", 20, **{"mqttc": mqttc})
 
         print("Contact check complete.")
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         traceback.print_exc()
-        _log(f"CONTACT CHECK ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"CONTACT CHECK ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
@@ -1485,37 +1545,22 @@ def _run(request, mqtthost, dummy):
         with fabric() as measurement, MQTTQueuePublisher() as mqttc:
             mqttc.run(mqtthost)
 
-            raise ValueError("Test ValueError")
-
             _log("Starting run...", 20, **{"mqttc": mqttc})
 
             if args["iv_devs"] is not None:
-                try:
-                    iv_pixel_queue = _build_q(request, experiment="solarsim")
-                except ValueError as e:
-                    # there was a problem with the labels and/or layouts list
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
+                iv_pixel_queue = _build_q(request, experiment="solarsim")
             else:
                 iv_pixel_queue = []
 
             if args["eqe_devs"] is not None:
-                try:
-                    eqe_pixel_queue = _build_q(request, experiment="eqe")
-                except ValueError as e:
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
+                eqe_pixel_queue = _build_q(request, experiment="eqe")
             else:
                 eqe_pixel_queue = []
 
             # measure i-v-t
             if len(iv_pixel_queue) > 0:
-                try:
-                    _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
-                    measurement.disconnect_all_instruments()
-                except ValueError as e:
-                    _log("RUN ABORTED! " + str(e), 40, **{"mqttc": mqttc})
-                    return
+                _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                measurement.disconnect_all_instruments()
 
             # measure eqe
             if len(eqe_pixel_queue) > 0:
@@ -1528,9 +1573,13 @@ def _run(request, mqtthost, dummy):
     except KeyboardInterrupt:
         pass
     except Exception as e:
-        print("exception test")
         traceback.print_exc()
-        _log(f"RUN ABORTED! {type(e)} " + str(e), 40, **{"mqttc": mqttc})
+        publish.single(
+            "measurement/log",
+            {"msg": f"RUN ABORTED! {type(e)} " + str(e), "level": 40},
+            qos=2,
+            hostname=mqtthost,
+        )
 
     publish.single(
         "measurement/status",
