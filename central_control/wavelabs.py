@@ -59,7 +59,7 @@ class wavelabs:
     def close(self):
       pass  
 
-  def __init__(self, host="0.0.0.0", port=3334, relay=False, connection_timeout=None, default_recipe='am1_5_1_sun'):
+  def __init__(self, host="0.0.0.0", port=3334, relay=False, connection_timeout=10, default_recipe='am1_5_1_sun'):
     """
     sets up the wavelabs object
     address is a string of the format:
@@ -77,6 +77,11 @@ class wavelabs:
     self.default_recipe = default_recipe
     
   def __del__(self):
+    try:
+      self.off()
+    except:
+      pass
+
     try:
       self.sock_file.close()
     except:
@@ -345,9 +350,10 @@ class wavelabs:
     return (x,y)
 
 if __name__ == "__main__":
-  import matplotlib.pyplot as plt
-  # wl = wavelabs('wavelabs://0.0.0.0:3334')  # for direct connection
-  wl = wavelabs('wavelabs-relay://solarsim.lan:3335')  #  for comms via relay
+  #import matplotlib.pyplot as plt
+  import pandas as pd
+  wl = wavelabs(host='0.0.0.0', port=3334, default_recipe='AM1.5G', relay=False)  # for direct connection
+  #wl = wavelabs(host='127.0.0.1', port=3335, relay=True, default_recipe='am1_5_1_sun')  #  for comms via relay
   print("Connecting to light engine...")
   wl.connect()
   old_intensity = wl.getRecipeParam(param="Intensity")
@@ -390,11 +396,11 @@ if __name__ == "__main__":
   spectrum = spectra[0]
   x = spectrum['data']['Wavelenght']
   y = spectrum['data']['Irradiance']
-  plt.plot(x,y)
-  plt.ylabel('Irradiance')
-  plt.xlabel('Wavelength [nm]')
-  plt.grid(True)
-  plt.show()
+  #plt.plot(x,y)
+  #plt.ylabel('Irradiance')
+  #plt.xlabel('Wavelength [nm]')
+  #plt.grid(True)
+  #plt.show()
 
   #wl.off()
   #wl.activateRecipe()

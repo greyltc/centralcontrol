@@ -15,7 +15,7 @@ class us:
   allowed_length_deviation = 5 # measured length can deviate from expected length by up to this, in mm
   end_buffers = 5 # don't allow movement to within this many mm of the stage ends (needed to prevent potential homing issues)
 
-  otter_safe_x = 550 # xaxis safe location to home y for otter (in mm)
+  otter_safe_x = 650 # xaxis safe location to home y for otter (in mm)
 
   def __init__(self, pcb_object, expected_lengths, keepout_zones, steps_per_mm=motor_steps_per_rev*micro_stepping/screw_pitch, extra=''):
     """
