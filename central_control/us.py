@@ -387,6 +387,7 @@ class us:
     ret = -9
     t0 = time.time()
     stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
+    fail_log = []
 
 
     if not hasattr(new_pos, "__len__"):
@@ -429,7 +430,6 @@ class us:
           break
 
       if ret == 0:
-        fail_log = []
         # initiate the moves
         for i, ax in enumerate(axes):
           gtr = self._goto(ax,new_pos[i])
