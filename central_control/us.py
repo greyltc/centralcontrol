@@ -429,9 +429,13 @@ class us:
           break
 
       if ret == 0:
+        fail_log = []
         # initiate the moves
         for i, ax in enumerate(axes):
-          if (ret:=self._goto(ax,new_pos[i])) != 0:
+          gtr = self._goto(ax,new_pos[i])
+          ret = gtr[0]
+          if ret != 0:
+            fail_log.append((ax,gtr[1]))  # if the fail log is only length one, it was a fail here
             block = False  # we're bailing, no need for blocking
             break
 
@@ -439,7 +443,6 @@ class us:
           time_left = timeout - (time.time() - t0)
           movement_retries_left = 5
           not_at_goal = [True for x in ax]
-          fail_log = []
           while (time_left > 0) and (movement_retries_left > 0) and (sum(not_at_goal) > 0):
           # now let's wait for all the motion to be done
             for i, ax in enumerate(axes):
@@ -451,10 +454,11 @@ class us:
                 if ax_pos[i] == new_pos[i]:
                   not_at_goal[i] = False
                 else:
-                  ret = self._goto(ax, new_pos[i])
-                  if ret != 0:
+                  gtr = self._goto(ax, new_pos[i])
+                  if gtr[0] != 0:
                     movement_retries_left -= 1
-                    fail_log.append((ax,ret))
+                    # if the fail log has len > 1 the entries were made here
+                    fail_log.append((ax,gtr[1]))
             time.sleep(stop_check_time_res) # let's slow this check loop down a bit
             time_left = timeout - (time.time() - t0)
 
@@ -473,7 +477,7 @@ class us:
               pass
     
     if ret != 0:
-      print(f"GOTO failed with return code {ret}|retry_log={fail_log}|axes={axes}|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
+      print(f"GOTO failed with return code {ret}|fail_log={fail_log}|axes={axes}|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
 
     return (ret)
 
@@ -490,7 +494,7 @@ class us:
         print(f'Response from the PCB for g{ax}{steps}: {resp}. Rejects left = {goto_retries_left}')
     if goto_retries_left == 0:
       ret = -2
-    return ret
+    return (ret, resp)
 
   def close(self):
     pass
