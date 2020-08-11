@@ -379,7 +379,6 @@ class us:
   # -3 invalid axis
   # -6 attempt to move out of bounds
   # -7 location and axes list length mismatch
-  # -8 movement concluded, but we did not reach the goal (stall?)
   # -9 for programming error
   def goto(self, new_pos, axes=-1, block=True, timeout=80):
     """
@@ -387,7 +386,8 @@ class us:
     """
     ret = -9
     t0 = time.time()
-    stop_check_time_res = 0.25  # [s] of often to check if we've stopped
+    stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
+
 
     if not hasattr(new_pos, "__len__"):
       new_pos = [new_pos]
@@ -397,6 +397,7 @@ class us:
         axes = self.axes
       else:
         axes = [axes]
+    ax_pos = [-500 for x in axes] # stores positions updated during the blocking check loop. init to something wacky
 
     if len(new_pos) != len(axes):
       #raise ValueError("Move error")  #TODO: log movement error
@@ -428,43 +429,72 @@ class us:
           break
 
       if ret == 0:
+        fail_log = []
         # initiate the moves
         for i, ax in enumerate(axes):
-          resp = self.pcb.get(f'g{ax}{new_pos[i]}')
-          if resp == '':
-            ret = 0
-          else:
-            ret = -2
+          gtr = self._goto(ax,new_pos[i])
+          ret = gtr[0]
+          if ret != 0:
+            fail_log.append((ax,gtr[1]))  # if the fail log is only length one, it was a fail here
+            block = False  # we're bailing, no need for blocking
             break
-        
+
         if (block==True):
+          time_left = timeout - (time.time() - t0)
+          movement_retries_left = 5
+          not_at_goal = [True for x in ax]
+          while (time_left > 0) and (movement_retries_left > 0) and (sum(not_at_goal) > 0):
           # now let's wait for all the motion to be done
-          for i, ax in enumerate(axes):
-            q = deque([-1000, -2000], 2)
-            time_left = timeout - (time.time() - t0)
-            while (time_left > 0):  # while the last two readings are not equal
-              q.append(self.pcb.get(f'r{ax}'))
-              if (q[0] == q[1]):
-                if (q[0] != new_pos[i]): # check if we ended where we want to be
-                  print(f"Goto Wanted:{new_pos[i]/self.steps_per_mm}, Got: {q[0]/self.steps_per_mm}")
-                  ret = -8
+            for i, ax in enumerate(axes):
+              if not_at_goal[i] == True:
+                try:
+                  ax_pos[i] = int(self.pcb.get(f'r{ax}'))
+                except:
+                  ax_pos[i] = -100
+                if ax_pos[i] == new_pos[i]:
+                  not_at_goal[i] = False
                 else:
-                  if ret != -8: # this error case needs to stick
-                    ret = 0
-                break
-              time.sleep(stop_check_time_res)
-              time_left = timeout - (time.time() - t0)
-            if (time_left <= 0):
-              ret = -1
-            else:
-              try:
-                self.current_position[i] = q[0]/self.steps_per_mm # this will fail on an errored position read
-              except:
-                self.current_position[i] = q[0]
-    if (ret == 0) and (len(axes) == self.n_axes):
-      self.homed = True # could not have gotten this far without being homed
+                  gtr = self._goto(ax, new_pos[i])
+                  if gtr[0] != 0:
+                    movement_retries_left -= 1
+                    # if the fail log has len > 1 the entries were made here
+                    fail_log.append((ax,gtr[1]))
+            time.sleep(stop_check_time_res) # let's slow this check loop down a bit
+            time_left = timeout - (time.time() - t0)
+
+          if time_left > 0:
+            if sum(not_at_goal) == 0:
+              ret = 0
+              if (len(axes) == self.n_axes):
+                self.homed = True
+          else:
+            ret = -1 # out of time
+
+          for i, ax in enumerate(axes):
+            try:
+              self.current_position[i] = ax_pos[i]/self.steps_per_mm
+            except:
+              pass
+    
+    if ret != 0:
+      print(f"GOTO failed with return code {ret}|fail_log={fail_log}|axes={axes}|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
+
     return (ret)
 
+  # low level goto function. only to be called from inside the higher level goto. has a few retries
+  def _goto(self, ax, steps):
+    goto_retries_left = 5
+    while goto_retries_left > 0:
+      resp = self.pcb.get(f'g{ax}{steps}')
+      if resp == '':
+        ret = 0
+        break
+      else:
+        goto_retries_left -=1
+        print(f'Response from the PCB for g{ax}{steps}: {resp}. Rejects left = {goto_retries_left}')
+    if goto_retries_left == 0:
+      ret = -2
+    return (ret, resp)
 
   def close(self):
     pass
