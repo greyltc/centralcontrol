@@ -86,81 +86,81 @@ def get_stage(pcba, uri):
 def worker():
     while True:
         task = taskq.get()
-        try:
-            if task['cmd'] == 'home':
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                    mo.connect()
-                    result = mo.home()
-                    if isinstance(result, list) or (result == 0):
-                        log_msg('Homing procedure complete.',lvl=logging.INFO)
-                        get_stage(task['pcb'], task['stage_uri'])
-                    else:
-                        log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
-
-            # send the stage some place
-            elif task['cmd'] == 'goto':
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                    mo.connect()
-                    result = mo.goto(task['pos'])
-                    if result != 0:
-                        log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
+        #try:
+        if task['cmd'] == 'home':
+            with pcb.pcb(task['pcb'], timeout=1) as p:
+                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                mo.connect()
+                result = mo.home()
+                if isinstance(result, list) or (result == 0):
+                    log_msg('Homing procedure complete.',lvl=logging.INFO)
                     get_stage(task['pcb'], task['stage_uri'])
-
-            # handle any generic PCB command that has an empty return on success
-            elif task['cmd'] == 'for_pcb':
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    # special case for pixel selection to avoid parallel connections
-                    if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
-                        p.get('s')  # deselect all before selecting one
-                    result = p.get(task['pcb_cmd'])
-                if result == '':
-                    log_msg(f"Command acknowledged: {task['pcb_cmd']}",lvl=logging.DEBUG)
                 else:
-                    log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
+                    log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
 
-            # get the stage location
-            elif task['cmd'] == 'read_stage':
+        # send the stage some place
+        elif task['cmd'] == 'goto':
+            with pcb.pcb(task['pcb'], timeout=1) as p:
+                mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                mo.connect()
+                result = mo.goto(task['pos'])
+                if result != 0:
+                    log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
                 get_stage(task['pcb'], task['stage_uri'])
 
-            # zero the mono
-            elif task['cmd'] == 'mono_zero':
-                try:
-                    rm = pyvisa.ResourceManager()
-                    with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
-                        log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
-                        log_msg(mono.query("1 FILTER").strip(), lvl=logging.INFO)
-                except:
-                    log_msg(f'Unable to zero Monochromator',lvl=logging.WARNING)
+        # handle any generic PCB command that has an empty return on success
+        elif task['cmd'] == 'for_pcb':
+            with pcb.pcb(task['pcb'], timeout=1) as p:
+                # special case for pixel selection to avoid parallel connections
+                if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
+                    p.get('s')  # deselect all before selecting one
+                result = p.get(task['pcb_cmd'])
+            if result == '':
+                log_msg(f"Command acknowledged: {task['pcb_cmd']}",lvl=logging.DEBUG)
+            else:
+                log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
 
-            # device round robin commands
-            elif task['cmd'] == 'round_robin':
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    p.get('s') # make sure we're starting with nothing selected
+        # get the stage location
+        elif task['cmd'] == 'read_stage':
+            get_stage(task['pcb'], task['stage_uri'])
+
+        # zero the mono
+        elif task['cmd'] == 'mono_zero':
+            try:
+                rm = pyvisa.ResourceManager()
+                with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
+                    log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
+                    log_msg(mono.query("1 FILTER").strip(), lvl=logging.INFO)
+            except:
+                log_msg(f'Unable to zero Monochromator',lvl=logging.WARNING)
+
+        # device round robin commands
+        elif task['cmd'] == 'round_robin':
+            with pcb.pcb(task['pcb'], timeout=1) as p:
+                p.get('s') # make sure we're starting with nothing selected
+                if task['type'] == 'current':
+                    pass  # TODO: smu measure current command goes here
+                for sel in task['devices']:
+                    p.get(sel)  # select the device
                     if task['type'] == 'current':
                         pass  # TODO: smu measure current command goes here
-                    for sel in task['devices']:
-                        p.get(sel)  # select the device
-                        if task['type'] == 'current':
-                            pass  # TODO: smu measure current command goes here
-                        elif task['type'] == 'rtd':
-                            pass  # TODO: smu resistance command goes here
-                        elif task['type'] == 'connectivity':
-                            pass  # TODO: smu connectivity command goes here
-                        p.get('s') # deselect the device
+                    elif task['type'] == 'rtd':
+                        pass  # TODO: smu resistance command goes here
+                    elif task['type'] == 'connectivity':
+                        pass  # TODO: smu connectivity command goes here
+                    p.get('s') # deselect the device
 
 
-                    #mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                    #mo.connect()
-                    #pos = mo.get_position()
-                    
-                #payload = {'pos': pos}
-                #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-                #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
-                #outputq.put(output)
-        except:
-            log_msg(f'Unable to complete task.',lvl=logging.WARNING)
+                #mo = motion.motion(address=task['stage_uri'], pcb_object=p)
+                #mo.connect()
+                #pos = mo.get_position()
+                
+            #payload = {'pos': pos}
+            #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+            #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
+            #outputq.put(output)
+        #except:
+        #    log_msg(f'Unable to complete task.',lvl=logging.WARNING)
 
         # system health check
         if task['cmd'] == 'check_health':
