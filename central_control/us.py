@@ -442,7 +442,7 @@ class us:
         if (block==True):
           time_left = timeout - (time.time() - t0)
           movement_retries_left = 5
-          not_at_goal = [True for x in ax]
+          not_at_goal = [True for x in axes]
           while (time_left > 0) and (movement_retries_left > 0) and (sum(not_at_goal) > 0):
           # now let's wait for all the motion to be done
             for i, ax in enumerate(axes):
