@@ -83,7 +83,7 @@ class k2400:
       openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF, 'parity': visa.constants.Parity.none, 'allow_dma': True}
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and xon-xoff flow control."
     elif 'GPIB' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'write_termination': "\n"}# , 'io_protocol': visa.constants.VI_HS488
+        openParams = {'resource_name': self.addressString, 'write_termination': "\n", 'read_termination': "\n"}# , 'io_protocol': visa.constants.VI_HS488
       addrParts = self.addressString.split('::')
       board = addrParts[0][4:]
       address = addrParts[1]

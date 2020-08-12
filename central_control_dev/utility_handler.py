@@ -197,6 +197,7 @@ def worker():
                 open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_XON_XOFF # this must be set by the user by interacting with the buttons on the instrument front panel
             elif 'GPIB' in open_params['resource_name']:
                 open_params['write_termination'] = "\n"
+                open_params['read_termination'] = "\n"
                 # GPIB takes care of EOI, so there is no read_termination
                 open_params['io_protocol'] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
             elif ('TCPIP' in open_params['resource_name']) and ('SOCKET' in open_params['resource_name']):
