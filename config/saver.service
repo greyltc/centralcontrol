@@ -7,7 +7,6 @@ Description=The data saver service
 
 [Service]
 WorkingDirectory=%h/data
-Environment=PYTHONUNBUFFERED=tomato_casserol
 Environment=PYTHONPATH=/opt/software/python
 ExecStart=python -m saver.saver -mqtthost 127.0.0.1
 RestartSec=3

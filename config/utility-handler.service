@@ -6,7 +6,6 @@ Wants=network-online.target
 Description=The Utility Handler service
 
 [Service]
-Environment=PYTHONPATH=/opt/software/python
 Environment=PYTHONUNBUFFERED=tomato_casserol
 ExecStart=python -m central_control.utility_handler --address 127.0.0.1
 RestartSec=3
