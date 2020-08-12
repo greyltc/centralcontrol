@@ -77,8 +77,10 @@ class mppt:
       print("Learning Voc...")
       self.sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='a')
       self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-      m.append(ssvocs:=self.sm.measureUntil(t_dwell=1, cb=callback))
+      ssvocs=self.sm.measureUntil(t_dwell=1, cb=callback)
       self.Voc = ssvocs[-1][0]
+    else:
+      ssvocs = []
 
     if self.Vmpp == None:
       self.Vmpp = 0.7 * self.Voc # start at 70% of Voc if nobody told us otherwise
@@ -129,7 +131,7 @@ class mppt:
     run_time = time.time() - self.t0
     print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
-    return m
+    return (m, ssvocs)
   
   def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha = 10, min_step = 0.001, fade_in_t = 10):
     """
