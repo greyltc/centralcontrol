@@ -78,7 +78,7 @@ def stop_process():
 
     if process.is_alive() is True:
         os.kill(process.pid, signal.SIGINT)
-        process.join()
+        process.terminate()
         payload = {
             "level": 20,
             "msg": "Request to stop completed!",
@@ -124,7 +124,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Calibrating EQE...", 20, **{"mqttc": mqttc})
+            _log("Calibrating EQE...", 20, mqttc)
 
             args = request["args"]
 
@@ -138,7 +138,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
                         + f"{len(pixel_queue)} were given. Only the first diode will be "
                         + "measured.",
                         30,
-                        **{"mqttc": mqttc},
+                        mqttc,
                     )
 
                     # only take first pixel for a calibration
@@ -159,7 +159,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
 
             _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
 
-            _log("EQE calibration complete!", 20, **{"mqttc": mqttc})
+            _log("EQE calibration complete!", 20, mqttc)
 
         print("EQE calibration finished.")
     except KeyboardInterrupt:
@@ -201,7 +201,7 @@ def _calibrate_psu(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Calibration LED PSU...", 20, **{"mqttc": mqttc})
+            _log("Calibration LED PSU...", 20, mqttc)
 
             config = request["config"]
             args = request["args"]
@@ -242,9 +242,7 @@ def _calibrate_psu(request, mqtthost, dummy):
 
             if resp != "":
                 _log(
-                    f"Experiment relay error: {resp}! Aborting run",
-                    40,
-                    **{"mqttc": mqttc},
+                    f"Experiment relay error: {resp}! Aborting run", 40, mqttc,
                 )
                 return
 
@@ -254,9 +252,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                 label = pixel["label"]
                 pix = pixel["pixel"]
                 _log(
-                    f"Operating on substrate {label}, pixel {pix}...",
-                    20,
-                    **{"mqttc": mqttc},
+                    f"Operating on substrate {label}, pixel {pix}...", 20, mqttc,
                 )
 
                 # add id str to handlers to display on plots
@@ -267,21 +263,19 @@ def _calibrate_psu(request, mqtthost, dummy):
                 # we have a new substrate
                 if last_label != label:
                     _log(
-                        f"New substrate using '{pixel['layout']}' layout!",
-                        20,
-                        **{"mqttc": mqttc},
+                        f"New substrate using '{pixel['layout']}' layout!", 20, mqttc,
                     )
                     last_label = label
 
                 # move to pixel
                 resp = measurement.goto_pixel(pixel)
                 if resp != 0:
-                    _log(f"Stage error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+                    _log(f"Stage error: {resp}! Aborting run!", 40, mqttc)
                     break
 
                 resp = measurement.select_pixel(pixel)
                 if resp != 0:
-                    _log(f"Mux error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+                    _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
                     break
 
                 timestamp = time.time()
@@ -308,7 +302,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                         f"calibration/psu/ch{channel}", pickle.dumps(diode_dict), retain
                     )
 
-            _log("LED PSU calibration complete!", 20, **{"mqttc": mqttc})
+            _log("LED PSU calibration complete!", 20, mqttc)
         print("Finished calibrating PSU.")
     except KeyboardInterrupt:
         pass
@@ -349,7 +343,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Calibrating solar simulator spectrum...", 20, **{"mqttc": mqttc})
+            _log("Calibrating solar simulator spectrum...", 20, mqttc)
 
             config = request["config"]
             args = request["args"]
@@ -360,9 +354,6 @@ def _calibrate_spectrum(request, mqtthost, dummy):
                 light_address=config["solarsim"]["uri"],
                 light_recipe=args["light_recipe"],
             )
-
-            # turn off light
-            measurement.le.off()
 
             timestamp = time.time()
 
@@ -376,9 +367,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
                 "calibration/spectrum", pickle.dumps(spectrum_dict), retain=True
             )
 
-            _log(
-                "Finished calibrating solar simulator spectrum!", 20, **{"mqttc": mqttc}
-            )
+            _log("Finished calibrating solar simulator spectrum!", 20, mqttc)
 
         print("Spectrum calibration complete.")
     except KeyboardInterrupt:
@@ -420,7 +409,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Calibrating solar simulator diodes...", 20, **{"mqttc": mqttc})
+            _log("Calibrating solar simulator diodes...", 20, mqttc)
 
             args = request["args"]
 
@@ -442,7 +431,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
 
             _ivt(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
 
-            _log("Solar simulator diode calibration complete!", 20, **{"mqttc": mqttc})
+            _log("Solar simulator diode calibration complete!", 20, mqttc)
 
         print("Solar sim diode calibration complete.")
     except KeyboardInterrupt:
@@ -487,7 +476,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Calibrating RTDs...", 20, **{"mqttc": mqttc})
+            _log("Calibrating RTDs...", 20, mqttc)
 
             request["args"]["i_dwell"] = 0
             request["args"]["v_dwell"] = 0
@@ -501,9 +490,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
                 pixel_queue = _build_q(request, experiment="eqe")
             else:
                 # if it's emptpy, report error
-                _log(
-                    "CALIBRATION ABORTED! No devices selected.", 40, **{"mqttc": mqttc}
-                )
+                _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
 
             _ivt(
                 pixel_queue,
@@ -515,7 +502,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
                 rtd=True,
             )
 
-            _log("RTD calibration complete!", 20, **{"mqttc": mqttc})
+            _log("RTD calibration complete!", 20, mqttc)
 
         print("RTD calibration complete.")
     except KeyboardInterrupt:
@@ -557,7 +544,7 @@ def _home(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Homing stage...", 20, **{"mqttc": mqttc})
+            _log("Homing stage...", 20, mqttc)
 
             config = request["config"]
 
@@ -570,11 +557,11 @@ def _home(request, mqtthost, dummy):
             homed = measurement.home_stage()
 
             if isinstance(homed, list):
-                _log(f"Stage lengths: {homed}", 20, **{"mqttc": mqttc})
+                _log(f"Stage lengths: {homed}", 20, mqttc)
             else:
-                _log(f"Home failed with result: {homed}", 40, **{"mqttc": mqttc})
+                _log(f"Home failed with result: {homed}", 40, mqttc)
 
-            _log("Homing complete!", 20, **{"mqttc": mqttc})
+            _log("Homing complete!", 20, mqttc)
 
         print("Homing complete.")
     except KeyboardInterrupt:
@@ -616,7 +603,7 @@ def _goto(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log(f"Moving to stage position...", 20, **{"mqttc": mqttc})
+            _log(f"Moving to stage position...", 20, mqttc)
 
             args = request["args"]
             position = [args["goto_x"], args["goto_y"], args["goto_z"]]
@@ -633,9 +620,9 @@ def _goto(request, mqtthost, dummy):
             goto = measurement.goto_stage_position(position)
 
             if goto < 0:
-                _log(f"Goto failed with result: {goto}", 40, **{"mqttc": mqttc})
+                _log(f"Goto failed with result: {goto}", 40, mqttc)
 
-            _log("Goto complete!", 20, **{"mqttc": mqttc})
+            _log("Goto complete!", 20, mqttc)
 
         print("Goto complete.")
     except KeyboardInterrupt:
@@ -677,7 +664,7 @@ def _read_stage(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log(f"Reading stage position...", 20, **{"mqttc": mqttc})
+            _log(f"Reading stage position...", 20, mqttc)
 
             config = request["config"]
 
@@ -690,15 +677,13 @@ def _read_stage(request, mqtthost, dummy):
             stage_pos = measurement.read_stage_position()
 
             if isinstance(stage_pos, list):
-                _log(f"Stage lengths: {stage_pos}", 20, **{"mqttc": mqttc})
+                _log(f"Stage lengths: {stage_pos}", 20, mqttc)
             else:
                 _log(
-                    f"Read position failed with result: {stage_pos}",
-                    40,
-                    **{"mqttc": mqttc},
+                    f"Read position failed with result: {stage_pos}", 40, mqttc,
                 )
 
-            _log("Read complete!", 20, **{"mqttc": mqttc})
+            _log("Read complete!", 20, mqttc)
 
         print("Read stage complete.")
     except KeyboardInterrupt:
@@ -740,7 +725,7 @@ def _contact_check(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Performing contact check...", 20, **{"mqttc": mqttc})
+            _log("Performing contact check...", 20, mqttc)
 
             args = request["args"]
             config = request["config"]
@@ -785,9 +770,9 @@ def _contact_check(request, mqtthost, dummy):
 
             print(response)
 
-            _log(response, 20, **{"mqttc": mqttc})
+            _log(response, 20, mqttc)
 
-            _log("Contact check complete!", 20, **{"mqttc": mqttc})
+            _log("Contact check complete!", 20, mqttc)
 
         print("Contact check complete.")
     except KeyboardInterrupt:
@@ -982,92 +967,88 @@ def _build_q(request, experiment):
     return pixel_q
 
 
-def _handle_measurement_data(data, **kwargs):
+class DataHandler:
+    """Handler for measurement data."""
+
+    def __init__(self, kind="", pixel={}, sweep="", mqttqp=None, no_plot=False):
+        """Construct data handler object.
+
+        Parameters
+        ----------
+        kind : str
+            Kind of measurement data. This is used as a sub-channel name.
+        pixel : dict
+            Pixel information.
+        sweep : {"", "dark", "light"}
+            If the handler is for sweep data, specify whether the sweep is under
+            "light" or "dark" conditions.
+        mqttqp : MQTTQueuePublisher
+            MQTT queue publisher object that publishes measurement data.
+        no_plot : bool
+            Flag whether or not handled data should be plotted by plotter client.
+        """
+        self.kind = kind
+        self.pixel = pixel
+        self.sweep = sweep
+        self.mqttqp = mqttqp
+        self.no_plot = no_plot
+
+    def handle_data(self, data):
+        """Handle measurement data.
+
+        Parameters
+        ----------
+        data : array-like
+            Measurement data.
+        """
+        payload = {
+            "data": data,
+            "pixel": self.pixel,
+            "sweep": self.sweep,
+            "no_plot": self.no_plot,
+        }
+        self.mqttqp.append_payload(f"data/raw/{self.kind}", pickle.dumps(payload))
+
+
+class ContactCheckHandler:
+    """Handler for contact check msgs."""
+
+    def __init__(self, mqttqp=None):
+        """Construct data handler object.
+
+        Parameters
+        ----------
+        mqttqp : MQTTQueuePublisher
+            MQTT queue publisher object that publishes measurement data.
+        """
+        self.mqttqp = mqttqp
+
+    def handle_contact_check(self, msg):
+        """Handle contact check message.
+
+        Parameters
+        ----------
+        msg : str
+            Failure message.
+        """
+        self.mqttqp.append_payload("contact_check", pickle.dumps(msg))
+
+
+def _clear_plot(kind, mqttqp):
     """Publish measurement data.
 
     Parameters
     ----------
-    data : list
-        List of data to publish.
-    **kwargs : dict
-        Dictionary of additional keyword arguments required by handler.
+    kind : str
+        Kind of measurement data. This is used as a sub-channel name.
+    mqttqp : MQTTQueuePublisher
+        MQTT queue publisher object that publishes measurement data.
     """
-    kind = kwargs["kind"]
-    idn = kwargs["idn"]
-    pixel = kwargs["pixel"]
-    try:
-        sweep = kwargs["sweep"]
-    except KeyError:
-        sweep = ""
-    mqttc = kwargs["mqttc"]
-
-    payload = {
-        "data": data,
-        "idn": idn,
-        "pixel": pixel,
-        "clear": False,
-        "end": False,
-        "sweep": sweep,
-    }
-    mqttc.append_payload(f"data/raw/{kind}", pickle.dumps(payload))
+    payload = ""
+    mqttqp.append_payload(f"plotter/{kind}/clear", pickle.dumps(payload))
 
 
-def _clear_plot(**kwargs):
-    """Publish measurement data.
-
-    Parameters
-    ----------
-    data : list
-        List of data to publish.
-    **kwargs : dict
-        Dictionary of additional keyword arguments required by handler.
-    """
-    kind = kwargs["kind"]
-    idn = kwargs["idn"]
-    mqttc = kwargs["mqttc"]
-
-    payload = {
-        "data": [],
-        "idn": idn,
-        "pixel": "",
-        "clear": True,
-        "end": False,
-        "sweep": "",
-    }
-    mqttc.append_payload(f"data/raw/{kind}", pickle.dumps(payload))
-
-
-def _handle_stage_data(data, **kwargs):
-    """Publish stage position data.
-
-    Parameters
-    ----------
-    data : list
-        List of data to publish.
-    **kwargs : dict
-        Dictionary of additional keyword arguments required by handler.
-    """
-    mqttc = kwargs["mqttc"]
-
-    mqttc.append_payload("stage_position", pickle.dumps(data))
-
-
-def _handle_contact_check(pixel_msg, **kwargs):
-    """Publish stage position data.
-
-    Parameters
-    ----------
-    settings : dict
-        Dictionary of save settings.
-    **kwargs : dict
-        Dictionary of additional keyword arguments required by handler.
-    """
-    mqttc = kwargs["mqttc"]
-
-    mqttc.append_payload("contact_check", pickle.dumps(pixel_msg))
-
-
-def _log(msg, level, **kwargs):
+def _log(msg, level, mqttqp):
     """Publish info for logging.
 
     Parameters
@@ -1084,13 +1065,11 @@ def _log(msg, level, **kwargs):
             * 10 : DEBUG
             * 0 : NOTSET
 
-    **kwargs : dict
-        Dictionary of additional keyword arguments required by handler.
+    mqttqp : MQTTQueuePublisher
+        MQTT queue publisher object that publishes measurement data.
     """
-    mqttc = kwargs["mqttc"]
-
     payload = {"level": level, "msg": msg}
-    mqttc.append_payload("measurement/log", pickle.dumps(payload))
+    mqttqp.append_payload("measurement/log", pickle.dumps(payload))
 
 
 def _ivt(
@@ -1137,7 +1116,7 @@ def _ivt(
     resp = measurement.set_experiment_relay("iv")
 
     if resp != "":
-        _log(f"Experiment relay error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+        _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
         return
 
     source_delay = args["source_delay"]
@@ -1167,13 +1146,13 @@ def _ivt(
         # move to pixel
         resp = measurement.goto_pixel(pixel)
         if resp != 0:
-            _log(f"Stage error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+            _log(f"Stage error: {resp}! Aborting run", 40, mqttc)
             break
 
         # select pixel
         resp = measurement.select_pixel(pixel)
         if resp != 0:
-            _log(f"Mux error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+            _log(f"Mux error: {resp}! Aborting run", 40, mqttc)
             break
 
         # init parameters derived from steadystate measurements
@@ -1185,8 +1164,8 @@ def _ivt(
 
         # choose data handler
         if calibration is False:
-            handler_kwargs = {"idn": idn, "pixel": pixel, "mqttc": mqttc}
-            handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
+            dh = DataHandler(pixel=pixel, mqttqp=mqttc)
+            handler = dh.handle_data
         else:
             handler = lambda x: None
 
@@ -1198,15 +1177,13 @@ def _ivt(
         # steady state v@constant I measured here - usually Voc
         if args["i_dwell"] > 0:
             _log(
-                f"Measuring voltage output at constant current on {idn}.",
-                20,
-                **{"mqttc": mqttc},
+                f"Measuring voltage output at constant current on {idn}.", 20, mqttc,
             )
 
             if calibration is False:
-                handler_kwargs["kind"] = "vt_measurement"
-                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
-                _clear_plot(**handler_kwargs)
+                kind = "vt_measurement"
+                dh.kind = kind
+                _clear_plot(kind, mqttc)
 
             vt = measurement.steady_state(
                 t_dwell=args["i_dwell"],
@@ -1249,14 +1226,14 @@ def _ivt(
                 sense_range = "f"
 
             if calibration is False:
-                handler_kwargs["kind"] = "iv_measurement"
-                handler_kwargs["sweep"] = sweep
-                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
-                _clear_plot(**handler_kwargs)
+                kind = "iv_measurement"
+                dh.kind = kind
+                dh.sweep = sweep
+                _clear_plot(kind, mqttc)
 
             if args["sweep_check"] is True:
                 _log(
-                    f"Performing {sweep} sweep 1 on {idn}.", 20, **{"mqttc": mqttc},
+                    f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc,
                 )
                 start = args["sweep_start"]
                 end = args["sweep_end"]
@@ -1283,7 +1260,7 @@ def _ivt(
 
             if args["return_switch"] is True:
                 _log(
-                    f"Performing {sweep} sweep 2 on {idn}.", 20, **{"mqttc": mqttc},
+                    f"Performing {sweep} sweep 2 on {idn}.", 20, mqttc,
                 )
                 # sweep the opposite way to sweep 1
                 start = args["sweep_end"]
@@ -1333,48 +1310,48 @@ def _ivt(
 
         if args["mppt_dwell"] > 0:
             _log(
-                f"Performing max. power tracking on {idn}.", 20, **{"mqttc": mqttc},
+                f"Performing max. power tracking on {idn}.", 20, mqttc,
             )
 
             print(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
             if calibration is False:
-                handler_kwargs["kind"] = "mppt_measurement"
-                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
-                _clear_plot(**handler_kwargs)
+                kind = "mppt_measurement"
+                dh.kind = kind
+                _clear_plot(kind, mqttc)
 
             if ssvoc is not None:
                 # tell the mppt what our measured steady state Voc was
                 measurement.mppt.Voc = ssvoc
 
-            (mt,vt) = measurement.track_max_power(
+            (mt, vt) = measurement.track_max_power(
                 args["mppt_dwell"],
                 NPLC=args["nplc"],
                 extra=args["mppt_params"],
                 handler=handler,
             )
 
-            if calibration is False and len(vt)>0:
-                handler_kwargs["kind"] = "vt_measurement"
-                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
-                _clear_plot(**handler_kwargs)
+            if calibration is False and len(vt) > 0:
+                dh.kind = "vt_measurement"
+                # don't plot the voc at the beginning of mppt
+                dh.no_plot = True
                 for d in vt:
                     handler(d)
+                # reset the flag
+                dh.no_plot = False
 
             data += vt
             data += mt
 
         if args["v_dwell"] > 0:
             _log(
-                f"Measuring output current and constant voltage on {idn}.",
-                20,
-                **{"mqttc": mqttc},
+                f"Measuring output current and constant voltage on {idn}.", 20, mqttc,
             )
 
             if calibration is False:
-                handler_kwargs["kind"] = "it_measurement"
-                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
-                _clear_plot(**handler_kwargs)
+                kind = "it_measurement"
+                dh.kind = kind
+                _clear_plot(kind, mqttc)
 
             it = measurement.steady_state(
                 t_dwell=args["v_dwell"],
@@ -1447,7 +1424,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
     resp = measurement.set_experiment_relay("eqe")
 
     if resp != "":
-        _log(f"Experiment relay error: {resp}! Aborting run", 40, **{"mqttc": mqttc})
+        _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
         return
 
     last_label = None
@@ -1460,7 +1437,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         idn = f"{label}_pixel{pix}"
 
         _log(
-            f"Measuring EQE on {idn}", 20, **{"mqttc": mqttc},
+            f"Measuring EQE on {idn}", 20, mqttc,
         )
 
         print(f"{pixel}")
@@ -1473,32 +1450,28 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         # move to pixel
         resp = measurement.goto_pixel(pixel)
         if resp != 0:
-            _log(f"Stage error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+            _log(f"Stage error: {resp}! Aborting run!", 40, mqttc)
             break
 
         resp = measurement.select_pixel(pixel)
         if resp != 0:
-            _log(f"Mux error: {resp}! Aborting run!", 40, **{"mqttc": mqttc})
+            _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
             break
 
         _log(
             f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm",
             20,
-            **{"mqttc": mqttc},
+            mqttc,
         )
 
         # determine how live measurement data will be handled
         if calibration is True:
             handler = lambda x: None
         else:
-            handler_kwargs = {
-                "kind": "eqe_measurement",
-                "idn": idn,
-                "pixel": pixel,
-                "mqttc": mqttc,
-            }
-            handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
-            _clear_plot(**handler_kwargs)
+            kind = "eqe_measurement"
+            dh = DataHandler(kind=kind, pixel=pixel, mqttqp=mqttc)
+            handler = dh.handle_data
+            _clear_plot(kind, mqttc)
 
         # get human-readable timestamp
         timestamp = time.time()
@@ -1562,7 +1535,7 @@ def _run(request, mqtthost, dummy):
             mqttc.connect(mqtthost)
             mqttc.loop_start()
 
-            _log("Starting run...", 20, **{"mqttc": mqttc})
+            _log("Starting run...", 20, mqttc)
 
             if args["iv_devs"] is not None:
                 iv_pixel_queue = _build_q(request, experiment="solarsim")
@@ -1584,7 +1557,7 @@ def _run(request, mqtthost, dummy):
                 _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
 
             # report complete
-            _log("Run complete!", 20, **{"mqttc": mqttc})
+            _log("Run complete!", 20, mqttc)
 
         print("Measurement complete.")
     except KeyboardInterrupt:
