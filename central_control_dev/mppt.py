@@ -77,7 +77,7 @@ class mppt:
       print("Learning Voc...")
       self.sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='a')
       self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-      ssvocs=self.sm.measureUntil(t_dwell=1, cb=callback)
+      ssvocs=self.sm.measureUntil(t_dwell=1)
       self.Voc = ssvocs[-1][0]
     else:
       ssvocs = []
