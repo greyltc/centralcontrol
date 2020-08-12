@@ -970,7 +970,7 @@ def _build_q(request, experiment):
 class DataHandler:
     """Handler for measurement data."""
 
-    def __init__(self, kind="", pixel={}, sweep="", mqttqp=None, no_plot=False):
+    def __init__(self, kind="", pixel={}, sweep="", mqttqp=None):
         """Construct data handler object.
 
         Parameters
@@ -984,14 +984,11 @@ class DataHandler:
             "light" or "dark" conditions.
         mqttqp : MQTTQueuePublisher
             MQTT queue publisher object that publishes measurement data.
-        no_plot : bool
-            Flag whether or not handled data should be plotted by plotter client.
         """
         self.kind = kind
         self.pixel = pixel
         self.sweep = sweep
         self.mqttqp = mqttqp
-        self.no_plot = no_plot
 
     def handle_data(self, data):
         """Handle measurement data.
@@ -1005,7 +1002,6 @@ class DataHandler:
             "data": data,
             "pixel": self.pixel,
             "sweep": self.sweep,
-            "no_plot": self.no_plot,
         }
         self.mqttqp.append_payload(f"data/raw/{self.kind}", pickle.dumps(payload))
 
@@ -1332,13 +1328,9 @@ def _ivt(
             )
 
             if calibration is False and len(vt) > 0:
-                dh.kind = "vt_measurement"
-                # don't plot the voc at the beginning of mppt
-                dh.no_plot = True
+                dh.kind = "vtmppt_measurement"
                 for d in vt:
                     handler(d)
-                # reset the flag
-                dh.no_plot = False
 
             data += vt
             data += mt

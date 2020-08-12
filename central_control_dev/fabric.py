@@ -925,4 +925,3 @@ if __name__ == "__main__":
         f.connect_instruments(
             smu_address="GPIB0::24::INSTR", smu_terminator="\r", smu_baud=57600
         )
-
