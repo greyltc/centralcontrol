@@ -13,11 +13,9 @@ class pcb:
   #read_terminator = b'\r\n' # probably don't care. all whitespace gets stripped anyway
   prompt = b'>>> '
   
-  substrateList = 'HGFEDCBA'  # all the possible substrates
-  # TODO: this is out of date. with otter it's not one substrate per mux board anymore.
-  # unsure of the implications, if any right now
+  substrateList = []  # all the possible substrates
   
-  substratesConnected = ''  # the ones we've detected
+  substratesConnected = []  # the ones we've detected
   adapters = []  # list of tuples of adapter boards: (substrate_letter, resistor_value)
 
   class MyTelnet(Telnet):
@@ -90,10 +88,6 @@ class pcb:
     return(self)
 
   def __exit__(self, type, value, traceback):
-    try:
-      self.disconnect_all()
-    except:
-      pass
     try:
       self.sf.close()
     except:
