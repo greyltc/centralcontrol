@@ -190,6 +190,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: FreeFloat command could not be handled")
+    return response.error
 
   def activateRecipe(self, recipe_name=None):
     """activate a solar sim recipe by name"""
@@ -218,6 +219,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Failed to wait for result")
+    return response.error
 
   def waitForRunFinished(self, timeout=10000, run_ID=None):
     """wait for the current run to finish"""
@@ -232,6 +234,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Failed to wait for run finish")
+    return response.error
       
   def getRecipeParam(self, recipe_name=None, step=1, device="Light", param="Intensity"):
     if recipe_name is None:
@@ -245,6 +248,7 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Failed to get recipe parameter")
+      ret = None
     else:
       ret = response.paramVal
     return ret
@@ -288,6 +292,7 @@ class wavelabs:
       print("ERROR: Failed to set recipe parameter")
     else:
       self.activateRecipe(recipe_name=recipe_name)
+    return response.error
 
   def on(self):
     """starts the last activated recipe"""
@@ -298,7 +303,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Recipe could not be started")
+      print(f"ERROR: Recipe could not be started with error {response.error}")
       runID = None
     else:
       runID = response.run_ID
@@ -313,7 +318,8 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Could not cancel recipe, maybe it's not running")
+      print(f"WARNING: Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
+    return response.error
 
   def exitProgram(self):
     """closes the wavelabs solar sim program on the wavelabs PC"""
@@ -325,28 +331,41 @@ class wavelabs:
     response = self.recvXML()
     if response.error != 0:
       print("ERROR: Could not exit WaveLabs program")
+    return response
+
+  def get_runtime(self):
+    return self.getRecipeParam(param="Duration")
+
+  def set_runtime(self, duration):
+    return self.setRecipeParam(param="Duration", value=int(old_duration))
 
   def get_spectrum(self):
     x = []
     y = []
     old_duration = None
     try:
-      old_duration = int(self.getRecipeParam(param="Duration"))
-      self.setRecipeParam(param="Duration", value=1000)
-      run_ID = self.on()
-      self.waitForRunFinished(run_ID = run_ID)
-      self.waitForResultAvailable(run_ID = run_ID)
-      spectra = self.getDataSeries(run_ID=run_ID)
-      self.setRecipeParam(param="Duration", value=old_duration)
-      spectrum = spectra[0]
-      x = spectrum['data']['Wavelenght']
-      y = spectrum['data']['Irradiance']
-    except:
+      self.off()
+      old_duration = self.getRecipeParam(param="Duration")
       if old_duration is not None:
-        try:
-          self.setRecipeParam(param="Duration", value=old_duration)
-        except:
-          pass
+        ret = self.setRecipeParam(param="Duration", value=1000)
+        if ret == 0:
+          run_ID = self.on()
+          if run_ID is not None:
+            ret = self.waitForRunFinished(run_ID = run_ID)
+            if ret == 0:
+              ret = self.waitForResultAvailable(run_ID = run_ID)
+              if ret == 0:
+                spectra = self.getDataSeries(run_ID = run_ID)
+                if spectra is not None:
+                  spectrum = spectra[0]
+                  x = spectrum['data']['Wavelenght']
+                  y = spectrum['data']['Irradiance']
+    finally:
+      if old_duration is not None:
+        self.setRecipeParam(param="Duration", value=int(old_duration))
+        print(f"Resetting recipe duration to its previous value: {old_duration} [s]")
+    if len(x) == 0:
+      raise(ValueError('Unable to fetch spectrum.'))
     return (x,y)
 
 if __name__ == "__main__":

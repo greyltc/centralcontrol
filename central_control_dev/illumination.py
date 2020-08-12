@@ -53,13 +53,13 @@ class illumination:
     """
     turns light on
     """
-    self.light_engine.on()
+    return self.light_engine.on()
 
   def off(self):
     """
     turns light off
     """
-    self.light_engine.off()
+    return self.light_engine.off()
   
   def get_spectrum(self):
     """
@@ -72,3 +72,15 @@ class illumination:
     fetches a spectrum if the light engine supports it
     """
     self.light_engine.__del__()
+
+  def set_runtime(self, ms):
+    """
+    sets the recipe runtime in ms
+    """
+    return self.light_engine.set_runtime()
+
+  def get_runtime(self):
+    """
+    gets the recipe runtime in ms
+    """
+    return self.light_engine.get_runtime()
