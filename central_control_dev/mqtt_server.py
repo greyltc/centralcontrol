@@ -78,7 +78,7 @@ def stop_process():
 
     if process.is_alive() is True:
         os.kill(process.pid, signal.SIGINT)
-        process.join()
+        process.terminate()
         payload = {
             "level": 20,
             "msg": "Request to stop completed!",
