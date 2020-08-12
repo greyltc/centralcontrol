@@ -917,3 +917,12 @@ def round_sf(x, sig_fig):
         Rounded number
     """
     return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
+
+
+# for testing
+if __name__ == "__main__":
+    with fabric() as f:
+        f.connect_instruments(
+            smu_address="GPIB0::24::INSTR", smu_terminator="\r", smu_baud=57600
+        )
+
