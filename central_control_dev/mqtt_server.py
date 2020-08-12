@@ -1347,13 +1347,21 @@ def _ivt(
                 # tell the mppt what our measured steady state Voc was
                 measurement.mppt.Voc = ssvoc
 
-            mt = measurement.track_max_power(
+            (mt,vt) = measurement.track_max_power(
                 args["mppt_dwell"],
                 NPLC=args["nplc"],
                 extra=args["mppt_params"],
                 handler=handler,
             )
 
+            if calibration is False and len(vt)>0:
+                handler_kwargs["kind"] = "vt_measurement"
+                handler = lambda raw: _handle_measurement_data(raw, **handler_kwargs)
+                _clear_plot(**handler_kwargs)
+                for d in vt:
+                    handler(d)
+
+            data += vt
             data += mt
 
         if args["v_dwell"] > 0:
