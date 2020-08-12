@@ -77,8 +77,8 @@ def stop_process():
     global process
 
     if process.is_alive() is True:
-        # process.terminate()
         os.kill(process.pid, signal.SIGINT)
+        process.join()
         payload = {
             "level": 20,
             "msg": "Request to stop completed!",
