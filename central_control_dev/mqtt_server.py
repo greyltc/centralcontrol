@@ -1354,7 +1354,6 @@ def _ivt(
                 handler=handler,
             )
 
-            data += vt
             data += mt
 
         if args["v_dwell"] > 0:
