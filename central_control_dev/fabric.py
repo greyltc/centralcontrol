@@ -841,7 +841,7 @@ class fabric:
         for current in currents:
             self.psu.set_apply(channel=channel, voltage=max_voltage, current=current)
             time.sleep(1)
-            measurement = list(self.sm.measure())
+            measurement = list(self.sm.measure()[0])
             measurement.append(current)
             data.append(measurement)
 
