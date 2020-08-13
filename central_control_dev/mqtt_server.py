@@ -374,7 +374,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
             traceback.print_exc()
             _log(f"SPECTRUM CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready", retain=True))
+        mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
 
 
 def _calibrate_solarsim_diodes(request, mqtthost, dummy):
