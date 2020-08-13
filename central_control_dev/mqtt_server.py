@@ -136,8 +136,8 @@ def _calibrate_eqe(request, mqtthost, dummy):
                 if len(pixel_queue) > 1:
                     _log(
                         "Only one diode can be calibrated at a time but "
-                        + f"{len(pixel_queue)} were given. Only the first diode will be "
-                        + "measured.",
+                        + f"{len(pixel_queue)} were given. Only the first diode will be"
+                        + " measured.",
                         30,
                         mqttc,
                     )
@@ -768,8 +768,10 @@ def _contact_check(request, mqtthost, dummy):
 
             iv_pixel_queue = _build_q(request, experiment="solarsim")
 
+            cch = ContactCheckHandler(mqttc)
+
             response = measurement.contact_check(
-                iv_pixel_queue, _handle_contact_check, {"mqttc": mqttc}
+                iv_pixel_queue, cch.handle_contact_check
             )
 
             print(response)
