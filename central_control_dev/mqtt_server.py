@@ -285,7 +285,10 @@ def _calibrate_psu(request, mqtthost, dummy):
                     # perform measurement
                     for channel in [1, 2, 3]:
                         psu_calibration = measurement.calibrate_psu(
-                            channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10,
+                            channel,
+                            0.9 * config["psu"][f"ch{channel}_ocp"],
+                            10,
+                            config["psu"][f"ch{channel}_voltage"],
                         )
 
                         # update eqe diode calibration data in atomic thread-safe way

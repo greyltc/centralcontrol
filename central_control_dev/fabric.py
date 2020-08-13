@@ -809,7 +809,9 @@ class fabric:
 
         return eqe_data
 
-    def calibrate_psu(self, channel=1, max_current=0.5, current_steps=10):
+    def calibrate_psu(
+        self, channel=1, max_current=0.5, current_steps=10, max_voltage=1
+    ):
         """Calibrate the LED PSU.
 
         Measure the short-circuit current of a photodiode generated upon illumination
@@ -832,19 +834,19 @@ class fabric:
         )
 
         # set up PSU
-        self.psu.set_apply(channel=channel, voltage="MAX", current=0)
+        self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
         self.psu.set_output_enable(True, channel)
 
         data = []
         for current in currents:
-            self.psu.set_apply(channel=channel, voltage="MAX", current=current)
+            self.psu.set_apply(channel=channel, voltage=max_voltage, current=current)
             time.sleep(1)
             measurement = list(self.sm.measure())
             measurement.append(current)
             data.append(measurement)
 
         # disable PSU
-        self.psu.set_apply(channel=channel, voltage="MAX", current=0)
+        self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
         self.psu.set_output_enable(False, channel)
 
         # disable smu
