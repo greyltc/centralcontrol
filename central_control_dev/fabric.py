@@ -554,7 +554,7 @@ class fabric:
                 # open all mux relays
                 resp = p.get("s")
 
-            if resp == True:
+            if resp is True:
                 resp = 0
 
         return resp
