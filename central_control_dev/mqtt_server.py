@@ -171,9 +171,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
             _log(f"EQE CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
@@ -314,9 +312,7 @@ def _calibrate_psu(request, mqtthost, dummy):
             _log(f"PSU CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
@@ -428,9 +424,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
             _log(f"SOLARSIM DIODE CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
@@ -489,9 +483,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
             _log(f"RTD CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
@@ -595,9 +587,7 @@ def _goto(request, mqtthost, dummy):
             )
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
@@ -649,9 +639,7 @@ def _read_stage(request, mqtthost, dummy):
             _log(f"READ STAGE ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
@@ -1457,14 +1445,12 @@ def _run(request, mqtthost, dummy):
     with MQTTQueuePublisher() as mqttc:
         mqttc.connect(mqtthost)
         mqttc.loop_start()
-        
+
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Busy"),
-            retain=True,
+            "measurement/status", pickle.dumps("Busy"), retain=True,
         )
         try:
-            with fabric() as measurement, :
+            with fabric() as measurement:
                 _log("Starting run...", 20, mqttc)
 
                 if args["iv_devs"] is not None:
@@ -1497,9 +1483,7 @@ def _run(request, mqtthost, dummy):
             _log(f"RUN ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload(
-            "measurement/status",
-            pickle.dumps("Ready"),
-            retain=True,
+            "measurement/status", pickle.dumps("Ready"), retain=True,
         )
 
 
