@@ -19,10 +19,11 @@ class mppt:
     self.sm = sm
     
   def reset(self):
-    Voc = None
-    Isc = None
-    Vmpp = None  # voltage at max power point
-    Impp = None  # current at max power point
+    self.Voc = None
+    self.Isc = None
+    self.Vmpp = None  # voltage at max power point
+    self.Impp = None  # current at max power point
+    self.Pmax = None
     
     current_compliance = None
     t0 = None  # the time we started the mppt algorithm
@@ -45,7 +46,7 @@ class mppt:
     Pmax = p[maxIndex]
     Impp = i[maxIndex]
     if light == True:  # this was from a light i-v curve
-      if (self.Pmax is None) or abs(Pmax) > abs(self.Pmax):
+      if (self.Pmax is None) or (Pmax > self.Pmax):
         self.Vmpp = Vmpp
         self.Impp = Impp
         self.Pmax = Pmax
