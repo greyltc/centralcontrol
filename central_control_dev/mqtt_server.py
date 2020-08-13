@@ -78,7 +78,8 @@ def stop_process():
 
     if process.is_alive() is True:
         os.kill(process.pid, signal.SIGINT)
-        process.terminate()
+        process.join()
+        print(f"Process still alive?: {process.is_alive()}")
         payload = {
             "level": 20,
             "msg": "Request to stop completed!",
