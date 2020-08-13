@@ -170,7 +170,11 @@ def _calibrate_eqe(request, mqtthost, dummy):
             traceback.print_exc()
             _log(f"EQE CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Ready"),
+            retain=True,
+        )
 
 
 def _calibrate_psu(request, mqtthost, dummy):
@@ -298,7 +302,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                         mqttc.append_payload(
                             f"calibration/psu/ch{channel}",
                             pickle.dumps(diode_dict),
-                            retain,
+                            retain=True,
                         )
 
                 _log("LED PSU calibration complete!", 20, mqttc)
@@ -309,7 +313,11 @@ def _calibrate_psu(request, mqtthost, dummy):
             traceback.print_exc()
             _log(f"PSU CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Ready"),
+            retain=True,
+        )
 
 
 def _calibrate_spectrum(request, mqtthost, dummy):
@@ -366,7 +374,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
             traceback.print_exc()
             _log(f"SPECTRUM CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
+        mqttc.append_payload("measurement/status", pickle.dumps("Ready", retain=True))
 
 
 def _calibrate_solarsim_diodes(request, mqtthost, dummy):
@@ -417,19 +425,12 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
             pass
         except Exception as e:
             traceback.print_exc()
-            publish.single(
-                "measurement/log",
-                {"msg": f"SOLARSIM DIODE CALIBRATION ABORTED! " + str(e), "level": 40,},
-                qos=2,
-                hostname=mqtthost,
-            )
+            _log(f"SOLARSIM DIODE CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
-        publish.single(
+        mqttc.append_payload(
             "measurement/status",
             pickle.dumps("Ready"),
-            qos=2,
             retain=True,
-            hostname=mqtthost,
         )
 
 
@@ -447,58 +448,51 @@ def _calibrate_rtd(request, mqtthost, dummy):
     """
     print("Calibrating rtds...")
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.connect(mqtthost)
-            mqttc.loop_start()
+    with MQTTQueuePublisher() as mqttc:
+        mqttc.connect(mqtthost)
+        mqttc.loop_start()
+        try:
+            with fabric() as measurement:
+                _log("Calibrating RTDs...", 20, mqttc)
 
-            _log("Calibrating RTDs...", 20, mqttc)
+                request["args"]["i_dwell"] = 0
+                request["args"]["v_dwell"] = 0
+                request["args"]["mppt_dwell"] = 0
 
-            request["args"]["i_dwell"] = 0
-            request["args"]["v_dwell"] = 0
-            request["args"]["mppt_dwell"] = 0
+                args = request["args"]
 
-            args = request["args"]
+                # get pixel queue
+                if int(args["iv_devs"], 16) > 0:
+                    # if the bitmask isn't empty
+                    pixel_queue = _build_q(request, experiment="eqe")
+                else:
+                    # if it's emptpy, report error
+                    _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
 
-            # get pixel queue
-            if int(args["iv_devs"], 16) > 0:
-                # if the bitmask isn't empty
-                pixel_queue = _build_q(request, experiment="eqe")
-            else:
-                # if it's emptpy, report error
-                _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
+                _ivt(
+                    pixel_queue,
+                    request,
+                    measurement,
+                    mqttc,
+                    dummy,
+                    calibration=True,
+                    rtd=True,
+                )
 
-            _ivt(
-                pixel_queue,
-                request,
-                measurement,
-                mqttc,
-                dummy,
-                calibration=True,
-                rtd=True,
-            )
+                _log("RTD calibration complete!", 20, mqttc)
 
-            _log("RTD calibration complete!", 20, mqttc)
+            print("RTD calibration complete.")
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            _log(f"RTD CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
-        print("RTD calibration complete.")
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        traceback.print_exc()
-        publish.single(
-            "measurement/log",
-            {"msg": f"RTD CALIBRATION ABORTED! " + str(e), "level": 40},
-            qos=2,
-            hostname=mqtthost,
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Ready"),
+            retain=True,
         )
-
-    publish.single(
-        "measurement/status",
-        pickle.dumps("Ready"),
-        qos=2,
-        retain=True,
-        hostname=mqtthost,
-    )
 
 
 def _home(request, mqtthost, dummy):
@@ -515,49 +509,38 @@ def _home(request, mqtthost, dummy):
     """
     print("Homing...")
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.connect(mqtthost)
-            mqttc.loop_start()
+    with MQTTQueuePublisher() as mqttc:
+        mqttc.connect(mqtthost)
+        mqttc.loop_start()
+        try:
+            with fabric() as measurement:
+                _log("Homing stage...", 20, mqttc)
 
-            _log("Homing stage...", 20, mqttc)
+                config = request["config"]
 
-            config = request["config"]
+                measurement.connect_instruments(
+                    dummy=dummy,
+                    pcb_address=config["controller"]["address"],
+                    motion_address=config["stage"]["uri"],
+                )
 
-            measurement.connect_instruments(
-                dummy=dummy,
-                pcb_address=config["controller"]["address"],
-                motion_address=config["stage"]["uri"],
-            )
+                homed = measurement.home_stage()
 
-            homed = measurement.home_stage()
+                if isinstance(homed, list):
+                    _log(f"Stage lengths: {homed}", 20, mqttc)
+                else:
+                    _log(f"Home failed with result: {homed}", 40, mqttc)
 
-            if isinstance(homed, list):
-                _log(f"Stage lengths: {homed}", 20, mqttc)
-            else:
-                _log(f"Home failed with result: {homed}", 40, mqttc)
+                _log("Homing complete!", 20, mqttc)
 
-            _log("Homing complete!", 20, mqttc)
+            print("Homing complete.")
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            publish.single(f"HOMING ABORTED! " + str(e), 40, mqttc)
 
-        print("Homing complete.")
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        traceback.print_exc()
-        publish.single(
-            "measurement/log",
-            {"msg": f"HOMING ABORTED! " + str(e), "level": 40},
-            qos=2,
-            hostname=mqtthost,
-        )
-
-    publish.single(
-        "measurement/status",
-        pickle.dumps("Ready"),
-        qos=2,
-        retain=True,
-        hostname=mqtthost,
-    )
+        mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
 
 
 def _goto(request, mqtthost, dummy):
@@ -611,7 +594,11 @@ def _goto(request, mqtthost, dummy):
                 f"GOTO ABORTED! " + str(e), 40, mqttc,
             )
 
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Ready"),
+            retain=True,
+        )
 
 
 def _read_stage(request, mqtthost, dummy):
@@ -628,51 +615,44 @@ def _read_stage(request, mqtthost, dummy):
     """
     print("Reading stage...")
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.connect(mqtthost)
-            mqttc.loop_start()
+    with MQTTQueuePublisher() as mqttc:
+        mqttc.connect(mqtthost)
+        mqttc.loop_start()
+        try:
+            with fabric() as measurement:
+                _log(f"Reading stage position...", 20, mqttc)
 
-            _log(f"Reading stage position...", 20, mqttc)
+                config = request["config"]
 
-            config = request["config"]
-
-            measurement.connect_instruments(
-                dummy=dummy,
-                pcb_address=config["controller"]["address"],
-                motion_address=config["stage"]["uri"],
-            )
-
-            stage_pos = measurement.read_stage_position()
-
-            if isinstance(stage_pos, list):
-                _log(f"Stage lengths: {stage_pos}", 20, mqttc)
-            else:
-                _log(
-                    f"Read position failed with result: {stage_pos}", 40, mqttc,
+                measurement.connect_instruments(
+                    dummy=dummy,
+                    pcb_address=config["controller"]["address"],
+                    motion_address=config["stage"]["uri"],
                 )
 
-            _log("Read complete!", 20, mqttc)
+                stage_pos = measurement.read_stage_position()
 
-        print("Read stage complete.")
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        traceback.print_exc()
-        publish.single(
-            "measurement/log",
-            {"msg": f"READ STAGE ABORTED! " + str(e), "level": 40},
-            qos=2,
-            hostname=mqtthost,
+                if isinstance(stage_pos, list):
+                    _log(f"Stage lengths: {stage_pos}", 20, mqttc)
+                else:
+                    _log(
+                        f"Read position failed with result: {stage_pos}", 40, mqttc,
+                    )
+
+                _log("Read complete!", 20, mqttc)
+
+            print("Read stage complete.")
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            _log(f"READ STAGE ABORTED! " + str(e), 40, mqttc)
+
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Ready"),
+            retain=True,
         )
-
-    publish.single(
-        "measurement/status",
-        pickle.dumps("Ready"),
-        qos=2,
-        retain=True,
-        hostname=mqtthost,
-    )
 
 
 def _contact_check(request, mqtthost, dummy):
@@ -689,81 +669,70 @@ def _contact_check(request, mqtthost, dummy):
     """
     print("Performing contact check...")
 
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.connect(mqtthost)
-            mqttc.loop_start()
+    with MQTTQueuePublisher() as mqttc:
+        mqttc.connect(mqtthost)
+        mqttc.loop_start()
+        try:
+            with fabric() as measurement:
+                _log("Performing contact check...", 20, mqttc)
 
-            _log("Performing contact check...", 20, mqttc)
+                args = request["args"]
+                config = request["config"]
 
-            args = request["args"]
-            config = request["config"]
+                measurement.connect_instruments(
+                    dummy=dummy,
+                    visa_lib=config["visa"]["visa_lib"],
+                    smu_address=config["smu"]["address"],
+                    smu_terminator=config["smu"]["terminator"],
+                    smu_baud=config["smu"]["baud"],
+                    smu_front_terminals=config["smu"]["front_terminals"],
+                    smu_two_wire=config["smu"]["two_wire"],
+                    pcb_address=config["controller"]["address"],
+                    motion_address=config["stage"]["uri"],
+                )
 
-            measurement.connect_instruments(
-                dummy=dummy,
-                visa_lib=config["visa"]["visa_lib"],
-                smu_address=config["smu"]["address"],
-                smu_terminator=config["smu"]["terminator"],
-                smu_baud=config["smu"]["baud"],
-                smu_front_terminals=config["smu"]["front_terminals"],
-                smu_two_wire=config["smu"]["two_wire"],
-                pcb_address=config["controller"]["address"],
-                motion_address=config["stage"]["uri"],
-            )
+                # make a pixel queue for the contact check
+                # get length of bitmask string
+                b_len = len(args["iv_devs"])
 
-            # make a pixel queue for the contact check
-            # get length of bitmask string
-            b_len = len(args["iv_devs"])
+                # convert it to a string formatter for later
+                # hash (#) appends 0x for hex
+                # leading zero adds zero padding to resulting string
+                # x formats as hexadecimal
+                b_len_str = f"#0{b_len}x"
 
-            # convert it to a string formatter for later
-            # hash (#) appends 0x for hex
-            # leading zero adds zero padding to resulting string
-            # x formats as hexadecimal
-            b_len_str = f"#0{b_len}x"
+                # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
+                # pixels selected in either bitmask.
+                iv_int = int(args["iv_devs"], 16)
+                eqe_int = int(args["eqe_devs"], 16)
+                # bitwise or
+                merge_int = iv_int | eqe_int
 
-            # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
-            # pixels selected in either bitmask.
-            iv_int = int(args["iv_devs"], 16)
-            eqe_int = int(args["eqe_devs"], 16)
-            # bitwise or
-            merge_int = iv_int | eqe_int
+                # convert int back to bitmask, overriding iv_pixel_address for build_q
+                args["iv_devs"] = format(merge_int, b_len_str)
 
-            # convert int back to bitmask, overriding iv_pixel_address for build_q
-            args["iv_devs"] = format(merge_int, b_len_str)
+                iv_pixel_queue = _build_q(request, experiment="solarsim")
 
-            iv_pixel_queue = _build_q(request, experiment="solarsim")
+                cch = ContactCheckHandler(mqttc)
 
-            cch = ContactCheckHandler(mqttc)
+                response = measurement.contact_check(
+                    iv_pixel_queue, cch.handle_contact_check
+                )
 
-            response = measurement.contact_check(
-                iv_pixel_queue, cch.handle_contact_check
-            )
+                print(response)
 
-            print(response)
+                _log(response, 20, mqttc)
 
-            _log(response, 20, mqttc)
+                _log("Contact check complete!", 20, mqttc)
 
-            _log("Contact check complete!", 20, mqttc)
+            print("Contact check complete.")
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            _log(f"CONTACT CHECK ABORTED! " + str(e), 40, mqttc)
 
-        print("Contact check complete.")
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        traceback.print_exc()
-        publish.single(
-            "measurement/log",
-            {"msg": f"CONTACT CHECK ABORTED! " + str(e), "level": 40},
-            qos=2,
-            hostname=mqtthost,
-        )
-
-    publish.single(
-        "measurement/status",
-        pickle.dumps("Ready"),
-        qos=2,
-        retain=True,
-        hostname=mqtthost,
-    )
+        mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
 
 
 def _get_substrate_positions(config, experiment):
@@ -1485,62 +1454,53 @@ def _run(request, mqtthost, dummy):
     if args["iv_devs"] is not None:
         _calibrate_spectrum(request, mqtthost, dummy)
 
-    publish.single(
-        "measurement/status",
-        pickle.dumps("Busy"),
-        qos=2,
-        retain=True,
-        hostname=mqtthost,
-    )
-
-    try:
-        with fabric() as measurement, MQTTQueuePublisher() as mqttc:
-            mqttc.connect(mqtthost)
-            mqttc.loop_start()
-
-            _log("Starting run...", 20, mqttc)
-
-            if args["iv_devs"] is not None:
-                iv_pixel_queue = _build_q(request, experiment="solarsim")
-            else:
-                iv_pixel_queue = []
-
-            if args["eqe_devs"] is not None:
-                eqe_pixel_queue = _build_q(request, experiment="eqe")
-            else:
-                eqe_pixel_queue = []
-
-            # measure i-v-t
-            if len(iv_pixel_queue) > 0:
-                _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
-                measurement.disconnect_all_instruments()
-
-            # measure eqe
-            if len(eqe_pixel_queue) > 0:
-                _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
-
-            # report complete
-            _log("Run complete!", 20, mqttc)
-
-        print("Measurement complete.")
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        traceback.print_exc()
-        publish.single(
-            "measurement/log",
-            {"msg": f"RUN ABORTED! " + str(e), "level": 40},
-            qos=2,
-            hostname=mqtthost,
+    with MQTTQueuePublisher() as mqttc:
+        mqttc.connect(mqtthost)
+        mqttc.loop_start()
+        
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Busy"),
+            retain=True,
         )
+        try:
+            with fabric() as measurement, :
+                _log("Starting run...", 20, mqttc)
 
-    publish.single(
-        "measurement/status",
-        pickle.dumps("Ready"),
-        qos=2,
-        retain=True,
-        hostname=mqtthost,
-    )
+                if args["iv_devs"] is not None:
+                    iv_pixel_queue = _build_q(request, experiment="solarsim")
+                else:
+                    iv_pixel_queue = []
+
+                if args["eqe_devs"] is not None:
+                    eqe_pixel_queue = _build_q(request, experiment="eqe")
+                else:
+                    eqe_pixel_queue = []
+
+                # measure i-v-t
+                if len(iv_pixel_queue) > 0:
+                    _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                    measurement.disconnect_all_instruments()
+
+                # measure eqe
+                if len(eqe_pixel_queue) > 0:
+                    _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
+
+                # report complete
+                _log("Run complete!", 20, mqttc)
+
+            print("Measurement complete.")
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            traceback.print_exc()
+            _log(f"RUN ABORTED! " + str(e), 40, mqttc)
+
+        mqttc.append_payload(
+            "measurement/status",
+            pickle.dumps("Ready"),
+            retain=True,
+        )
 
 
 # queue for storing incoming messages
