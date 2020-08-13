@@ -162,7 +162,7 @@ class mppt:
     last = (v, i)
     
     # the loss function we'll be minimizing here is power produced by the sourcemeter
-    loss = lambda x, y: x * y
+    loss = lambda x, y: x * y * -1
     
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
