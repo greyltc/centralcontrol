@@ -692,6 +692,7 @@ class fabric:
         raw = self.mppt.launch_tracker(
             duration=duration, NPLC=NPLC, extra=extra, callback=handler
         )
+        self.mppt.reset()
 
         return raw
 
