@@ -463,7 +463,7 @@ class fabric:
                 visa_lib=visa_lib,
                 psu_address=psu_address,
                 psu_terminator=psu_terminator,
-                psu_baud=psu_baud
+                psu_baud=psu_baud,
                 psu_ocps=psu_ocps,
             )
 
@@ -814,9 +814,7 @@ class fabric:
         current_steps : int
             Number of current steps to measure.
         """
-        currents = np.linspace(
-            0, max_current, int(current_steps), endpoint=True
-        )
+        currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
 
         # set smu to short circuit and enable output
         self.sm.setupDC(
