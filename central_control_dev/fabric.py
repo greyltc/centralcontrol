@@ -529,6 +529,8 @@ class fabric:
             me.connect()
             if pixel["position"] is not None:
                 resp = me.goto(pixel["position"])
+            else:
+                resp = 0
 
         return resp
 
