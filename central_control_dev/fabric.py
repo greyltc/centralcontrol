@@ -281,8 +281,9 @@ class fabric:
         self.psu_idn = self.psu.get_id()
 
         for i, ocp in enumerate(psu_ocps):
-            self.psu.set_ocp_enable(True, i + 1)
+            self.psu.set_output_enable(False, i + 1)
             self.psu.set_ocp_value(ocp, i + 1)
+            self.psu.set_ocp_enable(True, i + 1)
 
         self._connected_instruments.append(self.psu)
 
@@ -479,6 +480,9 @@ class fabric:
         while len(self._connected_instruments) > 0:
             instr = self._connected_instruments.pop()
             print(instr)
+            if instr is self.psu:
+                for i in range(1, 4, 1):
+                    self.psu.set_output_enable(False, i)
             instr.disconnect()
 
     def measure_spectrum(self, recipe=None):
