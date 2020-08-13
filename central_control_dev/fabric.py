@@ -560,6 +560,10 @@ class fabric:
                 # open all mux relays
                 resp = p.get("s")
 
+                # get responds to s with empty string on success
+                if resp == "":
+                    resp = 0
+
             if resp is True:
                 resp = 0
 
