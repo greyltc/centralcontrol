@@ -7,6 +7,7 @@ import time
 class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
+  spectrum_ms = 1002
 
   class XMLHandler:
     """
@@ -347,7 +348,7 @@ class wavelabs:
       self.off()
       old_duration = self.getRecipeParam(param="Duration")
       if old_duration is not None:
-        ret = self.setRecipeParam(param="Duration", value=1000)
+        ret = self.setRecipeParam(param="Duration", value=self.spectrum_ms)
         if ret == 0:
           run_ID = self.on()
           if run_ID is not None:
