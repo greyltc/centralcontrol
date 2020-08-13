@@ -480,9 +480,6 @@ class fabric:
         while len(self._connected_instruments) > 0:
             instr = self._connected_instruments.pop()
             print(instr)
-            if instr is self.psu:
-                for i in range(1, 4, 1):
-                    self.psu.set_output_enable(False, i)
             instr.disconnect()
 
     def measure_spectrum(self, recipe=None):
