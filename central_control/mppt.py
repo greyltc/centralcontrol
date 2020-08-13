@@ -165,16 +165,20 @@ class mppt:
     sign = lambda x: (1, -1)[int(x<0)]
     
     given_alpha = alpha
+    given_min_step = min_step
     run_time = time.time() - self.t0
     abort = False
     while (not abort and (run_time < duration)):
       # handle initial soak and slow alpha ramp
-      if run_time <= initial_soak:
+      if run_time <= initial_soak:  # vmpp soak phase
         alpha = 0
-      elif run_time < (fade_in_t+initial_soak):
+        min_step = 0
+      elif run_time < (fade_in_t+initial_soak):  # alpha ramp phase
         alpha = (run_time-initial_soak)/fade_in_t * given_alpha
-      else:
+        min_step = given_min_step
+      else:  # normal run phase
         alpha = given_alpha
+        min_step = given_min_step
       
       # apply new voltage and record a measurement
       v, i, abort = self.measure(W, callback=callback)
