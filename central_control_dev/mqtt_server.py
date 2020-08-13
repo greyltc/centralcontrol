@@ -213,7 +213,8 @@ def _calibrate_psu(request, mqtthost, dummy):
                         "position": None,
                         "area": None,
                     }
-                    pixel_queue = collections.deque(pixel_dict)
+                    pixel_queue = collections.deque()
+                    pixel_queue.append(pixel_dict)
 
                 # connect instruments
                 measurement.connect_instruments(
