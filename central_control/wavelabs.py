@@ -364,7 +364,7 @@ class wavelabs:
     finally:
       if old_duration is not None:
         self.setRecipeParam(param="Duration", value=int(old_duration))
-        print(f"Resetting recipe duration to its previous value: {old_duration} [s]")
+        print(f"Resetting recipe duration to its previous value: {old_duration} [ms]")
     if len(x) == 0:
       raise(ValueError('Unable to fetch spectrum.'))
     return (x,y)

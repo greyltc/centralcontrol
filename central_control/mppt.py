@@ -19,10 +19,11 @@ class mppt:
     self.sm = sm
     
   def reset(self):
-    Voc = None
-    Isc = None
-    Vmpp = None  # voltage at max power point
-    Impp = None  # current at max power point
+    self.Voc = None
+    self.Isc = None
+    self.Vmpp = None  # voltage at max power point
+    self.Impp = None  # current at max power point
+    self.Pmax = None
     
     current_compliance = None
     t0 = None  # the time we started the mppt algorithm
@@ -34,7 +35,7 @@ class mppt:
     updates some values for mppt if light=True
     """
     v = numpy.array([e[0] for e in vector])
-    i = numpy.array([e[1] for e in vector])  
+    i = numpy.array([e[1] for e in vector])
     p = v*i*-1
     iscIndex = numpy.argmin(abs(v))
     Isc = i[iscIndex]
@@ -45,18 +46,18 @@ class mppt:
     Pmax = p[maxIndex]
     Impp = i[maxIndex]
     if light == True:  # this was from a light i-v curve
-      if (self.Pmax is None) or abs(Pmax) > abs(self.Pmax):
+      if (self.Pmax is None) or (Pmax > self.Pmax):
         self.Vmpp = Vmpp
         self.Impp = Impp
         self.Pmax = Pmax
-        if min(v) <=0 and max(v)>=0:
+        if min(v) <=0 and max(v)>=0:  # if we had data on both sizes of 0V, then we can estimate Isc
           self.Isc = Isc
           self.current_compliance = abs(Isc)*3
-        if min(i) <=0 and max(i)>=0:
+        if min(i) <=0 and max(i)>=0:  # if we had data on both sizes of 0A, then we can estimate Voc
           self.Voc = Voc
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
-    
+
   def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, extra="basic://7:10"):
     """
     general function to call begin a max power point tracking algorithm
@@ -92,16 +93,21 @@ class mppt:
       initial_soak = duration * 0.2
     else:
       initial_soak = 10
+
     self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
     self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-    print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp*1000, initial_soak))
-    m.append(ssmpps:=self.sm.measureUntil(t_dwell=initial_soak, cb=callback))
-    self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
-    if self.current_compliance == None:
-      self.current_compliance = abs(self.Impp * 2)
-    if self.Isc == None:
-      # if nobody told us otherwise, assume Isc is 10% higher than Impp
-      self.Isc = self.Impp * 1.1
+
+    if 'gradient_descent' not in extra:  # don't do the initial soak here if we're gonna do gradient descent. we'll do it there
+      self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
+      self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+      print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp*1000, initial_soak))
+      m.append(ssmpps:=self.sm.measureUntil(t_dwell=initial_soak, cb=callback))
+      self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
+      if self.current_compliance == None:
+        self.current_compliance = abs(self.Impp * 2)
+      if self.Isc == None:
+        # if nobody told us otherwise, assume Isc is 10% higher than Impp
+        self.Isc = self.Impp * 1.1
   
     # run a tracking algorithm
     extra_split = extra.split(sep='://', maxsplit=1)
@@ -117,14 +123,14 @@ class mppt:
         params = [float(f) for f in params]
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gradient_descent'):
-      if len(params) == 0: #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback))
+      if len(params) == 0:  #  use defaults
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, initial_soak=initial_soak))
       else:
         params = params.split(':')
         if len(params) != 3:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[fade_in_t]"))        
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2]))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2], initial_soak=initial_soak))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
     
@@ -133,7 +139,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
     return (m, ssvocs)
   
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha = 10, min_step = 0.001, fade_in_t = 10):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha = 10, min_step = 0.0001, fade_in_t = 10, initial_soak = 10):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -155,21 +161,27 @@ class mppt:
     v, i, abort = self.measure(W, callback=callback)
     last = (v, i)
     
-    # the loss function we'll use here is just power * -1 so that minimzing loss maximizes power
-    loss = lambda x, y: -1 * x * y
+    # the loss function we'll be minimizing here is power produced by the sourcemeter
+    loss = lambda x, y: x * y * -1
     
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
     
     given_alpha = alpha
+    given_min_step = min_step
     run_time = time.time() - self.t0
     abort = False
     while (not abort and (run_time < duration)):
-      # slowly ramp up alpha
-      if run_time < fade_in_t:
-        alpha = run_time/fade_in_t * given_alpha
-      else:
+      # handle initial soak and slow alpha ramp
+      if run_time <= initial_soak:  # vmpp soak phase
+        alpha = 0
+        min_step = 0
+      elif run_time < (fade_in_t+initial_soak):  # alpha ramp phase
+        alpha = (run_time-initial_soak)/fade_in_t * given_alpha
+        min_step = given_min_step
+      else:  # normal run phase
         alpha = given_alpha
+        min_step = given_min_step
       
       # apply new voltage and record a measurement
       v, i, abort = self.measure(W, callback=callback)
