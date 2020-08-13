@@ -250,6 +250,7 @@ class fabric:
         psu_address=None,
         psu_terminator="\r",
         psu_baud=9600,
+        psu_ocps=[0.5, 0.5, 0.5],
     ):
         """Create LED PSU connection.
 
@@ -267,6 +268,9 @@ class fabric:
             Termination character for communication with the power supply unit.
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
+        psu_ocps : list
+            List overcurrent protection values in ascending channel order, one value
+            per channel.
         """
         if dummy is True:
             self.psu = virtual_dp800.dp800()
@@ -275,6 +279,10 @@ class fabric:
 
         self.psu.connect(resource_name=psu_address)
         self.psu_idn = self.psu.get_id()
+
+        for i, ocp in enumerate(psu_ocps):
+            self.psu.set_ocp_enable(True, i + 1)
+            self.psu.set_ocp_value(ocp, i + 1)
 
         self._connected_instruments.append(self.psu)
 
@@ -345,6 +353,7 @@ class fabric:
         psu_address=None,
         psu_terminator="\r",
         psu_baud=9600,
+        psu_ocps=[0.5, 0.5, 0.5],
     ):
         """Connect to instruments.
 
@@ -406,6 +415,9 @@ class fabric:
             Termination character for communication with the power supply unit.
         psu_baud : int
             Baud rate for serial communication with the power supply unit.
+        psu_ocps : list
+            List overcurrent protection values in ascending channel order, one value
+            per channel.
         """
         if smu_address is not None:
             self._connect_smu(
@@ -451,7 +463,8 @@ class fabric:
                 visa_lib=visa_lib,
                 psu_address=psu_address,
                 psu_terminator=psu_terminator,
-                psu_baud=psu_baud,
+                psu_baud=psu_baud
+                psu_ocps=psu_ocps,
             )
 
         if pcb_address is not None:
@@ -785,7 +798,7 @@ class fabric:
 
         return eqe_data
 
-    def calibrate_psu(self, channel=1, max_current=1.0, current_step=0.1):
+    def calibrate_psu(self, channel=1, max_current=0.5, current_steps=10):
         """Calibrate the LED PSU.
 
         Measure the short-circuit current of a photodiode generated upon illumination
@@ -797,11 +810,11 @@ class fabric:
             PSU channel.
         max_current : float
             Maximum current in amps to measure to.
-        current_step : float
-            Current step in amps.
+        current_steps : int
+            Number of current steps to measure.
         """
         currents = np.linspace(
-            0, max_current, int(max_current / current_step) + 1, endpoint=True
+            0, max_current, int(current_steps), endpoint=True
         )
 
         # set smu to short circuit and enable output

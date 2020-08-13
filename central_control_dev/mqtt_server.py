@@ -236,6 +236,11 @@ def _calibrate_psu(request, mqtthost, dummy):
                 psu_address=config["psu"]["address"],
                 psu_terminator=config["psu"]["terminator"],
                 psu_baud=config["psu"]["baud"],
+                psu_ocps=[
+                    config["psu"]["ch1_ocp"],
+                    config["psu"]["ch2_ocp"],
+                    config["psu"]["ch3_ocp"],
+                ],
             )
 
             # using smu to measure the current from the photodiode
@@ -284,9 +289,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                 # perform measurement
                 for channel in [1, 2, 3]:
                     psu_calibration = measurement.calibrate_psu(
-                        channel,
-                        config["psu"]["calibration"]["max_current"],
-                        config["psu"]["calibration"]["current_step"],
+                        channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10,
                     )
 
                     # update eqe diode calibration data in atomic thread-safe way
