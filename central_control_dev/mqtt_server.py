@@ -168,7 +168,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
             pass
         except Exception as e:
             traceback.print_exc()
-            _log(f"EQE CALIBRATION ABORTED! {type(e)} " + str(e), 40, mqttc)
+            _log(f"EQE CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
 
@@ -307,7 +307,7 @@ def _calibrate_psu(request, mqtthost, dummy):
             pass
         except Exception as e:
             traceback.print_exc()
-            _log(f"PSU CALIBRATION ABORTED! {type(e)} " + str(e), 40, mqttc)
+            _log(f"PSU CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
 
@@ -364,7 +364,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
             pass
         except Exception as e:
             traceback.print_exc()
-            _log(f"SPECTRUM CALIBRATION ABORTED! {type(e)} " + str(e), 40, mqttc)
+            _log(f"SPECTRUM CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
 
@@ -419,10 +419,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
             traceback.print_exc()
             publish.single(
                 "measurement/log",
-                {
-                    "msg": f"SOLARSIM DIODE CALIBRATION ABORTED! {type(e)} " + str(e),
-                    "level": 40,
-                },
+                {"msg": f"SOLARSIM DIODE CALIBRATION ABORTED! " + str(e), "level": 40,},
                 qos=2,
                 hostname=mqtthost,
             )
@@ -490,7 +487,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
         traceback.print_exc()
         publish.single(
             "measurement/log",
-            {"msg": f"RTD CALIBRATION ABORTED! {type(e)} " + str(e), "level": 40},
+            {"msg": f"RTD CALIBRATION ABORTED! " + str(e), "level": 40},
             qos=2,
             hostname=mqtthost,
         )
@@ -549,7 +546,7 @@ def _home(request, mqtthost, dummy):
         traceback.print_exc()
         publish.single(
             "measurement/log",
-            {"msg": f"HOMING ABORTED! {type(e)} " + str(e), "level": 40},
+            {"msg": f"HOMING ABORTED! " + str(e), "level": 40},
             qos=2,
             hostname=mqtthost,
         )
@@ -611,7 +608,7 @@ def _goto(request, mqtthost, dummy):
         except Exception as e:
             traceback.print_exc()
             _log(
-                f"GOTO ABORTED! {type(e)} " + str(e), 40, mqttc,
+                f"GOTO ABORTED! " + str(e), 40, mqttc,
             )
 
         mqttc.append_payload("measurement/status", pickle.dumps("Ready"))
@@ -664,7 +661,7 @@ def _read_stage(request, mqtthost, dummy):
         traceback.print_exc()
         publish.single(
             "measurement/log",
-            {"msg": f"READ STAGE ABORTED! {type(e)} " + str(e), "level": 40},
+            {"msg": f"READ STAGE ABORTED! " + str(e), "level": 40},
             qos=2,
             hostname=mqtthost,
         )
@@ -755,7 +752,7 @@ def _contact_check(request, mqtthost, dummy):
         traceback.print_exc()
         publish.single(
             "measurement/log",
-            {"msg": f"CONTACT CHECK ABORTED! {type(e)} " + str(e), "level": 40},
+            {"msg": f"CONTACT CHECK ABORTED! " + str(e), "level": 40},
             qos=2,
             hostname=mqtthost,
         )
@@ -1532,7 +1529,7 @@ def _run(request, mqtthost, dummy):
         traceback.print_exc()
         publish.single(
             "measurement/log",
-            {"msg": f"RUN ABORTED! {type(e)} " + str(e), "level": 40},
+            {"msg": f"RUN ABORTED! " + str(e), "level": 40},
             qos=2,
             hostname=mqtthost,
         )
