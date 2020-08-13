@@ -94,6 +94,9 @@ class mppt:
     else:
       initial_soak = 10
 
+    self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
+    self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+
     if 'gradient_descent' not in extra:  # don't do the initial soak here if we're gonna do gradient descent. we'll do it there
       self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
       self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
@@ -127,7 +130,7 @@ class mppt:
         if len(params) != 3:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[fade_in_t]"))        
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2]))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2], initial_soak=initial_soak))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
     
