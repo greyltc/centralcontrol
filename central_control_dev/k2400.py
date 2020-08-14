@@ -414,7 +414,15 @@ class k2400:
     reshaped = list(zip(*[iter(vals)]*m_len))
 
     if len(reshaped) > 1:
-      print(f"Approx sweep duration = {reshaped[-1][0] - reshaped[0][0]} s")
+      first_element = reshaped[0]
+      last_element = reshaped[-1]
+      if len(first_element) == 4:
+        t_start = first_element[2]
+        t_end = last_element[2]
+      elif len(first_element) == 5:
+        t_start = first_element[3]
+        t_end = last_element[3]
+      print(f"Approx sweep duration = {t_end - t_start} s")
     self.status = int(reshaped[-1][-1])
     return reshaped
 
