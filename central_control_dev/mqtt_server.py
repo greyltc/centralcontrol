@@ -157,7 +157,8 @@ def _calibrate_eqe(request, mqtthost, dummy):
                         "position": None,
                         "area": None,
                     }
-                    pixel_queue = collections.deque(pixel_dict)
+                    pixel_queue = collections.deque()
+                    pixel_queue.append(pixel_dict)
 
                 _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
 
