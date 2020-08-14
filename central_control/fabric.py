@@ -275,7 +275,7 @@ class fabric:
   
       self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
   
-      self.f[position].attrs['Sample Adapter Board Resistor Value'] = self.pcb.resistors[position]
+      #self.f[position].attrs['Sample Adapter Board Resistor Value'] = self.pcb.resistors[position]
       self.f[position].attrs['Sample Layout Name'] = np.string_(layout_name)
       for pair in variable_pairs:  # attach the user defined name-value pairs to each substrate
         parameter_name = pair[0]
@@ -345,6 +345,8 @@ class fabric:
     """adds an array of measurements to the master list and creates an ROI for them
     takes new measurement numpy array and description of them"""
     roi = {}
+    print(measurements)
+    #measurements=measurements[0]
     roi['v'] = [float(e[0]) for e in measurements]
     roi['i'] = [float(e[1]) for e in measurements]
     roi['t'] = [float(e[2]) for e in measurements]
@@ -393,7 +395,7 @@ class fabric:
       message = 'Sweeping {:s} from {:.0f} m{:s} to {:.0f} m{:s}'.format(word, start, abv, end, abv)
     self.insertStatus(message)
     raw = self.sm.measure(nPoints)
-    sweepValues = np.array(list(zip(*[iter(raw)]*4)), dtype=self.measurement_datatype)
+    sweepValues = np.array(raw, dtype=self.measurement_datatype)
 
     return sweepValues
 
@@ -403,8 +405,9 @@ class fabric:
     self.insertStatus(message)
     raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra)
     # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
-    qa = np.array([tuple(s) for s in raw], dtype=self.measurement_datatype)
-    self.registerMeasurements(qa, 'MPPT')
+    print(raw)
+    qa = np.array(raw[0], dtype=self.measurement_datatype)
+    self.registerMeasurements(qa[0], 'MPPT')
     
     if self.mppt.Vmpp != None:
       self.f[self.position+'/'+self.pixel].attrs['Vmpp'] = self.mppt.Vmpp

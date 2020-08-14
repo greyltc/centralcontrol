@@ -287,7 +287,7 @@ class cli:
                 sv = l.sweep(sourceVoltage=True, compliance=compliance, senseRange='a', nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
                 l.registerMeasurements(sv, 'Sweep')
                 
-                (Pmax_sweep, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+                (Pmax_sweep, Vmpp, Impp, maxIndex) = l.mppt.register_curve(sv)
                 l.mppt.Vmpp = Vmpp
                 
                 if type(args.current_compliance_override) == float:
@@ -331,7 +331,7 @@ class cli:
           
                 sv = l.sweep(sourceVoltage=True, senseRange='f', compliance=compliance, nPoints=args.scan_points, start=start, end=end, NPLC=args.scan_nplc, message=message)
                 l.registerMeasurements(sv, 'Snaith')
-                (Pmax_snaith, Vmpp, Impp, maxIndex) = l.mppt.which_max_power(sv)
+                (Pmax_snaith, Vmpp, Impp, maxIndex) = l.mppt.register_curve(sv)
                 if abs(Pmax_snaith) > abs(Pmax_sweep):
                   l.mppt.Vmpp = Vmpp
           
@@ -430,7 +430,7 @@ class cli:
         pixel_in_q = False
         if len(pixel) == 2:
           pixel_int = int(pixel[1])
-          if (pixel[0].upper() in self.l.pcb.substratesConnected) and (pixel_int >= 1 and pixel_int <= 8):
+          if pixel_int >= 1 and pixel_int <= 8:
             q.append(pixel)  #  only put good pixels in the queue
             pixel_in_q = True
         if pixel_in_q == False:
@@ -450,12 +450,12 @@ class cli:
           raise ValueError('{:} Values were given for experimental parameter "{:}", but we are measuring {:} substrate(s).'.format(p, key, n))
       for substrate in substrates:
         substrate = substrate.upper()
-        r_value = self.l.pcb.resistors[substrate]
+        #r_value = self.l.pcb.resistors[substrate]
         valid_layouts = {}
         for key, value in self.layouts.items():
           targets = value['adapterboardresistor']
           for target in targets:
-            if fabric.isWithinPercent(target, r_value) or self.args.ignore_adapter_resistors or target == 0:
+            if self.args.ignore_adapter_resistors or target == 0:
               valid_layouts[key] = value
               break
         user_layout = user_layouts[0]  # here's the layout the user selected for this substrate
