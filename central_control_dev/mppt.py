@@ -109,6 +109,10 @@ class mppt:
         # if nobody told us otherwise, assume Isc is 10% higher than Impp
         self.Isc = self.Impp * 1.1
   
+    if self.Voc >= 0:
+      self.voltage_lock = True  # lock mppt voltage to be >0
+    else:
+      self.voltage_lock = False  # lock mppt voltage to be <0
     # run a tracking algorithm
     extra_split = extra.split(sep='://', maxsplit=1)
     algo = extra_split[0]
@@ -211,6 +215,11 @@ class mppt:
     #this should protect the system from events like sudden open circuit or loss of light
     #causing the mppt to go haywire and asking the sourcemeter for dangerously high or low voltages
     """
+    if (self.voltage_lock == True) and (v_set < 0):
+      v_set = 0.0001
+    elif (self.voltage_lock == False) and (v_set > 0):
+      v_set = -0.0001
+
     self.sm.setSource(v_set)
     measurement = self.sm.measure()[0]
     callback(measurement)
