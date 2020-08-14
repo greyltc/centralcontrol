@@ -85,29 +85,10 @@ class mppt:
 
     if self.Vmpp == None:
       self.Vmpp = 0.7 * self.Voc # start at 70% of Voc if nobody told us otherwise
-    
-    # do initial mppt dwell before we start the actual algorithm
-    # probably generally a good idea so that the algorithm starts with a relatively steady state
-    if duration <= 10:
-      # if the user only wants to mppt for 20 or less seconds, shorten the initial dwell
-      initial_soak = duration * 0.2
-    else:
-      initial_soak = 10
 
-    self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
+    #self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
+    self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
     self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-
-    if 'gradient_descent' not in extra:  # don't do the initial soak here if we're gonna do gradient descent. we'll do it there
-      self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
-      self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-      print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp*1000, initial_soak))
-      m.append(ssmpps:=self.sm.measureUntil(t_dwell=initial_soak, cb=callback))
-      self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
-      if self.current_compliance == None:
-        self.current_compliance = abs(self.Impp * 2)
-      if self.Isc == None:
-        # if nobody told us otherwise, assume Isc is 10% higher than Impp
-        self.Isc = self.Impp * 1.1
   
     if self.Voc >= 0:
       self.voltage_lock = True  # lock mppt voltage to be >0
@@ -128,13 +109,13 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gradient_descent'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, initial_soak=initial_soak))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[fade_in_t]"))        
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2], initial_soak=initial_soak))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2]))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
     
@@ -143,7 +124,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
     return (m, ssvocs)
   
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha = 10, min_step = 0.0001, fade_in_t = 10, initial_soak = 10):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha = 10, min_step = 0.0001, fade_in_t = 10):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -158,19 +139,21 @@ class mppt:
     # initial voltage step size
     # dV = self.Voc / 1001
     
+    initial_soak = 1  # soak at mpp with no algo for this many seconds at the start
+
     self.q = deque()
 
     # do one bootstrap measurement
     W = start_voltage
     v, i, abort = self.measure(W, callback=callback)
     last = (v, i)
-    
+
     # the loss function we'll be minimizing here is power produced by the sourcemeter
     loss = lambda x, y: x * y * -1
-    
+
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
-    
+
     given_alpha = alpha
     given_min_step = min_step
     run_time = time.time() - self.t0
@@ -181,6 +164,10 @@ class mppt:
         alpha = 0
         min_step = 0
       elif run_time < (fade_in_t+initial_soak):  # alpha ramp phase
+        if compliance_reset == False:  # at the start of alpha ramp phase, reset the current complaince
+          self.current_compliance = abs(i * 2)
+          self.sm.setupDC(sourceVoltage=True, compliance=self.current_compliance, setPoint=self.Vmpp, senseRange='f')
+          compliance_reset = True
         alpha = (run_time-initial_soak)/fade_in_t * given_alpha
         min_step = given_min_step
       else:  # normal run phase
@@ -224,6 +211,7 @@ class mppt:
     measurement = self.sm.measure()[0]
     callback(measurement)
     v, i, tx, status = measurement
+    print(f"s={int(status):b}")
     abort = False
     # if v * i > 0:  # TODO: test this
     #  abort = True
@@ -247,12 +235,30 @@ class mppt:
     dV = self.Voc / 301
     
     self.q = deque()
+    Vmpp = self.Vmpp
+
+    if duration <= 10:
+      # if the user only wants to mppt for 20 or less seconds, shorten the initial dwell
+      initial_soak = duration * 0.2
+    else
+      initial_soak = dwell_time
+
+    print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp*1000, initial_soak))
+    ssmpps=self.sm.measureUntil(t_dwell=initial_soak, cb=callback)
+    self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
+    if self.current_compliance == None:
+      self.current_compliance = abs(self.Impp * 2)
+      self.sm.setupDC(sourceVoltage=True, compliance=self.current_compliance, setPoint=self.Vmpp, senseRange='f')
+      self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
+    if self.Isc == None:
+      # if nobody told us otherwise, just assume Isc is 10% higher than Impp
+      self.Isc = self.Impp * 1.1
+    self.q.extend(ssmpps)
     
     Impp = self.Impp
-    Vmpp = self.Vmpp
     Voc = self.Voc
     Isc = self.Isc
-    
+
     abort = False
     run_time = time.time() - self.t0
     while (not abort and (run_time < duration)):
