@@ -1457,12 +1457,12 @@ def _run(request, mqtthost, dummy):
             with fabric() as measurement:
                 _log("Starting run...", 20, mqttc)
 
-                if args["iv_devs"] is not None:
+                if int(args["iv_devs"],16) != 0:
                     iv_pixel_queue = _build_q(request, experiment="solarsim")
                 else:
                     iv_pixel_queue = []
 
-                if args["eqe_devs"] is not None:
+                if int(args["eqe_devs"],16) != 0:
                     eqe_pixel_queue = _build_q(request, experiment="eqe")
                 else:
                     eqe_pixel_queue = []
