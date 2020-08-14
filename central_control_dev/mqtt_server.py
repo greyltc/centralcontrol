@@ -1388,6 +1388,8 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             mqttc,
         )
 
+        compliance_i = measurement.compliance_current_guess(pixel["area"])
+
         # determine how live measurement data will be handled
         if calibration is True:
             handler = lambda x: None
@@ -1409,6 +1411,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             psu_ch3_voltage=config["psu"]["ch3_voltage"],
             psu_ch3_current=args["chan3"],
             smu_voltage=args["eqe_bias"],
+            smu_compliance=compliance_i,
             start_wl=args["eqe_start"],
             end_wl=args["eqe_end"],
             num_points=int(args["eqe_step"]),
@@ -1457,12 +1460,12 @@ def _run(request, mqtthost, dummy):
             with fabric() as measurement:
                 _log("Starting run...", 20, mqttc)
 
-                if int(args["iv_devs"],16) != 0:
+                if int(args["iv_devs"], 16) != 0:
                     iv_pixel_queue = _build_q(request, experiment="solarsim")
                 else:
                     iv_pixel_queue = []
 
-                if int(args["eqe_devs"],16) != 0:
+                if int(args["eqe_devs"], 16) != 0:
                     eqe_pixel_queue = _build_q(request, experiment="eqe")
                 else:
                     eqe_pixel_queue = []
