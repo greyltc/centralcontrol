@@ -776,7 +776,10 @@ class fabric:
             Dictionary of keyword arguments to pass to the handler.
         """
         self.sm.setupDC(
-            sourceVoltage=True, compliance=1, setPoint=smu_voltage, senseRange="f",
+            sourceVoltage=True,
+            compliance=smu_compliance,
+            setPoint=smu_voltage,
+            senseRange="f",
         )
 
         eqe_data = eqe.scan(
