@@ -416,10 +416,10 @@ class k2400:
     if len(reshaped) > 1:
       first_element = reshaped[0]
       last_element = reshaped[-1]
-      if len(first_element) == 4:
+      if m_len == 4:
         t_start = first_element[2]
         t_end = last_element[2]
-      elif len(first_element) == 5:
+      elif m_len == 5:
         t_start = first_element[3]
         t_end = last_element[3]
       print(f"Approx sweep duration = {t_end - t_start} s")
