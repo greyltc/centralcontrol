@@ -1443,7 +1443,7 @@ def _run(request, mqtthost, dummy):
     args = request["args"]
 
     # calibrate spectrum if required
-    if args["iv_devs"] is not None:
+    if int(args["iv_devs"], 16) > 0:
         _calibrate_spectrum(request, mqtthost, dummy)
 
     with MQTTQueuePublisher() as mqttc:
