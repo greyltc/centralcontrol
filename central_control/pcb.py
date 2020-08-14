@@ -66,25 +66,25 @@ class pcb:
     version = self.get('v')
     #print(f"Connected to control PCB running firmware version {version}")
 
-    substrates = self.substrateSearch()
-    resistors = {}  # dict of measured resistor values where the key is the associated substrate
+    #substrates = self.substrateSearch()
+    #resistors = {}  # dict of measured resistor values where the key is the associated substrate
 
-    if substrates == 0x00:
-      print('No multiplexer board detected.')
-    else:
-      found = "Found MUX board(s): "
-      for i in range(len(self.substrateList)):
-        substrate = self.substrateList[i]
-        mask = 0x01 << (7-i)
-        if (mask & substrates) != 0x00:
-          self.substratesConnected = self.substratesConnected + substrate
-          if self.ignore_adapter_resistors:
-            resistors[substrate] = 0
-          else:
-            resistors[substrate] = self.get('d'+substrate)
-          found = found + substrate
-      #print(found)
-    self.resistors = resistors
+    #if substrates == 0x00:
+    #  print('No multiplexer board detected.')
+    #else:
+    #  found = "Found MUX board(s): "
+    #  for i in range(len(self.substrateList)):
+    #    substrate = self.substrateList[i]
+    #    mask = 0x01 << (7-i)
+    #    if (mask & substrates) != 0x00:
+    #      self.substratesConnected = self.substratesConnected + substrate
+    #      if self.ignore_adapter_resistors:
+    #        resistors[substrate] = 0
+    #      else:
+    #        resistors[substrate] = self.get('d'+substrate)
+    #      found = found + substrate
+    #  #print(found)
+    #self.resistors = resistors
     return(self)
 
   def __exit__(self, type, value, traceback):
