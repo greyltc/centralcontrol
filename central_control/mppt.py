@@ -139,7 +139,7 @@ class mppt:
     # initial voltage step size
     # dV = self.Voc / 1001
     
-    initial_soak = 1  # soak at mpp with no algo for this many seconds at the start
+    initial_soak = 3  # soak at mpp with no algo for this many seconds at the start
 
     self.q = deque()
 
@@ -154,6 +154,7 @@ class mppt:
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
 
+    compliance_reset = False  # have we reset the compliance yet?
     given_alpha = alpha
     given_min_step = min_step
     run_time = time.time() - self.t0
@@ -211,7 +212,7 @@ class mppt:
     measurement = self.sm.measure()[0]
     callback(measurement)
     v, i, tx, status = measurement
-    print(f"s={int(status):b}")
+    #print(f"s={int(status):b}")
     abort = False
     # if v * i > 0:  # TODO: test this
     #  abort = True
@@ -240,7 +241,7 @@ class mppt:
     if duration <= 10:
       # if the user only wants to mppt for 20 or less seconds, shorten the initial dwell
       initial_soak = duration * 0.2
-    else
+    else:
       initial_soak = dwell_time
 
     print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp*1000, initial_soak))
