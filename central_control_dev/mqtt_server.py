@@ -150,7 +150,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
                 else:
                     # if it's emptpy, assume cal diode is connected externally
                     pixel_dict = {
-                        "label": args["label_tree"][0],
+                        "label": "external",
                         "layout": None,
                         "sub_name": None,
                         "pixel": 0,
