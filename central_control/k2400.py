@@ -122,6 +122,12 @@ class k2400:
       sm.query('*OPC?')
       sm.write(':system:preset')
       sm.query('*OPC?')
+      if sm.interface_type == visa.constants.InterfaceType.asrl:
+        # discard all buffers
+        sm.flush(visa.constants.VI_READ_BUF_DISCARD)
+        sm.flush(visa.constants.VI_WRITE_BUF_DISCARD)
+        sm.flush(visa.constants.VI_IO_IN_BUF_DISCARD)
+        sm.flush(visa.constants.VI_IO_OUT_BUF_DISCARD)
       # ask the device to identify its self
       self.idn = sm.query('*IDN?')
     except:
