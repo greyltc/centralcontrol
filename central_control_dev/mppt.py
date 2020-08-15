@@ -1,5 +1,6 @@
 import numpy
 import time
+import math
 from collections import deque
 
 class mppt:
@@ -45,7 +46,7 @@ class mppt:
     Vmpp = v[maxIndex]
     Pmax = p[maxIndex]
     Impp = i[maxIndex]
-    if light == True:  # this was from a light i-v curve
+    if light is True:  # this was from a light i-v curve
       if (self.Pmax is None) or (Pmax > self.Pmax):
         self.Vmpp = Vmpp
         self.Impp = Impp
@@ -58,7 +59,7 @@ class mppt:
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
 
-  def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, extra="basic://7:10"):
+  def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, compliance_override=None, extra="basic://7:10"):
     """
     general function to call begin a max power point tracking algorithm
     duration given in seconds, optionally calling callback function on each measurement point
@@ -66,15 +67,18 @@ class mppt:
     m = []  # list holding mppt measurements
     self.t0 = time.time()  # start the mppt timer
 
-    if self.current_compliance == None:
+    if self.current_compliance is None:
       current_compliance = 0.04  # assume 40mA compliance if nobody told us otherwise
     else:
       current_compliance = self.current_compliance
+    
+    if compliance_override is not None:
+      current_compliance = compliance_override
       
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
     
-    if (self.Voc == None):
+    if (self.Voc is None):
       print("Learning Voc...")
       self.sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='a')
       self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
@@ -83,13 +87,21 @@ class mppt:
     else:
       ssvocs = []
 
-    if self.Vmpp == None:
+    if self.Vmpp is None:
       self.Vmpp = 0.7 * self.Voc # start at 70% of Voc if nobody told us otherwise
 
     #self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
     self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
-    self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-  
+    self.sm.write(':arm:source immediate')  # this sets up the trigger/reading method we'll use below
+
+    # if no compliance override, do our own compliance set via one single measurement here
+    if compliance_override is None:
+      m.append(cm:=self.sm.measure()[0])
+      callback(cm)
+      current_compliance = abs(cm[1] * 2)  # current compliance is 2x impp
+      self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
+      self.current_compliance = current_compliance
+
     if self.Voc >= 0:
       self.voltage_lock = True  # lock mppt voltage to be >0
     else:
@@ -109,22 +121,22 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gradient_descent'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=10, min_step=0.0001, max_step=0.1, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[fade_in_t]"))        
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], fade_in_t=params[2]))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1]))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
-    
+
     run_time = time.time() - self.t0
     print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
-    print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))    
+    print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     return (m, ssvocs)
-  
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha = 10, min_step = 0.0001, fade_in_t = 10):
+
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=10, min_step=0, max_step=float("Infinity")):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -154,39 +166,39 @@ class mppt:
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
 
-    compliance_reset = False  # have we reset the compliance yet?
+    # alpha ramp
+    Q=5
+    v=3
+    B=2
+    tm=7 # inflection time (max growth)
+    #generalized logistic function for alpha ramp shape
+    alpha_ramp = lambda t,a: a/(1+Q*math.exp(-B*(t-tm)))**(1/v)
+
+    big = float("Infinity")
     given_alpha = alpha
+    alpha = 0
     given_min_step = min_step
     run_time = time.time() - self.t0
     abort = False
     while (not abort and (run_time < duration)):
-      # handle initial soak and slow alpha ramp
-      if run_time <= initial_soak:  # vmpp soak phase
-        alpha = 0
-        min_step = 0
-      elif run_time < (fade_in_t+initial_soak):  # alpha ramp phase
-        if compliance_reset == False:  # at the start of alpha ramp phase, reset the current complaince
-          self.current_compliance = abs(i * 2)
-          self.sm.setupDC(sourceVoltage=True, compliance=self.current_compliance, setPoint=self.Vmpp, senseRange='f')
-          compliance_reset = True
-        alpha = (run_time-initial_soak)/fade_in_t * given_alpha
-        min_step = given_min_step
-      else:  # normal run phase
-        alpha = given_alpha
-        min_step = given_min_step
-      
       # apply new voltage and record a measurement
       v, i, abort = self.measure(W, callback=callback)
       this = (v, i)
       if this[0] != last[0]: # prevent div by zero
         gradient = (loss(*this) - loss(*last)) / (this[0] - last[0]) # calculate the slope in the loss function
-        v_step = alpha * gradient # calculate the voltage step size based on alpha and the gradient
-        if (abs(v_step) < min_step) and (min_step > 0): # enforce minimum step size if we're doing that
+        # handle slow alpha ramp
+        if alpha < given_alpha*0.9: # ramp it up to 90%
+          min_step = 0
+          alpha = alpha_ramp(run_time, given_alpha)
+        else:
+          min_step = given_min_step
+          alpha = given_alpha
+        v_step = alpha * gradient  # calculate the voltage step size based on alpha and the gradient
+        if (abs(v_step) < min_step) and (min_step > 0):  # enforce minimum step size if we're doing that
           v_step = sign(v_step) * min_step
-        W += v_step # apply voltage step
-      #else:  # this should not be needed because the sourcemeter almost always measures a different voltage than it applies
-        # bump the voltage by a microvolt if we couldn't sense a voltage change (prevents div by zer below)
-        #W += 1e-6 
+        elif (abs(v_step) > max_step) and (max_step < big):  # enforce maximum step size if we're doing that
+          v_step = sign(v_step) * max_step
+        W += v_step # apply voltage step, calculate new voltage
       last = this #  save the measuerment we just took for comparison in the next loop iteration
       run_time = time.time() - self.t0 # recompute runtime
     self.Impp = i
@@ -247,11 +259,7 @@ class mppt:
     print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp*1000, initial_soak))
     ssmpps=self.sm.measureUntil(t_dwell=initial_soak, cb=callback)
     self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
-    if self.current_compliance == None:
-      self.current_compliance = abs(self.Impp * 2)
-      self.sm.setupDC(sourceVoltage=True, compliance=self.current_compliance, setPoint=self.Vmpp, senseRange='f')
-      self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-    if self.Isc == None:
+    if self.Isc is None:
       # if nobody told us otherwise, just assume Isc is 10% higher than Impp
       self.Isc = self.Impp * 1.1
     self.q.extend(ssmpps)
