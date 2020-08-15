@@ -12,6 +12,7 @@ class mppt:
   Vmpp = None  # voltage at max power point
   Impp = None  # current at max power point
   Pmax = None  # power at max power point (for keeping track of voc and isc)
+  abort = False
   
   currentCompliance = None
   t0 = None  # the time we started the mppt algorithm
@@ -25,9 +26,10 @@ class mppt:
     self.Vmpp = None  # voltage at max power point
     self.Impp = None  # current at max power point
     self.Pmax = None
+    self.abort = False
     
-    current_compliance = None
-    t0 = None  # the time we started the mppt algorithm
+    self.current_compliance = None
+    self.t0 = None  # the time we started the mppt algorithm
     
   def register_curve(self, vector, light=True):
     """
@@ -125,9 +127,9 @@ class mppt:
       else:
         params = params.split(':')
         if len(params) != 3:
-          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[fade_in_t]"))        
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[NPLC]"))        
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1]))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
 
@@ -136,73 +138,58 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=10, min_step=0, max_step=float("Infinity")):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=10, min_step=0, NPLC=-1):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
     min_step is the minimum voltage step size the algorithm will be allowed to take
     fade_in_t is the number of seconds to use to ramp the learning rate from 0 to alpha at the start of the algorithm
     """
+    max_step = 0.1
+    if NPLC != -1:
+      self.sm.setNPLC(NPLC)
     print("===Starting up gradient descent maximum power point tracking algorithm===")
-    print("Learning rate (alpha) = {:}".format(alpha))
-    print("Smallest step (min_step) = {:} [mV]".format(min_step*1000))
-    print("Ramp up time (fade_in) = {:} [s]".format(fade_in_t))
-    
-    # initial voltage step size
-    # dV = self.Voc / 1001
-    
-    initial_soak = 3  # soak at mpp with no algo for this many seconds at the start
+    print(f"Learning rate (alpha) = {alpha}")
+    print(f"Smallest step (min_step) = {min_step*1000} [mV]")
+    print(f"Largest step (max_step) = {max_step*1000} [mV]")
+    print(f"NPLC = {self.sm.sm.query(':sense:current:nplcycles?')}")
 
     self.q = deque()
+    m = deque(maxlen=2) # keeps two measurements
+    x = deque(maxlen=2) # keeps two x values
+    y = deque(maxlen=2) # keeps two loss(y) values
+
+    # the loss function we'll be minimizing here is power produced by the sourcemeter
+    loss = lambda a, b: a * b * -1
 
     # do one bootstrap measurement
     W = start_voltage
-    v, i, abort = self.measure(W, callback=callback)
-    last = (v, i)
-
-    # the loss function we'll be minimizing here is power produced by the sourcemeter
-    loss = lambda x, y: x * y * -1
+    m.append(self.measure(W, callback=callback))
+    x.append(m[-1][2])
+    y.append(loss(m[-1][0], m[-1][1]))
+    run_time = m[-1][2] - self.t0 # recompute runtime
 
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x<0)]
 
-    # alpha ramp
-    Q=5
-    v=3
-    B=2
-    tm=7 # inflection time (max growth)
-    #generalized logistic function for alpha ramp shape
-    alpha_ramp = lambda t,a: a/(1+Q*math.exp(-B*(t-tm)))**(1/v)
-
     big = float("Infinity")
-    given_alpha = alpha
-    alpha = 0
-    given_min_step = min_step
-    run_time = time.time() - self.t0
-    abort = False
-    while (not abort and (run_time < duration)):
-      # apply new voltage and record a measurement
-      v, i, abort = self.measure(W, callback=callback)
-      this = (v, i)
-      if this[0] != last[0]: # prevent div by zero
-        gradient = (loss(*this) - loss(*last)) / (this[0] - last[0]) # calculate the slope in the loss function
-        # handle slow alpha ramp
-        if alpha < given_alpha*0.9: # ramp it up to 90%
-          min_step = 0
-          alpha = alpha_ramp(run_time, given_alpha)
-        else:
-          min_step = given_min_step
-          alpha = given_alpha
+    while (not self.abort and (run_time < duration)):
+      m.append(self.measure(W, callback=callback))  # apply new voltage and record a measurement
+      x.append(m[-1][2])  # save the new x
+      y.append(loss(m[-1][0], m[-1][1]))  # calculate the new loss and save it
+      run_time = m[-1][2] - self.t0 # recompute runtime
+      if x[-1] != x[-2]: # prevent div by zero
+        gradient = (y[-1] - y[-2]) / (x[-1] - x[-2]) # calculate the slope in the loss function from the last two measurements
         v_step = alpha * gradient  # calculate the voltage step size based on alpha and the gradient
+        #print(f"rt={run_time}, a={alpha}, g={gradient}, step={v_step}")  # for debugging
         if (abs(v_step) < min_step) and (min_step > 0):  # enforce minimum step size if we're doing that
           v_step = sign(v_step) * min_step
         elif (abs(v_step) > max_step) and (max_step < big):  # enforce maximum step size if we're doing that
           v_step = sign(v_step) * max_step
         W += v_step # apply voltage step, calculate new voltage
-      last = this #  save the measuerment we just took for comparison in the next loop iteration
-      run_time = time.time() - self.t0 # recompute runtime
-    self.Impp = i
-    self.Vmpp = v
+      
+    self.Impp = m[-1][1]
+    self.Vmpp = m[-1][0]
     q = self.q
     del(self.q)
     return q
@@ -210,7 +197,7 @@ class mppt:
   def measure(self, v_set, callback=lambda x:None):
     """
     sets the voltage and makes a measurement
-    #returns abort = true and shuts off the sourcemeter output
+    #sets self.abort = true and shuts off the sourcemeter output
     #if the mppt wanders out of the power quadrant
     #this should protect the system from events like sudden open circuit or loss of light
     #causing the mppt to go haywire and asking the sourcemeter for dangerously high or low voltages
@@ -225,13 +212,12 @@ class mppt:
     callback(measurement)
     v, i, tx, status = measurement
     #print(f"s={int(status):b}")
-    abort = False
     # if v * i > 0:  # TODO: test this
-    #  abort = True
+    #  self.abort = True
     #  self.sm.outOn(False)
     #  print("WARNING: Stopping max power point tracking because the MPPT algorithm wandered out of the power quadrant")
     self.q.append(measurement)
-    return v, i, abort
+    return (v, i, time.time())
 
   def really_dumb_tracker(self, duration, callback=lambda x:None, dAngleMax = 7, dwell_time = 10):
     """
@@ -268,9 +254,8 @@ class mppt:
     Voc = self.Voc
     Isc = self.Isc
 
-    abort = False
     run_time = time.time() - self.t0
-    while (not abort and (run_time < duration)):
+    while (not self.abort and (run_time < duration)):
       print("Exploring for new Mpp...")
       i_explore = numpy.array(Impp)
       v_explore = numpy.array(Vmpp)
@@ -280,8 +265,9 @@ class mppt:
       v_set = Vmpp
       highEdgeTouched = False
       lowEdgeTouched = False
-      while (not abort and not(highEdgeTouched and lowEdgeTouched)):
-        v, i, abort = self.measure(v_set, callback=callback)
+      while (not self.abort and not(highEdgeTouched and lowEdgeTouched)):
+        (v, i, t) = self.measure(v_set, callback=callback)
+        run_time = t - self.t0
 
         i_explore = numpy.append(i_explore, i)
         v_explore = numpy.append(v_explore, v)
@@ -342,7 +328,7 @@ class mppt:
 
       print("That's {:.6f} degrees different from the previous Mpp.".format(dFromLastMppAngle))
       
-      run_time = time.time() - self.t0
+      
       #time_left = duration - run_time
       
       #if time_left <= 0:
