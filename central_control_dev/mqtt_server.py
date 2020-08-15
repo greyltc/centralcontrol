@@ -408,7 +408,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
                 else:
                     # if it's emptpy, assume cal diode is connected externally
                     pixel_dict = {
-                        "label": args["label_tree"][0],
+                        "label": args["substrate_labels"][0],
                         "layout": None,
                         "sub_name": None,
                         "pixel": 0,
@@ -823,7 +823,7 @@ def _build_q(request, experiment):
     substrate_number = config["substrates"]["number"]
 
     # make sure as many layouts as labels were given
-    if (l := len(args["label_tree"])) != substrate_total:
+    if (l := len(args["substrate_labels"])) != substrate_total:
         raise ValueError(
             "Lists of layouts and labels must match number of substrates in the "
             + f"array: {substrate_total}. Layouts list has length {l}."
@@ -841,7 +841,7 @@ def _build_q(request, experiment):
     substrate_q = []
     i = 0
     for label, centre, sub_name in zip(
-        args["label_tree"], substrate_centres, args["subs_names"]
+        args["substrate_labels"], substrate_centres, args["subs_names"]
     ):
         # get pcb adapter info from config file
         pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
