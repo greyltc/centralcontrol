@@ -183,11 +183,12 @@ class mppt:
         gradient = (y[-1] - y[-2]) / (x[-1] - x[-2]) # calculate the slope in the loss function from the last two measurements
         v_step = alpha * gradient  # calculate the voltage step size based on alpha and the gradient
       else:  # handle div by zero
+        some_sign = random.choice([-1,1])
         if min_step == 0:
           v_step = 0.0001
         else:
-          v_step = min_step/2
-        v_step = random.uniform(-v_step, v_step)
+          v_step = min_step
+        v_step = some_sign*v_step
       #print(f"rt={run_time}, a={alpha}, g={gradient}, step={v_step}")  # for debugging
       if (abs(v_step) < min_step) and (min_step > 0):  # enforce minimum step size if we're doing that
         v_step = sign(v_step) * min_step
