@@ -122,14 +122,15 @@ class k2400:
       sm.query('*OPC?')
       sm.write(':system:preset')
       sm.query('*OPC?')
-      if sm.interface_type == visa.constants.InterfaceType.asrl:
-        # discard all buffers
-        sm.flush(visa.constants.VI_READ_BUF_DISCARD)
-        sm.flush(visa.constants.VI_WRITE_BUF_DISCARD)
-        sm.flush(visa.constants.VI_IO_IN_BUF_DISCARD)
-        sm.flush(visa.constants.VI_IO_OUT_BUF_DISCARD)
-      # ask the device to identify its self
-      self.idn = sm.query('*IDN?')
+      sm.query('*OPC?')
+      # if there is garbage left in the input buffer toss it
+      time.sleep(0.1)
+      #session = sm.visalib.sessions[sm._session]  # that's a pyserial object
+      #session.interface.reset_input_buffer()
+      if hasattr(sm, 'bytes_in_buffer'):
+        if sm.bytes_in_buffer > 0:
+          sm.read_raw(sm.bytes_in_buffer)
+      self.idn = sm.query('*IDN?')  # ask the device to identify its self
     except:
       print('Unable perform "*IDN?" query.')
       exctype, value = sys.exc_info()[:2]
@@ -462,6 +463,8 @@ if __name__ == "__main__":
   import pandas as pd
   import numpy as np
   start = time.time()
+  #address = 'ASRL/dev/ttyS0::INSTR'
+  address = 'ASRL/dev/ttyUSB0::INSTR'
 
   # connect to our instrument
   # for testing GPIB connections
@@ -472,7 +475,7 @@ if __name__ == "__main__":
 
   # for serial connection testing expects flow control to be on, data bits =8 and parity = none
   con_time = time.time()
-  k = k2400(addressString='ASRL/dev/ttyS0::INSTR', terminator='\r', serialBaud=57600)
+  k = k2400(addressString=address, terminator='\r', serialBaud=57600)
   print(f"Connected to {k.addressString} in {time.time()-con_time} seconds")
 
   # setup DC resistance measurement
