@@ -124,7 +124,7 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gradient_descent'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=10, min_step=0.0001, max_step=0.1, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=10, min_step=0.0001, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
