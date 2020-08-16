@@ -1,6 +1,7 @@
 import numpy
 import time
 import math
+import random
 from collections import deque
 
 class mppt:
@@ -165,7 +166,7 @@ class mppt:
     # do one bootstrap measurement
     W = start_voltage
     m.append(self.measure(W, callback=callback))
-    x.append(m[-1][2])
+    x.append(W)  # m[-1][2]
     y.append(loss(m[-1][0], m[-1][1]))
     run_time = m[-1][2] - self.t0 # recompute runtime
 
@@ -175,18 +176,24 @@ class mppt:
     big = float("Infinity")
     while (not self.abort and (run_time < duration)):
       m.append(self.measure(W, callback=callback))  # apply new voltage and record a measurement
-      x.append(m[-1][2])  # save the new x
+      x.append(W)  # save the new x
       y.append(loss(m[-1][0], m[-1][1]))  # calculate the new loss and save it
       run_time = m[-1][2] - self.t0 # recompute runtime
       if x[-1] != x[-2]: # prevent div by zero
         gradient = (y[-1] - y[-2]) / (x[-1] - x[-2]) # calculate the slope in the loss function from the last two measurements
         v_step = alpha * gradient  # calculate the voltage step size based on alpha and the gradient
-        #print(f"rt={run_time}, a={alpha}, g={gradient}, step={v_step}")  # for debugging
-        if (abs(v_step) < min_step) and (min_step > 0):  # enforce minimum step size if we're doing that
-          v_step = sign(v_step) * min_step
-        elif (abs(v_step) > max_step) and (max_step < big):  # enforce maximum step size if we're doing that
-          v_step = sign(v_step) * max_step
-        W += v_step # apply voltage step, calculate new voltage
+      else:  # handle div by zero
+        if min_step == 0:
+          v_step = 0.0001
+        else:
+          v_step = min_step/2
+        v_step = random.uniform(-v_step, v_step)
+      #print(f"rt={run_time}, a={alpha}, g={gradient}, step={v_step}")  # for debugging
+      if (abs(v_step) < min_step) and (min_step > 0):  # enforce minimum step size if we're doing that
+        v_step = sign(v_step) * min_step
+      elif (abs(v_step) > max_step) and (max_step < big):  # enforce maximum step size if we're doing that
+         v_step = sign(v_step) * max_step
+      W += v_step # apply voltage step, calculate new voltage
       
     self.Impp = m[-1][1]
     self.Vmpp = m[-1][0]
