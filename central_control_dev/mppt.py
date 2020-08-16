@@ -167,7 +167,7 @@ class mppt:
     W = start_voltage
     m.append(self.measure(W, callback=callback))
     x.append(m[-1][2])
-    y.append(loss(m[-1][0], m[-1][1]))
+    y.append(loss(*m[-1]))
     run_time = m[-1][2] - self.t0 # recompute runtime
 
     # get the sign of a number
@@ -177,7 +177,7 @@ class mppt:
     while (not self.abort and (run_time < duration)):
       m.append(self.measure(W, callback=callback))  # apply new voltage and record a measurement
       x.append(m[-1][2])  # save the new x
-      y.append(loss(*m[-1])  # calculate the new loss and save it
+      y.append(loss(*m[-1]))  # calculate the new loss and save it
       run_time = time.time() - self.t0 # recompute runtime
       if x[-1] != x[-2]: # prevent div by zero
         gradient = (y[-1] - y[-2]) / (x[-1] - x[-2]) # calculate the slope in the loss function from the last two measurements
