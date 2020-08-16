@@ -166,7 +166,7 @@ class mppt:
     # do one bootstrap measurement
     W = start_voltage
     m.append(self.measure(W, callback=callback))
-    x.append(W)  # m[-1][2]
+    x.append(m[-1][2])
     y.append(loss(m[-1][0], m[-1][1]))
     run_time = m[-1][2] - self.t0 # recompute runtime
 
@@ -176,7 +176,7 @@ class mppt:
     big = float("Infinity")
     while (not self.abort and (run_time < duration)):
       m.append(self.measure(W, callback=callback))  # apply new voltage and record a measurement
-      x.append(W)  # save the new x
+      x.append(m[-1][2])  # save the new x
       y.append(loss(m[-1][0], m[-1][1]))  # calculate the new loss and save it
       run_time = m[-1][2] - self.t0 # recompute runtime
       if x[-1] != x[-2]: # prevent div by zero
