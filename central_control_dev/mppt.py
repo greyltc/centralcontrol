@@ -122,13 +122,13 @@ class mppt:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]"))
         params = [float(f) for f in params]
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
-    elif (algo == 'gradient_descent'):
+    elif (algo == 'gd'):
       if len(params) == 0:  #  use defaults
         m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=10, min_step=0.0001, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
-          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gradient_descent://[alpha]:[min_step]:[NPLC]"))        
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]"))        
         params = [float(f) for f in params]
         m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]))
     else:
@@ -161,7 +161,7 @@ class mppt:
     y = deque(maxlen=2) # keeps two loss(y) values
 
     # the loss function we'll be minimizing here is power produced by the sourcemeter
-    loss = lambda a, b: a * b * -1
+    loss = lambda a, b, t: a * b * -1
 
     # do one bootstrap measurement
     W = start_voltage
@@ -177,8 +177,8 @@ class mppt:
     while (not self.abort and (run_time < duration)):
       m.append(self.measure(W, callback=callback))  # apply new voltage and record a measurement
       x.append(m[-1][2])  # save the new x
-      y.append(loss(m[-1][0], m[-1][1]))  # calculate the new loss and save it
-      run_time = m[-1][2] - self.t0 # recompute runtime
+      y.append(loss(*m[-1])  # calculate the new loss and save it
+      run_time = time.time() - self.t0 # recompute runtime
       if x[-1] != x[-2]: # prevent div by zero
         gradient = (y[-1] - y[-2]) / (x[-1] - x[-2]) # calculate the slope in the loss function from the last two measurements
         v_step = alpha * gradient  # calculate the voltage step size based on alpha and the gradient
@@ -225,7 +225,7 @@ class mppt:
     #  self.sm.outOn(False)
     #  print("WARNING: Stopping max power point tracking because the MPPT algorithm wandered out of the power quadrant")
     self.q.append(measurement)
-    return (v, i, time.time())
+    return (v, i, tx)
 
   def really_dumb_tracker(self, duration, callback=lambda x:None, dAngleMax = 7, dwell_time = 10):
     """
