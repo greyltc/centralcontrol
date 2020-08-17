@@ -170,6 +170,9 @@ def worker():
                         if task['type'] == 'connectivity':
                             k.set_ccheck_mode(False)
                             log_msg(f'Contact check complete.',lvl=logging.INFO)
+                        elif task['type'] == 'rtd':
+                            log_msg(f'Temperature measurement complete.',lvl=logging.INFO)
+                            k.setupDC(sourceVoltage=False)
                         p.get("s")
                         k.disconnect()
 
