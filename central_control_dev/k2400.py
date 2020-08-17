@@ -13,6 +13,7 @@ class k2400:
   quiet=False
   idn = ''
   status = 0
+  nplc_user_set = 1.0
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
@@ -216,6 +217,21 @@ class k2400:
       sm.write(':system:ccheck off')
       sm.write(':system:ccheck:resistance 50')  # choices are 2, 15 or 50
 
+  def set_ccheck_mode(self, value=True):
+    opts = self.sm.query("*opt?")
+    if "CONTACT-CHECK" in opts.upper():
+      if value == True:
+        self.outOn(on=False)
+        self.sm.write(':system:ccheck on')
+        self.sm.write(':sense:voltage:nplcycles 0.1')
+        # setup I=0 voltage measurement
+        self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='f', auto_ohms=False)
+        self.sm.write(':arm:source immediate')
+      else:
+        self.outOn(on=False)
+        self.sm.write(f':sense:voltage:nplcycles {self.nplc_user_set}')
+        self.sm.write(':system:ccheck off')
+
   def disconnect(self):
     self.__del__()
 
@@ -251,6 +267,7 @@ class k2400:
       self.sm.write(':output off')
 
   def setNPLC(self, nplc):
+    self.nplc_user_set = nplc
     self.sm.write(':sense:current:nplcycles {:}'.format(nplc))
     self.sm.write(':sense:voltage:nplcycles {:}'.format(nplc))
     self.sm.write(':sense:resistance:nplcycles {:}'.format(nplc))
@@ -453,9 +470,12 @@ class k2400:
   
   def contact_check(self):
     """
-    reports the result of the contact check that was done during the previous measurement
+    call set_ccheck_mode(True) before calling this
+    and set_ccheck_mode(False) after you're done checking contacts
+    triggers a measurement and returns the contact check result associated with it
     True for contacted. always true if the option is not installed
     """
+    self.measure(nPoints=1)
     return ((self.status & (1<<18)) == 0)  # check the 18th bit of our status word
 
 # testing code
@@ -463,8 +483,9 @@ if __name__ == "__main__":
   import pandas as pd
   import numpy as np
   start = time.time()
+  #address = "GPIB0::24::INSTR"
   #address = 'ASRL/dev/ttyS0::INSTR'
-  address = 'ASRL/dev/ttyUSB0::INSTR'
+  address = 'ASRL/dev/ttyUSB1::INSTR'
 
   # connect to our instrument
   # for testing GPIB connections
@@ -478,14 +499,19 @@ if __name__ == "__main__":
   k = k2400(addressString=address, terminator='\r', serialBaud=57600)
   print(f"Connected to {k.addressString} in {time.time()-con_time} seconds")
 
+  # do a contact check
+  k.set_ccheck_mode(True)
+  print(f"Contact check result: {k.contact_check()}")
+  k.set_ccheck_mode(False)
+
   # setup DC resistance measurement
   k.setupDC(auto_ohms=True)
 
-  print(f"One auto ohms measurement: {k.measure()}")
-
   # this sets up the trigger/reading method we'll use below
   k.write(':arm:source immediate')
-  
+
+  print(f"One auto ohms measurement: {k.measure()}")
+
   # measure 
   mTime = 10
   k.setNPLC(1)
@@ -502,8 +528,6 @@ if __name__ == "__main__":
   print(f"===== {len(dc_mf)} auto ohms values in {mTime} seconds =====")
   #print(dc_mf.to_string(formatters={'status':'{0:024b}'.format}))
 
-  print(f"Contacted: {k.contact_check()}")
-  
   # setup DC current measurement at 0V measurement
   forceV = 0
   k.setupDC(setPoint=forceV)
