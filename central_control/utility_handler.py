@@ -160,7 +160,8 @@ def worker():
                             elif task['type'] == 'rtd':
                                 m = k.measure()[0]
                                 ohm = m[2]
-                                log_msg(f'{slot} -- {dev} = {ohm} Ohms',lvl=logging.INFO)
+                                if (ohm < 3000) and (ohm > 500):
+                                    log_msg(f'{slot} -- {dev} Could be an RTD at {ohm} °C',lvl=logging.INFO)
                             elif task['type'] == 'connectivity':
                                 if k.contact_check() == False:
                                     log_msg(f'{slot} -- {dev} appears disconnected.',lvl=logging.INFO)
