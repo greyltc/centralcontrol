@@ -139,6 +139,7 @@ def worker():
             elif task['cmd'] == 'round_robin':
                 if len(task['slots']) > 0:
                     with pcb.pcb(task['pcb'], timeout=1) as p:
+                        p.get('iv') # make sure the circuit is in I-V mode (not eqe)
                         p.get('s') # make sure we're starting with nothing selected
                         k = sm.k2400(addressString=task['smu']['address'], terminator=task['smu']['terminator'], serialBaud=task['smu']['baud'])
 
@@ -146,7 +147,7 @@ def worker():
                         if task['type'] == 'current':
                             pass  # TODO: smu measure current command goes here
                         elif task['type'] == 'rtd':
-                            pass  # TODO: smu resistance command goes here
+                            k.setupDC(auto_ohms=True)
                         elif task['type'] == 'connectivity':
                             log_msg(f'Checking connections. Only failures will be printed.',lvl=logging.INFO)
                             k.set_ccheck_mode(True)
@@ -157,7 +158,9 @@ def worker():
                             if task['type'] == 'current':
                                 pass  # TODO: smu measure current command goes here
                             elif task['type'] == 'rtd':
-                                pass  # TODO: smu resistance command goes here
+                                m = k.measure()[0]
+                                ohm = m[2]
+                                log_msg(f'{slot} -- {dev} = {ohm} Ohms',lvl=logging.INFO)
                             elif task['type'] == 'connectivity':
                                 if k.contact_check() == False:
                                     log_msg(f'{slot} -- {dev} appears disconnected.',lvl=logging.INFO)
