@@ -222,12 +222,14 @@ class k2400:
     if "CONTACT-CHECK" in opts.upper():
       if value == True:
         self.outOn(on=False)
+        self.sm.write(':output:smode guard')
         self.sm.write(':system:ccheck on')
         self.sm.write(':sense:voltage:nplcycles 0.1')
         # setup I=0 voltage measurement
         self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='f', auto_ohms=False)
         self.sm.write(':arm:source immediate')
       else:
+        self.sm.write(':output:smode himpedance')
         self.outOn(on=False)
         self.sm.write(f':sense:voltage:nplcycles {self.nplc_user_set}')
         self.sm.write(':system:ccheck off')
@@ -475,8 +477,13 @@ class k2400:
     triggers a measurement and returns the contact check result associated with it
     True for contacted. always true if the option is not installed
     """
-    self.measure(nPoints=1)
-    return ((self.status & (1<<18)) == 0)  # check the 18th bit of our status word
+    good_contact = False
+    self.sm.write(':output on')  # try to turn on the output
+    if self.sm.query(':output?') == "1":  # check if that worked
+      self.sm.write("INIT")
+      if self.sm.query(':output?') == "1":
+        good_contact = True  # if INIT didn't trip the output off, then we're connected
+    return (good_contact)
 
 # testing code
 if __name__ == "__main__":
