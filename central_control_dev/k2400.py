@@ -217,22 +217,28 @@ class k2400:
       sm.write(':system:ccheck off')
       sm.write(':system:ccheck:resistance 50')  # choices are 2, 15 or 50
 
+  # note that this also checks the GUARD-SENSE connections, short those manually if not in use
   def set_ccheck_mode(self, value=True):
-    opts = self.sm.query("*opt?")
-    if "CONTACT-CHECK" in opts.upper():
-      if value == True:
-        self.outOn(on=False)
-        self.sm.write(':output:smode guard')
-        self.sm.write(':system:ccheck on')
-        self.sm.write(':sense:voltage:nplcycles 0.1')
-        # setup I=0 voltage measurement
-        self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='f', auto_ohms=False)
-        self.sm.write(':arm:source immediate')
+    if self.sm.query(':system:rsense?') == "1":
+      opts = self.sm.query("*opt?")
+      if "CONTACT-CHECK" in opts.upper():
+        if value == True:
+          self.outOn(on=False)
+          self.sm.write(':output:smode guard')
+          self.sm.write(':system:ccheck on')
+          self.sm.write(':sense:voltage:nplcycles 0.1')
+          # setup I=0 voltage measurement
+          self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='f', auto_ohms=False)
+          self.sm.write(':arm:source immediate')
+        else:
+          self.sm.write(':output:smode himpedance')
+          self.outOn(on=False)
+          self.sm.write(f':sense:voltage:nplcycles {self.nplc_user_set}')
+          self.sm.write(':system:ccheck off')
       else:
-        self.sm.write(':output:smode himpedance')
-        self.outOn(on=False)
-        self.sm.write(f':sense:voltage:nplcycles {self.nplc_user_set}')
-        self.sm.write(':system:ccheck off')
+        print("Contact check option not installed")
+    else:
+      print("Contact check function requires 4-wire mode")
 
   def disconnect(self):
     self.__del__()
@@ -474,13 +480,15 @@ class k2400:
     """
     call set_ccheck_mode(True) before calling this
     and set_ccheck_mode(False) after you're done checking contacts
-    triggers a measurement and returns the contact check result associated with it
+    attempts to turn on the output and trigger a measurement.
+    tests if the output remains on after that. if so, the contact check passed
     True for contacted. always true if the option is not installed
     """
     good_contact = False
     self.sm.write(':output on')  # try to turn on the output
     if self.sm.query(':output?') == "1":  # check if that worked
       self.sm.write("INIT")
+      time.sleep(0.1)  # TODO: figure out a better way to do this. mysterious dealys = bad
       if self.sm.query(':output?') == "1":
         good_contact = True  # if INIT didn't trip the output off, then we're connected
     return (good_contact)
