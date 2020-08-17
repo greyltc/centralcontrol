@@ -6,6 +6,7 @@ import threading, queue
 import central_control.us as us
 import central_control.pcb as pcb
 import central_control.motion as motion
+import central_control.k2400 as sm
 from central_control.illumination import illumination
 import logging
 from collections.abc import Iterable
@@ -136,19 +137,37 @@ def worker():
 
             # device round robin commands
             elif task['cmd'] == 'round_robin':
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    p.get('s') # make sure we're starting with nothing selected
-                    if task['type'] == 'current':
-                        pass  # TODO: smu measure current command goes here
-                    for sel in task['devices']:
-                        p.get(sel)  # select the device
+                if len(task['slots']) > 0:
+                    with pcb.pcb(task['pcb'], timeout=1) as p:
+                        p.get('s') # make sure we're starting with nothing selected
+                        k = sm.k2400(addressString=task['smu']['address'], terminator=task['smu']['terminator'], serialBaud=task['smu']['baud'])
+
+                        # set up sourcemeter for the task
                         if task['type'] == 'current':
                             pass  # TODO: smu measure current command goes here
                         elif task['type'] == 'rtd':
                             pass  # TODO: smu resistance command goes here
                         elif task['type'] == 'connectivity':
-                            pass  # TODO: smu connectivity command goes here
-                        p.get('s') # deselect the device
+                            log_msg(f'Checking connections. Only failures will be printed.',lvl=logging.INFO)
+                            k.set_ccheck_mode(True)
+
+                        for i, slot in enumerate(task['slots']):
+                            dev = task['pixels'][i]
+                            p.get(f"s{slot}{dev}")  # select the device
+                            if task['type'] == 'current':
+                                pass  # TODO: smu measure current command goes here
+                            elif task['type'] == 'rtd':
+                                pass  # TODO: smu resistance command goes here
+                            elif task['type'] == 'connectivity':
+                                if k.contact_check() == False:
+                                    log_msg(f'{slot} -- {dev} appears disconnected.',lvl=logging.INFO)
+                            p.get(f"s{slot}0") # disconnect the slot
+
+                        if task['type'] == 'connectivity':
+                            k.set_ccheck_mode(False)
+                            log_msg(f'Contact check complete.',lvl=logging.INFO)
+                        p.get("s")
+                        k.disconnect()
 
 
                     #mo = motion.motion(address=task['stage_uri'], pcb_object=p)
