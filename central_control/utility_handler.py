@@ -9,8 +9,9 @@ import central_control.motion as motion
 import central_control.k2400 as sm
 from central_control.illumination import illumination
 import logging
-from collections.abc import Iterable
 import pyvisa
+import collections
+import numpy as np
 
 # for storing command messages as they arrive
 cmdq = queue.Queue()
@@ -45,7 +46,7 @@ def filter_cmd(mqtt_msg):
         msg = pickle.loads(mqtt_msg.payload)
     except:
         msg = None
-    if isinstance(msg, Iterable):
+    if isinstance(msg, collections.abc.Iterable):
         if 'cmd' in msg:
             result = msg
     return(result)
@@ -161,7 +162,7 @@ def worker():
                                 m = k.measure()[0]
                                 ohm = m[2]
                                 if (ohm < 3000) and (ohm > 500):
-                                    log_msg(f'{slot} -- {dev} Could be an RTD at {ohm} °C',lvl=logging.INFO)
+                                    log_msg(f'{slot} -- {dev} Could be an RTD at {rtd_r_to_t(ohm)} °C',lvl=logging.INFO)
                             elif task['type'] == 'connectivity':
                                 if k.contact_check() == False:
                                     log_msg(f'{slot} -- {dev} appears disconnected.',lvl=logging.INFO)
@@ -288,6 +289,35 @@ def sender(mqttc):
         to_send = outputq.get()
         mqttc.publish(to_send['destination'], to_send['payload'], qos=2).wait_for_publish()
         outputq.task_done()
+
+# converts RTD resistance to temperature. set r0 to 100 for PT100 and 1000 for PT1000
+def rtd_r_to_t(r, r0=1000, poly=None):
+	PTCoefficientStandard = collections.namedtuple("PTCoefficientStandard", ["a", "b", "c"])
+	# Source: http://www.code10.info/index.php%3Foption%3Dcom_content%26view%3Darticle%26id%3D82:measuring-temperature-platinum-resistance-thermometers%26catid%3D60:temperature%26Itemid%3D83
+	ptxIPTS68 = PTCoefficientStandard(+3.90802e-03, -5.80195e-07, -4.27350e-12)
+	ptxITS90 = PTCoefficientStandard(+3.9083E-03, -5.7750E-07, -4.1830E-12)
+	standard = ptxITS90  # pick an RTD standard
+	
+	noCorrection = np.poly1d([])
+	pt1000Correction = np.poly1d([1.51892983e-15, -2.85842067e-12, -5.34227299e-09, 1.80282972e-05, -1.61875985e-02, 4.84112370e+00])
+	pt100Correction = np.poly1d([1.51892983e-10, -2.85842067e-08, -5.34227299e-06, 1.80282972e-03, -1.61875985e-01, 4.84112370e+00])
+
+	A, B = standard.a, standard.b
+
+	if poly is None:
+		if abs(r0 - 1000.0) < 1e-3:
+			poly = pt1000Correction
+		elif abs(r0 - 100.0) < 1e-3:
+			poly = pt100Correction
+		else:
+			poly = noCorrection
+
+	t = ((-r0 * A + np.sqrt(r0 * r0 * A * A - 4 * r0 * B * (r0 - r))) / (2.0 * r0 * B))
+	
+	# For subzero-temperature refine the computation by the correction polynomial
+	if r < r0:
+	    t += poly(r)
+	return t
 
 
 if __name__ == "__main__":
