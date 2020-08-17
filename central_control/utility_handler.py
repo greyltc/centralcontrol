@@ -140,7 +140,6 @@ def worker():
             elif task['cmd'] == 'round_robin':
                 if len(task['slots']) > 0:
                     with pcb.pcb(task['pcb'], timeout=1) as p:
-                        print(f"mux status = {p.get('c')}") # check mux connections
                         p.get('iv') # make sure the circuit is in I-V mode (not eqe)
                         p.get('s') # make sure we're starting with nothing selected
                         k = sm.k2400(addressString=task['smu']['address'], terminator=task['smu']['terminator'], serialBaud=task['smu']['baud'])
