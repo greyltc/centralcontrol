@@ -64,6 +64,8 @@ class pcb:
       raise ValueError('Did not see welcome message from pcb')
 
     version = self.get('v')
+    mux = self.get("c")
+    stage = self.get("e")
     #print(f"Connected to control PCB running firmware version {version}")
 
     #substrates = self.substrateSearch()
@@ -85,6 +87,7 @@ class pcb:
     #      found = found + substrate
     #  #print(found)
     #self.resistors = resistors
+    print(f"v={version}|m={mux}|s={stage}")
     return(self)
 
   def __exit__(self, type, value, traceback):
