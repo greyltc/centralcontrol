@@ -410,6 +410,7 @@ class us:
       # check the new position
       ebs = self.end_buffers * self.steps_per_mm
       for i, ax in enumerate(axes):
+
         new_pos[i] = round(new_pos[i]*self.steps_per_mm) # convert to steps
         axl = self.pcb.get(f'l{ax}')
         if (axl is not None) and (axl > 0):
@@ -480,6 +481,7 @@ class us:
               pass
     
     if ret != 0:
+      print(f"np = {new_pos}")
       print(f"GOTO failed with return code {ret}|fail_log={fail_log}|axes={axes}|from=[{froma},{fromb}]|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
       print(f"ACTUAL= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
 
