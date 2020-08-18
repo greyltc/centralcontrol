@@ -685,6 +685,7 @@ class fabric:
             end=end,
             senseRange=senseRange,
         )
+        self.sm.sm.write(':arm:source immediate')
 
         handler(raw := self.sm.measure(nPoints))
         return raw
