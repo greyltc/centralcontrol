@@ -452,9 +452,12 @@ class us:
             for i, ax in enumerate(axes):
               if not_at_goal[i] == True:
                 try:
-                  ax_pos[i] = int(self.pcb.get(f'r{ax}'))
+                  cmd = f'r{ax}'
+                  read_pos = self.pcb.get(cmd)
+                  ax_pos[i] = int(read_pos)
                 except:
                   ax_pos[i] = -100
+                  print(f"Fail to read pos via {cmd} with result {read_pos}")
                 if ax_pos[i] == new_pos[i]:
                   not_at_goal[i] = False
                 else:
