@@ -81,8 +81,8 @@ class k2400:
   def _getSourceMeter(self, rm):
     timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things acan back up and they're slow
     if 'ASRL' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_XON_XOFF, 'parity': visa.constants.Parity.none, 'allow_dma': True}
-      smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and xon-xoff flow control."
+      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_RTS_CTS, 'parity': visa.constants.Parity.none, 'allow_dma': True}
+      smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
     elif 'GPIB' in self.addressString:
       openParams = {'resource_name': self.addressString, 'write_termination': "\n", 'read_termination': "\n"}# , 'io_protocol': visa.constants.VI_HS488
       addrParts = self.addressString.split('::')
@@ -500,7 +500,7 @@ if __name__ == "__main__":
   start = time.time()
   #address = "GPIB0::24::INSTR"
   #address = 'ASRL/dev/ttyS0::INSTR'
-  address = 'ASRL/dev/ttyUSB1::INSTR'
+  address = 'ASRL/dev/ttyUSB0::INSTR'
 
   # connect to our instrument
   # for testing GPIB connections
@@ -582,7 +582,7 @@ if __name__ == "__main__":
 
   # convert the result to a pandas dataframe and print it
   sw_mf = pd.DataFrame(sw_ma)
-  print(f"===== {numPoints} point sweep from V={startV} to V={endV} in {tend} seconds =====")
+  print(f"===== {len(sw_ma)} point sweep from V={startV} to V={endV} in {tend} seconds =====")
   #print(dc_mf.to_string(formatters={'status':'{0:024b}'.format}))
 
   # shut off the output
