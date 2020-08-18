@@ -174,7 +174,7 @@ class k2400:
     sm.write('source:voltage:protection 20')  # the instrument will never generate over 20v
 
     self.setWires(twoWire=twoWire)
-
+    self.opc()
     sm.write(':sense:function:concurrent on')
     sm.write(':sense:function "current:dc", "voltage:dc"')
     sm.write(':format:elements time,voltage,current,status')
@@ -207,9 +207,11 @@ class k2400:
     sm.write(':system:beeper:state off')
     sm.write(':system:lfrequency:auto on')
     sm.write(':system:time:reset')
+    self.opc()
 
     sm.write(':system:azero off')  # we'll do this once before every measurement
     sm.write(':system:azero:caching on')
+    self.opc()
 
     # enable/setup contact check :system:ccheck
     opts = self.sm.query("*opt?")
@@ -226,6 +228,7 @@ class k2400:
           self.outOn(on=False)
           self.sm.write(':output:smode guard')
           self.sm.write(':system:ccheck on')
+          self.opc()
           self.sm.write(':sense:voltage:nplcycles 0.1')
           # setup I=0 voltage measurement
           self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='f', auto_ohms=False)
@@ -233,6 +236,7 @@ class k2400:
         else:
           self.sm.write(':output:smode himpedance')
           self.outOn(on=False)
+          self.opc()
           self.sm.write(f':sense:voltage:nplcycles {self.nplc_user_set}')
           self.sm.write(':system:ccheck off')
       else:
@@ -278,6 +282,7 @@ class k2400:
     self.nplc_user_set = nplc
     self.sm.write(':sense:current:nplcycles {:}'.format(nplc))
     self.sm.write(':sense:voltage:nplcycles {:}'.format(nplc))
+    self.opc()
     self.sm.write(':sense:resistance:nplcycles {:}'.format(nplc))
     if nplc < 1:
       self.sm.write(':display:digits 5')
@@ -292,9 +297,11 @@ class k2400:
     auto_ohms = true will override everything and make the output data change to (voltage,current,resistance,time,status)
     """
     sm = self.sm
+    self.opc()
     if auto_ohms == True:
       sm.write(':sense:function:on "resistance"')
       sm.write(':sense:resistance:mode auto')
+      self.opc()
       sm.write(':sense:resistance:range:auto on')
       #sm.write(':sense:resistance:range 20E3')
       sm.write(':format:elements voltage,current,resistance,time,status')
@@ -309,6 +316,7 @@ class k2400:
         src = 'current'
         snc = 'voltage'
       self.src = src
+      self.opc()
       sm.write(':source:function {:s}'.format(src))
       sm.write(':source:{:s}:mode fixed'.format(src))
       sm.write(':source:{:s} {:.8f}'.format(src,setPoint))
@@ -318,6 +326,7 @@ class k2400:
       sm.write(':sense:function "{:s}"'.format(snc))
       sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
 
+      self.opc()
       if senseRange == 'f':
         sm.write(':sense:{:s}:range:auto off'.format(snc))
         sm.write(':sense:{:s}:protection:rsynchronize on'.format(snc))
@@ -329,7 +338,7 @@ class k2400:
       # this again is to make sure the sense range gets updated
       sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
       sm.write(':format:elements voltage,current,time,status')
-
+    self.opc()
     sm.write(':output on')
     sm.write(':trigger:count 1')
 
@@ -343,6 +352,7 @@ class k2400:
     if stepDelay == -1 then step delay is on auto (1ms)
     """
     sm = self.sm
+    self.opc()
     if sourceVoltage:
       src = 'voltage'
       snc = 'current'
@@ -370,6 +380,7 @@ class k2400:
     else:
       sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
 
+    self.opc()
     # this again is to make sure the sense range gets updated
     sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
 
@@ -381,6 +392,7 @@ class k2400:
     else:
       sm.write(':source:delay:auto off')
       sm.write(':source:delay {:0.6f}'.format(stepDelay))
+    self.opc()
     sm.write(':trigger:count {:d}'.format(nPoints))
     sm.write(':source:sweep:points {:d}'.format(nPoints))
     sm.write(':source:{:s}:start {:.6f}'.format(src,start))
