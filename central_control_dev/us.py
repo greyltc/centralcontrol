@@ -389,10 +389,9 @@ class us:
     stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
     fail_log = []
     steps = self.pcb.get(f'r1')
-    pos1 = steps/self.steps_per_mm
-    steps = self.pcb.get(f'r1')
-    pos2 = steps/self.steps_per_mm
-    print(f"From x:{pos1} y:{pos2}")
+    froma = steps/self.steps_per_mm
+    steps = self.pcb.get(f'r2')
+    fromb = steps/self.steps_per_mm
 
     if not hasattr(new_pos, "__len__"):
       new_pos = [new_pos]
@@ -481,7 +480,8 @@ class us:
               pass
     
     if ret != 0:
-      print(f"GOTO failed with return code {ret}|fail_log={fail_log}|axes={axes}|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
+      print(f"GOTO failed with return code {ret}|fail_log={fail_log}|axes={axes}|from=[{froma},{fromb}]|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
+      print(f"ACTUAL= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
 
     return (ret)
 
