@@ -390,7 +390,7 @@ class us:
     fail_log = []
     steps = self.pcb.get(f'r1')
     pos1 = steps/self.steps_per_mm
-    steps = self.pcb.get(f'r1')
+    steps = self.pcb.get(f'r2')
     pos2 = steps/self.steps_per_mm
     print(f"From x:{pos1} y:{pos2}")
 
