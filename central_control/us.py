@@ -388,7 +388,11 @@ class us:
     t0 = time.time()
     stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
     fail_log = []
-
+    steps = self.pcb.get(f'r1')
+    pos1 = steps/self.steps_per_mm
+    steps = self.pcb.get(f'r1')
+    pos2 = steps/self.steps_per_mm
+    print(f"From x:{pos1} y:{pos2}")
 
     if not hasattr(new_pos, "__len__"):
       new_pos = [new_pos]
@@ -418,7 +422,7 @@ class us:
             koz += [-10]
           koz_min = min(koz)*self.steps_per_mm
           koz_max = max(koz)*self.steps_per_mm
-          print(f"i={i}, np={new_pos[i]}, axmin={axmin}, axmax={axmax}, kozmin={koz_min}, kozmin={koz_max}")
+          print(f"i={i}, np={new_pos[i]/self.steps_per_mm}, axmin={axmin/self.steps_per_mm}, axmax={axmax/self.steps_per_mm}, kozmin={koz_min/self.steps_per_mm}, kozmin={koz_max/self.steps_per_mm}")
           if (new_pos[i] >= axmin and new_pos[i] <= axmax) and not (new_pos[i] >= koz_min and new_pos[i] <= koz_max):
             ret = 0
           else:
