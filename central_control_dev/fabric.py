@@ -685,7 +685,7 @@ class fabric:
             end=end,
             senseRange=senseRange,
         )
-        self.sm.sm.write(':arm:source immediate')
+        self.sm.write(':arm:source immediate')
 
         handler(raw := self.sm.measure(nPoints))
         return raw
@@ -835,6 +835,7 @@ class fabric:
         self.sm.setupDC(
             sourceVoltage=True, compliance=0.1, setPoint=0, senseRange="a",
         )
+        self.sm.write(':arm:source immediate')
 
         # set up PSU
         self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
@@ -905,6 +906,7 @@ class fabric:
         """
         failed = 0
         self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
+        self.sm.write(':arm:source immediate')
         with self.pcb(self.pcb_address) as p:
             while len(pixel_queue) > 0:
                 # get pixel info
