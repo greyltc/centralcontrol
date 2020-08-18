@@ -1419,6 +1419,8 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             grating_change_wls=config["monochromator"]["grating_change_wls"],
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             integration_time=args["eqe_int"],
+            auto_gain=True,
+            auto_gain_method=config["lia"]["auto_gain_method"],
             handler=handler,
         )
 
