@@ -205,7 +205,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                 if int(args["eqe_devs"], 16) > 0:
                     pixel_queue = _build_q(request, experiment="eqe")
                 else:
-                    # if it's emptpy, assume cal diode is connected externally
+                    # if it's empty, assume cal diode is connected externally
                     pixel_dict = {
                         "label": args["label_tree"][0],
                         "layout": None,
@@ -285,28 +285,24 @@ def _calibrate_psu(request, mqtthost, dummy):
 
                     # perform measurement
                     for channel in [1, 2, 3]:
-                        psu_calibration = measurement.calibrate_psu(
-                            channel,
-                            0.9 * config["psu"][f"ch{channel}_ocp"],
-                            10,
-                            config["psu"][f"ch{channel}_voltage"],
-                        )
+                        if config["psu"][f"ch{channel}_ocp"] != 0:
+                            psu_calibration = measurement.calibrate_psu(
+                                channel,
+                                0.9 * config["psu"][f"ch{channel}_ocp"],
+                                10,
+                                config["psu"][f"ch{channel}_voltage"],
+                            )
 
-                        # update eqe diode calibration data in atomic thread-safe way
-                        diode_dict = {
-                            "data": psu_calibration,
-                            "timestamp": timestamp,
-                            "diode": idn,
-                        }
-                        if channel == 3:
-                            retain = True
-                        else:
-                            retain = False
-                        mqttc.append_payload(
-                            f"calibration/psu/ch{channel}",
-                            pickle.dumps(diode_dict),
-                            retain=True,
-                        )
+                            diode_dict = {
+                                "data": psu_calibration,
+                                "timestamp": timestamp,
+                                "diode": idn,
+                            }
+                            mqttc.append_payload(
+                                f"calibration/psu/ch{channel}",
+                                pickle.dumps(diode_dict),
+                                retain=True,
+                            )
 
                 _log("LED PSU calibration complete!", 20, mqttc)
             print("Finished calibrating PSU.")
@@ -358,7 +354,6 @@ def _calibrate_spectrum(request, mqtthost, dummy):
 
                 spectrum = measurement.measure_spectrum()
 
-                # update spectrum  calibration data in atomic thread-safe way
                 spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
                 # publish calibration
