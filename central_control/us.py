@@ -433,16 +433,11 @@ class us:
         for i, ax in enumerate(axes):
           time_left = timeout - (time.time() - t0)
           while ((time_left > 0) and (ret == 0)):
-            gtr = self._goto(ax, goal_pos_steps[i])
-            ret = gtr[0]
-            if ret != 0: 
-              print(f"Unable to send axis{ax} goto command with result: {ret}")
-              ret = -2
-              break
-
-            time.sleep(stop_check_time_res)
+            #time.sleep(stop_check_time_res)
             cmd = f'r{ax}'
+            print(f'{ax}-r-b{self.pcb.get(f"i{ax}")}')
             read_pos = self.pcb.get(cmd)
+            print(f'{ax}-r-a{self.pcb.get(f"i{ax}")}')
             if isinstance(read_pos, int):
               ax_pos[i] = read_pos
               if ax_pos[i] == goal_pos_steps[i]:
@@ -452,9 +447,18 @@ class us:
               ret = -2
               break
 
-            time.sleep(stop_check_time_res)
+            gtr = self._goto(ax, goal_pos_steps[i])
+            ret = gtr[0]
+            if ret != 0: 
+              print(f"Unable to send axis{ax} goto command with result: {ret}")
+              ret = -2
+              break
+
+            #time.sleep(stop_check_time_res)
             cmd = f'l{ax}'
+            print(f'{ax}-l-b{self.pcb.get(f"i{ax}")}')
             axl = self.pcb.get(cmd)
+            print(f'{ax}-l-a{self.pcb.get(f"i{ax}")}')
             if isinstance(read_pos, int):
               if axl <= 0:
                 print(f"Got bad axis{ax} length reading: {axl}")
