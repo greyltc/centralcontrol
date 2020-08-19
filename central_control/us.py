@@ -475,6 +475,8 @@ class us:
               ret = 0
               if (len(axes) == self.n_axes):
                 self.homed = True
+            elif movement_retries_left == 0:
+              ret = -2
           else:
             ret = -1 # out of time
 

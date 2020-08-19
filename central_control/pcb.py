@@ -183,7 +183,7 @@ class pcb:
       # try to parse by question
       if cmd.startswith('g'):
         if answer.startswith('ERROR'):
-          ret = None  # TODO: probably shouldn't just chuck this error...
+          ret = answer
         else:
           ret = answer
       elif cmd.startswith('l'):
