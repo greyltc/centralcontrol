@@ -463,6 +463,8 @@ class fabric:
                 psu_baud=psu_baud,
                 psu_ocps=psu_ocps,
             )
+        else:
+            self.psu = None
 
         if pcb_address is not None:
             self._connect_pcb(dummy, pcb_address)
