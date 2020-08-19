@@ -478,7 +478,10 @@ class fabric:
         while len(self._connected_instruments) > 0:
             instr = self._connected_instruments.pop()
             print(instr)
-            instr.disconnect()
+            try:
+                instr.disconnect()
+            except:
+                pass
 
     def measure_spectrum(self, recipe=None):
         """Measure the spectrum of the light source.
