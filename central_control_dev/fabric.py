@@ -826,6 +826,10 @@ class fabric:
         current_steps : int
             Number of current steps to measure.
         """
+        # block the monochromator so there's no AC background
+        self.mono.set_filter(5)
+        self.mono.goto_wavelength(300)
+
         currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
 
         # set smu to short circuit and enable output
@@ -852,6 +856,10 @@ class fabric:
 
         # disable smu
         self.sm.outOn(False)
+
+        # unblock the monochromator
+        self.mono.set_filter(1)
+        self.mono.goto_wavelength(0)
 
         return data
 
