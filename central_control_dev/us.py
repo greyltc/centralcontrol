@@ -433,9 +433,7 @@ class us:
         for i, ax in enumerate(axes):
           time_left = timeout - (time.time() - t0)
           while ((time_left > 0) and (ret == 0)):
-            print(f'b{self.pcb.get("i{ax}")}')
             gtr = self._goto(ax, goal_pos_steps[i])
-            print(f'a{self.pcb.get("i{ax}")}')
             ret = gtr[0]
             if ret != 0: 
               print(f"Unable to send axis{ax} goto command with result: {ret}")
@@ -605,7 +603,9 @@ class us:
   def _goto(self, ax, steps):
     goto_retries_left = 5
     while goto_retries_left > 0:
+      print(f'b{self.pcb.get(f"i{ax}")}')
       resp = self.pcb.get(f'g{ax}{steps}')
+      print(f'a{self.pcb.get(f"i{ax}")}')
       if resp == '':
         ret = 0
         break
