@@ -378,6 +378,7 @@ class us:
     froma = steps/self.steps_per_mm
     steps = self.pcb.get(f'r2')
     fromb = steps/self.steps_per_mm
+    print(f"Starting at= [{froma},{fromb}]")
     #print(f"GOTO starts at: [{froma},{fromb}]")
 
     if not hasattr(new_pos, "__len__"):
@@ -468,7 +469,7 @@ class us:
               break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
     if ret != 0:
       print(f"GOTO failed with return code {ret}|axes={axes}|starting_at=[{froma},{fromb}]|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
-      print(f"ACTUAL= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
+    print(f"Ending at= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
     return (ret)
 
   # sends the stage somewhere
