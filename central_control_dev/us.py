@@ -93,9 +93,9 @@ class us:
         to_check = []
         ret = -3
     for ax in to_check:
-      driver_length = self.pcb.get(f'l{ax}')
+      driver_length = self.pcb.get(f'l{ax}') 
       self.measured_lengths[self.axes.index(ax)] = driver_length
-      if (driver_length is not None) and (driver_length > 0):
+      if (isinstance(driver_length, int)) and (driver_length > 0):
         ald = self.allowed_length_deviation*self.steps_per_mm
         el = self.expected_lengths[self.axes.index(ax)]
         if (driver_length < el + ald) and (driver_length > el - ald):
@@ -251,7 +251,7 @@ class us:
       ret = -1
       while(time_left>0):
         axl = self.pcb.get(f'l{ax}')
-        if (axl is not None) and (axl >= 0):
+        if (isinstance(axl, int)) and (axl >= 0):
           dims += [axl]
           ret = 0
           self.current_position[self.axes.index(ax)] = self.pcb.get(f'r{ax}')/self.steps_per_mm
@@ -280,7 +280,7 @@ class us:
     for ax in axes:
       # TODO: probably shouldn't have to do a home check here first
       home_check = self.pcb.get(f'r{ax}')
-      if home_check is not None and home_check > 0:
+      if isinstance(home_check, int) and home_check > 0:
         steps = self.pcb.get(f'r{ax}')
         pos = steps/self.steps_per_mm
       else:
@@ -329,7 +329,7 @@ class us:
       where = [0]*len(mm)  # final locations in mm
       for i, ax in enumerate(axes):
         here = self.pcb.get(f'r{ax}')
-        if (here is not None) and (here > 0):
+        if (isinstance(here, int)) and (here > 0):
           where[i] = here/self.steps_per_mm + mm[i]
         else:
           ret = -2
