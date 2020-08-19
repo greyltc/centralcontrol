@@ -469,6 +469,7 @@ class us:
     if ret != 0:
       print(f"GOTO failed with return code {ret}|axes={axes}|starting_at=[{froma},{fromb}]|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
       print(f"ACTUAL= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
+    return (ret)
 
   # sends the stage somewhere
   # axis is -1 for all available axes or a list of axes you wish to move
