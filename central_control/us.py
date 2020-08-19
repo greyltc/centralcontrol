@@ -435,9 +435,9 @@ class us:
           while ((time_left > 0) and (ret == 0)):
             #time.sleep(stop_check_time_res)
             cmd = f'r{ax}'
-            print(f'{ax}-r-b{self.pcb.get(f"i{ax}"):08}')
+            print(f'{ax}-r-b{str(self.pcb.get(f"i{ax}")).rjust(8,'0')}')
             read_pos = self.pcb.get(cmd)
-            print(f'{ax}-r-a{self.pcb.get(f"i{ax}"):08}')
+            print(f'{ax}-r-a{str(self.pcb.get(f"i{ax}")).rjust(8,'0')}')
             if isinstance(read_pos, int):
               ax_pos[i] = read_pos
               if ax_pos[i] == goal_pos_steps[i]:
@@ -456,9 +456,9 @@ class us:
 
             #time.sleep(stop_check_time_res)
             cmd = f'l{ax}'
-            print(f'{ax}-l-b{self.pcb.get(f"i{ax}"):08}')
+            print(f'{ax}-l-b{str(self.pcb.get(f"i{ax}")).rjust(8,'0')}')
             axl = self.pcb.get(cmd)
-            print(f'{ax}-l-a{self.pcb.get(f"i{ax}"):08}')
+            print(f'{ax}-l-a{str(self.pcb.get(f"i{ax}")).rjust(8,'0')}')
             if isinstance(read_pos, int):
               if axl <= 0:
                 print(f"Got bad axis{ax} length reading: {axl}")
@@ -608,9 +608,9 @@ class us:
   def _goto(self, ax, steps):
     goto_retries_left = 5
     while goto_retries_left > 0:
-      print(f'{ax}-g-b{self.pcb.get(f"i{ax}"):08}')
+      print(f'{ax}-g-b{str(self.pcb.get(f"i{ax}")).rjust(8,'0')}')
       resp = self.pcb.get(f'g{ax}{steps}')
-      print(f'{ax}-g-a{self.pcb.get(f"i{ax}"):08}')
+      print(f'{ax}-g-a{str(self.pcb.get(f"i{ax}")).rjust(8,'0')}')
       if resp == '':
         ret = 0
         break
