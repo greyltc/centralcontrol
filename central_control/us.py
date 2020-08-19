@@ -365,7 +365,110 @@ class us:
         else:
           ret = -2
     return(ret)
+  
+  def goto(self, new_pos, axes=-1, block=True, timeout=80):
+    ret = -9
+    if block != True:
+      print("Non-blocking movement is not supported at this time.")
+      return(ret)
+    t0 = time.time()
+    stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
 
+    steps = self.pcb.get(f'r1')
+    froma = steps/self.steps_per_mm
+    steps = self.pcb.get(f'r2')
+    fromb = steps/self.steps_per_mm
+    #print(f"GOTO starts at: [{froma},{fromb}]")
+
+    if not hasattr(new_pos, "__len__"):
+      new_pos = [new_pos]
+
+    if not hasattr(axes, "__len__"):
+      if axes == -1:
+        axes = self.axes
+      else:
+        axes = [axes]
+    ax_pos = [-500 for x in axes] # stores positions updated during the blocking check loop. init to something wacky
+    goal_pos_steps = [-500 for x in axes] # store goal positions in steps. init to something wacky
+
+    if len(new_pos) != len(axes):
+      #raise ValueError("Move error")  #TODO: log movement error
+      ret = -7
+    else:
+      # check the new position
+      ebs = self.end_buffers * self.steps_per_mm
+      for i, ax in enumerate(axes):
+
+        goal_pos_steps[i] = round(new_pos[i]*self.steps_per_mm) # convert to steps
+        axl = self.pcb.get(f'l{ax}')
+        if isinstance(axl, int):
+          if (axl > 0):
+            axmin = ebs
+            axmax = axl - ebs
+            koz = self.keepout_zones[self.axes.index(ax)]
+            if len(koz) == 0:
+              koz += [-10] # something that's never enforced for no keepout
+              koz += [-10]
+            koz_min = min(koz)*self.steps_per_mm
+            koz_max = max(koz)*self.steps_per_mm
+            print(f"i={i}, np={goal_pos_steps[i]/self.steps_per_mm}, axmin={axmin/self.steps_per_mm}, axmax={axmax/self.steps_per_mm}, kozmin={koz_min/self.steps_per_mm}, kozmin={koz_max/self.steps_per_mm}")
+            if (goal_pos_steps[i] >= axmin and goal_pos_steps[i] <= axmax) and not (goal_pos_steps[i] >= koz_min and goal_pos_steps[i] <= koz_max):
+              ret = 0
+            else:
+              ret = -6
+              break
+          else:
+            self.homed = False
+            print(f"Got bad initial axis{ax} length reading: {axl}")
+            ret = -2
+            break
+        else:
+          self.homed = False
+          print(f"Unable to do initial axis{ax} length read: {axl}")
+          ret = -2
+          break
+
+      if ret == 0:  # the new goal is in bounds
+        # initiate the moves
+        for i, ax in enumerate(axes):
+          gtr = self._goto(ax,goal_pos_steps[i])
+          ret = gtr[0]
+          if ret != 0: 
+            print(f"Unable to send axis{ax} goto command with result: {ret}")
+            ret = -2
+            break
+          else: # the movement command was accepted
+            time_left = timeout - (time.time() - t0)
+            while ((time_left > 0) and (ret == 0)):
+              time.sleep(stop_check_time_res)
+              cmd = f'r{ax}'
+              read_pos = self.pcb.get(cmd)
+              if isinstance(read_pos, int):
+                ax_pos[i] = read_pos
+                if ax_pos[i] == goal_pos_steps[i]:
+                  break  # goal position reached
+              else:
+                print(f"Unable to read axis{ax} pos with result: {read_pos}")
+                ret = -2
+                break
+              time.sleep(stop_check_time_res)
+              cmd = f'l{ax}'
+              axl = self.pcb.get(cmd)
+              if isinstance(read_pos, int):
+                if axl <= 0:
+                  print(f"Got bad axis{ax} length reading: {axl}")
+                  ret = -2
+                  break
+              else:
+                print(f"Unable to read axis{ax} len with result: {axl}")
+                ret = -2
+                break
+              time_left = timeout - (time.time() - t0)
+            if ret !=0:
+              break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
+    if ret != 0:
+      print(f"GOTO failed with return code {ret}|axes={axes}|starting_at=[{froma},{fromb}]|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
+      print(f"ACTUAL= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
 
   # sends the stage somewhere
   # axis is -1 for all available axes or a list of axes you wish to move
@@ -380,7 +483,7 @@ class us:
   # -6 attempt to move out of bounds
   # -7 location and axes list length mismatch
   # -9 for programming error
-  def goto(self, new_pos, axes=-1, block=True, timeout=80):
+  def goto_old(self, new_pos, axes=-1, block=True, timeout=80):
     """
     goes to an absolute mm position, blocking, returns 0 on success
     """

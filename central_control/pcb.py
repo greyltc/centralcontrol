@@ -188,12 +188,12 @@ class pcb:
           ret = answer
       elif cmd.startswith('l'):
         if answer.startswith('ERROR'):
-          ret = None  # TODO: probably shouldn't just chuck this error...
+          ret = answer
         else:
           ret = int(answer)
       elif cmd.startswith('r'):
         if answer.startswith('ERROR'):
-          ret = None  # TODO: probably shouldn't just chuck this error...
+          ret = answer
         else:
           ret = int(answer)
       elif cmd.startswith('h'):
