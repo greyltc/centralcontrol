@@ -430,43 +430,45 @@ class us:
           break
 
       if ret == 0:  # the new goal is in bounds
-        # initiate the moves
         for i, ax in enumerate(axes):
-          gtr = self._goto(ax,goal_pos_steps[i])
-          ret = gtr[0]
-          if ret != 0: 
-            print(f"Unable to send axis{ax} goto command with result: {ret}")
-            ret = -2
-            break
-          else: # the movement command was accepted
+          time_left = timeout - (time.time() - t0)
+          while ((time_left > 0) and (ret == 0)):
+            gtr = self._goto(ax, goal_pos_steps[i])
+            ret = gtr[0]
+            if ret != 0: 
+              print(f"Unable to send axis{ax} goto command with result: {ret}")
+              ret = -2
+              break
+
+            time.sleep(stop_check_time_res)
+            cmd = f'r{ax}'
+            read_pos = self.pcb.get(cmd)
+            if isinstance(read_pos, int):
+              ax_pos[i] = read_pos
+              if ax_pos[i] == goal_pos_steps[i]:
+                break  # goal position reached
+            else:
+              print(f"Unable to read axis{ax} pos with result: {read_pos}")
+              ret = -2
+              break
+
+            time.sleep(stop_check_time_res)
+            cmd = f'l{ax}'
+            axl = self.pcb.get(cmd)
+            if isinstance(read_pos, int):
+              if axl <= 0:
+                print(f"Got bad axis{ax} length reading: {axl}")
+                ret = -2
+                break
+            else:
+              print(f"Unable to read axis{ax} len with result: {axl}")
+              ret = -2
+              break
+            time.sleep(stop_check_time_res)
+
             time_left = timeout - (time.time() - t0)
-            while ((time_left > 0) and (ret == 0)):
-              time.sleep(stop_check_time_res)
-              cmd = f'r{ax}'
-              read_pos = self.pcb.get(cmd)
-              if isinstance(read_pos, int):
-                ax_pos[i] = read_pos
-                if ax_pos[i] == goal_pos_steps[i]:
-                  break  # goal position reached
-              else:
-                print(f"Unable to read axis{ax} pos with result: {read_pos}")
-                ret = -2
-                break
-              time.sleep(stop_check_time_res)
-              cmd = f'l{ax}'
-              axl = self.pcb.get(cmd)
-              if isinstance(read_pos, int):
-                if axl <= 0:
-                  print(f"Got bad axis{ax} length reading: {axl}")
-                  ret = -2
-                  break
-              else:
-                print(f"Unable to read axis{ax} len with result: {axl}")
-                ret = -2
-                break
-              time_left = timeout - (time.time() - t0)
-            if ret !=0:
-              break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
+          if ret !=0:
+            break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
     if ret != 0:
       print(f"GOTO failed with return code {ret}|axes={axes}|starting_at=[{froma},{fromb}]|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
     print(f"Ending at= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
