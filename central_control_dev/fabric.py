@@ -171,15 +171,11 @@ class fabric:
         if dummy is True:
             self.lia = virtual_sr830.sr830(return_int=True)
         else:
-            self.lia = sr830.sr830(return_int=True, check_errors=False)
+            self.lia = sr830.sr830(lia_address, **{"timeout": 30000})
 
         # default lia_output_interface is RS232
-        self.lia.connect(
-            resource_name=lia_address,
-            output_interface=lia_output_interface,
-            set_default_configuration=True,
-        )
-        self.lia_idn = self.lia.get_id()
+        self.lia.connect(output_interface=lia_output_interface)
+        print(self.lia.idn)
 
         self._connected_instruments.append(self.lia)
 
