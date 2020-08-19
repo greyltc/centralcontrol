@@ -732,7 +732,7 @@ class fabric:
         num_points=76,
         grating_change_wls=None,
         filter_change_wls=None,
-        integration_time=8,
+        time_constant=8,
         auto_gain=True,
         auto_gain_method="user",
         handler=lambda x: None,
@@ -763,7 +763,7 @@ class fabric:
             Wavelength in nm at which to change to the grating.
         filter_change_wls : list or tuple of int or float, optional
             Wavelengths in nm at which to change filters
-        integration_time : int
+        time_constant : int
             Integration time setting for the lock-in amplifier.
         auto_gain : bool, optional
             Automatically choose sensitivity.
@@ -801,7 +801,7 @@ class fabric:
             num_points,
             grating_change_wls,
             filter_change_wls,
-            integration_time,
+            time_constant,
             auto_gain,
             auto_gain_method,
             handler,
