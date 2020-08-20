@@ -124,7 +124,7 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gd'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=10, min_step=0.0001, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.0001, NPLC=10, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
@@ -139,7 +139,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=10, min_step=0, NPLC=-1):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=1, min_step=0, NPLC=-1):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -166,7 +166,7 @@ class mppt:
     # do one bootstrap measurement
     W = start_voltage
     m.append(self.measure(W, callback=callback))
-    x.append(m[-1][2])
+    x.append(W)
     y.append(loss(*m[-1]))
     run_time = m[-1][2] - self.t0 # recompute runtime
 
@@ -176,7 +176,7 @@ class mppt:
     big = float("Infinity")
     while (not self.abort and (run_time < duration)):
       m.append(self.measure(W, callback=callback))  # apply new voltage and record a measurement
-      x.append(m[-1][2])  # save the new x
+      x.append(W)
       y.append(loss(*m[-1]))  # calculate the new loss and save it
       run_time = time.time() - self.t0 # recompute runtime
       if x[-1] != x[-2]: # prevent div by zero
