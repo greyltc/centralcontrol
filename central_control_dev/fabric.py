@@ -175,9 +175,7 @@ class fabric:
 
         # default lia_output_interface is RS232
         self.lia.connect(
-            lia_address,
-            resource_kwargs={"timeout": 30000},
-            output_interface=lia_output_interface,
+            lia_address, output_interface=lia_output_interface, **{"timeout": 30000},
         )
         print(self.lia.idn)
 
