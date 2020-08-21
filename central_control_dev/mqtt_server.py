@@ -1149,12 +1149,6 @@ def _ivt(
             else:
                 sense_range = "f"
 
-            if calibration is False:
-                kind = "iv_measurement"
-                dh.kind = kind
-                dh.sweep = sweep
-                _clear_plot(kind, mqttc)
-
             if args["sweep_check"] is True:
                 _log(
                     f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc,
@@ -1163,6 +1157,12 @@ def _ivt(
                 end = args["sweep_end"]
 
                 print(f"Sweeping voltage from {start} V to {end} V")
+
+                if calibration is False:
+                    kind = "iv_measurement/1"
+                    dh.kind = kind
+                    dh.sweep = sweep
+                    _clear_plot(kind, mqttc)
 
                 iv1 = measurement.sweep(
                     sourceVoltage=True,
@@ -1191,6 +1191,12 @@ def _ivt(
                 end = args["sweep_start"]
 
                 print(f"Sweeping voltage from {start} V to {end} V")
+
+                if calibration is False:
+                    kind = "iv_measurement/2"
+                    dh.kind = kind
+                    dh.sweep = sweep
+                    _clear_plot(kind, mqttc)
 
                 iv2 = measurement.sweep(
                     sourceVoltage=True,
