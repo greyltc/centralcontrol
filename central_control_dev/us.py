@@ -374,13 +374,6 @@ class us:
     t0 = time.time()
     stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
 
-    steps = self.pcb.get(f'r1')
-    froma = steps/self.steps_per_mm
-    steps = self.pcb.get(f'r2')
-    fromb = steps/self.steps_per_mm
-    print(f"Starting at= [{froma},{fromb}]")
-    #print(f"GOTO starts at: [{froma},{fromb}]")
-
     if not hasattr(new_pos, "__len__"):
       new_pos = [new_pos]
 
@@ -391,6 +384,14 @@ class us:
         axes = [axes]
     ax_pos = [-500 for x in axes] # stores positions updated during the blocking check loop. init to something wacky
     goal_pos_steps = [-500 for x in axes] # store goal positions in steps. init to something wacky
+
+    starting_pos = []
+    for i, ax in enumerate(axes):
+      try:
+        starting_pos.append(self.pcb.get(f'r{ax}')/self.steps_per_mm)
+      except:
+        pass
+    print(f"Starting at= {starting_pos}")
 
     if len(new_pos) != len(axes):
       #raise ValueError("Move error")  #TODO: log movement error
@@ -475,7 +476,13 @@ class us:
             break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
     if ret != 0:
       print(f"GOTO failed with return code {ret}|axes={axes}|starting_at=[{froma},{fromb}]|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
-    print(f"Ending at= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
+    final_pos = []
+    for i, ax in enumerate(axes):
+      try:
+        final_pos.append(self.pcb.get(f'r{ax}')/self.steps_per_mm)
+      except:
+        pass
+    print(f"Ending at= {final_pos}")
     return (ret)
 
   # sends the stage somewhere
