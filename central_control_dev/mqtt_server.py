@@ -1162,7 +1162,7 @@ def _ivt(
                     kind = "iv_measurement/1"
                     dh.kind = kind
                     dh.sweep = sweep
-                    _clear_plot(kind, mqttc)
+                    _clear_plot("iv_measurement", mqttc)
 
                 iv1 = measurement.sweep(
                     sourceVoltage=True,
@@ -1196,7 +1196,7 @@ def _ivt(
                     kind = "iv_measurement/2"
                     dh.kind = kind
                     dh.sweep = sweep
-                    _clear_plot(kind, mqttc)
+                    _clear_plot("iv_measurement", mqttc)
 
                 iv2 = measurement.sweep(
                     sourceVoltage=True,
