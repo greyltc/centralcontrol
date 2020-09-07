@@ -211,7 +211,6 @@ class fabric:
         else:
             self.mono = sp2150.sp2150()
         self.mono.connect(resource_name=mono_address)
-        self.mono.set_scan_speed(1000)
 
         self._connected_instruments.append(self.mono)
 
@@ -830,8 +829,8 @@ class fabric:
             Number of current steps to measure.
         """
         # block the monochromator so there's no AC background
-        self.mono.set_filter(5)
-        self.mono.goto_wavelength(300)
+        self.mono.filter = 5
+        self.mono.wavelength = 300
 
         currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
 
@@ -861,8 +860,8 @@ class fabric:
         self.sm.outOn(False)
 
         # unblock the monochromator
-        self.mono.set_filter(1)
-        self.mono.goto_wavelength(0)
+        self.mono.filter = 1
+        self.mono.wavelength = 0
 
         return data
 
