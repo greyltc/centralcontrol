@@ -331,6 +331,8 @@ def _calibrate_spectrum(request, mqtthost, dummy):
     """
     print("Calibrating spectrum...")
 
+    user_aborted = False
+
     with MQTTQueuePublisher() as mqttc:
         mqttc.connect(mqtthost)
         mqttc.loop_start()
@@ -365,12 +367,14 @@ def _calibrate_spectrum(request, mqtthost, dummy):
 
             print("Spectrum calibration complete.")
         except KeyboardInterrupt:
-            pass
+            user_aborted = True
         except Exception as e:
             traceback.print_exc()
             _log(f"SPECTRUM CALIBRATION ABORTED! " + str(e), 40, mqttc)
 
         mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
+
+    return user_aborted
 
 
 def _calibrate_solarsim_diodes(request, mqtthost, dummy):
@@ -1446,55 +1450,58 @@ def _run(request, mqtthost, dummy):
     """
     print("Running measurement...")
 
+    user_aborted = False
+
     args = request["args"]
 
     # calibrate spectrum if required
     if int(args["iv_devs"], 16) > 0:
-        _calibrate_spectrum(request, mqtthost, dummy)
+        user_aborted = _calibrate_spectrum(request, mqtthost, dummy)
 
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
+    if user_aborted is False:
+        with MQTTQueuePublisher() as mqttc:
+            mqttc.connect(mqtthost)
+            mqttc.loop_start()
 
-        mqttc.append_payload(
-            "measurement/status", pickle.dumps("Busy"), retain=True,
-        )
-        try:
-            with fabric() as measurement:
-                _log("Starting run...", 20, mqttc)
+            mqttc.append_payload(
+                "measurement/status", pickle.dumps("Busy"), retain=True,
+            )
+            try:
+                with fabric() as measurement:
+                    _log("Starting run...", 20, mqttc)
 
-                if int(args["iv_devs"], 16) != 0:
-                    iv_pixel_queue = _build_q(request, experiment="solarsim")
-                else:
-                    iv_pixel_queue = []
+                    if int(args["iv_devs"], 16) != 0:
+                        iv_pixel_queue = _build_q(request, experiment="solarsim")
+                    else:
+                        iv_pixel_queue = []
 
-                if int(args["eqe_devs"], 16) != 0:
-                    eqe_pixel_queue = _build_q(request, experiment="eqe")
-                else:
-                    eqe_pixel_queue = []
+                    if int(args["eqe_devs"], 16) != 0:
+                        eqe_pixel_queue = _build_q(request, experiment="eqe")
+                    else:
+                        eqe_pixel_queue = []
 
-                # measure i-v-t
-                if len(iv_pixel_queue) > 0:
-                    _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
-                    measurement.disconnect_all_instruments()
+                    # measure i-v-t
+                    if len(iv_pixel_queue) > 0:
+                        _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                        measurement.disconnect_all_instruments()
 
-                # measure eqe
-                if len(eqe_pixel_queue) > 0:
-                    _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
+                    # measure eqe
+                    if len(eqe_pixel_queue) > 0:
+                        _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
 
-                # report complete
-                _log("Run complete!", 20, mqttc)
+                    # report complete
+                    _log("Run complete!", 20, mqttc)
 
-            print("Measurement complete.")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            _log(f"RUN ABORTED! " + str(e), 40, mqttc)
+                print("Measurement complete.")
+            except KeyboardInterrupt:
+                pass
+            except Exception as e:
+                traceback.print_exc()
+                _log(f"RUN ABORTED! " + str(e), 40, mqttc)
 
-        mqttc.append_payload(
-            "measurement/status", pickle.dumps("Ready"), retain=True,
-        )
+            mqttc.append_payload(
+                "measurement/status", pickle.dumps("Ready"), retain=True,
+            )
 
 
 # queue for storing incoming messages
