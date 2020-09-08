@@ -1525,36 +1525,49 @@ def msg_handler():
     while True:
         msg = msg_queue.get()
 
-        request = pickle.loads(msg.payload)
+        try:
+            request = pickle.loads(msg.payload)
 
-        # perform a requested action
-        if (action := msg.topic.split("/")[-1]) == "run":
-            start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "stop":
-            stop_process()
-        elif action == "calibrate_eqe":
-            start_process(_calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "calibrate_psu":
-            start_process(_calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "calibrate_solarsim_diodes":
-            start_process(
-                _calibrate_solarsim_diodes,
-                (request, cli_args.mqtthost, cli_args.dummy,),
-            )
-        elif action == "calibrate_spectrum":
-            start_process(
-                _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
-            )
-        elif action == "calibrate_rtd":
-            start_process(_calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "contact_check":
-            start_process(_contact_check, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "home":
-            start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "goto":
-            start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
-        elif action == "read_stage":
-            start_process(_read_stage, (request, cli_args.mqtthost, cli_args.dummy,))
+            # perform a requested action
+            if (action := msg.topic.split("/")[-1]) == "run":
+                start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
+            elif action == "stop":
+                stop_process()
+            elif action == "calibrate_eqe":
+                start_process(
+                    _calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,)
+                )
+            elif action == "calibrate_psu":
+                start_process(
+                    _calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,)
+                )
+            elif action == "calibrate_solarsim_diodes":
+                start_process(
+                    _calibrate_solarsim_diodes,
+                    (request, cli_args.mqtthost, cli_args.dummy,),
+                )
+            elif action == "calibrate_spectrum":
+                start_process(
+                    _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+                )
+            elif action == "calibrate_rtd":
+                start_process(
+                    _calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,)
+                )
+            elif action == "contact_check":
+                start_process(
+                    _contact_check, (request, cli_args.mqtthost, cli_args.dummy,)
+                )
+            elif action == "home":
+                start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
+            elif action == "goto":
+                start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
+            elif action == "read_stage":
+                start_process(
+                    _read_stage, (request, cli_args.mqtthost, cli_args.dummy,)
+                )
+        except:
+            pass
 
         msg_queue.task_done()
 
