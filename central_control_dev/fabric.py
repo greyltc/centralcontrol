@@ -210,7 +210,7 @@ class fabric:
             self.mono = virtual_sp2150.sp2150()
         else:
             self.mono = sp2150.sp2150()
-        self.mono.connect(resource_name=mono_address)
+        self.mono.connect(resource_name=mono_address, **{"timeout": 10000})
 
         self._connected_instruments.append(self.mono)
 
