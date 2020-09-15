@@ -399,7 +399,7 @@ if __name__ == "__main__":
   old_intensity = wl.getRecipeParam(param="Intensity")
   old_duration = wl.getRecipeParam(param="Duration")
   new_intensity = 100.0
-  new_duration = 5 # in seconds
+  new_duration = 5.001 # in seconds
   if new_duration < 3:
     raise(ValueError("Pick a new duration larger than 3"))
   wl.setRecipeParam(param="Duration", value=new_duration*1000)
@@ -433,9 +433,10 @@ if __name__ == "__main__":
   wl.waitForRunFinished(run_ID = run_ID)
   wl.waitForResultAvailable(run_ID = run_ID)
 
+  result_param = "TotalIrradiance_300_1200"
   print("Getting Total Irradiance result...")
-  TotalIrradiance_300_1200 = wl.getResult(param="TotalIrradiance_300_1200", run_ID = run_ID)
-  print(f"TotalIrradiance_300_1200 = {TotalIrradiance_300_1200}")
+  result = wl.getResult(param=result_param, run_ID = run_ID)
+  print(f"{result_param} = {result}")
   
   print(f"Getting spectrum data...")
   spectra = wl.getDataSeries(run_ID=run_ID)
