@@ -3,6 +3,7 @@
 import socketserver
 import xml.etree.cElementTree as ET
 import time
+import xml.etree as elT
 
 class wavelabs:
   """interface to the wavelabs LED solar simulator"""
@@ -102,11 +103,15 @@ class wavelabs:
     """reads xml object from socket"""
     target = self.XMLHandler()
     parser = ET.XMLParser(target=target)
+    fed = bytes([])
     while not target.done_parsing:
-      parser.feed(self.connection.recv(1024))
+      new = self.connection.recv(1024)
+      fed += new 
+      parser.feed(new)
     parser.close()
     if target.error != 0:
       print("Got error number {:} from WaveLabs software: {:}".format(target.error, target.error_message))
+      print(f"Raw message: {fed}")
     return target
 
   def startServer(self):
@@ -267,7 +272,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to getResult ")
+      print(f"ERROR: Failed to getResult. Raw Request: {elT.ElementTree.tostring(root, method='xml')}")
       ret = None
     else:
       ret = response.paramVal
