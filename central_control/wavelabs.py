@@ -254,6 +254,25 @@ class wavelabs:
       ret = response.paramVal
     return ret
 
+  def getResult(self, param="totalirradiance_300_1200", run_ID=None):
+    ret = None
+    root = ET.Element("WLRC")
+    reName = 'GetResult'
+    if run_ID == None:
+      ET.SubElement(root, reName, iSeq=str(self.iseq), sParam=param)
+    else:
+      ET.SubElement(root, reName, iSeq=str(self.iseq), sParam=param, sRunID=run_ID)
+    self.iseq =  self.iseq + 1
+    tree = ET.ElementTree(root)
+    tree.write(self.sock_file)
+    response = self.recvXML()
+    if response.error != 0:
+      print("ERROR: Failed to getResult ")
+      ret = None
+    else:
+      ret = response.paramVal
+    return ret
+
   def getDataSeries(self, step=1, device="LE", curve_name="Irradiance-Wavelength", attributes="raw", run_ID=None):
     """returns a data series from SinusGUI"""
     ret = None
@@ -267,7 +286,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to get recipe parameter")
+      print("ERROR: Failed to getDataSeries")
     else:
       ret = []
       n_series = len(response.name) # number of data series we got
@@ -370,8 +389,9 @@ class wavelabs:
     return (x,y)
 
 if __name__ == "__main__":
-  #import matplotlib.pyplot as plt
-  import pandas as pd
+  do_disco = False
+  gui_plot_spectrum = False
+  
   wl = wavelabs(host='0.0.0.0', port=3334, default_recipe='AM1.5G', relay=False)  # for direct connection
   #wl = wavelabs(host='127.0.0.1', port=3335, relay=True, default_recipe='am1_5_1_sun')  #  for comms via relay
   print("Connecting to light engine...")
@@ -412,18 +432,20 @@ if __name__ == "__main__":
   print('Now!')
   wl.waitForRunFinished(run_ID = run_ID)
   wl.waitForResultAvailable(run_ID = run_ID)
+
+  print("Getting Total Irradiance result...")
+  TotalIrradiance_300_1200 = wl.getResult(param="TotalIrradiance_300_1200", run_ID = run_ID)
+  print(f"TotalIrradiance_300_1200 = {TotalIrradiance_300_1200}")
+  
+  print(f"Getting spectrum data...")
   spectra = wl.getDataSeries(run_ID=run_ID)
   spectrum = spectra[0]
   x = spectrum['data']['Wavelenght']
   y = spectrum['data']['Irradiance']
-  #plt.plot(x,y)
-  #plt.ylabel('Irradiance')
-  #plt.xlabel('Wavelength [nm]')
-  #plt.grid(True)
-  #plt.show()
+  print(f"Success! Data length = {len(y)}")
 
-  #wl.off()
-  #wl.activateRecipe()
+  wl.off()
+  wl.activateRecipe()
   wl.setRecipeParam(param="Intensity", value=old_intensity)
   wl.setRecipeParam(param="Duration", value=old_duration)
   
@@ -432,19 +454,30 @@ if __name__ == "__main__":
   print("Recipe Duration = {:} [s]".format(float(duration)/1000))
   print("Recipe Intensity = {:} [%]".format(intensity))
 
-  print("Now we do the Christo Disco!")
-  chan_names = ['all']
-  chan_values = [0.0]
-  disco_time = 10000 # [ms]
-  wl.startFreeFloat(time = disco_time, channel_nums = chan_names, channel_values = chan_values)
-  n_chans = 21
-  disco_sleep = disco_time/n_chans
-  disco_val = 75
-  chan_names = [str(x) for x in range(1,n_chans+1)]
-  for i in range(n_chans):
-    print('{:}% on Channel {:}'.format(disco_val, chan_names[i]))
-    chan_values = [0]*n_chans
-    chan_values[i] = disco_val
-    wl.startFreeFloat(time = disco_time, channel_nums=chan_names, channel_values=chan_values)
-    time.sleep(disco_sleep/1000)
-  wl.startFreeFloat() # stop freefloat
+  if gui_plot_spectrum == True:
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    plt.plot(x,y)
+    plt.ylabel('Irradiance')
+    plt.xlabel('Wavelength [nm]')
+    plt.grid(True)
+    plt.show()
+
+  if do_disco == True:
+    print("Now we do the Christo Disco!")
+    chan_names = ['all']
+    chan_values = [0.0]
+    disco_time = 10000 # [ms]
+    wl.startFreeFloat(time = disco_time, channel_nums = chan_names, channel_values = chan_values)
+    n_chans = 21
+    disco_sleep = disco_time/n_chans
+    disco_val = 75
+    chan_names = [str(x) for x in range(1,n_chans+1)]
+    for i in range(n_chans):
+      print('{:}% on Channel {:}'.format(disco_val, chan_names[i]))
+      chan_values = [0]*n_chans
+      chan_values[i] = disco_val
+      wl.startFreeFloat(time = disco_time, channel_nums=chan_names, channel_values=chan_values)
+      time.sleep(disco_sleep/1000)
+    wl.startFreeFloat() # stop freefloat
+  print("Done!")
