@@ -433,8 +433,11 @@ if __name__ == "__main__":
   wl.waitForRunFinished(run_ID = run_ID)
   wl.waitForResultAvailable(run_ID = run_ID)
 
-  result_param = "TotalIrradiance_300_1200"
-  print("Getting Total Irradiance result...")
+  print("Reading some system temperatures...")
+  result_param = "Temperature_LedBox_IR"
+  result = wl.getResult(param=result_param, run_ID = run_ID)
+  print(f"{result_param} = {result}")
+  result_param = "Temperature_LedBox_Vis"
   result = wl.getResult(param=result_param, run_ID = run_ID)
   print(f"{result_param} = {result}")
   
