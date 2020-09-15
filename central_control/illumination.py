@@ -8,6 +8,7 @@ class illumination:
   only supports wavelabs and newport via USB (ftdi driver)
   """
   light_engine = None
+  protocol = None
 
   def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout = 10):
     """
@@ -42,6 +43,7 @@ class illumination:
       self.light_engine = wavelabs(host=host, port=port, relay=relay, connection_timeout=connection_timeout, default_recipe=default_recipe)
     #elif protocol.lower() == ('ftdi'):
     #  self.light_engine = Newport(address=address)
+    self.protocol = protocol
 
   def connect(self):
     """
@@ -77,10 +79,20 @@ class illumination:
     """
     sets the recipe runtime in ms
     """
-    return self.light_engine.set_runtime()
+    return self.light_engine.set_runtime(ms)
 
   def get_runtime(self):
     """
     gets the recipe runtime in ms
     """
     return self.light_engine.get_runtime()
+
+  def get_temperatures(self):
+    """
+    returns a list of light engine temperature measurements
+    """
+    temp = []
+    if 'wavelabs' in self.protocol:
+      temp.append(self.light_engine.get_vis_led_temp())
+      temp.append(self.light_engine.get_ir_led_temp())
+    return temp

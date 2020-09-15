@@ -358,6 +358,12 @@ class wavelabs:
 
   def set_runtime(self, duration):
     return self.setRecipeParam(param="Duration", value=int(old_duration))
+  
+  def get_ir_led_temp(self, run_ID = None):
+    return wl.getResult(param="Temperature_LedBox_IR", run_ID = run_ID)
+  
+  def get_vis_led_temp(self, run_ID = None):
+    return wl.getResult(param="Temperature_LedBox_Vis", run_ID = run_ID)
 
   def get_spectrum(self):
     x = []
@@ -433,13 +439,9 @@ if __name__ == "__main__":
   wl.waitForRunFinished(run_ID = run_ID)
   wl.waitForResultAvailable(run_ID = run_ID)
 
-  print("Reading some system temperatures...")
-  result_param = "Temperature_LedBox_IR"
-  result = wl.getResult(param=result_param, run_ID = run_ID)
-  print(f"{result_param} = {result}")
-  result_param = "Temperature_LedBox_Vis"
-  result = wl.getResult(param=result_param, run_ID = run_ID)
-  print(f"{result_param} = {result}")
+  print("Reading LED temps...")
+  print(f'Vis LED temp = {wl.get_vis_led_temp(run_ID=run_ID)}')
+  print(f'IR LED temp = {wl.get_ir_led_temp(run_ID=run_ID)}')
   
   print(f"Getting spectrum data...")
   spectra = wl.getDataSeries(run_ID=run_ID)
