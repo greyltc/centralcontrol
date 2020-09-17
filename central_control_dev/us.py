@@ -374,11 +374,6 @@ class us:
     t0 = time.time()
     stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
 
-    steps = int(self.pcb.get(f'r1'))
-    froma = steps/self.steps_per_mm
-    steps = int(self.pcb.get(f'r2'))
-    fromb = steps/self.steps_per_mm
-
     if not hasattr(new_pos, "__len__"):
       new_pos = [new_pos]
 
@@ -480,7 +475,7 @@ class us:
           if ret !=0:
             break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
     if ret != 0:
-      print(f"GOTO failed with return code {ret}|axes={axes}|starting_at=[{froma},{fromb}]|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
+      print(f"GOTO failed with return code {ret}|axes={axes}|starting_at={starting_pos}|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
     final_pos = []
     for i, ax in enumerate(axes):
       try:
