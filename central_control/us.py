@@ -374,9 +374,9 @@ class us:
     t0 = time.time()
     stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
 
-    steps = self.pcb.get(f'r1')
+    steps = int(self.pcb.get(f'r1'))
     froma = steps/self.steps_per_mm
-    steps = self.pcb.get(f'r2')
+    steps = int(self.pcb.get(f'r2'))
     fromb = steps/self.steps_per_mm
 
     if not hasattr(new_pos, "__len__"):
