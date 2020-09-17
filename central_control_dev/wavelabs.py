@@ -365,10 +365,10 @@ class wavelabs:
     return self.setRecipeParam(param="Duration", value=int(old_duration))
   
   def get_ir_led_temp(self, run_ID = None):
-    return wl.getResult(param="Temperature_LedBox_IR", run_ID = run_ID)
+    return self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID)
   
   def get_vis_led_temp(self, run_ID = None):
-    return wl.getResult(param="Temperature_LedBox_Vis", run_ID = run_ID)
+    return self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID)
 
   def get_spectrum(self):
     x = []

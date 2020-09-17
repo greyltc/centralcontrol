@@ -68,10 +68,7 @@ class illumination:
     fetches a spectrum if the light engine supports it
     """
     spec = self.light_engine.get_spectrum()
-    vt = self.light_engine.get_vis_led_temp()
-    it = self.light_engine.get_ir_led_temp()
-    print(f"Visible bank LED temp = {vt} degC")
-    print(f"IR      bank LED temp = {it} degC")
+    print(f"System temperatures = {self.get_temperatures} degC")
     return spec
 
   def disconnect(self):
