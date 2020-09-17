@@ -68,7 +68,7 @@ class illumination:
     fetches a spectrum if the light engine supports it
     """
     spec = self.light_engine.get_spectrum()
-    print(f"System temperatures = {self.get_temperatures} degC")
+    print(f"System temperatures = {self.get_temperatures()} degC")
     return spec
 
   def disconnect(self):
