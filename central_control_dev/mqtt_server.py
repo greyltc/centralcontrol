@@ -1395,6 +1395,21 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
 
         compliance_i = measurement.compliance_current_guess(pixel["area"])
 
+        # if time constant is longer than 1s the instrument aborts its autogain
+        # function so need to make sure "user" is used under these conditions
+        if ((auto_gain_method := config["lia"]["auto_gain_method"]) == "instr") and (
+            measurement.lia.time_contstants[args["eqe_int"]] > 1
+        ):
+            auto_gain_method = "user"
+            _log(
+                (
+                    "Instrument autogain cannot be used when time constant > 1s. 'user'"
+                    + " autogain setting will be used instead."
+                ),
+                30,
+                mqttc,
+            )
+
         # determine how live measurement data will be handled
         if calibration is True:
             handler = lambda x: None
@@ -1424,7 +1439,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             filter_change_wls=config["monochromator"]["filter_change_wls"],
             time_constant=args["eqe_int"],
             auto_gain=True,
-            auto_gain_method=config["lia"]["auto_gain_method"],
+            auto_gain_method=auto_gain_method,
             handler=handler,
         )
 
