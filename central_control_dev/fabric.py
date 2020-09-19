@@ -75,7 +75,7 @@ class fabric:
         # reduce to maximum compliance of keithley 2400 if too high
         if area is None:
             # no area info given so can't make a calcualted guess
-            compliance_i = 0.1
+            compliance_i = 1
         elif (compliance_i := 5 * max_j * area / 1000) > 1:
             compliance_i = 1
 
