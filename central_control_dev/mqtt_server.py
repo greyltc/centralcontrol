@@ -828,8 +828,6 @@ def _build_q(request, experiment):
             + f"array: {substrate_total}. Layouts list has length {l}."
         )
 
-    layout = config["substrates"]["active_layout"]
-
     if experiment == "solarsim":
         pixel_address_string = args["iv_devs"]
     elif experiment == "eqe":
@@ -839,8 +837,11 @@ def _build_q(request, experiment):
     # layout from the config file
     substrate_q = []
     i = 0
-    for label, centre, sub_name in zip(
-        args["substrate_labels"], substrate_centres, args["subs_names"]
+    for label, centre, sub_name, layout in zip(
+        args["substrate_labels"],
+        substrate_centres,
+        args["subs_names"],
+        args["substrate_layouts"],
     ):
         # get pcb adapter info from config file
         pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
