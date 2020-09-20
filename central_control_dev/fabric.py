@@ -69,6 +69,8 @@ class fabric:
         # cell
         max_j = 50
 
+        print(f"compliance area: {area}")
+
         # calculate equivalent current in A for given device area
         # multiply by 5 to allow more data to be taken in forward bias (useful for
         # equivalent circuit fitting)
