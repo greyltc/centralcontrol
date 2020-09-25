@@ -81,7 +81,7 @@ class k2400:
   def _getSourceMeter(self, rm):
     timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things acan back up and they're slow
     if 'ASRL' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_RTS_CTS, 'parity': visa.constants.Parity.none, 'allow_dma': True}
+        openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_RTS_CTS, 'parity': visa.constants.Parity.none, 'allow_dma': True, 'resource_pyclass': pyvisa.resources.SerialInstrument}
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
     elif 'GPIB' in self.addressString:
       openParams = {'resource_name': self.addressString, 'write_termination': "\n", 'read_termination': "\n"}# , 'io_protocol': visa.constants.VI_HS488

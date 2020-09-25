@@ -222,6 +222,7 @@ def worker():
                 open_params['write_termination'] = "\r" # this is not configuable via the instrument front panel (or in any way I guess)
                 open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
                 open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS # user must choose NONE for flow control on the front panel
+                open_params['resource_pyclass'] = pyvisa.resources.SerialInstrument
             elif 'GPIB' in open_params['resource_name']:
                 open_params['write_termination'] = "\n"
                 open_params['read_termination'] = "\n"
