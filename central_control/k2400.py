@@ -2,7 +2,7 @@
 
 import sys
 import time
-import pyvisa as visa
+import pyvisa
 import os
 
 class k2400:
@@ -35,11 +35,11 @@ class k2400:
     except:
       pass
 
-    if self.sm.interface_type == visa.constants.InterfaceType.asrl:
-      try:
+    try:
+      if self.sm.interface_type == pyvisa.constants.InterfaceType.asrl:
         self.sm.write(':system:local')
-      except:
-        pass
+    except:
+      pass
 
     try:
       self.sm.close()
@@ -54,11 +54,11 @@ class k2400:
 
   def _getResourceManager(self,visa_lib):
     try:
-      rm = visa.ResourceManager(visa_lib)
+      rm = pyvisa.ResourceManager(visa_lib)
     except:
       exctype, value1 = sys.exc_info()[:2]
       try:
-        rm = visa.ResourceManager()
+        rm = pyvisa.ResourceManager()
       except:
         exctype, value2 = sys.exc_info()[:2]
         print('Unable to connect to instrument.')
@@ -80,39 +80,58 @@ class k2400:
 
   def _getSourceMeter(self, rm):
     timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things acan back up and they're slow
+    open_params = {}
+    open_params['resource_name'] = self.addressString
+
     if 'ASRL' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': self.terminator, 'write_termination': "\n", 'baud_rate': self.serialBaud, 'flow_control':visa.constants.VI_ASRL_FLOW_RTS_CTS, 'parity': visa.constants.Parity.none, 'allow_dma': True, 'resource_pyclass': pyvisa.resources.SerialInstrument}
+      open_params['timeout'] = timeoutMS
+      open_params['write_termination'] = self.terminator
+      open_params['read_termination'] = self.terminator
+      open_params['baud_rate'] = self.serialBaud
+      open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS
+      #open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_XON_XOFF
+      open_params['parity'] = pyvisa.constants.Parity.none
+      #open_params['allow_dma'] = True
+      #open_params['resource_pyclass'] = pyvisa.resources.SerialInstrument
+
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
     elif 'GPIB' in self.addressString:
-      openParams = {'resource_name': self.addressString, 'write_termination': "\n", 'read_termination': "\n"}# , 'io_protocol': visa.constants.VI_HS488
+      open_params['write_termination'] = "\n"
+      open_params['read_termination'] = "\n"
+      #open_params['io_protocol'] = visa.constants.VI_HS488
+      
       addrParts = self.addressString.split('::')
       board = addrParts[0][4:]
       address = addrParts[1]
-      smCommsMsg = "ERROR: Can't talk to sourcemeter\nIs GPIB controller {:} correct?\nIs the sourcemeter configured to listen on address {:}?".format(board,address)
+      smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}?"
     elif ('TCPIP' in self.addressString) and ('SOCKET' in self.addressString):
+      open_params['timeout'] = timeoutMS
+      open_params['write_termination'] = "\n"
+      open_params['read_termination'] = "\n"
+
       addrParts = self.addressString.split('::')
       host = addrParts[1]
       port = host = addrParts[2]
-      openParams = {'resource_name': self.addressString, 'timeout': timeoutMS, 'read_termination': "\n", 'write_termination': "\n"}
       smCommsMsg = f"ERROR: Can't talk to sourcemeter\nTried Ethernet<-->Serial link via {host}:{port}\nThe sourcemeter's comms parameters must match the Ethernet<-->Serial adapter's parameters\nand the terminator should be configured as <CR>"
     else:
       smCommsMsg = "ERROR: Can't talk to sourcemeter"
-      openParams = {'resource_name': self.addressString}
+      open_params = {'resource_name': self.addressString}
 
-    sm = rm.open_resource(**openParams)
+    sm = rm.open_resource(**open_params)
 
-    if sm.interface_type == visa.constants.InterfaceType.gpib:
+    if sm.interface_type == pyvisa.constants.InterfaceType.gpib:
       if os.name != 'nt':
         sm.send_ifc()  # linux-gpib can do this. windows can't?
-    
-    sm.clear()  # clear the interface
-    
-    if sm.interface_type == visa.constants.InterfaceType.asrl:
+
+
+    if sm.interface_type == pyvisa.constants.InterfaceType.asrl:
       # discard all buffers
-      sm.flush(visa.constants.VI_READ_BUF_DISCARD)
-      sm.flush(visa.constants.VI_WRITE_BUF_DISCARD)
-      sm.flush(visa.constants.VI_IO_IN_BUF_DISCARD)
-      sm.flush(visa.constants.VI_IO_OUT_BUF_DISCARD)
+      sm.flush(pyvisa.constants.VI_READ_BUF_DISCARD)
+      sm.flush(pyvisa.constants.VI_WRITE_BUF_DISCARD)
+      sm.flush(pyvisa.constants.VI_IO_IN_BUF_DISCARD)
+      sm.flush(pyvisa.constants.VI_IO_OUT_BUF_DISCARD)
+    else:
+      sm.clear()  # clear the interface
 
     try:
       sm.write('*RST')
@@ -167,7 +186,7 @@ class k2400:
     sm.query('*OPC?')
 
     # binary transfer for GPIB
-    if sm.interface_type == visa.constants.InterfaceType.gpib:
+    if sm.interface_type == pyvisa.constants.InterfaceType.gpib:
       sm.write("format:data {:s}".format('sreal'))
 
     sm.write('source:clear:auto off')
@@ -422,7 +441,7 @@ class k2400:
   def trigger(self):
     """performs trigger event
     """
-    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
+    if self.sm.interface_type == pyvisa.constants.InterfaceType.gpib:
       self.sm.assert_trigger()
     else:
       self.sm.write('*TRG')
@@ -431,7 +450,7 @@ class k2400:
     """sends a command over the GPIB bus
     See: https://linux-gpib.sourceforge.io/doc_html/gpib-protocol.html#REFERENCE-COMMAND-BYTES
     """
-    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
+    if self.sm.interface_type == pyvisa.constants.InterfaceType.gpib:
       self.sm.send_command(command)
       #self.sm.send_command(0x08) # whole bus trigger
     else:
@@ -449,7 +468,7 @@ class k2400:
     else:
       m_len = 5
 
-    if self.sm.interface_type == visa.constants.InterfaceType.gpib:
+    if self.sm.interface_type == pyvisa.constants.InterfaceType.gpib:
       vals = self.sm.read_binary_values(data_points=nPoints*m_len)
     else:
       vals = self.sm.query_ascii_values(':read?')
