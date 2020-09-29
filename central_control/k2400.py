@@ -4,6 +4,7 @@ import sys
 import time
 import pyvisa
 import os
+import collections
 
 class k2400:
   """
@@ -14,10 +15,12 @@ class k2400:
   idn = ''
   status = 0
   nplc_user_set = 1.0
+  last_sweep_time = 0
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
     self.readyForAction = False
+    self.four88point1 = False
     self.rm = self._getResourceManager(visa_lib)
 
     if scan:
@@ -31,26 +34,28 @@ class k2400:
 
   def __del__(self):
     try:
-      self.sm.write(':output off')  # TODO send GTL over GPIB
+      self.sm.write('abort')
     except:
       pass
 
     try:
-      # send the thing to local mode (serial flavor)
-      if self.sm.interface_type == pyvisa.constants.InterfaceType.asrl:
-        self.sm.write(':system:local')
+      self.sm.clear()  # SDC (selective device clear) signal
     except:
       pass
 
     try:
-      # send the thing to local mode (GPIB flavor)
-      g = self.ifc.visalib.sessions[self.sm.session]
-      g.interface.ibloc()  # seems to only work in GPIB SCPI mode
+      self.sm.write(':output off')
     except:
       pass
 
+    # attempt to get into local mode
     try:
-      self.ifc.send_ifc()
+      self.opc()
+      self.sm.write(':system:local')
+      time.sleep(0.2) # wait 200ms for this command to execute before closing the interface
+      if (not self.four88point1) and (self.sm.interface_type != pyvisa.constants.InterfaceType.asrl):
+        # this doesn't work in 488.1 mode
+        self.sm.visalib.sessions[self.sm.session].interface.ibloc()
     except:
       pass
 
@@ -60,34 +65,20 @@ class k2400:
       pass
 
     try:
-      g = self.ifc.visalib.sessions[self.sm.session]
-      g.controller.close()
+      self.ifc.close()
     except:
       pass
 
+    # then just close everything possible
     try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.interface.close()
+      for num, ses in self.rm.visalib.sessions.items():
+        try:
+          ses.close()
+        except:
+          pass
     except:
       pass
 
-    try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.controller.close()
-    except:
-      pass
-
-    try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.close()
-    except:
-      pass
-
-    try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.close(g.interface.id)
-    except:
-      pass
 
   def _getResourceManager(self,visa_lib):
     try:
@@ -125,15 +116,19 @@ class k2400:
       open_params['write_termination'] = self.terminator
       open_params['read_termination'] = self.terminator
       open_params['baud_rate'] = self.serialBaud
+
+      # this likely does nothing (I think these hardware flow control lines go nowhere useful inside the 2400)
       open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS
+      
+      # this seems to be very bad. known to lock up usb<-->serial bridge hardware
       #open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_XON_XOFF
+
       open_params['parity'] = pyvisa.constants.Parity.none
       #open_params['allow_dma'] = True
-      #open_params['resource_pyclass'] = pyvisa.resources.SerialInstrument
 
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
     elif 'GPIB' in self.addressString:
-      open_params['write_termination'] = ""
+      open_params['write_termination'] = "\n"
       open_params['read_termination'] = "\n"
       #open_params['io_protocol'] = pyvisa.constants.VI_HS488
       
@@ -141,7 +136,7 @@ class k2400:
       controller = addrParts[0]
       board = controller[4:]
       address = addrParts[1]
-      smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}? Is it in SCPI command mode?"
+      smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}? Try both SCPI and 488.1 comms modes, though 488.1 should be much faster"
     elif ('TCPIP' in self.addressString) and ('SOCKET' in self.addressString):
       open_params['timeout'] = timeoutMS
       open_params['write_termination'] = "\n"
@@ -156,25 +151,19 @@ class k2400:
       open_params = {'resource_name': self.addressString}
 
     sm = rm.open_resource(**open_params)
-
-    # figure out if we're in 488.1 mode
+    
+    # attempt to make a GPIB interface object and ensure it's enabled for remote control
     try:
-      if sm.io_prorocol == pyvisa.constants.VI_HS488:
-        self.four88point1 = True
-      else:
-        self.four88point1 = False
-    except:
-      self.four88point1 = False
-
-    if sm.interface_type == pyvisa.constants.InterfaceType.gpib:
       ifc = rm.open_resource(f'{controller}::INTFC')
-      #if os.name != 'nt':
-      ifc.send_ifc()  # TODO: test this on windows
-      ifc_ses = ifc.visalib.sessions[ifc._session]
-      ifc_ses.controller.remote_enable(1)  # make sure remote comms are enabled
-    else:
+      ifc.visalib.sessions[ifc.session].controller.remote_enable(1)
+    except:
       ifc = None
 
+    # attempt to send SDC (selective device clear) signal
+    try:
+      sm.clear()
+    except:
+      pass
 
     if sm.interface_type == pyvisa.constants.InterfaceType.asrl:
       # discard all buffers
@@ -182,26 +171,34 @@ class k2400:
       sm.flush(pyvisa.constants.VI_WRITE_BUF_DISCARD)
       sm.flush(pyvisa.constants.VI_IO_IN_BUF_DISCARD)
       sm.flush(pyvisa.constants.VI_IO_OUT_BUF_DISCARD)
-    else:
-      sm.clear()  # clear the interface
 
     try:
       sm.write('*RST')
-      sm.query('*OPC?')  # wait for the instrument to be ready
-      sm.write('*CLS')
-      sm.query('*OPC?')
-      sm.write(':status:queue:clear') # clears error queue
-      sm.query('*OPC?')
-      sm.write(':system:preset')
-      sm.query('*OPC?')
-      sm.query('*OPC?')
-      # if there is garbage left in the input buffer toss it
-      time.sleep(0.1)
-      #session = sm.visalib.sessions[sm._session]  # that's a pyserial object
-      #session.interface.reset_input_buffer()
-      if hasattr(sm, 'bytes_in_buffer'):
-        if sm.bytes_in_buffer > 0:
-          sm.read_raw(sm.bytes_in_buffer)
+    except:
+      pass
+
+    self.check488point1(sm=sm)
+    if not self.four88point1:
+      try:  # do a bunch of stuff to attempt to get in sync with apossibly misbehaving instrument
+        self.opc(sm=sm) # wait for the instrument to be ready
+        sm.write('*CLS')
+        self.opc(sm=sm)
+        sm.write(':status:queue:clear') # clears error queue
+        self.opc(sm=sm)
+        sm.write(':system:preset')
+        self.opc(sm=sm)
+        self.opc(sm=sm)
+        # if there is garbage left in the input buffer toss it
+        time.sleep(0.1)
+        #session = sm.visalib.sessions[sm._session]  # that's a pyserial object
+        #session.interface.reset_input_buffer()
+        if hasattr(sm, 'bytes_in_buffer'):
+          if sm.bytes_in_buffer > 0:
+            sm.read_raw(sm.bytes_in_buffer)
+      except:
+        pass
+
+    try:
       self.idn = sm.query('*IDN?')  # ask the device to identify its self
     except:
       print('Unable perform "*IDN?" query.')
@@ -218,10 +215,25 @@ class k2400:
       if not self.quiet:
         print("Sourcemeter found:")
         print(self.idn)
+      if not self.four88point1:
+        self.check488point1(sm=sm)
     else:
       raise ValueError("Got a bad response to *IDN?: {:s}".format(self.idn))
 
     return sm, ifc
+  
+  # attempt to learn if the machine is in 488.1 mode (fast comms)
+  def check488point1(self, sm=None):
+    if sm == None:
+      sm = self.sm
+    try:
+      if (sm.interface_type == pyvisa.constants.InterfaceType.gpib) and (sm.query(':system:mep:state?') == '0'):
+        self.four88point1 = True
+        print('High performance 488.1 comms mode activated!')
+      else:
+        self.four88point1 = False
+    except:
+      self.four88point1 = False
 
   def _setupSourcemeter(self, twoWire, front):
     """ Do initial setup for sourcemeter
@@ -231,16 +243,18 @@ class k2400:
     self.auto_ohms = False
 
     sm.write(':status:preset')
-    sm.query('*OPC?')
+    self.opc()
     sm.write(':trace:clear')
-    sm.query('*OPC?')
+    self.opc()
     sm.write(':output:smode himpedance')
-    sm.query('*OPC?')
+    self.opc()
 
-    # binary transfer for GPIB
-    if sm.interface_type == pyvisa.constants.InterfaceType.gpib:
+    # set data transfer type
+    if sm.interface_type == pyvisa.constants.InterfaceType.asrl:
+      sm.write("format:data {:s}".format('ascii'))
+    else:
       sm.write("format:data {:s}".format('sreal'))
-
+    
     sm.write('source:clear:auto off')
     sm.write('source:voltage:protection 20')  # the instrument will never generate over 20v
 
@@ -479,11 +493,16 @@ class k2400:
     sm.write(':system:azero once')
     self.opc() # ensure the instrument is ready after all this
 
-  def opc(self):
+  def opc(self, sm=None):
     """returns when all operations are complete
     """
-    self.sm.query('*OPC?')
-    return
+    if not self.four88point1:
+      if sm == None:
+        sm = self.sm
+      sm.write('*WAI')
+      one = sm.query('*OPC?')
+      if one != '1':
+        print(f"OPC returned {one}")
 
   def arm(self):
     """arms trigger
@@ -515,22 +534,26 @@ class k2400:
     for a prior DC setup, the list will be 1 long.
     for a prior sweep setup, the list returned will be n sweep points long
     """
+    # auto ohms measurements return length 5 data points
     if self.auto_ohms == False:
       m_len = 4
     else:
       m_len = 5
 
-    if self.four88point1 == True:
-      vals = self.sm.read_binary_values(data_points=nPoints*m_len)  # this only works in 488.1
-    elif self.sm.interface_type == pyvisa.constants.InterfaceType.gpib:
-      # GPIB but not 488.1 (SCPI then) (but this also actually works in 488.1 mode)
-      vals = self.sm.query_binary_values(':read?', data_points=nPoints*m_len)
-    else:
+    if self.sm.interface_type == pyvisa.constants.InterfaceType.asrl:
+      # ascii data only for serial comms
       vals = self.sm.query_ascii_values(':read?')
+    else:
+      if self.four88point1 == True:
+        # this only works in 488.1 because it can use the read address line to initiate the measurement
+        vals = self.sm.read_binary_values(data_points=nPoints*m_len, is_big_endian=True)
+      else:
+        vals = self.sm.query_binary_values(':read?', data_points=nPoints*m_len)
 
-    # turn this into a list of tuples
+    # turn this into a list of tuples because pretty much everything upstream likes that format
     reshaped = list(zip(*[iter(vals)]*m_len))
 
+    # if this was a sweep, compute how long it took
     if len(reshaped) > 1:
       first_element = reshaped[0]
       last_element = reshaped[-1]
@@ -540,7 +563,10 @@ class k2400:
       elif m_len == 5:
         t_start = first_element[3]
         t_end = last_element[3]
-      print(f"Approx sweep duration = {t_end - t_start} s")
+      self.last_sweep_time = t_end - t_start
+      print(f"Sweep duration = {self.last_sweep_time} s")
+    
+    # update the status byte
     self.status = int(reshaped[-1][-1])
     return reshaped
 
@@ -548,8 +574,9 @@ class k2400:
     """Makes a series of single dc measurements
     until termination conditions are met
     supports a callback after every measurement
-    cb gets a measurement every time one is made
-    returns a list of measurements, where each measurement is a tuple of length 4 normally, 5 for resistance
+    cb gets a single tuple every time one is generated
+    returns data in the same format as the measure command does:
+    a list of tuples, where each element has length 4 normally, 5 for resistance
     """
     i = 0
     t_end = time.time() + t_dwell
@@ -568,7 +595,7 @@ class k2400:
     and set_ccheck_mode(False) after you're done checking contacts
     attempts to turn on the output and trigger a measurement.
     tests if the output remains on after that. if so, the contact check passed
-    True for contacted. always true if the option is not installed
+    True for contacted. always true if the sourcemeter hardware does not support this feature
     """
     good_contact = False
     self.sm.write(':output on')  # try to turn on the output
@@ -584,20 +611,15 @@ if __name__ == "__main__":
   import pandas as pd
   import numpy as np
   start = time.time()
-  address = "GPIB0::24::INSTR"
+
+  #address = "GPIB0::24::INSTR"
+  #address = 'TCPIP0::10.45.0.186::4000::SOCKET'
   #address = 'ASRL/dev/ttyS0::INSTR'
-  #address = 'ASRL/dev/ttyUSB0::INSTR'
+  address = 'ASRL/dev/ttyUSB0::INSTR'
 
-  # connect to our instrument
-  # for testing GPIB connections
-  #k = k2400(addressString='GPIB0::24::INSTR') # gpib address strings expect the thing to be configured for 488.1 comms
-  
-  # for testing Ethernet <--> Serial adapter connections, in this case the adapter must be configured properly via its web interface
-  #k = k2400(addressString='TCPIP0::10.45.0.186::4000::SOCKET', front=True)
-
-  # for serial connection testing expects flow control to be on, data bits =8 and parity = none
-  con_time = time.time()
   k = k2400(addressString=address, terminator='\r', serialBaud=57600)
+
+  con_time = time.time()
   print(f"Connected to {k.addressString} in {time.time()-con_time} seconds")
 
   # do a contact check
@@ -660,6 +682,7 @@ if __name__ == "__main__":
   endV = 1
   k.setupSweep(compliance=0.01, nPoints=numPoints, start=startV, end=endV)  # set the sweep up
   t0 = time.time()
+  # TODO: need to understand why the actual sweep here when done in serial mode is so much slower (not the comms)
   sw_m = k.measure(nPoints = numPoints) # make the measurement
   tend = time.time()-t0
 
@@ -668,7 +691,7 @@ if __name__ == "__main__":
 
   # convert the result to a pandas dataframe and print it
   sw_mf = pd.DataFrame(sw_ma)
-  print(f"===== {len(sw_ma)} point sweep from V={startV} to V={endV} in {tend} seconds =====")
+  print(f"===== {len(sw_ma)} point sweep event from V={startV} to V={endV} completed in {tend:.2f}s ({k.last_sweep_time:.2f}s sweeping and {tend-k.last_sweep_time:2f}s data transfer) =====")
   #print(dc_mf.to_string(formatters={'status':'{0:024b}'.format}))
 
   # shut off the output
