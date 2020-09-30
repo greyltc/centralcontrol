@@ -1,4 +1,4 @@
-#AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
+#AssertPathExists=/opt/software/source/central-control/central_control/mqtt_server.py
 
 [Unit]
 After=network-online.target
@@ -7,7 +7,7 @@ Description=The measurement run handler service
 
 [Service]
 Environment=PYTHONUNBUFFERED=tomato_casserol
-ExecStart=python -m central_control_dev.mqtt_server --mqtthost 127.0.0.1
+ExecStart=python -m central_control.mqtt_server --mqtthost 127.0.0.1
 Restart=always
 RestartSec=3
 PrivateTmp=true
