@@ -18,6 +18,6 @@ python -m central_control_dev.mqtt_server --mqtthost 127.0.0.1 &
 
 mkdir -p /tmp/data
 cd /tmp/data
-python -m central_control_dev.saver -mqtthost 127.0.0.1 &
+python -m saver.saver -mqtthost 127.0.0.1 &
 
 wait

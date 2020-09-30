@@ -22,7 +22,7 @@ import numpy as np
 import yaml
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
-from central_control_dev.fabric import fabric
+from central_control.fabric import fabric
 
 
 def get_args():
