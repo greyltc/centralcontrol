@@ -1,5 +1,8 @@
-import h5py
+"""High level experiment functions."""
+
 import numpy as np
+import scipy as sp
+from scipy.integrate import simps
 import unicodedata
 import re
 import os
@@ -7,418 +10,954 @@ import time
 import tempfile
 import inspect
 from collections import deque
+import warnings
 
-import central_control.virt as virt
-from central_control.k2400 import k2400
-from central_control.mppt import mppt
-from central_control.illumination import illumination
-from central_control.motion import motion
-from central_control.put_ftp import put_ftp
-import central_control # for __version__
+import central_control_dev.virt as virt
+from central_control_dev.k2400 import k2400
+from central_control_dev.pcb import pcb
+from central_control_dev.motion import motion
+from central_control_dev.mppt import mppt
+from central_control_dev.illumination import illumination
+import central_control_dev  # for __version__
+
+import sr830
+import sp2150
+import dp800
+import virtual_sr830
+import virtual_sp2150
+import virtual_dp800
+import eqe
+
 
 class fabric:
-  """ this class contains the sourcemeter and pcb control logic
-  """
-  outputFormatRevision = "1.8.1"  # tells reader what format to expect for the output file
-  ssVocDwell = 10  # [s] dwell time for steady state voc determination
-  ssIscDwell = 10  # [s] dwell time for steady state isc determination
+    """Experiment control logic."""
 
-  # start/end sweeps this many percentage points beyond Voc
-  # bigger numbers here give better fitting for series resistance
-  # at an incresed danger of pushing too much current through the device
-  percent_beyond_voc = 50
-  
-  # guess at what the current limit should be set to (in amps) if we have no other way to determine it
-  compliance_guess = 0.04
+    # expecting mqtt queue publisher object
+    _mqttc = None
 
-  # this is the datatype for the measurement in the h5py file
-  measurement_datatype = np.dtype({'names': ['voltage','current','time','status'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
+    # keep track of connected instruments
+    _connected_instruments = []
 
-  # this is the datatype for the status messages in the h5py file
-  status_datatype = np.dtype({'names': ['index', 'message'], 'formats': ['u4', h5py.special_dtype(vlen=str)], 'titles': ['Index', 'Message']})
+    def __init__(self):
+        """Get software revision."""
+        # self.software_revision = __version__
+        # print("Software revision: {:s}".format(self.software_revision))
+        pass
 
-  # this is an internal datatype to store the region of interest info
-  roi_datatype = np.dtype({'names': ['start_index', 'end_index', 'description'], 'formats': ['u4', 'u4', object], 'titles': ['Start Index', 'End Index', 'Description']})
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
+        return self
 
-  m = np.array([], dtype=measurement_datatype)  # measurement list: columns = v, i, timestamp, status
-  s = np.array([], dtype=status_datatype)  # status list: columns = corresponding measurement index, status message
-  r = np.array([], dtype=roi_datatype)  # list defining regions of interest in the measurement list
-  
-  # function to use when sending ROIs to the GUI
-  update_gui = None
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context related to this object.
 
-  def __init__(self, saveDir, archive_address=None):
-    self.saveDir = saveDir
-    self.archive_address = archive_address
-    
-    self.software_revision = central_control.__version__
-    print('Software revision: {:s}'.format(self.software_revision))
+        Make sure everything gets cleaned up properly.
+        """
+        print("exiting...")
+        self.disconnect_all_instruments()
+        print("cleaned up successfully")
 
-  def __setattr__(self, attr, value):
-    """here we can override what happends when we set an attribute"""
-    if attr == 'Voc':
-      self.__dict__[attr] = value
-      if value != None:
-        print('V_oc is {:.4f}mV'.format(value*1000))
+    def compliance_current_guess(self, area=None):
+        """Guess what the compliance current should be for i-v-t measurements.
 
-    elif attr == 'Isc':
-      self.__dict__[attr] = value
-      if value != None:
-        print('I_sc is {:.4f}mA'.format(value*1000))      
+        Parameters
+        ----------
+        area : float
+            Device area in cm^2.
+        """
+        # set maximum current density (in mA/cm^2) slightly higher than an ideal Si
+        # cell
+        max_j = 50
 
-    else:
-      self.__dict__[attr] = value
+        print(f"compliance area: {area}")
 
-  def connect(self, dummy=False, visa_lib='@py', visaAddress='GPIB0::24::INSTR', pcbAddress='10.42.0.54:23', motionAddress=None, lightAddress=None, visaTerminator='\n', visaBaud=57600, ignore_adapter_resistors=False):
-    """Forms a connection to the PCB, the sourcemeter and the light engine
-    will form connections to dummy instruments if dummy=true
+        # calculate equivalent current in A for given device area
+        # multiply by 5 to allow more data to be taken in forward bias (useful for
+        # equivalent circuit fitting)
+        # reduce to maximum compliance of keithley 2400 if too high
+        if area is None:
+            # no area info given so can't make a calcualted guess
+            compliance_i = 1
+        elif (compliance_i := 5 * max_j * area / 1000) > 1:
+            compliance_i = 1
+
+        return compliance_i
+
+    def _connect_smu(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        smu_address=None,
+        smu_terminator="\n",
+        smu_baud=57600,
+        smu_front_terminals=False,
+        smu_two_wire=False,
+    ):
+        """Create smu connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        smu_address : str
+            VISA resource name for the source-measure unit. If `None` is given a
+            virtual instrument is created.
+        smu_terminator : str
+            Termination character for communication with the source-measure unit.
+        smu_baud : int
+            Baud rate for serial communication with the source-measure unit.
+        smu_front_terminals : bool
+            Flag whether to use the front terminals of the source-measure unit.
+        smu_two_wire : bool
+            Flag whether to measure in two-wire mode. If `False` measure in four-wire
+            mode.
+        """
+        t0 = time.time()
+        if dummy is True:
+            self.sm = virt.k2400()
+        else:
+            self.sm = k2400(
+                visa_lib=visa_lib,
+                terminator=smu_terminator,
+                addressString=smu_address,
+                serialBaud=smu_baud,
+            )
+        self.sm_idn = self.sm.idn
+        print(f"SMU connect time = {time.time() - t0} s")
+
+        # set up smu terminals
+        self.sm.setTerminals(front=smu_front_terminals)
+        self.sm.setWires(twoWire=smu_two_wire)
+
+        # instantiate max-power tracker object based on smu
+        self.mppt = mppt(self.sm)
+
+        self._connected_instruments.append(self.sm)
+
+    def _connect_lia(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        lia_address=None,
+        lia_terminator="\r",
+        lia_baud=9600,
+        lia_output_interface=0,
+    ):
+        """Create lock-in amplifier connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        lia_address : str
+            VISA resource name for the lock-in amplifier. If `None` is given a virtual
+            instrument is created.
+        lia_terminator : str
+            Termination character for communication with the lock-in amplifier.
+        lia_baud : int
+            Baud rate for serial communication with the lock-in amplifier.
+        lia_output_interface : int
+            Communication interface on the lock-in amplifier rear panel used to read
+            instrument responses. This does not need to match the VISA resource
+            interface type if, for example, an interface adapter is used between the
+            control computer and the instrument. Valid output communication interfaces:
+                * 0 : RS232
+                * 1 : GPIB
+        """
+        if dummy is True:
+            self.lia = virtual_sr830.sr830(return_int=True)
+        else:
+            self.lia = sr830.sr830()
+
+        # default lia_output_interface is RS232
+        self.lia.connect(
+            lia_address, output_interface=lia_output_interface, **{"timeout": 90000},
+        )
+        print(self.lia.idn)
+
+        self._connected_instruments.append(self.lia)
+
+    def _connect_monochromator(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        mono_address=None,
+        mono_terminator="\r",
+        mono_baud=9600,
+    ):
+        """Create monochromator connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        mono_address : str
+            VISA resource name for the monochromator. If `None` is given a virtual
+            instrument is created.
+        mono_terminator : str
+            Termination character for communication with the monochromator.
+        mono_baud : int
+            Baud rate for serial communication with the monochromator.
+        """
+        if dummy is True:
+            self.mono = virtual_sp2150.sp2150()
+        else:
+            self.mono = sp2150.sp2150()
+        self.mono.connect(resource_name=mono_address, **{"timeout": 10000})
+
+        self._connected_instruments.append(self.mono)
+
+    def _connect_solarsim(
+        self, dummy=False, visa_lib="@py", light_address=None, light_recipe=None
+    ):
+        """Create solar simulator connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        light_address : str
+            VISA resource name for the light engine. If `None` is given a virtual
+            instrument is created.
+        """
+        if dummy is True:
+            self.le = virt.illumination(
+                address=light_address, default_recipe=light_recipe
+            )
+        else:
+            self.le = illumination(address=light_address, default_recipe=light_recipe)
+        self.le.connect()
+
+        self._connected_instruments.append(self.le)
+
+    def _connect_psu(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        psu_address=None,
+        psu_terminator="\r",
+        psu_baud=9600,
+        psu_ocps=[0.5, 0.5, 0.5],
+    ):
+        """Create LED PSU connection.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        psu_address : str
+            VISA resource name for the LED power supply unit. If `None` is given a
+            virtual instrument is created.
+        psu_terminator : str
+            Termination character for communication with the power supply unit.
+        psu_baud : int
+            Baud rate for serial communication with the power supply unit.
+        psu_ocps : list
+            List overcurrent protection values in ascending channel order, one value
+            per channel.
+        """
+        if dummy is True:
+            self.psu = virtual_dp800.dp800()
+        else:
+            self.psu = dp800.dp800()
+
+        self.psu.connect(resource_name=psu_address)
+        self.psu_idn = self.psu.get_id()
+
+        for i, ocp in enumerate(psu_ocps):
+            self.psu.set_output_enable(False, i + 1)
+            self.psu.set_ocp_value(ocp, i + 1)
+            self.psu.set_ocp_enable(True, i + 1)
+
+        self._connected_instruments.append(self.psu)
+
+    def _connect_pcb(self, dummy=False, pcb_address=None):
+        """Add control PCB attributes to class.
+
+        PCB commands run in their own context manager so this isn't a real connect
+        method. It just enables the PCB methods to function.
+
+        Adds a class as an attribute rather than returning an object.
+
+        Not necessary to append to list of connected instruments.
+
+        Parameters
+        ----------
+        pcb_address : str
+            Control PCB address string.
+        """
+        if dummy is True:
+            self.pcb_address = "dummy"
+            self.pcb = virt.pcb
+        else:
+            self.pcb_address = pcb_address
+            self.pcb = pcb
+
+    def _connect_motion(self, dummy=False, motion_address=None):
+        """Add motion controller attributes to class.
+
+        Motion commands run in their own context manager so this isn't a real connect
+        method. It just enables the motion methods to function.
+
+        Adds a class as an attribute rather than returning an object.
+
+        Not necessary to append to list of connected instruments.
+
+        Parameters
+        ----------
+        motion_address : str
+            Control PCB address string.
+        """
+        if dummy is True:
+            self.motion_address = "dummy"
+            self.motion = virt.motion
+        else:
+            self.motion_address = motion_address
+            self.motion = motion
+
+    def connect_instruments(
+        self,
+        dummy=False,
+        visa_lib="@py",
+        smu_address=None,
+        smu_terminator="\n",
+        smu_baud=57600,
+        smu_front_terminals=False,
+        smu_two_wire=False,
+        pcb_address=None,
+        motion_address=None,
+        light_address=None,
+        light_recipe=None,
+        lia_address=None,
+        lia_terminator="\r",
+        lia_baud=9600,
+        lia_output_interface=0,
+        mono_address=None,
+        mono_terminator="\r",
+        mono_baud=9600,
+        psu_address=None,
+        psu_terminator="\r",
+        psu_baud=9600,
+        psu_ocps=[0.5, 0.5, 0.5],
+    ):
+        """Connect to instruments.
+
+        If any instrument addresses are `None`, virtual (fake) instruments are
+        "connected" instead.
+
+        Parameters
+        ----------
+        dummy : bool
+            Choose whether or not to make all instruments virtual. Useful for testing
+            control logic.
+        visa_lib : str
+            PyVISA backend.
+        smu_address : str
+            VISA resource name for the source-measure unit. If `None` is given a
+            virtual instrument is created.
+        smu_terminator : str
+            Termination character for communication with the source-measure unit.
+        smu_baud : int
+            Baud rate for serial communication with the source-measure unit.
+        smu_front_terminals : bool
+            Flag whether to use the front terminals of the source-measure unit.
+        smu_two_wire : bool
+            Flag whether to measure in two-wire mode. If `False` measure in four-wire
+            mode.
+        pcb_address : str
+            VISA resource name for the multiplexor and stage pcb. If `None` is
+            given a virtual instrument is created.
+        light_address : str
+            VISA resource name for the light engine. If `None` is given a virtual
+            instrument is created.
+        light_recipe : str
+            Recipe name.
+        lia_address : str
+            VISA resource name for the lock-in amplifier. If `None` is given a virtual
+            instrument is created.
+        lia_terminator : str
+            Termination character for communication with the lock-in amplifier.
+        lia_baud : int
+            Baud rate for serial communication with the lock-in amplifier.
+        lia_output_interface : int
+            Communication interface on the lock-in amplifier rear panel used to read
+            instrument responses. This does not need to match the VISA resource
+            interface type if, for example, an interface adapter is used between the
+            control computer and the instrument. Valid output communication interfaces:
+                * 0 : RS232
+                * 1 : GPIB
+        mono_address : str
+            VISA resource name for the monochromator. If `None` is given a virtual
+            instrument is created.
+        mono_terminator : str
+            Termination character for communication with the monochromator.
+        mono_baud : int
+            Baud rate for serial communication with the monochromator.
+        psu_address : str
+            VISA resource name for the LED power supply unit. If `None` is given a
+            virtual instrument is created.
+        psu_terminator : str
+            Termination character for communication with the power supply unit.
+        psu_baud : int
+            Baud rate for serial communication with the power supply unit.
+        psu_ocps : list
+            List overcurrent protection values in ascending channel order, one value
+            per channel.
+        """
+        if smu_address is not None:
+            self._connect_smu(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                smu_address=smu_address,
+                smu_terminator=smu_terminator,
+                smu_baud=smu_baud,
+                smu_front_terminals=smu_front_terminals,
+                smu_two_wire=smu_two_wire,
+            )
+
+        if lia_address is not None:
+            self._connect_lia(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                lia_address=lia_address,
+                lia_terminator=lia_terminator,
+                lia_baud=lia_baud,
+                lia_output_interface=lia_output_interface,
+            )
+
+        if mono_address is not None:
+            self._connect_monochromator(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                mono_address=mono_address,
+                mono_terminator=mono_terminator,
+                mono_baud=mono_baud,
+            )
+
+        if light_address is not None:
+            self._connect_solarsim(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                light_address=light_address,
+                light_recipe=light_recipe,
+            )
+
+        if psu_address is not None:
+            self._connect_psu(
+                dummy=dummy,
+                visa_lib=visa_lib,
+                psu_address=psu_address,
+                psu_terminator=psu_terminator,
+                psu_baud=psu_baud,
+                psu_ocps=psu_ocps,
+            )
+
+        if pcb_address is not None:
+            self._connect_pcb(dummy, pcb_address)
+
+        if motion_address is not None:
+            self._connect_motion(dummy, motion_address)
+
+    def disconnect_all_instruments(self):
+        """Disconnect all instruments."""
+        print("disconnecting instruments...")
+        while len(self._connected_instruments) > 0:
+            instr = self._connected_instruments.pop()
+            print(instr)
+            try:
+                instr.disconnect()
+            except:
+                pass
+
+    def measure_spectrum(self, recipe=None):
+        """Measure the spectrum of the light source.
+
+        Uses the internal spectrometer.
+
+        Parameters
+        ----------
+        recipe : str
+            Name of the spectrum recipe for the light source to load.
+
+        Returns
+        -------
+        raw_spectrum : list
+            Raw spectrum measurements in arbitrary units.
+        """
+        # get spectrum data
+        wls, counts = self.le.get_spectrum()
+        data = [[wl, count] for wl, count in zip(wls, counts)]
+
+        return data
+
+    def run_done(self):
+        """Turn off light engine and smu."""
+        self.le.off()
+        self.sm.outOn(on=False)
+
+    def goto_pixel(self, pixel):
+        """Move to a pixel.
+
+        Parameters
+        ----------
+        pixel : dict
+            Pixel information dictionary.
+
+        Returns
+        -------
+        response : int
+            Response code. 0 is good, everything else means fail.
+        """
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            me.connect()
+            if pixel["position"] is not None:
+                resp = me.goto(pixel["position"])
+            else:
+                resp = 0
+
+        return resp
+
+    def select_pixel(self, pixel):
+        """Select pixel on the mux.
+
+        Parameters
+        ----------
+        pixel : dict
+            Pixel information dictionary.
+
+        Returns
+        -------
+        response : int
+            Response code. 0 is good, everything else means fail.
+        """
+        with self.pcb(self.pcb_address) as p:
+            # connect pixel
+            if (substrate := pixel["sub_name"]) is not None:
+                # open all relays
+                resp = p.get("s")
+
+                if resp == "":
+                    # select the correct pixel
+                    resp = p.pix_picker(substrate, pixel["pixel"])
+            else:
+                # open all mux relays
+                resp = p.get("s")
+
+                # get responds to s with empty string on success
+                if resp == "":
+                    resp = 0
+
+            if resp is True:
+                resp = 0
+
+        return resp
+
+    def set_experiment_relay(self, exp_relay):
+        """Choose EQE or IV connection.
+
+        Parameters
+        ----------
+        exp_relay : {"eqe", "iv"}
+            Experiment name: either "eqe" or "iv" corresponding to relay.
+        """
+        resp = ""
+        if "otter" in self.motion_address:  # TODO: do this in some better way
+            with self.pcb(self.pcb_address) as p:
+                resp = p.get(exp_relay)
+
+        return resp
+
+    def slugify(self, value, allow_unicode=False):
+        """Convert string to slug.
+
+        Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.
+        Remove characters that aren't alphanumerics, underscores, or hyphens.
+        Convert to lowercase. Also strip leading and trailing whitespace.
+
+        Parameters
+        ----------
+        value : str
+            String to slugify.
+        """
+        value = str(value)
+        if allow_unicode:
+            value = unicodedata.normalize("NFKC", value)
+        else:
+            value = (
+                unicodedata.normalize("NFKD", value)
+                .encode("ascii", "ignore")
+                .decode("ascii")
+            )
+        value = re.sub(r"[^\w\s-]", "", value).strip().lower()
+
+        return re.sub(r"[-\s]+", "-", value)
+
+    def steady_state(
+        self,
+        t_dwell=10,
+        NPLC=10,
+        sourceVoltage=True,
+        compliance=0.04,
+        setPoint=0,
+        senseRange="f",
+        handler=lambda x: None,
+    ):
+        """Make steady state measurements.
+
+        for t_dwell seconds
+        set NPLC to -1 to leave it unchanged returns array of measurements.
+
+        Parameters
+        ----------
+        t_dwell : float
+            Dwell time in seconds.
+        NPLC : float
+            Number of power line cycles to integrate over.
+        stepDelay : float
+            Step delay in seconds.
+        sourceVoltage : bool
+            Choose whether or to dwell at constant voltage (True) or constant current
+            (False).
+        compliance : float
+            Compliance voltage (in V, if sourcing current) or current (in A, if
+            sourcing voltage).
+        setPoint : float
+            Constant or voltage or current to source.
+        senseRange : "a" or "f"
+            Range setting: "a" for autorange, "f" for follow compliance.
+        handler : handler object
+            Handler to process data.
+        """
+        if NPLC != -1:
+            self.sm.setNPLC(NPLC)
+        self.sm.setupDC(
+            sourceVoltage=sourceVoltage,
+            compliance=compliance,
+            setPoint=setPoint,
+            senseRange=senseRange,
+        )
+        self.sm.write(
+            ":arm:source immediate"
+        )  # this sets up the trigger/reading method we'll use below
+
+        raw = self.sm.measureUntil(t_dwell=t_dwell, cb=handler)
+
+        return raw
+
+    def sweep(
+        self,
+        sourceVoltage=True,
+        senseRange="f",
+        compliance=0.04,
+        nPoints=1001,
+        stepDelay=0.005,
+        start=1,
+        end=0,
+        NPLC=1,
+        handler=lambda x: None,
+    ):
+        """Perform I-V measurement sweep.
+
+        Make a series of measurements while sweeping the sourcemeter along linearly
+        progressing voltage or current setpoints.
+        """
+        self.sm.setNPLC(NPLC)
+        self.sm.setupSweep(
+            sourceVoltage=sourceVoltage,
+            compliance=compliance,
+            stepDelay=stepDelay,
+            nPoints=nPoints,
+            start=start,
+            end=end,
+            senseRange=senseRange,
+        )
+        self.sm.write(":arm:source immediate")
+
+        handler(raw := self.sm.measure(nPoints))
+        return raw
+
+    def track_max_power(
+        self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None
+    ):
+        """Track maximum power point.
+
+        Parameters
+        ----------
+        duration : float or int
+            Length of time to track max power for in seconds.
+        NPLC : float or int
+            Number of power line cycles. If -1, keep using previous setting.
+        step_delay : float or int
+            Settling delay. If -1, set to auto.
+        extra : str
+            Extra protocol settings to pass to mppt.
+        handler : handler object
+            Handler with handle_data method to process data.
+        """
+        message = "Tracking maximum power point for {:} seconds".format(duration)
+
+        raw = self.mppt.launch_tracker(
+            duration=duration, NPLC=NPLC, extra=extra, callback=handler
+        )
+        self.mppt.reset()
+
+        return raw
+
+    def eqe(
+        self,
+        psu_ch1_voltage=0,
+        psu_ch1_current=0,
+        psu_ch2_voltage=0,
+        psu_ch2_current=0,
+        psu_ch3_voltage=0,
+        psu_ch3_current=0,
+        smu_voltage=0,
+        smu_compliance=0.1,
+        start_wl=350,
+        end_wl=1100,
+        num_points=76,
+        grating_change_wls=None,
+        filter_change_wls=None,
+        time_constant=8,
+        auto_gain=True,
+        auto_gain_method="user",
+        handler=lambda x: None,
+    ):
+        """Run an EQE scan.
+
+        Paremeters
+        ----------
+        psu_ch1_voltage : float, optional
+            PSU channel 1 voltage.
+        psu_ch1_current : float, optional
+            PSU channel 1 current.
+        psu_ch2_voltage : float, optional
+            PSU channel 2 voltage.
+        psu_ch2_current : float, optional
+            PSU channel 2 current.
+        psu_ch3_voltage : float, optional
+            PSU channel 3 voltage.
+        psu_ch3_current : float, optional
+            PSU channel 3 current.
+        start_wl : int or float, optional
+            Start wavelength in nm.
+        end_wl : int or float, optional
+            End wavelength in nm
+        num_points : int, optional
+            Number of wavelengths in scan
+        grating_change_wls : list or tuple of int or float, optional
+            Wavelength in nm at which to change to the grating.
+        filter_change_wls : list or tuple of int or float, optional
+            Wavelengths in nm at which to change filters
+        time_constant : int
+            Integration time setting for the lock-in amplifier.
+        auto_gain : bool, optional
+            Automatically choose sensitivity.
+        auto_gain_method : {"instr", "user"}, optional
+            If auto_gain is True, method for automatically finding the correct gain
+            setting. "instr" uses the instrument auto-gain feature, "user" implements
+            a user-defined algorithm.
+        handler : data_handler object, optional
+            Object that processes live data produced during the scan.
+        handler_kwargs : dict, optional
+            Dictionary of keyword arguments to pass to the handler.
+        """
+        self.sm.setupDC(
+            sourceVoltage=True,
+            compliance=smu_compliance,
+            setPoint=smu_voltage,
+            senseRange="f",
+        )
+
+        eqe_data = eqe.scan(
+            self.lia,
+            self.mono,
+            self.psu,
+            self.sm,
+            psu_ch1_voltage,
+            psu_ch1_current,
+            psu_ch2_voltage,
+            psu_ch2_current,
+            psu_ch3_voltage,
+            psu_ch3_current,
+            smu_voltage,
+            smu_compliance,
+            start_wl,
+            end_wl,
+            num_points,
+            grating_change_wls,
+            filter_change_wls,
+            time_constant,
+            auto_gain,
+            auto_gain_method,
+            handler,
+        )
+
+        return eqe_data
+
+    def calibrate_psu(
+        self, channel=1, max_current=0.5, current_steps=10, max_voltage=1
+    ):
+        """Calibrate the LED PSU.
+
+        Measure the short-circuit current of a photodiode generated upon illumination
+        with an LED powered by the PSU as function of PSU current.
+
+        Parameters
+        ----------
+        channel : {1, 2, 3}
+            PSU channel.
+        max_current : float
+            Maximum current in amps to measure to.
+        current_steps : int
+            Number of current steps to measure.
+        """
+        # block the monochromator so there's no AC background
+        self.mono.filter = 5
+        self.mono.wavelength = 300
+
+        currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
+
+        # set smu to short circuit and enable output
+        self.sm.setupDC(
+            sourceVoltage=True, compliance=0.1, setPoint=0, senseRange="a",
+        )
+        self.sm.write(":arm:source immediate")
+
+        # set up PSU
+        self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
+        self.psu.set_output_enable(True, channel)
+
+        data = []
+        for current in currents:
+            self.psu.set_apply(channel=channel, voltage=max_voltage, current=current)
+            time.sleep(1)
+            measurement = list(self.sm.measure()[0])
+            measurement.append(current)
+            data.append(measurement)
+
+        # disable PSU
+        self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
+        self.psu.set_output_enable(False, channel)
+
+        # disable smu
+        self.sm.outOn(False)
+
+        # unblock the monochromator
+        self.mono.filter = 1
+        self.mono.wavelength = 0
+
+        return data
+
+    def home_stage(self):
+        """Home the stage."""
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            me.connect()
+            return me.home()
+
+    def read_stage_position(self):
+        """Read the current stage position along all available axes."""
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            me.connect()
+            return me.get_position()
+
+    def goto_stage_position(
+        self, position,
+    ):
+        """Go to stage position in steps.
+
+        Parameters
+        ----------
+        position : list of float
+            Position in mm along each available stage to move to.
+        """
+        with self.pcb(self.pcb_address) as p:
+            me = self.motion(self.motion_address, p)
+            me.connect()
+            return me.goto(position)
+
+    def contact_check(self, pixel_queue, handler=lambda x: None):
+        """Perform contact checks on a queue of pixels.
+
+        Parameters
+        ----------
+        pixel_queue : deque of dict
+            Queue of pixels to check
+        handler : handler callback
+            Handler that acts on failed contact check reports.
+        handler_kwargs : dict
+            Keyword arguments required by the handler.
+
+        Returns
+        -------
+        fail_msg : str
+            Pass/fail summary.
+        """
+        failed = 0
+        self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
+        self.sm.write(":arm:source immediate")
+        with self.pcb(self.pcb_address) as p:
+            while len(pixel_queue) > 0:
+                # get pixel info
+                pixel = pixel_queue.popleft()
+                label = pixel["label"]
+                pix = pixel["pixel"]
+
+                # add id str to handlers to display on plots
+                idn = f"{label}_pixel{pix}"
+
+                if pixel["sub_name"] is not None:
+                    resp = p.pix_picker(pixel["sub_name"], pixel["pixel"])
+                else:
+                    resp = p.get("s")
+
+                self.sm.measure()
+                if self.sm.contact_check() is True:
+                    failed += 1
+                    handler(f"Contact check FAILED! Device: {idn}")
+        self.sm.outOn(False)
+        return f"{failed} pixels failed the contact check."
+
+
+def round_sf(x, sig_fig):
+    """Round a number to a given significant figure.
+
+    Paramters
+    ---------
+    x : float or int
+        Number to round.
+    sig_fig : int
+        Significant figures to round to.
+
+    Returns
+    -------
+    y : float
+        Rounded number
     """
+    return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
 
-    if dummy:
-      self.sm = virt.k2400()
-      #self.pcb = virt.pcb()
-    else:
-      self.sm = k2400(visa_lib=visa_lib, terminator=visaTerminator, addressString=visaAddress, serialBaud=visaBaud)
-      #self.pcb = pcb(address=pcbAddress, ignore_adapter_resistors=ignore_adapter_resistors)
-    self.sm_idn = self.sm.idn
-      
-    self.mppt = mppt(self.sm)
 
-    if lightAddress == None:
-      self.le = virt.illumination()
-    else:
-      self.le = illumination(address = lightAddress)
-      self.le.connect()
-      
-    if motionAddress == None:
-      self.me = virt.motion()
-    else:
-      self.me = motion(address = motionAddress)
-      self.me.connect()
-
-  def hardwareTest(self, substrates_to_test):
-    self.le.on()
-    
-    n_adc_channels = 8
-    
-    for chan in range(n_adc_channels):
-      print('ADC channel {:} Counts: {:}'.format(chan,self.pcb.getADCCounts(chan)))
-      
-    chan = 2
-    counts = self.pcb.getADCCounts(chan)
-    print('{:d}\t<-- D1 Diode ADC counts (TP3, AIN{:d})'.format(counts, chan))
-
-    chan = 3
-    counts = self.pcb.getADCCounts(chan)
-    print('{:d}\t<-- D2 Diode ADC counts (TP4, AIN{:d})'.format(counts, chan))
-
-    chan = 0
-    for substrate in substrates_to_test:
-      r = self.pcb.get('d'+substrate)
-      print('{:s}\t<-- Substrate {:s} adapter resistor value in ohms (AIN{:d})'.format(r, substrate, chan))
-
-    print("LED test mode active on substrate(s) {:s}".format(substrates_to_test))
-    print("Every pixel should get an LED pulse IV sweep now, plus the light should turn on")    
-    for substrate in substrates_to_test:
-      sweepHigh = 0.01 # amps
-      sweepLow = 0.0001 # amps
-      
-      ready_to_sweep = False
-      
-      # move to center of substrate
-      self.me.goto(self.me.substrate_centers[ord(substrate)-ord('A')])
-      
-      for pix in range(8):
-        pixel_addr = substrate+str(pix+1) 
-        print(pixel_addr)
-        if self.pcb.pix_picker(substrate,pix+1):
-          
-          if not ready_to_sweep:  # setup the sourcemeter if this is our first pixel
-            self.sm.setNPLC(0.01)
-            self.sm.setupSweep(sourceVoltage=False, compliance=2.5, nPoints=101, start=sweepLow, end=sweepHigh)
-            self.sm.write(':arm:source bus') # this allows for the trigger style we'll use here
-            ready_to_sweep = True
-  
-          self.sm.updateSweepStart(sweepLow)
-          self.sm.updateSweepStop(sweepHigh)
-          self.sm.arm()
-          self.sm.trigger()
-          self.sm.opc()
-  
-          self.sm.updateSweepStart(sweepHigh)
-          self.sm.updateSweepStop(sweepLow)
-          self.sm.arm()
-          self.sm.trigger()
-          self.sm.opc()
-
-      self.sm.outOn(False)
-
-      # deselect all pixels
-      self.pcb.pix_picker(substrate, 0)
-
-    self.le.off()
-
-  def measureIntensity(self, diode_cal):
-    """
-    returns number of suns and ADC counts for both diodes
-    takes diode calibration values in diode_cal
-    if diode_cal is not a tuple with valid calibration values, sets intensity to 1.0 sun for both diodes
-    """
-    ret = [self.pcb.get('p1'), self.pcb.get('p2'), 1.0, 1.0]
-    
-    if type(diode_cal) == list or type(diode_cal) == tuple:
-      if diode_cal[0] <= 1:
-        print("WARNING: No or bad intensity diode calibration values, assuming 1.0 suns")
-      else:
-        ret[2] = ret[0]/diode_cal[0]
-        
-      if diode_cal[1] <= 1:
-        print("WARNING: No or bad intensity diode calibration values, assuming 1.0 suns")
-      else:
-        ret[3] = ret[1]/diode_cal[1]    
-    
-    return ret
-  
-  def isWithinPercent(target, value, percent=10):
-    """
-    returns true if value is within percent percent of target, otherwise returns false
-    """
-    lb = target * (100 - percent) / 100
-    ub = target * (100 + percent) / 100
-    ret = False
-    if lb <= value and value <= ub:
-      ret = True
-    return ret
-
-  def runSetup(self, operator, diode_cal, ignore_diodes=False, run_description=''):
-    """
-    stuff that needs to be done at the start of a run
-    returns intensity tuple of length 4 where [0:1] are the raw ADC counts measured by the PCB's photodiodes
-    and [2:3] are the number of suns of intensity
-    if diode_cal == True, suns intensity will be assumed and reported as 1.0
-    if type(diode_cal) == list, diode_cal[0] and [1] will be used to calculate number of suns
-    if ignore_diodes == True, diode ADC values will not be read and intensity = (1, 1, 1.0 1.0) will be used and reported
-    """
-    self.run_dir = self.slugify(operator) + '-' + time.strftime('%y-%m-%d')
-    
-    if self.saveDir == None or self.saveDir == '__tmp__':
-      td = tempfile.mkdtemp(suffix='_iv_data')
-      # self.saveDir = td.name
-      self.saveDir = td
-      print('Using {:} as data storage location'.format(self.saveDir))
-    
-    destinationDir = os.path.join(self.saveDir, self.run_dir)
-    if not os.path.exists(destinationDir):
-      os.makedirs(destinationDir)
-
-    i = 0 # file name run integer
-    save_file_prefix = "Run"
-    # find the next unused run number
-    files_here = os.listdir(destinationDir)
-    while True:
-      prefix = "{:}_{:}_".format(save_file_prefix, i)
-      prefix_match = any([file.startswith(prefix) for file in files_here])
-      if prefix_match:
-        i += 1
-      else:
-        break
-    save_file_full_path = os.path.join(destinationDir,"{:}{:}.h5".format(prefix, round(time.time())))
-    self.f = h5py.File(save_file_full_path,'x')
-    print("Creating file {:}".format(self.f.filename))
-    self.f.attrs['Operator'] = np.string_(operator)
-    self.f.attrs['Timestamp'] = time.time()
-    self.f.attrs['PCB Firmware Hash'] = np.string_(self.pcb.get('v'))
-    self.f.attrs['Control Software Revision'] = np.string_(self.software_revision)
-    self.f.attrs['Format Revision'] = np.string_(self.outputFormatRevision)
-    self.f.attrs['Run Description'] = np.string_(run_description)
-    self.f.attrs['Sourcemeter'] = np.string_(self.sm_idn)
-    if not ignore_diodes:
-      self.me.goto(self.me.photodiode_location)
-    self.le.on()
-    if type(self.le) == illumination:
-      time.sleep(0.5) # if this is a real solar sim (not a virtual one), wait half a sec before measuring intensity
-    if ignore_diodes == True:
-      intensity = (1, 1, 1.0, 1.0)
-    else:
-      intensity = self.measureIntensity(diode_cal)
-    self.f.attrs['Diode 1 intensity [ADC counts]'] = np.int(intensity[0])
-    self.f.attrs['Diode 2 intensity [ADC counts]'] = np.int(intensity[1])
-    if type(diode_cal) == list:
-      self.f.attrs['Diode 1 calibration [ADC counts]'] = np.int(diode_cal[0])
-      self.f.attrs['Diode 2 calibration [ADC counts]'] = np.int(diode_cal[1])
-    else:  #  we re-calibrated this run
-      self.f.attrs['Diode 1 calibration [ADC counts]'] = np.int(intensity[0])
-      self.f.attrs['Diode 2 calibration [ADC counts]'] = np.int(intensity[1])
-    self.f.attrs['Diode 1 intensity [suns]'] = np.float(intensity[2])
-    self.f.attrs['Diode 2 intensity [suns]'] = np.float(intensity[3])
-    print("Intensity = [{:0.4f} {:0.4f}] suns".format(np.float(intensity[2]), np.float(intensity[3])))
-    return intensity
-
-  def runDone(self):
-    self.le.off()
-    print("\nClosing {:s}".format(self.f.filename))
-    this_filename = self.f.filename
-    self.f.close()
-    if self.archive_address is not None:
-      if self.archive_address.startswith('ftp://'):
-        with put_ftp(self.archive_address+self.run_dir + '/', pasv=True) as ftp:
-          with open(this_filename,'rb') as fp:
-            ftp.uploadFile(fp)
-
-      else:
-        print('WARNING: Could not understand archive url')
-    
-  def substrateSetup (self, position, suid='', variable_pairs=[], layout_name=''):
-    self.position = position
-    if self.pcb.pix_picker(position, 0):
-      self.f.create_group(position)
-  
-      self.f[position].attrs['Sample Unique Identifier'] = np.string_(suid)
-  
-      #self.f[position].attrs['Sample Adapter Board Resistor Value'] = self.pcb.resistors[position]
-      self.f[position].attrs['Sample Layout Name'] = np.string_(layout_name)
-      for pair in variable_pairs:  # attach the user defined name-value pairs to each substrate
-        parameter_name = pair[0]
-        parameter_value = pair[1]
-        self.f[position].attrs['User_'+parameter_name] = np.string_(parameter_value)
-
-      return True
-    else:
-      return False
-
-  def pixelSetup(self, pixel, t_dwell_voc=10, voltage_compliance=2):
-    """Call this to switch to a new pixel"""
-    self.pixel = str(pixel[0][1])
-    if self.pcb.pix_picker(pixel[0][0], pixel[0][1]):
-      self.me.goto(pixel[2])  # move stage here
-      self.area = pixel[1]
-  
-      self.f[self.position].create_group(self.pixel)
-      self.f[self.position+'/'+self.pixel].attrs['area'] = self.area * 1e-4  # in m^2
-  
-      vocs = self.steadyState(t_dwell=t_dwell_voc, NPLC=10, sourceVoltage=False, compliance=voltage_compliance, senseRange='a', setPoint=0)
-      self.registerMeasurements(vocs, 'V_oc dwell')
-  
-      self.Voc = vocs[-1][0]  # take the last measurement to be Voc
-      self.mppt.Voc = self.Voc
-  
-      self.f[self.position+'/'+self.pixel].attrs['Voc'] = self.Voc
-      return True
-    else:
-      return False
-
-  def pixelComplete (self):
-    """Call this when all measurements for a pixel are complete"""
-    self.pcb.pix_picker(self.position, 0)
-    m = self.f[self.position+'/'+self.pixel].create_dataset('all_measurements', data=self.m, compression="gzip")
-    for i in range(len(self.r)):
-      m.attrs[self.r[i][2]] = m.regionref[self.r[i][0]:self.r[i][1]]
-    self.f[self.position+'/'+self.pixel].create_dataset('status_list', data=self.s, compression="gzip")
-    self.m = np.array([], dtype=self.measurement_datatype)  # reset measurement storage
-    self.s = np.array([], dtype=self.status_datatype)  # reset status storage
-    self.r = np.array([], dtype=self.roi_datatype)  # reset region of interest
-    self.Voc = None
-    self.Isc = None
-    self.mppt.reset()
-
-  def slugify(self, value, allow_unicode=False):
-    """
-    Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.
-    Remove characters that aren't alphanumerics, underscores, or hyphens.
-    Convert to lowercase. Also strip leading and trailing whitespace.
-    """
-    value = str(value)
-    if allow_unicode:
-      value = unicodedata.normalize('NFKC', value)
-    else:
-      value = unicodedata.normalize('NFKD', value).encode('ascii', 'ignore').decode('ascii')
-    value = re.sub(r'[^\w\s-]', '', value).strip().lower()
-    return re.sub(r'[-\s]+', '-', value)
-
-  def insertStatus(self, message):
-    """adds status message to the status message list"""
-    print(message)
-    s = np.array((len(self.m), message), dtype=self.status_datatype)
-    self.s = np.append(self.s, s)
-
-  def registerMeasurements(self, measurements, description):
-    """adds an array of measurements to the master list and creates an ROI for them
-    takes new measurement numpy array and description of them"""
-    roi = {}
-    print(measurements)
-    #measurements=measurements[0]
-    roi['v'] = [float(e[0]) for e in measurements]
-    roi['i'] = [float(e[1]) for e in measurements]
-    roi['t'] = [float(e[2]) for e in measurements]
-    roi['s'] = [float(e[3]) for e in measurements]
-    roi['message'] =  description
-    roi['area'] =  self.area
-    try:
-      self.update_gui(roi)  # send the new region of interest data to the GUI
-    except:
-      pass  # probably no gui server to send data to, NBD
-    self.m = np.append(self.m, measurements)
-    length = len(measurements)
-    if length > 0:
-      stop = len(self.m) - 1
-      start = stop - length + 1
-      print("New region of interest: [{:},{:}]\t{:s}".format(start, stop, description))
-      r = np.array((start, stop, description), dtype=self.roi_datatype)
-      self.r = np.append(self.r, r)
-    else:
-      print("WARNING: Non-positive ROI length")
-
-  def steadyState(self, t_dwell=10, NPLC=10, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f'):
-    """ makes steady state measurements for t_dwell seconds
-    set NPLC to -1 to leave it unchanged
-    returns array of measurements
-    """
-    self.insertStatus('Measuring steady state {:s} at {:.0f} m{:s}'.format('current' if sourceVoltage else 'voltage', setPoint*1000, 'V' if sourceVoltage else 'A'))
-    if NPLC != -1:
-      self.sm.setNPLC(NPLC)
-    self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint, senseRange=senseRange)
-    self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
-    q = self.sm.measureUntil(t_dwell=t_dwell)
-    qa = np.array([tuple(s) for s in q], dtype=self.measurement_datatype)
-    return qa
-
-  def sweep(self, sourceVoltage=True, senseRange='f', compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, message=None):
-    """ make a series of measurements while sweeping the sourcemeter along linearly progressing voltage or current setpoints
-    """
-
-    self.sm.setNPLC(NPLC)
-    self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, nPoints=nPoints, stepDelay=stepDelay, start=start, end=end, senseRange=senseRange)
-
-    if message == None:
-      word ='current' if sourceVoltage else 'voltage'
-      abv = 'V' if sourceVoltage else 'A'
-      message = 'Sweeping {:s} from {:.0f} m{:s} to {:.0f} m{:s}'.format(word, start, abv, end, abv)
-    self.insertStatus(message)
-    raw = self.sm.measure(nPoints)
-    sweepValues = np.array(raw, dtype=self.measurement_datatype)
-
-    return sweepValues
-
-  def track_max_power(self, duration=30, message=None, NPLC=-1, extra="basic://7:10"):
-    if message == None:
-      message = 'Tracking maximum power point for {:} seconds'.format(duration)
-    self.insertStatus(message)
-    raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra)
-    # raw = self.mppt.launch_tracker(duration=duration, callback=fabric.mpptCB, NPLC=NPLC)
-    print(raw)
-    qa = np.array(raw[0], dtype=self.measurement_datatype)
-    self.registerMeasurements(qa[0], 'MPPT')
-    
-    if self.mppt.Vmpp != None:
-      self.f[self.position+'/'+self.pixel].attrs['Vmpp'] = self.mppt.Vmpp
-    if self.mppt.Impp != None:
-      self.f[self.position+'/'+self.pixel].attrs['Impp'] = self.mppt.Impp
-    if (self.mppt.Impp != None) and (self.mppt.Vmpp != None):
-      self.f[self.position+'/'+self.pixel].attrs['ssPmax'] = abs(self.mppt.Impp * self.mppt.Vmpp)
-
-  def mpptCB(measurement):
-    """Callback function for max power point tracker
-    (for live tracking)
-    """
-    [v, i, t, status] = measurement
-    print('At {:.6f}\t{:.6f}\t{:.6f}\t{:d}'.format(t, v, i, int(status)))
+# for testing
+if __name__ == "__main__":
+    with fabric() as f:
+        f.connect_instruments(
+            smu_address="GPIB0::24::INSTR", smu_terminator="\r", smu_baud=57600
+        )
