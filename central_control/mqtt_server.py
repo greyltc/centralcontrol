@@ -348,7 +348,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
                 measurement.connect_instruments(
                     dummy=dummy,
                     visa_lib=config["visa"]["visa_lib"],
-                    light_address=config["solarsim"]["uri"],
+                    light_address=config["solarsim"]["address"],
                     light_recipe=args["light_recipe"],
                 )
 
@@ -792,6 +792,24 @@ def _get_substrate_positions(config, experiment):
 
     return substrate_centres
 
+def build_q2(stuff, center):
+    # build pixel queue
+    pixel_q = collections.deque()
+    for things in stuff:
+        pixel_dict = {}
+        pixel_dict['label'] = things['label']
+        pixel_dict['layout'] = things['layout']
+        pixel_dict['sub_name'] = things['system_label']
+        #pixel_dict['pixel'] = things['mux_index']
+        pixel_dict['mux_string'] = things['mux_string']
+        loc = things['loc']
+        pos = [a+b for a,b in zip(center,loc)]
+        pixel_dict['pos'] = pos
+        #pixel_dict['position'] = things['substrate_offset_raw']
+        pixel_dict['area'] = things['area']
+        pixel_dict['user_vars'] = things['user_vars']
+        pixel_q.append(pixel_dict)
+    return pixel_q
 
 def _build_q(request, experiment):
     """Generate a queue of pixels to run through.
@@ -810,9 +828,17 @@ def _build_q(request, experiment):
         Queue of pixels to measure.
     """
     # TODO: return support for inferring layout from pcb adapter resistors
-
     config = request["config"]
     args = request["args"]
+
+    if experiment == "solarsim":
+        stuff = args["iv_stuff"]
+    elif experiment == "eqe":
+        stuff = args["eqe_stuff"]
+    else:
+        raise(ValueError(f"Unknown experiment: {experiment}"))
+    center = config["stage"]["experiment_positions"][experiment]
+    return build_q2(stuff, center)
 
     # get substrate centres
     substrate_centres = _get_substrate_positions(config, experiment)

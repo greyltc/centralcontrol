@@ -129,7 +129,7 @@ def worker():
             # zero the mono
             elif task['cmd'] == 'mono_zero':
                 try:
-                    rm = pyvisa.ResourceManager()
+                    rm = pyvisa.ResourceManager('@py')
                     with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
                         log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
                         log_msg(mono.query("1 FILTER").strip(), lvl=logging.INFO)
@@ -177,7 +177,6 @@ def worker():
                         p.get("s")
                         k.disconnect()
 
-
                     #mo = motion.motion(address=task['stage_uri'], pcb_object=p)
                     #mo.connect()
                     #pos = mo.get_position()
@@ -191,86 +190,91 @@ def worker():
 
         # system health check
         if task['cmd'] == 'check_health':
-            log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
-            try:
-                with pcb.pcb(task['pcb'], timeout=1) as p:
-                    log_msg('Controller connection initiated',lvl=logging.INFO)
-                    log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
-                    log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
-                    log_msg(f"Controller mux bitmask value: {p.get('c')}",lvl=logging.INFO)
-            except:
-                log_msg(f'Could not talk to control box',lvl=logging.WARNING)
+            rm = pyvisa.ResourceManager('@py')
+            if 'pcb' in task:
+                log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
+                try:
+                    with pcb.pcb(task['pcb'], timeout=1) as p:
+                        log_msg('Controller connection initiated',lvl=logging.INFO)
+                        log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
+                        log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
+                        log_msg(f"Controller mux bitmask value: {p.get('c')}",lvl=logging.INFO)
+                except:
+                    log_msg(f'Could not talk to control box',lvl=logging.WARNING)
 
-            log_msg(f"Checking power supply@{task['psu']}...",lvl=logging.INFO)
-            rm = pyvisa.ResourceManager()
-            try:
-                with rm.open_resource(task['psu']) as psu:
-                    log_msg('Power supply connection initiated',lvl=logging.INFO)
-                    idn = psu.query("*IDN?")
-                    log_msg(f'Power supply identification string: {idn.strip()}',lvl=logging.INFO)
-            except:
-                log_msg(f'Could not talk to PSU',lvl=logging.WARNING)
-            
-            log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
-            
-            # for sourcemeter
-            open_params = {}
-            open_params['resource_name'] = task['smu_address']
-            open_params['timeout'] = 300 # ms
-            if 'ASRL' in open_params['resource_name']:  # data bits = 8, parity = none
-                open_params['read_termination'] = task['smu_le']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
-                open_params['write_termination'] = "\r" # this is not configuable via the instrument front panel (or in any way I guess)
-                open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
-                open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS # user must choose NONE for flow control on the front panel
-            elif 'GPIB' in open_params['resource_name']:
-                open_params['write_termination'] = "\n"
-                open_params['read_termination'] = "\n"
-                # GPIB takes care of EOI, so there is no read_termination
-                open_params['io_protocol'] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
-            elif ('TCPIP' in open_params['resource_name']) and ('SOCKET' in open_params['resource_name']):
-                # GPIB <--> Ethernet adapter
-                pass
+            if 'psu' in task:
+                log_msg(f"Checking power supply@{task['psu']}...",lvl=logging.INFO)
+                try:
+                    with rm.open_resource(task['psu']) as psu:
+                        log_msg('Power supply connection initiated',lvl=logging.INFO)
+                        idn = psu.query("*IDN?")
+                        log_msg(f'Power supply identification string: {idn.strip()}',lvl=logging.INFO)
+                except:
+                    log_msg(f'Could not talk to PSU',lvl=logging.WARNING)
 
-            try:
-                with rm.open_resource(**open_params) as smu:
-                    log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
-                    idn = smu.query("*IDN?")
-                    log_msg(f'Sourcemeter identification string: {idn}',lvl=logging.INFO)
-            except:
-                log_msg(f'Could not talk to sourcemeter',lvl=logging.WARNING)
-            
-            log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
-            try:
-                with rm.open_resource(task['lia_address'], baud_rate=9600) as lia:
-                    lia.read_termination = '\r'
-                    log_msg('Lock-in connection initiated',lvl=logging.INFO)
-                    idn = lia.query("*IDN?")
-                    log_msg(f'Lock-in identification string: {idn.strip()}',lvl=logging.INFO)
-            except:
-                log_msg(f'Could not talk to lock-in',lvl=logging.WARNING)
-            
-            log_msg(f"Checking monochromator@{task['mono_address']}...",lvl=logging.INFO)
-            try:
-                with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
-                    log_msg('Monochromator connection initiated',lvl=logging.INFO)
-                    qu = mono.query("?nm")
-                    log_msg(f'Monochromator wavelength query result: {qu.strip()}',lvl=logging.INFO)
-            except:
-                log_msg(f'Could not talk to monochromator',lvl=logging.WARNING)
+            if 'smu_address' in task:
+                log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
+                # for sourcemeter
+                open_params = {}
+                open_params['resource_name'] = task['smu_address']
+                open_params['timeout'] = 300 # ms
+                if 'ASRL' in open_params['resource_name']:  # data bits = 8, parity = none
+                    open_params['read_termination'] = task['smu_le']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
+                    open_params['write_termination'] = "\r" # this is not configuable via the instrument front panel (or in any way I guess)
+                    open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
+                    open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS # user must choose NONE for flow control on the front panel
+                elif 'GPIB' in open_params['resource_name']:
+                    open_params['write_termination'] = "\n"
+                    open_params['read_termination'] = "\n"
+                    # GPIB takes care of EOI, so there is no read_termination
+                    open_params['io_protocol'] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
+                elif ('TCPIP' in open_params['resource_name']) and ('SOCKET' in open_params['resource_name']):
+                    # GPIB <--> Ethernet adapter
+                    pass
 
-            log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
-            try:
-                le = illumination(address=task['le_address'], default_recipe=task['le_recipe'])
-                con_res = le.connect()
-                le.light_engine.__del__()
-                if con_res == 0:
-                    log_msg('Light engine connection successful',lvl=logging.INFO)
-                elif (con_res == -1):
-                    log_msg("Timeout waiting for wavelabs to connect",lvl=logging.WARNING)
-                else:
-                    log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}",lvl=logging.WARNING)
-            except:
-                log_msg(f'Could not talk to light engine',lvl=logging.WARNING)
+                try:
+                    with rm.open_resource(**open_params) as smu:
+                        log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
+                        idn = smu.query("*IDN?")
+                        log_msg(f'Sourcemeter identification string: {idn}',lvl=logging.INFO)
+                except:
+                    log_msg(f'Could not talk to sourcemeter',lvl=logging.WARNING)
+
+            if 'lia_address' in task:
+                log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
+                try:
+                    with rm.open_resource(task['lia_address'], baud_rate=9600) as lia:
+                        lia.read_termination = '\r'
+                        log_msg('Lock-in connection initiated',lvl=logging.INFO)
+                        idn = lia.query("*IDN?")
+                        log_msg(f'Lock-in identification string: {idn.strip()}',lvl=logging.INFO)
+                except:
+                    log_msg(f'Could not talk to lock-in',lvl=logging.WARNING)
+
+            if 'mono_address' in task:
+                log_msg(f"Checking monochromator@{task['mono_address']}...",lvl=logging.INFO)
+                try:
+                    with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
+                        log_msg('Monochromator connection initiated',lvl=logging.INFO)
+                        qu = mono.query("?nm")
+                        log_msg(f'Monochromator wavelength query result: {qu.strip()}',lvl=logging.INFO)
+                except:
+                    log_msg(f'Could not talk to monochromator',lvl=logging.WARNING)
+
+            if 'le_address' in task:
+                log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
+                try:
+                    le = illumination(address=task['le_address'], default_recipe=task['le_recipe'])
+                    con_res = le.connect()
+                    le.light_engine.__del__()
+                    if con_res == 0:
+                        log_msg('Light engine connection successful',lvl=logging.INFO)
+                    elif (con_res == -1):
+                        log_msg("Timeout waiting for wavelabs to connect",lvl=logging.WARNING)
+                    else:
+                        log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}",lvl=logging.WARNING)
+                except:
+                    log_msg(f'Could not talk to light engine',lvl=logging.WARNING)
 
         taskq.task_done()
 
