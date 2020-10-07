@@ -523,11 +523,12 @@ class fabric:
         response : int
             Response code. 0 is good, everything else means fail.
         """
+        # TODO: change this to not open and close the PCB object on every single movement
         with self.pcb(self.pcb_address) as p:
             me = self.motion(self.motion_address, p)
             me.connect()
-            if pixel["position"] is not None:
-                resp = me.goto(pixel["position"])
+            if pixel["pos"] is not None:
+                resp = me.goto(pixel["pos"])
             else:
                 resp = 0
 
@@ -546,6 +547,7 @@ class fabric:
         response : int
             Response code. 0 is good, everything else means fail.
         """
+        # TODO: change this to not open and close the PCB object on every single movement
         with self.pcb(self.pcb_address) as p:
             # connect pixel
             if (substrate := pixel["sub_name"]) is not None:

@@ -131,7 +131,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
                 args = request["args"]
 
                 # get pixel queue
-                if int(args["eqe_devs"], 16) > 0:
+                if 'EQE_stuff' in args:
                     pixel_queue = _build_q(request, experiment="eqe")
 
                     if len(pixel_queue) > 1:
@@ -154,7 +154,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
                         "layout": None,
                         "sub_name": None,
                         "pixel": 0,
-                        "position": None,
+                        "pos": None,
                         "area": None,
                     }
                     pixel_queue = collections.deque()
@@ -202,7 +202,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                 args = request["args"]
 
                 # get pixel queue
-                if int(args["eqe_devs"], 16) > 0:
+                if 'EQE_stuff' in args:
                     pixel_queue = _build_q(request, experiment="eqe")
                 else:
                     # if it's empty, assume cal diode is connected externally
@@ -211,7 +211,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                         "layout": None,
                         "sub_name": None,
                         "pixel": 0,
-                        "position": None,
+                        "pos": None,
                         "area": None,
                     }
                     pixel_queue = collections.deque()
@@ -401,9 +401,9 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
                 args = request["args"]
 
                 # get pixel queue
-                if int(args["iv_devs"], 16) > 0:
+                if 'IV_stuff' in args:
                     # if the bitmask isn't empty
-                    pixel_queue = _build_q(request, experiment="eqe")
+                    pixel_queue = _build_q(request, experiment="solarsim")
                 else:
                     # if it's emptpy, assume cal diode is connected externally
                     pixel_dict = {
@@ -411,7 +411,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
                         "layout": None,
                         "sub_name": None,
                         "pixel": 0,
-                        "position": None,
+                        "pos": None,
                         "area": None,
                     }
                     pixel_queue = collections.deque(pixel_dict)
@@ -460,9 +460,9 @@ def _calibrate_rtd(request, mqtthost, dummy):
                 args = request["args"]
 
                 # get pixel queue
-                if int(args["iv_devs"], 16) > 0:
+                if 'IV_stuff' in args:
                     # if the bitmask isn't empty
-                    pixel_queue = _build_q(request, experiment="eqe")
+                    pixel_queue = _build_q(request, experiment="solarsim")
                 else:
                     # if it's emptpy, report error
                     _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
@@ -792,24 +792,6 @@ def _get_substrate_positions(config, experiment):
 
     return substrate_centres
 
-def build_q2(stuff, center):
-    # build pixel queue
-    pixel_q = collections.deque()
-    for things in stuff:
-        pixel_dict = {}
-        pixel_dict['label'] = things['label']
-        pixel_dict['layout'] = things['layout']
-        pixel_dict['sub_name'] = things['system_label']
-        #pixel_dict['pixel'] = things['mux_index']
-        pixel_dict['mux_string'] = things['mux_string']
-        loc = things['loc']
-        pos = [a+b for a,b in zip(center,loc)]
-        pixel_dict['pos'] = pos
-        #pixel_dict['position'] = things['substrate_offset_raw']
-        pixel_dict['area'] = things['area']
-        pixel_dict['user_vars'] = things['user_vars']
-        pixel_q.append(pixel_dict)
-    return pixel_q
 
 def _build_q(request, experiment):
     """Generate a queue of pixels to run through.
@@ -832,97 +814,29 @@ def _build_q(request, experiment):
     args = request["args"]
 
     if experiment == "solarsim":
-        stuff = args["iv_stuff"]
+        stuff = args["IV_stuff"]
     elif experiment == "eqe":
-        stuff = args["eqe_stuff"]
+        stuff = args["EQE_stuff"]
     else:
         raise(ValueError(f"Unknown experiment: {experiment}"))
     center = config["stage"]["experiment_positions"][experiment]
-    return build_q2(stuff, center)
-
-    # get substrate centres
-    substrate_centres = _get_substrate_positions(config, experiment)
-    substrate_total = len(substrate_centres)
-
-    # number of substrates along each available axis
-    substrate_number = config["substrates"]["number"]
-
-    # make sure as many layouts as labels were given
-    if (l := len(args["substrate_labels"])) != substrate_total:
-        raise ValueError(
-            "Lists of layouts and labels must match number of substrates in the "
-            + f"array: {substrate_total}. Layouts list has length {l}."
-        )
-
-    if experiment == "solarsim":
-        pixel_address_string = args["iv_devs"]
-    elif experiment == "eqe":
-        pixel_address_string = args["eqe_devs"]
-
-    # create a substrate queue where each element is a dictionary of info about the
-    # layout from the config file
-    substrate_q = []
-    i = 0
-    for label, centre, sub_name, layout in zip(
-        args["substrate_labels"],
-        substrate_centres,
-        args["subs_names"],
-        args["substrate_layouts"],
-    ):
-        # get pcb adapter info from config file
-        pcb_name = config["substrates"]["layouts"][layout]["pcb_name"]
-
-        # read in pixel positions from layout in config file
-        config_pos = config["substrates"]["layouts"][layout]["positions"]
-        pixel_positions = []
-        for pos in config_pos:
-            abs_pixel_position = [x + y for x, y in zip(pos, centre)]
-            pixel_positions.append(abs_pixel_position)
-
-        substrate_dict = {
-            "label": label,
-            "sub_name": sub_name,
-            "layout": layout,
-            "pcb_name": pcb_name,
-            "pcb_contact_pads": config["substrates"]["adapters"][pcb_name][
-                "pcb_contact_pads"
-            ],
-            "pcb_resistor": config["substrates"]["adapters"][pcb_name]["pcb_resistor"],
-            "pixels": config["substrates"]["layouts"][layout]["pixels"],
-            "pixel_positions": pixel_positions,
-            "areas": config["substrates"]["layouts"][layout]["areas"],
-        }
-        substrate_q.append(substrate_dict)
-
-        i += 1
-
-    # TODO: return support for pixel strings that aren't hex bitmasks
-    # convert hex bitmask string into bit list where 1's and 0's represent whether
-    # a pixel should be measured or not, respectively
-    b_len = len(bin(16 ** (len(pixel_address_string) - 2) - 1))
-    fmt = f"#0{b_len}b"
-    bitmask = format(int(pixel_address_string, 16), fmt)
-    bitmask = [int(x) for x in bitmask[2:]]
-    bitmask.reverse()
-
+    
     # build pixel queue
     pixel_q = collections.deque()
-    for substrate in substrate_q:
-        # git bitmask for the substrate pcb
-        sub_bitmask = [bitmask.pop(0) for i in range(substrate["pcb_contact_pads"])]
-        # select pixels to measure from layout
-        for pixel in substrate["pixels"]:
-            if sub_bitmask[pixel - 1] == 1:
-                pixel_dict = {
-                    "label": substrate["label"],
-                    "layout": substrate["layout"],
-                    "sub_name": substrate["sub_name"],
-                    "pixel": pixel,
-                    "position": substrate["pixel_positions"][pixel - 1],
-                    "area": substrate["areas"][pixel - 1],
-                }
-                pixel_q.append(pixel_dict)
-
+    for things in stuff:
+        pixel_dict = {}
+        pixel_dict['label'] = things['label']
+        pixel_dict['layout'] = things['layout']
+        pixel_dict['sub_name'] = things['system_label']
+        pixel_dict['pixel'] = things['mux_index']
+        pixel_dict['mux_string'] = things['mux_string']
+        loc = things['loc']
+        pos = [a+b for a,b in zip(center,loc)]
+        pixel_dict['pos'] = pos
+        #pixel_dict['position'] = things['substrate_offset_raw']
+        pixel_dict['area'] = things['area']
+        pixel_dict['user_vars'] = things['user_vars']
+        pixel_q.append(pixel_dict)
     return pixel_q
 
 
@@ -1063,7 +977,7 @@ def _ivt(
         smu_two_wire=config["smu"]["two_wire"],
         pcb_address=config["controller"]["address"],
         motion_address=config["stage"]["uri"],
-        light_address=config["solarsim"]["uri"],
+        light_address=config["solarsim"]["address"],
         light_recipe=args["light_recipe"],
     )
 
@@ -1497,7 +1411,7 @@ def _run(request, mqtthost, dummy):
     args = request["args"]
 
     # calibrate spectrum if required
-    if int(args["iv_devs"], 16) > 0:
+    if 'IV_stuff' in args:
         user_aborted = _calibrate_spectrum(request, mqtthost, dummy)
 
     if user_aborted is False:
@@ -1512,24 +1426,15 @@ def _run(request, mqtthost, dummy):
                 with fabric() as measurement:
                     _log("Starting run...", 20, mqttc)
 
-                    if int(args["iv_devs"], 16) != 0:
-                        iv_pixel_queue = _build_q(request, experiment="solarsim")
-                    else:
-                        iv_pixel_queue = []
-
-                    if int(args["eqe_devs"], 16) != 0:
-                        eqe_pixel_queue = _build_q(request, experiment="eqe")
-                    else:
-                        eqe_pixel_queue = []
-
-                    # measure i-v-t
-                    if len(iv_pixel_queue) > 0:
-                        _ivt(iv_pixel_queue, request, measurement, mqttc, dummy)
+                    if 'IV_stuff' in args:
+                        q = _build_q(request, experiment="solarsim")
+                        _ivt(q, request, measurement, mqttc, dummy)
                         measurement.disconnect_all_instruments()
 
-                    # measure eqe
-                    if len(eqe_pixel_queue) > 0:
-                        _eqe(eqe_pixel_queue, request, measurement, mqttc, dummy)
+                    if 'EQE_stuff' in args:
+                        q = _build_q(request, experiment="eqe")
+                        _eqe(q, request, measurement, mqttc, dummy)
+                        measurement.disconnect_all_instruments()
 
                     # report complete
                     _log("Run complete!", 20, mqttc)
