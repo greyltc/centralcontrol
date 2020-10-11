@@ -22,8 +22,12 @@ class put_ftp:
     
      # sanitize address input
     protocol, address = address.split('://')
-    host, remote_path = address.split('/', 1)
-    self.remote_path = '/' + remote_path
+    host_path_split = address.split('/', 1)
+    host = host_path_split[0]
+    if len(host_path_split) == 2:
+      self.remote_path = '/' + host_path_split[1]
+    else:
+      self.remote_path = '/'
     host_split = host.split(':')
     host = host_split[0]
     port = 21
