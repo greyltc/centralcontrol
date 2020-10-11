@@ -817,19 +817,19 @@ def _build_q(request, experiment):
     
     # build pixel queue
     pixel_q = collections.deque()
-    for things in stuff:
+    # here we build up the pixel handling queue by iterating
+    # through the rows of a pandas dataframe
+    # that contains one row for each turned on pixel
+    for things in stuff.to_dict(orient='records'):
         pixel_dict = {}
         pixel_dict['label'] = things['label']
         pixel_dict['layout'] = things['layout']
         pixel_dict['sub_name'] = things['system_label']
         pixel_dict['pixel'] = things['mux_index']
-        pixel_dict['mux_string'] = things['mux_string']
         loc = things['loc']
         pos = [a+b for a,b in zip(center,loc)]
         pixel_dict['pos'] = pos
-        #pixel_dict['position'] = things['substrate_offset_raw']
         pixel_dict['area'] = things['area']
-        pixel_dict['user_vars'] = things['user_vars']
         pixel_q.append(pixel_dict)
     return pixel_q
 
