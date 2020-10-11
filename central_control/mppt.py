@@ -14,12 +14,16 @@ class mppt:
   Impp = None  # current at max power point
   Pmax = None  # power at max power point (for keeping track of voc and isc)
   abort = False
+
+  # under no circumstances should we violate this
+  absolute_current_limit = 0.1  # always safe default
   
   currentCompliance = None
   t0 = None  # the time we started the mppt algorithm
   
-  def __init__(self, sm):
+  def __init__(self, sm, absolute_current_limit):
     self.sm = sm
+    self.absolute_current_limit = absolute_current_limit
     
   def reset(self):
     self.Voc = None
@@ -83,6 +87,7 @@ class mppt:
     
     if (self.Voc is None):
       print("Learning Voc...")
+      # TODO: trouble here if Voc is larger than 3V...
       self.sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='a')
       self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
       ssvocs=self.sm.measureUntil(t_dwell=1)
@@ -93,7 +98,10 @@ class mppt:
     if self.Vmpp is None:
       self.Vmpp = 0.7 * self.Voc # start at 70% of Voc if nobody told us otherwise
 
-    #self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='a')
+    # clamp current to global limit
+    if current_compliance > self.absolute_current_limit:
+      current_compliance = self.absolute_current_limit
+
     self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
     self.sm.write(':arm:source immediate')  # this sets up the trigger/reading method we'll use below
 
@@ -102,6 +110,9 @@ class mppt:
       m.append(cm:=self.sm.measure()[0])
       callback(cm)
       current_compliance = abs(cm[1] * 2)  # current compliance is 2x impp
+      # clamp current to global limit
+      if current_compliance > self.absolute_current_limit:
+        current_compliance = self.absolute_current_limit
       self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
       self.current_compliance = current_compliance
 

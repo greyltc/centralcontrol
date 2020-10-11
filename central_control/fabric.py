@@ -1,16 +1,10 @@
 """High level experiment functions."""
 
 import numpy as np
-import scipy as sp
 from scipy.integrate import simps
 import unicodedata
 import re
-import os
 import time
-import tempfile
-import inspect
-from collections import deque
-import warnings
 
 import central_control.virt as virt
 from central_control.k2400 import k2400
@@ -18,7 +12,6 @@ from central_control.pcb import pcb
 from central_control.motion import motion
 from central_control.mppt import mppt
 from central_control.illumination import illumination
-import central_control  # for __version__
 
 import sr830
 import sp2150
@@ -38,11 +31,14 @@ class fabric:
     # keep track of connected instruments
     _connected_instruments = []
 
-    def __init__(self):
+    #current_limit = float("inf")
+    current_limit = 0.1  # always safe default
+
+    def __init__(self, current_limit):
         """Get software revision."""
         # self.software_revision = __version__
         # print("Software revision: {:s}".format(self.software_revision))
-        pass
+        self.current_limit = current_limit
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
@@ -80,6 +76,10 @@ class fabric:
             compliance_i = 1
         elif (compliance_i := 5 * max_j * area / 1000) > 1:
             compliance_i = 1
+
+        # enforce the global current limit
+        if compliance_i > self.current_limit:
+            compliance_i = self.current_limit
 
         return compliance_i
 
@@ -133,7 +133,7 @@ class fabric:
         self.sm.setWires(twoWire=smu_two_wire)
 
         # instantiate max-power tracker object based on smu
-        self.mppt = mppt(self.sm)
+        self.mppt = mppt(self.sm, self.current_limit)
 
         self._connected_instruments.append(self.sm)
 
@@ -838,7 +838,7 @@ class fabric:
 
         # set smu to short circuit and enable output
         self.sm.setupDC(
-            sourceVoltage=True, compliance=0.1, setPoint=0, senseRange="a",
+            sourceVoltage=True, compliance=self.current_limit, setPoint=0, senseRange="a",
         )
         self.sm.write(":arm:source immediate")
 

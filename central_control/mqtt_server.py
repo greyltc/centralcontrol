@@ -2,24 +2,18 @@
 
 import argparse
 import collections
-import itertools
 import multiprocessing
 import os
 import pickle
 import queue
 import signal
-import sys
-import threading
 import time
 import traceback
-import types
 import uuid
-import warnings
 
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 import numpy as np
-import yaml
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
 from central_control.fabric import fabric
@@ -124,7 +118,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
         mqttc.loop_start()
 
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
                 # create temporary mqtt client
                 _log("Calibrating EQE...", 20, mqttc)
 
@@ -194,7 +188,7 @@ def _calibrate_psu(request, mqtthost, dummy):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
 
                 _log("Calibration LED PSU...", 20, mqttc)
 
@@ -338,7 +332,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
         mqttc.loop_start()
 
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
 
                 _log("Calibrating solar simulator spectrum...", 20, mqttc)
 
@@ -395,7 +389,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
                 _log("Calibrating solar simulator diodes...", 20, mqttc)
 
                 args = request["args"]
@@ -450,7 +444,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
                 _log("Calibrating RTDs...", 20, mqttc)
 
                 request["args"]["i_dwell"] = 0
@@ -509,7 +503,7 @@ def _home(request, mqtthost, dummy):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
                 _log("Homing stage...", 20, mqttc)
 
                 config = request["config"]
@@ -558,7 +552,7 @@ def _goto(request, mqtthost, dummy):
         mqttc.loop_start()
 
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
 
                 _log(f"Moving to stage position...", 20, mqttc)
 
@@ -613,7 +607,7 @@ def _read_stage(request, mqtthost, dummy):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
                 _log(f"Reading stage position...", 20, mqttc)
 
                 config = request["config"]
@@ -665,7 +659,7 @@ def _contact_check(request, mqtthost, dummy):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric() as measurement:
+            with fabric(request["config"]["current_limit"]) as measurement:
                 _log("Performing contact check...", 20, mqttc)
 
                 args = request["args"]
@@ -1423,7 +1417,7 @@ def _run(request, mqtthost, dummy):
                 "measurement/status", pickle.dumps("Busy"), retain=True,
             )
             try:
-                with fabric() as measurement:
+                with fabric(request["config"]["current_limit"]) as measurement:
                     _log("Starting run...", 20, mqttc)
 
                     if 'IV_stuff' in args:
