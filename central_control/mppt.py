@@ -185,7 +185,7 @@ class mppt:
     if snaith_mode == True:
       duration = duration - snaith_pre_soak_t - snaith_post_soak_t
       this_soak_t = snaith_pre_soak_t
-      print("Snaith Post Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage*1000, this_soak_t))
+      print("Snaith Pre Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage*1000, this_soak_t))
       spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
       self.q.extend(spos)
 
