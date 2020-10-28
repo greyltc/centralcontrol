@@ -135,7 +135,7 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gd'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.0001, NPLC=10, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.001, NPLC=10, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
@@ -144,7 +144,7 @@ class mppt:
         m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]))
     elif (algo == 'snaith'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.0001, NPLC=10, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.001, NPLC=10, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
@@ -164,7 +164,6 @@ class mppt:
     gradient descent MPPT algorithm
     alpha is the "learning rate"
     min_step is the minimum voltage step size the algorithm will be allowed to take
-    fade_in_t is the number of seconds to use to ramp the learning rate from 0 to alpha at the start of the algorithm
     """
     max_step = 0.1
     snaith_pre_soak_t = 15
