@@ -142,6 +142,15 @@ class mppt:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]"))        
         params = [float(f) for f in params]
         m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]))
+    elif (algo == 'snaith'):
+      if len(params) == 0:  #  use defaults
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.0001, NPLC=10, callback=callback))
+      else:
+        params = params.split(':')
+        if len(params) != 3:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params snaith://[alpha]:[min_step]:[NPLC]"))        
+        params = [float(f) for f in params]
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]), snaith_mode=True)
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
 
@@ -150,7 +159,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=1, min_step=0, NPLC=-1):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=1, min_step=0, NPLC=-1, snaith_mode=False):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -158,6 +167,8 @@ class mppt:
     fade_in_t is the number of seconds to use to ramp the learning rate from 0 to alpha at the start of the algorithm
     """
     max_step = 0.1
+    snaith_pre_soak_t = 15
+    snaith_post_soak_t = 3
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
     print("===Starting up gradient descent maximum power point tracking algorithm===")
@@ -165,11 +176,19 @@ class mppt:
     print(f"Smallest step (min_step) = {min_step*1000} [mV]")
     print(f"Largest step (max_step) = {max_step*1000} [mV]")
     print(f"NPLC = {self.sm.sm.query(':sense:current:nplcycles?')}")
+    print(f"Snaith mode = {snaith_mode}")
 
     self.q = deque()
     m = deque(maxlen=2) # keeps two measurements
     x = deque(maxlen=2) # keeps two x values
     y = deque(maxlen=2) # keeps two loss(y) values
+
+    if snaith_mode == True:
+      duration = duration - snaith_pre_soak_t - snaith_post_soak_t
+      this_soak_t = snaith_pre_soak_t
+      print("Snaith Post Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage*1000, this_soak_t))
+      spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
+      self.q.extend(spos)
 
     # the loss function we'll be minimizing here is power produced by the sourcemeter
     loss = lambda a, b, t: a * b * -1
@@ -206,7 +225,13 @@ class mppt:
       elif (abs(v_step) > max_step) and (max_step < big):  # enforce maximum step size if we're doing that
          v_step = sign(v_step) * max_step
       W += v_step # apply voltage step, calculate new voltage
-      
+
+    if snaith_mode == True:
+      this_soak_t = snaith_post_soak_t
+      print("Snaith Post Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage*1000, this_soak_t))
+      spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
+      self.q.extend(spos)
+
     self.Impp = m[-1][1]
     self.Vmpp = m[-1][0]
     q = self.q
