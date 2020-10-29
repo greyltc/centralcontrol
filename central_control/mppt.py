@@ -135,7 +135,7 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gd'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.001, NPLC=10, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
@@ -144,7 +144,7 @@ class mppt:
         m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]))
     elif (algo == 'snaith'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=1, min_step=0.001, NPLC=10, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
@@ -159,7 +159,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=1, min_step=0, NPLC=-1, snaith_mode=False):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=5, min_step=0.001, NPLC=-1, snaith_mode=False):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
