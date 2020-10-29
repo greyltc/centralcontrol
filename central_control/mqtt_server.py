@@ -990,12 +990,13 @@ def _ivt(
         light_recipe=args["light_recipe"],
     )
 
-    # set the master experiment relay
-    resp = measurement.set_experiment_relay("iv")
+    if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
+        # set the master experiment relay
+        resp = measurement.set_experiment_relay("iv")
 
-    if resp != "":
-        _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
-        return
+        if resp != "":
+            _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
+            return
 
     source_delay = args["source_delay"]
 
