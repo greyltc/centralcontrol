@@ -211,6 +211,11 @@ def _calibrate_psu(request, mqtthost, dummy):
                     pixel_queue = collections.deque()
                     pixel_queue.append(pixel_dict)
 
+                if request['args']['enable_stage'] == True:
+                    motion_address = config["stage"]["uri"]
+                else:
+                    motion_address = None
+
                 # connect instruments
                 measurement.connect_instruments(
                     dummy=dummy,
@@ -221,7 +226,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                     smu_front_terminals=config["smu"]["front_terminals"],
                     smu_two_wire=config["smu"]["two_wire"],
                     pcb_address=config["controller"]["address"],
-                    motion_address=config["stage"]["uri"],
+                    motion_address=motion_address,
                     psu_address=config["psu"]["address"],
                     psu_terminator=config["psu"]["terminator"],
                     psu_baud=config["psu"]["baud"],
@@ -232,14 +237,15 @@ def _calibrate_psu(request, mqtthost, dummy):
                     ],
                 )
 
-                # using smu to measure the current from the photodiode
-                resp = measurement.set_experiment_relay("iv")
+                if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
+                    # using smu to measure the current from the photodiode
+                    resp = measurement.set_experiment_relay("iv")
 
-                if resp != "":
-                    _log(
-                        f"Experiment relay error: {resp}! Aborting run", 40, mqttc,
-                    )
-                    return
+                    if resp != "":
+                        _log(
+                            f"Experiment relay error: {resp}! Aborting run", 40, mqttc,
+                        )
+                        return
 
                 last_label = None
                 while len(pixel_queue) > 0:
@@ -674,7 +680,6 @@ def _contact_check(request, mqtthost, dummy):
                     smu_front_terminals=config["smu"]["front_terminals"],
                     smu_two_wire=config["smu"]["two_wire"],
                     pcb_address=config["controller"]["address"],
-                    motion_address=config["stage"]["uri"],
                 )
 
                 # make a pixel queue for the contact check
@@ -960,6 +965,16 @@ def _ivt(
     config = request["config"]
     args = request["args"]
 
+    if args['enable_stage'] == True:
+        motion_address = config["stage"]["uri"]
+    else:
+        motion_address = None
+
+    if args['enable_solarsim'] == True:
+        light_address = config["solarsim"]["address"]
+    else:
+        light_address = None
+
     # connect instruments
     measurement.connect_instruments(
         dummy=dummy,
@@ -970,8 +985,8 @@ def _ivt(
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
         pcb_address=config["controller"]["address"],
-        motion_address=config["stage"]["uri"],
-        light_address=config["solarsim"]["address"],
+        motion_address=motion_address,
+        light_address=light_address,
         light_recipe=args["light_recipe"],
     )
 
@@ -1034,8 +1049,9 @@ def _ivt(
 
         timestamp = time.time()
 
-        # turn on light
-        measurement.le.on()
+        if hasattr(measurement, "le"):
+            # turn on light
+            measurement.le.on()
 
         # steady state v@constant I measured here - usually Voc
         if args["i_dwell"] > 0:
@@ -1083,7 +1099,8 @@ def _ivt(
         # perform sweeps
         for sweep in sweeps:
             if sweep == "dark":
-                measurement.le.off()
+                if hasattr(measurement, "le"):
+                    measurement.le.off()
                 sense_range = "a"
             else:
                 sense_range = "f"
@@ -1154,7 +1171,7 @@ def _ivt(
                     iv2, light=(sweep == "light")
                 )
 
-            if sweep == "dark":
+            if sweep == "dark" and hasattr(measurement, "le"):
                 measurement.le.on()
 
         # TODO: read and interpret parameters for smart mode
@@ -1229,7 +1246,8 @@ def _ivt(
 
             data += it
 
-        measurement.le.off()
+        if hasattr(measurement, "le"):
+            measurement.le.off()
         measurement.sm.outOn(False)
 
         if calibration is True:
@@ -1264,6 +1282,11 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
     config = request["config"]
     args = request["args"]
 
+    if args['enable_stage'] == True:
+        motion_address = config["stage"]["uri"]
+    else:
+        motion_address = None
+
     # connect instruments
     measurement.connect_instruments(
         dummy=dummy,
@@ -1274,7 +1297,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
         pcb_address=config["controller"]["address"],
-        motion_address=config["stage"]["uri"],
+        motion_address=motion_address,
         lia_address=config["lia"]["address"],
         lia_terminator=config["lia"]["terminator"],
         lia_baud=config["lia"]["baud"],
@@ -1405,7 +1428,7 @@ def _run(request, mqtthost, dummy):
     args = request["args"]
 
     # calibrate spectrum if required
-    if 'IV_stuff' in args:
+    if ('IV_stuff' in args) and (args['enable_solarsim'] == True):
         user_aborted = _calibrate_spectrum(request, mqtthost, dummy)
 
     if user_aborted is False:
@@ -1468,42 +1491,43 @@ def msg_handler():
 
         try:
             request = pickle.loads(msg.payload)
+            action = msg.topic.split("/")[-1]
 
             # perform a requested action
-            if (action := msg.topic.split("/")[-1]) == "run":
+            if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
                 start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
             elif action == "stop":
                 stop_process()
-            elif action == "calibrate_eqe":
+            elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
                 start_process(
                     _calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,)
                 )
-            elif action == "calibrate_psu":
+            elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
                 start_process(
                     _calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,)
                 )
-            elif action == "calibrate_solarsim_diodes":
+            elif (action == "calibrate_solarsim_diodes") and (request['args']['enable_solarsim'] == True) and (request['args']['enable_smu'] == True):
                 start_process(
                     _calibrate_solarsim_diodes,
                     (request, cli_args.mqtthost, cli_args.dummy,),
                 )
-            elif action == "calibrate_spectrum":
+            elif (action == "calibrate_spectrum") and (request['args']['enable_solarsim'] == True):
                 start_process(
                     _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
                 )
-            elif action == "calibrate_rtd":
+            elif (action == "calibrate_rtd") and (request['args']['enable_smu'] == True):
                 start_process(
                     _calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,)
                 )
-            elif action == "contact_check":
+            elif (action == "contact_check") and (request['args']['enable_smu'] == True):
                 start_process(
                     _contact_check, (request, cli_args.mqtthost, cli_args.dummy,)
                 )
-            elif action == "home":
+            elif (action == "home") and (request['args']['enable_stage'] == True):
                 start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
-            elif action == "goto":
+            elif (action == "goto") and (request['args']['enable_stage'] == True):
                 start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
-            elif action == "read_stage":
+            elif (action == "read_stage") and (request['args']['enable_stage'] == True):
                 start_process(
                     _read_stage, (request, cli_args.mqtthost, cli_args.dummy,)
                 )

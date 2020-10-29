@@ -507,8 +507,10 @@ class fabric:
 
     def run_done(self):
         """Turn off light engine and smu."""
-        self.le.off()
-        self.sm.outOn(on=False)
+        if hasattr(self, "le"):
+            self.le.off()
+        if hasattr(self, "sm"):
+            self.sm.outOn(on=False)
 
     def goto_pixel(self, pixel):
         """Move to a pixel.
@@ -524,13 +526,16 @@ class fabric:
             Response code. 0 is good, everything else means fail.
         """
         # TODO: change this to not open and close the PCB object on every single movement
-        with self.pcb(self.pcb_address) as p:
-            me = self.motion(self.motion_address, p)
-            me.connect()
-            if pixel["pos"] is not None:
-                resp = me.goto(pixel["pos"])
-            else:
-                resp = 0
+        if hasattr(self, "motion"):
+            with self.pcb(self.pcb_address) as p:
+                me = self.motion(self.motion_address, p)
+                me.connect()
+                if pixel["pos"] is not None:
+                    resp = me.goto(pixel["pos"])
+                else:
+                    resp = 0
+        else:
+            resp = 0
 
         return resp
 
@@ -578,10 +583,8 @@ class fabric:
         exp_relay : {"eqe", "iv"}
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
-        resp = ""
-        if "otter" in self.motion_address:  # TODO: do this in some better way
-            with self.pcb(self.pcb_address) as p:
-                resp = p.get(exp_relay)
+        with self.pcb(self.pcb_address) as p:
+            resp = p.get(exp_relay)
 
         return resp
 
@@ -831,8 +834,9 @@ class fabric:
             Number of current steps to measure.
         """
         # block the monochromator so there's no AC background
-        self.mono.filter = 5
-        self.mono.wavelength = 300
+        if hasattr(self, 'mono'):
+            self.mono.filter = 5
+            self.mono.wavelength = 300
 
         currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
 
@@ -861,9 +865,10 @@ class fabric:
         # disable smu
         self.sm.outOn(False)
 
-        # unblock the monochromator
-        self.mono.filter = 1
-        self.mono.wavelength = 0
+        if hasattr(self, 'mono'):
+            # unblock the monochromator
+            self.mono.filter = 1
+            self.mono.wavelength = 0
 
         return data
 
