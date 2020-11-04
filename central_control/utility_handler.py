@@ -133,8 +133,9 @@ def worker():
                     with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
                         log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
                         log_msg(mono.query("1 FILTER").strip(), lvl=logging.INFO)
-                except:
+                except Exception:
                     log_msg(f'Unable to zero Monochromator',lvl=logging.WARNING)
+                    logging.exception("caught")
 
             # device round robin commands
             elif task['cmd'] == 'round_robin':
@@ -176,15 +177,6 @@ def worker():
                             k.setupDC(sourceVoltage=False)
                         p.get("s")
                         k.disconnect()
-
-                    #mo = motion.motion(address=task['stage_uri'], pcb_object=p)
-                    #mo.connect()
-                    #pos = mo.get_position()
-                    
-                #payload = {'pos': pos}
-                #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-                #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
-                #outputq.put(output)
         except Exception:
             log_msg(f'Unable to complete task.',lvl=logging.WARNING)
             logging.exception("caught")
@@ -200,8 +192,9 @@ def worker():
                         log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
                         log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
                         log_msg(f"Controller mux bitmask value: {p.get('c')}",lvl=logging.INFO)
-                except:
+                except Exception:
                     log_msg(f'Could not talk to control box',lvl=logging.WARNING)
+                    logging.exception("caught")
 
             if 'psu' in task:
                 log_msg(f"Checking power supply@{task['psu']}...",lvl=logging.INFO)
@@ -210,8 +203,9 @@ def worker():
                         log_msg('Power supply connection initiated',lvl=logging.INFO)
                         idn = psu.query("*IDN?")
                         log_msg(f'Power supply identification string: {idn.strip()}',lvl=logging.INFO)
-                except:
+                except Exception:
                     log_msg(f'Could not talk to PSU',lvl=logging.WARNING)
+                    logging.exception("caught")
 
             if 'smu_address' in task:
                 log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
