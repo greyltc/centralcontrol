@@ -44,7 +44,7 @@ def filter_cmd(mqtt_msg):
     result = {'cmd':''}
     try:
         msg = pickle.loads(mqtt_msg.payload)
-    except:
+    except Exception:
         msg = None
     if isinstance(msg, collections.abc.Iterable):
         if 'cmd' in msg:
@@ -63,8 +63,9 @@ def manager():
                 with pcb.pcb(cmd_msg['pcb'], timeout=10) as p:
                     p.get('b')
                 log_msg('Emergency stop done. Re-Homing required before any further movements.', lvl=logging.INFO)
-            except:
+            except Exception:
                 log_msg(f'Unable to complete task.', lvl=logging.WARNING)
+                logging.exception("caught")
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
@@ -232,8 +233,9 @@ def worker():
                         log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
                         idn = smu.query("*IDN?")
                         log_msg(f'Sourcemeter identification string: {idn}',lvl=logging.INFO)
-                except:
+                except Exception:
                     log_msg(f'Could not talk to sourcemeter',lvl=logging.WARNING)
+                    logging.exception("caught")
 
             if 'lia_address' in task:
                 log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
@@ -243,8 +245,9 @@ def worker():
                         log_msg('Lock-in connection initiated',lvl=logging.INFO)
                         idn = lia.query("*IDN?")
                         log_msg(f'Lock-in identification string: {idn.strip()}',lvl=logging.INFO)
-                except:
+                except Exception:
                     log_msg(f'Could not talk to lock-in',lvl=logging.WARNING)
+                    logging.exception("caught")
 
             if 'mono_address' in task:
                 log_msg(f"Checking monochromator@{task['mono_address']}...",lvl=logging.INFO)
@@ -253,8 +256,9 @@ def worker():
                         log_msg('Monochromator connection initiated',lvl=logging.INFO)
                         qu = mono.query("?nm")
                         log_msg(f'Monochromator wavelength query result: {qu.strip()}',lvl=logging.INFO)
-                except:
+                except Exception:
                     log_msg(f'Could not talk to monochromator',lvl=logging.WARNING)
+                    logging.exception("caught")
 
             if 'le_address' in task:
                 log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
@@ -268,8 +272,9 @@ def worker():
                         log_msg("Timeout waiting for wavelabs to connect",lvl=logging.WARNING)
                     else:
                         log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}",lvl=logging.WARNING)
-                except:
+                except Exception:
                     log_msg(f'Could not talk to light engine',lvl=logging.WARNING)
+                    logging.exception("caught")
 
         taskq.task_done()
 
