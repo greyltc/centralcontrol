@@ -185,8 +185,9 @@ def worker():
                 #payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
                 #output = {'destination':'response', 'payload': payload}  # post the position to the response channel
                 #outputq.put(output)
-        except:
+        except Exception:
             log_msg(f'Unable to complete task.',lvl=logging.WARNING)
+            logging.exception("caught")
 
         # system health check
         if task['cmd'] == 'check_health':
