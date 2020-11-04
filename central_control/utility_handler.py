@@ -58,6 +58,7 @@ def filter_cmd(mqtt_msg):
 def manager():
     while True:
         cmd_msg = filter_cmd(cmdq.get())
+        log_msg('New command message!',lvl=logging.DEBUG)
         if cmd_msg['cmd'] == 'estop':
             try:
                 with pcb.pcb(cmd_msg['pcb'], timeout=10) as p:
@@ -69,8 +70,10 @@ def manager():
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
+        elif (taskq.unfinished_tasks > 0):
+            log_msg(f'Backend busy (task queue size = {taskq.unfinished_tasks}). Command rejected.', lvl=logging.WARNING)
         else:
-            log_msg('Backend busy. Command rejected.', lvl=logging.WARNING)
+            log_msg(f'Command message rejected:: {cmd_msg}', lvl=logging.DEBUG)
         cmdq.task_done()
 
 # asks for the current stage position and sends it up to /response
@@ -89,6 +92,7 @@ def get_stage(pcba, uri):
 def worker():
     while True:
         task = taskq.get()
+        log_msg(f"New task: {task['cmd']} (queue size = {taskq.unfinished_tasks})",lvl=logging.DEBUG)
         try:
             if task['cmd'] == 'home':
                 with pcb.pcb(task['pcb'], timeout=1) as p:
