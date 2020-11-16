@@ -218,15 +218,17 @@ def _calibrate_psu(request, mqtthost, dummy):
 
                 # connect instruments
                 measurement.connect_instruments(
-                    dummy=dummy,
                     visa_lib=config["visa"]["visa_lib"],
                     smu_address=config["smu"]["address"],
                     smu_terminator=config["smu"]["terminator"],
                     smu_baud=config["smu"]["baud"],
                     smu_front_terminals=config["smu"]["front_terminals"],
                     smu_two_wire=config["smu"]["two_wire"],
+                    smu_virt=config["smu"]["virtual"],
                     pcb_address=config["controller"]["address"],
+                    pcb_virt=config["pcb"]["virtual"],
                     motion_address=motion_address,
+                    motion_virt=config["stage"]["virtual"],
                     psu_address=config["psu"]["address"],
                     psu_terminator=config["psu"]["terminator"],
                     psu_baud=config["psu"]["baud"],
@@ -235,6 +237,7 @@ def _calibrate_psu(request, mqtthost, dummy):
                         config["psu"]["ch2_ocp"],
                         config["psu"]["ch3_ocp"],
                     ],
+                    psu_virt=config["psu"]["virtual"],
                 )
 
                 if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
@@ -346,9 +349,9 @@ def _calibrate_spectrum(request, mqtthost, dummy):
                 args = request["args"]
 
                 measurement.connect_instruments(
-                    dummy=dummy,
                     visa_lib=config["visa"]["visa_lib"],
                     light_address=config["solarsim"]["address"],
+                    light_virt=config["solarsim"]["virtual"],
                     light_recipe=args["light_recipe"],
                 )
 
@@ -515,9 +518,9 @@ def _home(request, mqtthost, dummy):
                 config = request["config"]
 
                 measurement.connect_instruments(
-                    dummy=dummy,
                     pcb_address=config["controller"]["address"],
                     motion_address=config["stage"]["uri"],
+                    motion_virt=config["stage"]["virtual"],
                 )
 
                 homed = measurement.home_stage()
@@ -569,9 +572,9 @@ def _goto(request, mqtthost, dummy):
                 args = request["args"]
 
                 measurement.connect_instruments(
-                    dummy=dummy,
                     pcb_address=config["controller"]["address"],
                     motion_address=config["stage"]["uri"],
+                    motion_virt=config["stage"]["virtual"],
                 )
 
                 goto = measurement.goto_stage_position(position)
@@ -619,9 +622,9 @@ def _read_stage(request, mqtthost, dummy):
                 config = request["config"]
 
                 measurement.connect_instruments(
-                    dummy=dummy,
                     pcb_address=config["controller"]["address"],
                     motion_address=config["stage"]["uri"],
+                    motion_virt=config["stage"]["virtual"],
                 )
 
                 stage_pos = measurement.read_stage_position()
@@ -672,14 +675,15 @@ def _contact_check(request, mqtthost, dummy):
                 config = request["config"]
 
                 measurement.connect_instruments(
-                    dummy=dummy,
                     visa_lib=config["visa"]["visa_lib"],
                     smu_address=config["smu"]["address"],
+                    smu_virt=config["smu"]["virtual"],
                     smu_terminator=config["smu"]["terminator"],
                     smu_baud=config["smu"]["baud"],
                     smu_front_terminals=config["smu"]["front_terminals"],
                     smu_two_wire=config["smu"]["two_wire"],
                     pcb_address=config["controller"]["address"],
+                    pcb_virt=config["pcb"]["virtual"],
                 )
 
                 # make a pixel queue for the contact check

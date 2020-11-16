@@ -49,7 +49,7 @@ class pcb:
 
     self.host = host
     self.port = int(port)
-
+    self.virt = virt
 
   def __enter__(self):
     self.tn = self.MyTelnet(self.host, self.port, timeout=self.timeout)
@@ -99,19 +99,6 @@ class pcb:
       self.tn.close()
     except:
       pass
-
-  def substrateSearch(self):
-    """Returns bitmask of connected MUX boards
-    """
-    substrates = self.substrateList
-    found = 0x00
-    win = False
-    for i in range(len(substrates)):
-      cmd = "c" + substrates[i]
-      answer = self.get(cmd)
-      if answer == "":  # empty answer means mux board found
-        found |= 0x01 << (7-i)
-    return found
 
   def pix_picker(self, substrate, pixel, suppressWarning=False):
     win = False
@@ -218,23 +205,6 @@ class pcb:
       raise (ValueError("Comms are out of sync with the PCB"))
 
     return ret
-
-  def getADCCounts(self, chan):
-    """makes adc readings.
-    chan can be 0-7 to directly read the corresponding adc channel
-    """
-    cmd = ""
-
-    if (type(chan) == int):
-      cmd = "ADC" + str(chan)
-
-    return int(self.get(cmd))
-
-  def disconnect_all(self):
-    """ Opens all the switches
-    """
-    for substrate in self.substratesConnected:
-      self.pix_picker(substrate, 0)
 
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
     """Set TCP keepalive on an open socket.

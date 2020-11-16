@@ -430,7 +430,7 @@ class k2400:
     sm.write(':system:azero once')
     self.opc() # ensure the instrument is ready after all this
 
-  def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=0.005, start=0, end=1, senseRange='f'):
+  def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=-1, start=0, end=1, senseRange='f'):
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
