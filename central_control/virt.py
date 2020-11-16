@@ -11,14 +11,18 @@ class motion():
     pieces = content.split('/')
     expected_lengths_in_mm = pieces[0]
     self.naxis = len(expected_lengths_in_mm.split(','))
+    self.loc = [14.1]*self.naxis
   def connect(self):
     print ("Connected to virtual motion controller")
     return 0
   def move(self, mm):
     print("Virtually moving {:}mm".format(mm))
+    for i,m in enumerate(mm):
+      self.loc[i] = self.loc[i] + m
     return 0
   def goto(self, mm):
     print("Virtually moving to {:}mm".format(mm))
+    self.loc = mm
     return 0
   def home(self):
     print("Virtually homing")
@@ -26,7 +30,7 @@ class motion():
   def estop(self):
     return 0
   def get_position(self):
-    return [14.1]*self.naxis
+    return self.loc
 
 class illumination():
   runtime = 60

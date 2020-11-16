@@ -81,13 +81,17 @@ def manager():
         cmdq.task_done()
 
 # asks for the current stage position and sends it up to /response
-def get_stage(pcba, uri, is_virt):
-    if is_virt == True:
+def get_stage(pcba, uri, pcb_is_virt, stage_is_virt):
+    if pcb_is_virt == True:
         tpcb = virt.pcb
     else:
         tpcb = pcb.pcb
     with tpcb(pcba, timeout=1) as p:
-        mo = motion.motion(address=uri, pcb_object=p)
+        if stage_is_virt == True:
+            tmo = virt.motion
+        else:
+            tmo = motion.motion
+        mo = tmo(address=uri, pcb_object=p)
         mo.connect()
         pos = mo.get_position()
     payload = {'pos': pos}
@@ -117,7 +121,7 @@ def worker():
                     result = mo.home()
                     if isinstance(result, list) or (result == 0):
                         log_msg('Homing procedure complete.',lvl=logging.INFO)
-                        get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'])
+                        get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
                     else:
                         log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
 
@@ -137,7 +141,7 @@ def worker():
                     result = mo.goto(task['pos'])
                     if result != 0:
                         log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
-                    get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'])
+                    get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
 
             # handle any generic PCB command that has an empty return on success
             elif task['cmd'] == 'for_pcb':
@@ -157,7 +161,7 @@ def worker():
 
             # get the stage location
             elif task['cmd'] == 'read_stage':
-                get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'])
+                get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
 
             # zero the mono
             elif task['cmd'] == 'mono_zero':
