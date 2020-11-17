@@ -472,10 +472,10 @@ class fabric:
             )
 
         if pcb_address is not None:
-            self._connect_pcb(pcb_address, is_virt=pcb_virt)
+            self._connect_pcb(pcb_address=pcb_address, is_virt=pcb_virt)
 
         if motion_address is not None:
-            self._connect_motion(motion_address, is_virt=motion_virt)
+            self._connect_motion(motion_address=motion_address, is_virt=motion_virt)
 
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
