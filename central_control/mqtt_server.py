@@ -220,16 +220,17 @@ def _calibrate_psu(request, mqtthost, dummy):
                 measurement.connect_instruments(
                     visa_lib=config["visa"]["visa_lib"],
                     smu_address=config["smu"]["address"],
+                    smu_virt=config["smu"]["virtual"],
                     smu_terminator=config["smu"]["terminator"],
                     smu_baud=config["smu"]["baud"],
                     smu_front_terminals=config["smu"]["front_terminals"],
                     smu_two_wire=config["smu"]["two_wire"],
-                    smu_virt=config["smu"]["virtual"],
                     pcb_address=config["controller"]["address"],
                     pcb_virt=config["pcb"]["virtual"],
                     motion_address=motion_address,
                     motion_virt=config["stage"]["virtual"],
                     psu_address=config["psu"]["address"],
+                    psu_virt=config["psu"]["virtual"],
                     psu_terminator=config["psu"]["terminator"],
                     psu_baud=config["psu"]["baud"],
                     psu_ocps=[
@@ -237,7 +238,6 @@ def _calibrate_psu(request, mqtthost, dummy):
                         config["psu"]["ch2_ocp"],
                         config["psu"]["ch3_ocp"],
                     ],
-                    psu_virt=config["psu"]["virtual"],
                 )
 
                 if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
@@ -981,16 +981,19 @@ def _ivt(
 
     # connect instruments
     measurement.connect_instruments(
-        dummy=dummy,
         visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
+        smu_virt=config["smu"]["virtual"],
         smu_terminator=config["smu"]["terminator"],
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
         pcb_address=config["controller"]["address"],
+        pcb_virt=config["controller"]["virtual"],
         motion_address=motion_address,
+        motion_virt=config["stage"]["virtual"],
         light_address=light_address,
+        motion_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
 
@@ -1294,23 +1297,28 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
 
     # connect instruments
     measurement.connect_instruments(
-        dummy=dummy,
         visa_lib=config["visa"]["visa_lib"],
         smu_address=config["smu"]["address"],
+        smu_virt=config["smu"]["virtual"],
         smu_terminator=config["smu"]["terminator"],
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
         pcb_address=config["controller"]["address"],
+        pcb_virt=config["controller"]["virtual"],
         motion_address=motion_address,
+        motion_virt=config["stage"]["virtual"],
         lia_address=config["lia"]["address"],
+        lia_virt=config["lia"]["virtual"],
         lia_terminator=config["lia"]["terminator"],
         lia_baud=config["lia"]["baud"],
         lia_output_interface=config["lia"]["output_interface"],
         mono_address=config["monochromator"]["address"],
+        mono_virt=config["monochromator"]["virtual"],
         mono_terminator=config["monochromator"]["terminator"],
         mono_baud=config["monochromator"]["baud"],
         psu_address=config["psu"]["address"],
+        psu_virt=config["psu"]["virtual"],
     )
 
     resp = measurement.set_experiment_relay("eqe")
