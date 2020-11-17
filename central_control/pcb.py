@@ -49,7 +49,6 @@ class pcb:
 
     self.host = host
     self.port = int(port)
-    self.virt = virt
 
   def __enter__(self):
     self.tn = self.MyTelnet(self.host, self.port, timeout=self.timeout)
