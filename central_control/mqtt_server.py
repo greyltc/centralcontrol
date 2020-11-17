@@ -23,13 +23,6 @@ def get_args():
     """Get arguments parsed from the command line."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-d",
-        "--dummy",
-        default=False,
-        action="store_true",
-        help="Run the server in dummy mode using virtual instruments.",
-    )
-    parser.add_argument(
         "--mqtthost",
         default="127.0.0.1",
         help="IP address or hostname of MQTT broker.",
@@ -98,7 +91,7 @@ def stop_process():
         )
 
 
-def _calibrate_eqe(request, mqtthost, dummy):
+def _calibrate_eqe(request, mqtthost):
     """Measure the EQE reference photodiode.
 
     Parameters
@@ -154,7 +147,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
                     pixel_queue = collections.deque()
                     pixel_queue.append(pixel_dict)
 
-                _eqe(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
+                _eqe(pixel_queue, request, measurement, mqttc, calibration=True)
 
                 _log("EQE calibration complete!", 20, mqttc)
 
@@ -170,7 +163,7 @@ def _calibrate_eqe(request, mqtthost, dummy):
         )
 
 
-def _calibrate_psu(request, mqtthost, dummy):
+def _calibrate_psu(request, mqtthost):
     """Measure the reference photodiode as a funtcion of LED current.
 
     Parameters
@@ -320,7 +313,7 @@ def _calibrate_psu(request, mqtthost, dummy):
         )
 
 
-def _calibrate_spectrum(request, mqtthost, dummy):
+def _calibrate_spectrum(request, mqtthost):
     """Measure the solar simulator spectrum using it's internal spectrometer.
 
     Parameters
@@ -380,7 +373,7 @@ def _calibrate_spectrum(request, mqtthost, dummy):
     return user_aborted
 
 
-def _calibrate_solarsim_diodes(request, mqtthost, dummy):
+def _calibrate_solarsim_diodes(request, mqtthost):
     """Calibrate the solar simulator using photodiodes.
 
     Parameters
@@ -419,7 +412,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
                     }
                     pixel_queue = collections.deque(pixel_dict)
 
-                _ivt(pixel_queue, request, measurement, mqttc, dummy, calibration=True)
+                _ivt(pixel_queue, request, measurement, mqttc, calibration=True)
 
                 _log("Solar simulator diode calibration complete!", 20, mqttc)
 
@@ -435,7 +428,7 @@ def _calibrate_solarsim_diodes(request, mqtthost, dummy):
         )
 
 
-def _calibrate_rtd(request, mqtthost, dummy):
+def _calibrate_rtd(request, mqtthost):
     """Calibrate RTD's for temperature measurement.
 
     Parameters
@@ -475,7 +468,6 @@ def _calibrate_rtd(request, mqtthost, dummy):
                     request,
                     measurement,
                     mqttc,
-                    dummy,
                     calibration=True,
                     rtd=True,
                 )
@@ -494,7 +486,7 @@ def _calibrate_rtd(request, mqtthost, dummy):
         )
 
 
-def _home(request, mqtthost, dummy):
+def _home(request, mqtthost):
     """Home the stage.
 
     Parameters
@@ -542,7 +534,7 @@ def _home(request, mqtthost, dummy):
         mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
 
 
-def _goto(request, mqtthost, dummy):
+def _goto(request, mqtthost):
     """Go to a stage position.
 
     Parameters
@@ -598,7 +590,7 @@ def _goto(request, mqtthost, dummy):
         )
 
 
-def _read_stage(request, mqtthost, dummy):
+def _read_stage(request, mqtthost):
     """Read the stage position.
 
     Parameters
@@ -650,7 +642,7 @@ def _read_stage(request, mqtthost, dummy):
         )
 
 
-def _contact_check(request, mqtthost, dummy):
+def _contact_check(request, mqtthost):
     """Perform contact check.
 
     Parameters
@@ -945,7 +937,7 @@ def _log(msg, level, mqttqp):
 
 
 def _ivt(
-    pixel_queue, request, measurement, mqttc, dummy=False, calibration=False, rtd=False
+    pixel_queue, request, measurement, mqttc, calibration=False, rtd=False
 ):
     """Run through pixel queue of i-v-t measurements.
 
@@ -1269,7 +1261,7 @@ def _ivt(
                 )
 
 
-def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=False):
+def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
     """Run through pixel queue of EQE measurements.
 
     Paramters
@@ -1422,7 +1414,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
             )
 
 
-def _run(request, mqtthost, dummy):
+def _run(request, mqtthost):
     """Act on command line instructions.
 
     Parameters
@@ -1442,7 +1434,7 @@ def _run(request, mqtthost, dummy):
 
     # calibrate spectrum if required
     if ('IV_stuff' in args) and (args['enable_solarsim'] == True):
-        user_aborted = _calibrate_spectrum(request, mqtthost, dummy)
+        user_aborted = _calibrate_spectrum(request, mqtthost)
 
     if user_aborted is False:
         with MQTTQueuePublisher() as mqttc:
@@ -1458,12 +1450,12 @@ def _run(request, mqtthost, dummy):
 
                     if 'IV_stuff' in args:
                         q = _build_q(request, experiment="solarsim")
-                        _ivt(q, request, measurement, mqttc, dummy)
+                        _ivt(q, request, measurement, mqttc)
                         measurement.disconnect_all_instruments()
 
                     if 'EQE_stuff' in args:
                         q = _build_q(request, experiment="eqe")
-                        _eqe(q, request, measurement, mqttc, dummy)
+                        _eqe(q, request, measurement, mqttc)
                         measurement.disconnect_all_instruments()
 
                     # report complete
@@ -1508,41 +1500,41 @@ def msg_handler():
 
             # perform a requested action
             if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
-                start_process(_run, (request, cli_args.mqtthost, cli_args.dummy,))
+                start_process(_run, (request, cli_args.mqtthost,))
             elif action == "stop":
                 stop_process()
             elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
                 start_process(
-                    _calibrate_eqe, (request, cli_args.mqtthost, cli_args.dummy,)
+                    _calibrate_eqe, (request, cli_args.mqtthost, )
                 )
             elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
                 start_process(
-                    _calibrate_psu, (request, cli_args.mqtthost, cli_args.dummy,)
+                    _calibrate_psu, (request, cli_args.mqtthost,)
                 )
             elif (action == "calibrate_solarsim_diodes") and (request['args']['enable_solarsim'] == True) and (request['args']['enable_smu'] == True):
                 start_process(
                     _calibrate_solarsim_diodes,
-                    (request, cli_args.mqtthost, cli_args.dummy,),
+                    (request, cli_args.mqtthost,),
                 )
             elif (action == "calibrate_spectrum") and (request['args']['enable_solarsim'] == True):
                 start_process(
-                    _calibrate_spectrum, (request, cli_args.mqtthost, cli_args.dummy,)
+                    _calibrate_spectrum, (request, cli_args.mqtthost,)
                 )
             elif (action == "calibrate_rtd") and (request['args']['enable_smu'] == True):
                 start_process(
-                    _calibrate_rtd, (request, cli_args.mqtthost, cli_args.dummy,)
+                    _calibrate_rtd, (request, cli_args.mqtthost, )
                 )
             elif (action == "contact_check") and (request['args']['enable_smu'] == True):
                 start_process(
-                    _contact_check, (request, cli_args.mqtthost, cli_args.dummy,)
+                    _contact_check, (request, cli_args.mqtthost, )
                 )
             elif (action == "home") and (request['args']['enable_stage'] == True):
-                start_process(_home, (request, cli_args.mqtthost, cli_args.dummy,))
+                start_process(_home, (request, cli_args.mqtthost,))
             elif (action == "goto") and (request['args']['enable_stage'] == True):
-                start_process(_goto, (request, cli_args.mqtthost, cli_args.dummy,))
+                start_process(_goto, (request, cli_args.mqtthost,))
             elif (action == "read_stage") and (request['args']['enable_stage'] == True):
                 start_process(
-                    _read_stage, (request, cli_args.mqtthost, cli_args.dummy,)
+                    _read_stage, (request, cli_args.mqtthost,)
                 )
         except:
             pass
@@ -1578,8 +1570,5 @@ if __name__ == "__main__":
     )
 
     print(f"{client_id} connected!")
-
-    if cli_args.dummy is True:
-        print("*** Running in dummy mode! ***")
 
     msg_handler()
