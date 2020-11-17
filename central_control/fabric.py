@@ -85,7 +85,7 @@ class fabric:
 
     def _connect_smu(
         self,
-        virt=False,
+        is_virt=False,
         visa_lib="@py",
         smu_address=None,
         smu_terminator="\n",
@@ -116,7 +116,7 @@ class fabric:
             mode.
         """
         t0 = time.time()
-        if virt == True:
+        if is_virt == True:
             self.sm = virt.k2400()
         else:
             self.sm = k2400(
@@ -139,7 +139,7 @@ class fabric:
 
     def _connect_lia(
         self,
-        virt=False,
+        is_virt=False,
         visa_lib="@py",
         lia_address=None,
         lia_terminator="\r",
@@ -170,7 +170,7 @@ class fabric:
                 * 0 : RS232
                 * 1 : GPIB
         """
-        if virt == True:
+        if is_virt == True:
             self.lia = virtual_sr830.sr830(return_int=True)
         else:
             self.lia = sr830.sr830()
@@ -185,7 +185,7 @@ class fabric:
 
     def _connect_monochromator(
         self,
-        virt=False,
+        is_virt=False,
         visa_lib="@py",
         mono_address=None,
         mono_terminator="\r",
@@ -208,7 +208,7 @@ class fabric:
         mono_baud : int
             Baud rate for serial communication with the monochromator.
         """
-        if virt == True:
+        if is_virt == True:
             self.mono = virtual_sp2150.sp2150()
         else:
             self.mono = sp2150.sp2150()
@@ -217,7 +217,7 @@ class fabric:
         self._connected_instruments.append(self.mono)
 
     def _connect_solarsim(
-        self, virt=False, visa_lib="@py", light_address=None, light_recipe=None
+        self, is_virt=False, visa_lib="@py", light_address=None, light_recipe=None
     ):
         """Create solar simulator connection.
 
@@ -232,7 +232,7 @@ class fabric:
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
         """
-        if virt == True:
+        if is_virt == True:
             self.le = virt.illumination(
                 address=light_address, default_recipe=light_recipe
             )
@@ -244,7 +244,7 @@ class fabric:
 
     def _connect_psu(
         self,
-        virt=False,
+        is_virt=False,
         visa_lib="@py",
         psu_address=None,
         psu_terminator="\r",
@@ -271,7 +271,7 @@ class fabric:
             List overcurrent protection values in ascending channel order, one value
             per channel.
         """
-        if virt == True:
+        if is_virt == True:
             self.psu = virtual_dp800.dp800()
         else:
             self.psu = dp800.dp800()
@@ -286,7 +286,7 @@ class fabric:
 
         self._connected_instruments.append(self.psu)
 
-    def _connect_pcb(self, virt=False, pcb_address=None):
+    def _connect_pcb(self, is_virt=False, pcb_address=None):
         """Add control PCB attributes to class.
 
         PCB commands run in their own context manager so this isn't a real connect
@@ -301,13 +301,13 @@ class fabric:
         pcb_address : str
             Control PCB address string.
         """
-        if virt == True:
+        if is_virt == True:
             self.pcb = virt.pcb
         else:
             self.pcb_address = pcb_address
             self.pcb = pcb
 
-    def _connect_motion(self, virt=False, motion_address=None):
+    def _connect_motion(self, is_virt=False, motion_address=None):
         """Add motion controller attributes to class.
 
         Motion commands run in their own context manager so this isn't a real connect
@@ -322,7 +322,7 @@ class fabric:
         motion_address : str
             Control PCB address string.
         """
-        if virt == True:
+        if is_virt == True:
             self.motion = virt.motion
         else:
             self.motion_address = motion_address
@@ -425,7 +425,7 @@ class fabric:
         """
         if smu_address is not None:
             self._connect_smu(
-                virt=smu_virt,
+                is_virt=smu_virt,
                 visa_lib=visa_lib,
                 smu_address=smu_address,
                 smu_terminator=smu_terminator,
@@ -436,7 +436,7 @@ class fabric:
 
         if lia_address is not None:
             self._connect_lia(
-                virt=lia_virt,
+                is_virt=lia_virt,
                 visa_lib=visa_lib,
                 lia_address=lia_address,
                 lia_terminator=lia_terminator,
@@ -446,7 +446,7 @@ class fabric:
 
         if mono_address is not None:
             self._connect_monochromator(
-                virt=mono_virt,
+                is_virt=mono_virt,
                 visa_lib=visa_lib,
                 mono_address=mono_address,
                 mono_terminator=mono_terminator,
@@ -455,7 +455,7 @@ class fabric:
 
         if light_address is not None:
             self._connect_solarsim(
-                virt=light_virt,
+                is_virt=light_virt,
                 visa_lib=visa_lib,
                 light_address=light_address,
                 light_recipe=light_recipe,
@@ -463,7 +463,7 @@ class fabric:
 
         if psu_address is not None:
             self._connect_psu(
-                virt=psu_virt,
+                is_virt=psu_virt,
                 visa_lib=visa_lib,
                 psu_address=psu_address,
                 psu_terminator=psu_terminator,
@@ -472,10 +472,10 @@ class fabric:
             )
 
         if pcb_address is not None:
-            self._connect_pcb(pcb_address, virt=pcb_virt)
+            self._connect_pcb(pcb_address, is_virt=pcb_virt)
 
         if motion_address is not None:
-            self._connect_motion(motion_address, virt=motion_virt)
+            self._connect_motion(motion_address, is_virt=motion_virt)
 
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""

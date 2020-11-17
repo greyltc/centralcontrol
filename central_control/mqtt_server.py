@@ -993,7 +993,7 @@ def _ivt(
         motion_address=motion_address,
         motion_virt=config["stage"]["virtual"],
         light_address=light_address,
-        motion_virt=config["solarsim"]["virtual"],
+        light_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
 
