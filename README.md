@@ -25,4 +25,4 @@ python -m pip install -e git+https://github.com/jmball/plotter.git@master#egg=pl
 ```
 Clone this repo: `git clone -b master https://github.com/greyltc/central-control.git` and start hacking (maybe with `cd central-control; code .`).  
 
-When you're done, deactivate the envoronment with `deactivate`
+When you're done, deactivate the environment with `deactivate`
