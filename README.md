@@ -20,6 +20,8 @@ python -m pip install -e git+https://github.com/jmball/srs_sr830.git@master#egg=
 python -m pip install -e git+https://github.com/jmball/rigol_dp800.git@master#egg=rigol_dp800
 python -m pip install -e git+https://github.com/jmball/eqe.git@master#egg=eqe
 python -m pip install -e git+https://github.com/jmball/mqtt_tools.git@master#egg=mqtt_tools
+python -m pip install -e git+https://github.com/jmball/mqtt_saver.git@master#egg=mqtt_saver
+python -m pip install -e git+https://github.com/jmball/plotter.git@master#egg=plotter
 ```
 Clone this repo: `git clone -b master https://github.com/greyltc/central-control.git` and start hacking (maybe with `cd central-control; code .`).  
 
