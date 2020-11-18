@@ -5,8 +5,10 @@ instrument control server
 This software controls laboratory instruments. It receives high level instructions from the user telling it what measurements to make via an MQTT subscription and uses those instructions to decide how to command various instruments and other lab equipment to carry out the measurements the user has requested. It may then publish the measurement data via MQTT.
 
 ## Hacking
-Make a python virtual environment, `cc_venv`, to hack in:
-```python3 -m venv cc_venv --system-site-packages```
+Make a python virtual environment, `cc_venv`, to hack in:  
+```
+python3 -m venv cc_venv --system-site-packages
+```
 `--system-site-packages` might be optional and might be a good idea.
 
 [Read about how to](https://docs.python.org/3/library/venv.html#creating-virtual-environments) activate the virtual environment for your platform. Then activate it. You might find you should do `source cc_venv/bin/activate` or `cc_venv\Scripts\Activate.ps1`.
