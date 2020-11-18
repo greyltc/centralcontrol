@@ -360,6 +360,9 @@ class k2400:
       self.sm.write(':output on')
     else:
       self.sm.write(':output off')
+  
+  def getNPLC(self):
+    return float(self.sm.query(':sense:current:nplcycles?'))
 
   def setNPLC(self, nplc):
     self.nplc_user_set = nplc

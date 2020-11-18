@@ -173,7 +173,7 @@ class mppt:
     print(f"Learning rate (alpha) = {alpha}")
     print(f"Smallest step (min_step) = {min_step*1000} [mV]")
     print(f"Largest step (max_step) = {max_step*1000} [mV]")
-    print(f"NPLC = {self.sm.sm.query(':sense:current:nplcycles?')}")
+    print(f"NPLC = {self.sm.getNPLC()}")
     print(f"Snaith mode = {snaith_mode}")
 
     self.q = deque()

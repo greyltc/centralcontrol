@@ -225,9 +225,7 @@ class fabric:
 
         self._connected_instruments.append(self.mono)
 
-    def _connect_solarsim(
-        self, is_virt=False, visa_lib="@py", light_address=None, light_recipe=None
-    ):
+    def _connect_solarsim(self, is_virt=False, light_address=None, light_recipe=None):
         """Create solar simulator connection.
 
         Parameters
@@ -242,9 +240,7 @@ class fabric:
             instrument is created.
         """
         if is_virt == True:
-            self.le = virt.illumination(
-                address=light_address, default_recipe=light_recipe
-            )
+            self.le = virt.illumination(address=light_address, default_recipe=light_recipe)
         else:
             self.le = illumination(address=light_address, default_recipe=light_recipe)
         self.le.connect()
@@ -310,10 +306,10 @@ class fabric:
         pcb_address : str
             Control PCB address string.
         """
+        self.pcb_address = pcb_address
         if is_virt == True:
             self.pcb = virt.pcb
         else:
-            self.pcb_address = pcb_address
             self.pcb = pcb
 
     def _connect_motion(self, is_virt=False, motion_address=None):
@@ -331,10 +327,10 @@ class fabric:
         motion_address : str
             Control PCB address string.
         """
+        self.motion_address = motion_address
         if is_virt == True:
             self.motion = virt.motion
         else:
-            self.motion_address = motion_address
             self.motion = motion
 
     def connect_instruments(
@@ -465,7 +461,6 @@ class fabric:
         if light_address is not None:
             self._connect_solarsim(
                 is_virt=light_virt,
-                visa_lib=visa_lib,
                 light_address=light_address,
                 light_recipe=light_recipe,
             )
@@ -541,7 +536,7 @@ class fabric:
         # TODO: change this to not open and close the PCB object on every single movement
         if hasattr(self, "motion"):
             with self.pcb(self.pcb_address) as p:
-                me = self.motion(self.motion_address, p)
+                me = self.motion(address=self.motion_address, pcb_object=p)
                 me.connect()
                 if pixel["pos"] is not None:
                     resp = me.goto(pixel["pos"])
@@ -880,14 +875,14 @@ class fabric:
     def home_stage(self):
         """Home the stage."""
         with self.pcb(self.pcb_address) as p:
-            me = self.motion(self.motion_address, p)
+            me = self.motion(address=self.motion_address, pcb_object=p)
             me.connect()
             return me.home()
 
     def read_stage_position(self):
         """Read the current stage position along all available axes."""
         with self.pcb(self.pcb_address) as p:
-            me = self.motion(self.motion_address, p)
+            me = self.motion(address=self.motion_address, pcb_object=p)
             me.connect()
             return me.get_position()
 
@@ -902,7 +897,7 @@ class fabric:
             Position in mm along each available stage to move to.
         """
         with self.pcb(self.pcb_address) as p:
-            me = self.motion(self.motion_address, p)
+            me = self.motion(address=self.motion_address, pcb_object=p)
             me.connect()
             return me.goto(position)
 

@@ -33,6 +33,8 @@ class motion():
 
 class illumination():
   runtime = 60
+  def __init__(self, *args, **kwargs):
+    print ("Init for virt illumination device")
   def connect(self):
     print ("Connected to virtual lightsource")
     return(0)
@@ -74,9 +76,9 @@ class pcb():
 class k2400():
   """Solar cell device simulator (looks like k2400 class)
   """
-
+  idn = 'Virtual Sourcemeter'
+  nplc = 1
   def __init__(self, *args, **kwargs):
-    idn = 'Virtual Sourcemeter'
     self.t0 = time.time()
     self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
 
@@ -109,7 +111,10 @@ class k2400():
     return
 
   def setNPLC(self, *args, **kwargs):
-    return
+    self.nplc = args[0]
+
+  def getNPLC(self, *args, **kwargs):
+    return self.nplc
 
   def disconnect(self, *args, **kwargs):
     return

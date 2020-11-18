@@ -190,7 +190,7 @@ def worker():
                     response = {}
                     response["data"] = le.get_spectrum()
                     response["timestamp"] = time.time()
-                    le.light_engine.__del__()
+                    le.disconnect()
                     output = {'destination':'calibration/spectrum', 'payload': pickle.dumps(response)}
                     outputq.put(output)
                 else:
