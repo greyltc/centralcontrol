@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 
+# this boilerplate allows this module to be run directly as a script
+if __name__ == "__main__" and (__package__ is None or __package__ == ""):
+    __package__ = "central_control"
+    from pathlib import Path
+    import sys
+    # get the dir that holds __package__ on the front of the search path
+    print(__file__)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import paho.mqtt.client as mqtt
 import argparse
 import pickle
-import threading, queue
+import threading
+import queue
 
-from central_control import virt
-from central_control.motion import motion
-from central_control.k2400 import k2400 as sm
-from central_control.illumination import illumination
+from . import virt
+from .motion import motion
+from .k2400 import k2400 as sm
+from .illumination import illumination
 import logging
 import pyvisa
 import collections
@@ -381,8 +391,7 @@ def rtd_r_to_t(r, r0=1000, poly=None):
         t += poly(r)
     return t
 
-
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description='Handle gui stage commands')
     parser.add_argument('-a', '--address', type=str, default='127.0.0.1', help='ip address/hostname of the mqtt server')
     parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
@@ -409,3 +418,6 @@ if __name__ == "__main__":
     # Other loop*() functions are available that give a threaded interface and a
     # manual interface.
     client.loop_forever()
+
+if __name__ == "__main__":
+    main()

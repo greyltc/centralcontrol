@@ -1,4 +1,14 @@
+#!/usr/bin/env python3
 """MQTT Server for interacting with the system."""
+
+# this boilerplate allows this module to be run directly as a script
+if __name__ == "__main__" and (__package__ is None or __package__ == ""):
+    __package__ = "central_control"
+    from pathlib import Path
+    import sys
+    # get the dir that holds __package__ on the front of the search path
+    print(__file__)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import argparse
 import collections
@@ -16,7 +26,7 @@ import paho.mqtt.publish as publish
 import numpy as np
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
-from central_control.fabric import fabric
+from .fabric import fabric
 
 
 def get_args():
@@ -1541,9 +1551,7 @@ def msg_handler():
 
         msg_queue.task_done()
 
-
-# required when using multiprocessing in windows, advised on other platforms
-if __name__ == "__main__":
+def main():
     # get command line arguments
     cli_args = get_args()
 
@@ -1572,3 +1580,8 @@ if __name__ == "__main__":
     print(f"{client_id} connected!")
 
     msg_handler()
+
+
+# required when using multiprocessing in windows, advised on other platforms
+if __name__ == "__main__":
+    main()
