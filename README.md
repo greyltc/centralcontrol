@@ -15,6 +15,7 @@ python3 -m venv cc_venv --system-site-packages
 
 Install external deps into the virtual envronment
 ```
+python -m pip install wheel
 python -m pip install -e git+https://github.com/jmball/acton_sp2150.git@master#egg=acton_sp2150
 python -m pip install -e git+https://github.com/jmball/srs_sr830.git@master#egg=srs_sr830
 python -m pip install -e git+https://github.com/jmball/rigol_dp800.git@master#egg=rigol_dp800
