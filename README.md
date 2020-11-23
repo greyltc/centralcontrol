@@ -27,6 +27,5 @@ python -m pip install -e git+https://github.com/jmball/plotter.git@master#egg=pl
 python -m pip install -e git+https://github.com/jmball/mqtt_saver.git@master#egg=mqtt_saver
 python -m pip install -e git+https://gitlab.com/greyltc/runpanel.git@master#egg=runpanel
 ```
-Clone this repo: `git clone -b master https://github.com/greyltc/centralcontrol.git` and start hacking (maybe with `cd centralcontrol; code .`).  
 
 When you're done, deactivate the environment with `deactivate`
