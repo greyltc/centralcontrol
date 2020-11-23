@@ -1,4 +1,4 @@
-# central-control
+# centralcontrol
 instrument control server
 
 ## Purpose
