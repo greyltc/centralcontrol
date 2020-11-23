@@ -19,6 +19,7 @@ from . import virt
 from .motion import motion
 from .k2400 import k2400 as sm
 from .illumination import illumination
+from .pcb import pcb
 import logging
 import pyvisa
 import collections
@@ -75,7 +76,7 @@ def manager():
             if cmd_msg['pcb_virt'] == True:
                 tpcb = virt.pcb
             else:
-                tpcb = pcb.pcb
+                tpcb = pcb
             try:
                 with tpcb(cmd_msg['pcb'], timeout=10) as p:
                     p.get('b')
@@ -97,7 +98,7 @@ def get_stage(pcba, uri, pcb_is_virt, stage_is_virt):
     if pcb_is_virt == True:
         tpcb = virt.pcb
     else:
-        tpcb = pcb.pcb
+        tpcb = pcb
     with tpcb(pcba, timeout=1) as p:
         if stage_is_virt == True:
             tmo = virt.motion
@@ -122,7 +123,7 @@ def worker():
                 if task['pcb_virt'] == True:
                     tpcb = virt.pcb
                 else:
-                    tpcb = pcb.pcb
+                    tpcb = pcb
                 with tpcb(task['pcb'], timeout=1) as p:
                     if task['stage_virt'] == True:
                         tmo = virt.motion
@@ -142,7 +143,7 @@ def worker():
                 if task['pcb_virt'] == True:
                     tpcb = virt.pcb
                 else:
-                    tpcb = pcb.pcb
+                    tpcb = pcb
                 with tpcb(task['pcb'], timeout=1) as p:
                     if task['stage_virt'] == True:
                         tmo = virt.motion
@@ -160,7 +161,7 @@ def worker():
                 if task['pcb_virt'] == True:
                     tpcb = virt.pcb
                 else:
-                    tpcb = pcb.pcb
+                    tpcb = pcb
                 with tpcb(task['pcb'], timeout=1) as p:
                     # special case for pixel selection to avoid parallel connections
                     if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
@@ -209,7 +210,7 @@ def worker():
             # device round robin commands
             elif task['cmd'] == 'round_robin':
                 if len(task['slots']) > 0:
-                    with pcb.pcb(task['pcb'], timeout=1) as p:
+                    with pcb(task['pcb'], timeout=1) as p:
                         p.get('iv') # make sure the circuit is in I-V mode (not eqe)
                         p.get('s') # make sure we're starting with nothing selected
                         k = sm.k2400(addressString=task['smu']['address'], terminator=task['smu']['terminator'], serialBaud=task['smu']['baud'])
@@ -256,7 +257,7 @@ def worker():
             if 'pcb' in task:
                 log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
                 try:
-                    with pcb.pcb(task['pcb'], timeout=1) as p:
+                    with pcb(task['pcb'], timeout=1) as p:
                         log_msg('Controller connection initiated',lvl=logging.INFO)
                         log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
                         log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
