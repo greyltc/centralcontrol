@@ -362,7 +362,13 @@ class wavelabs:
     return self.getRecipeParam(param="Duration")
 
   def set_runtime(self, duration):
-    return self.setRecipeParam(param="Duration", value=int(old_duration))
+    return self.setRecipeParam(param="Duration", value=int(duration))
+
+  def get_intensity(self):
+    return self.getRecipeParam(param="Intensity")
+
+  def set_intensity(self, intensity):
+    return self.setRecipeParam(param="Intensity", value=int(intensity))
   
   def get_ir_led_temp(self, run_ID = None):
     return self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID)

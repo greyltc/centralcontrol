@@ -3,7 +3,7 @@
 
 # this boilerplate allows this module to be run directly as a script
 if __name__ == "__main__" and (__package__ is None or __package__ == ""):
-    __package__ = "central_control"
+    __package__ = "centralcontrol"
     from pathlib import Path
     import sys
     # get the dir that holds __package__ on the front of the search path

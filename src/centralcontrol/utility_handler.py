@@ -2,7 +2,7 @@
 
 # this boilerplate allows this module to be run directly as a script
 if __name__ == "__main__" and (__package__ is None or __package__ == ""):
-    __package__ = "central_control"
+    __package__ = "centralcontrol"
     from pathlib import Path
     import sys
     # get the dir that holds __package__ on the front of the search path
@@ -199,13 +199,17 @@ def worker():
                 con_res = le.connect()
                 if con_res == 0:
                     response = {}
-                    response["data"] = le.get_spectrum()
-                    response["timestamp"] = time.time()
-                    le.disconnect()
-                    output = {'destination':'calibration/spectrum', 'payload': pickle.dumps(response)}
-                    outputq.put(output)
+                    int_res = le.set_intensity(task['le_recipe_int'])
+                    if int_res == 0:
+                        response["data"] = le.get_spectrum()
+                        response["timestamp"] = time.time()
+                        output = {'destination':'calibration/spectrum', 'payload': pickle.dumps(response)}
+                        outputq.put(output)
+                    else:
+                        log_msg(f'Unable to set light engine intensity.',lvl=logging.INFO)
                 else:
                     log_msg(f'Unable to connect to light engine.',lvl=logging.INFO)
+                le.disconnect()
 
             # device round robin commands
             elif task['cmd'] == 'round_robin':

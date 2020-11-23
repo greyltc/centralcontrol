@@ -89,6 +89,18 @@ class illumination:
     """
     return self.light_engine.get_runtime()
 
+  def set_intensity(self, percent):
+    """
+    sets the recipe runtime in ms
+    """
+    return self.light_engine.set_intensity(percent)
+
+  def get_intensity(self):
+    """
+    gets the recipe runtime in ms
+    """
+    return self.light_engine.get_intensity()
+
   def get_temperatures(self):
     """
     returns a list of light engine temperature measurements

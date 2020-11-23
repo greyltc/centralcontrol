@@ -32,7 +32,8 @@ class motion():
     return self.loc
 
 class illumination():
-  runtime = 60
+  runtime = 60000
+  intensity = 100
   def __init__(self, *args, **kwargs):
     print ("Init for virt illumination device")
   def connect(self):
@@ -50,13 +51,22 @@ class illumination():
   def get_spectrum(self):
     print("Virtual light turned off")
     print("Giving you a virtual spectrum")
-    return spec 
+    wls = spec[0]
+    counts = spec[1]
+    scaled_counts = [count*self.intensity/100 for count in counts]
+    return (wls, scaled_counts)
   def disconnect(self, *args, **kwargs):
     pass  
   def set_runtime(self, ms):
     self.runtime=ms
+    return(0)
   def get_runtime(self):
     return(self.runtime)
+  def set_intensity(self, percent):
+    self.intensity=percent
+    return(0)
+  def get_intensity(self):
+    return(self.intensity)
 def get_temperatures(self, *args, **kwargs):
   return([25.3,17.3])
 
