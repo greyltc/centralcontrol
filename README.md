@@ -7,7 +7,7 @@ This software controls laboratory instruments. It receives high level instructio
 ## Hacking
 Make a python virtual environment, `cc_venv`, to hack in:  
 ```
-python3 -m venv cc_venv --system-site-packages
+python -m venv cc_venv --system-site-packages
 ```
 `--system-site-packages` _might_ be optional and _might_ be a good idea.
 
