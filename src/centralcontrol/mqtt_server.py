@@ -40,7 +40,7 @@ def get_args():
     return parser.parse_args()
 
 
-def start_process(target, args):
+def start_process(cli_args, process, target, args):
     """Start a new process to perform an action if no process is running.
 
     Parameters
@@ -50,9 +50,8 @@ def start_process(target, args):
     args : tuple
         Arguments required by the function.
     """
-    global process
 
-    if process.is_alive() is False:
+    if process.is_alive() == False:
         process = multiprocessing.Process(target=target, args=args)
         process.start()
         publish.single(
@@ -69,9 +68,8 @@ def start_process(target, args):
         )
 
 
-def stop_process():
+def stop_process(cli_args, process):
     """Stop a running process."""
-    global process
 
     if process.is_alive() is True:
         os.kill(process.pid, signal.SIGINT)
@@ -470,22 +468,18 @@ def _calibrate_rtd(request, mqtthost):
                 if 'IV_stuff' in args:
                     # if the bitmask isn't empty
                     pixel_queue = _build_q(request, experiment="solarsim")
+                    ivt_args = {}
+                    ivt_args['pixel_queue'] = pixel_queue
+                    ivt_args['request'] = pixel_queue
+                    ivt_args['measurement'] = measurement
+                    ivt_args['mqttc'] = mqttc
+                    ivt_args['calibration'] = True
+                    ivt_args['rtd'] = True
+                    _ivt(**ivt_args)
+                    _log("RTD calibration complete!", 20, mqttc)
                 else:
                     # if it's emptpy, report error
                     _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
-
-                _ivt(
-                    pixel_queue,
-                    request,
-                    measurement,
-                    mqttc,
-                    calibration=True,
-                    rtd=True,
-                )
-
-                _log("RTD calibration complete!", 20, mqttc)
-
-            print("RTD calibration complete.")
         except KeyboardInterrupt:
             pass
         except Exception as e:
@@ -947,9 +941,7 @@ def _log(msg, level, mqttqp):
     mqttqp.append_payload("measurement/log", pickle.dumps(payload))
 
 
-def _ivt(
-    pixel_queue, request, measurement, mqttc, calibration=False, rtd=False
-):
+def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False):
     """Run through pixel queue of i-v-t measurements.
 
     Paramters
@@ -1028,7 +1020,7 @@ def _ivt(
         # add id str to handlers to display on plots
         idn = f"{label}_pixel{pix}"
 
-        # check if there is have a new substrate
+        # check if we have a new substrate
         if last_label != label:
             print(f"New substrate using '{pixel['layout']}' layout!")
             last_label = label
@@ -1052,24 +1044,26 @@ def _ivt(
         compliance_i = measurement.compliance_current_guess(pixel["area"])
         measurement.mppt.current_compliance = compliance_i
 
-        # choose data handler
+        # setup data handler
         if calibration is False:
             dh = DataHandler(pixel=pixel, mqttqp=mqttc)
             handler = dh.handle_data
         else:
+            class Dummy:
+                pass
+            dh = Dummy()
             handler = lambda x: None
 
         timestamp = time.time()
 
-        if hasattr(measurement, "le"):
-            # turn on light
-            measurement.le.on()
-
-        # steady state v@constant I measured here - usually Voc
+        # "Voc" if
         if args["i_dwell"] > 0:
             _log(
                 f"Measuring voltage output at constant current on {idn}.", 20, mqttc,
             )
+            # Voc needs light
+            if hasattr(measurement, "le"):
+                measurement.le.on()
 
             if calibration is False:
                 kind = "vt_measurement"
@@ -1095,6 +1089,7 @@ def _ivt(
                 ssvoc = None
 
         # if performing sweeps
+        sweeps = []
         if args["sweep_check"] is True:
             # detmine type of sweeps to perform
             if (s := args["lit_sweep"]) == 0:
@@ -1105,26 +1100,22 @@ def _ivt(
                 sweeps = ["dark"]
             elif s == 3:
                 sweeps = ["light"]
-        else:
-            sweeps = []
 
         # perform sweeps
         for sweep in sweeps:
+            # sweeps may or may not need light
             if sweep == "dark":
                 if hasattr(measurement, "le"):
                     measurement.le.off()
                 sense_range = "a"
             else:
+                if hasattr(measurement, "le"):
+                    measurement.le.on()
                 sense_range = "f"
 
             if args["sweep_check"] is True:
-                _log(
-                    f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc,
-                )
-                start = args["sweep_start"]
-                end = args["sweep_end"]
-
-                print(f"Sweeping voltage from {start} V to {end} V")
+                _log(f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc)
+                print(f'Sweeping voltage from {args["sweep_start"]} V to {args["sweep_end"]} V')
 
                 if calibration is False:
                     kind = "iv_measurement/1"
@@ -1132,59 +1123,46 @@ def _ivt(
                     dh.sweep = sweep
                     _clear_plot("iv_measurement", mqttc)
 
-                iv1 = measurement.sweep(
-                    sourceVoltage=True,
-                    compliance=compliance_i,
-                    senseRange=sense_range,
-                    nPoints=int(args["iv_steps"]),
-                    stepDelay=source_delay,
-                    start=start,
-                    end=end,
-                    NPLC=args["nplc"],
-                    handler=handler,
-                )
+                sweep_args = {}
+                sweep_args['sourceVoltage'] = True
+                sweep_args['senseRange'] = sense_range
+                sweep_args['compliance'] = compliance_i
+                sweep_args['nPoints'] = int(args["iv_steps"])
+                sweep_args['stepDelay'] = source_delay
+                sweep_args['start'] = args["sweep_start"]
+                sweep_args['end'] = args["sweep_end"]
+                sweep_args['NPLC'] = args["nplc"]
+                sweep_args['handler'] = handler
+                iv1 = measurement.sweep(**sweep_args)
 
                 data += iv1
 
-                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(
-                    iv1, light=(sweep == "light")
-                )
+                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
 
             if args["return_switch"] is True:
-                _log(
-                    f"Performing {sweep} sweep 2 on {idn}.", 20, mqttc,
-                )
-                # sweep the opposite way to sweep 1
-                start = args["sweep_end"]
-                end = args["sweep_start"]
-
-                print(f"Sweeping voltage from {start} V to {end} V")
+                _log(f"Performing {sweep} sweep 2 on {idn}.", 20, mqttc)
+                print(f'Sweeping voltage from {args["sweep_end"]} V to {args["sweep_start"]} V')
 
                 if calibration is False:
                     kind = "iv_measurement/2"
                     dh.kind = kind
                     dh.sweep = sweep
 
-                iv2 = measurement.sweep(
-                    sourceVoltage=True,
-                    senseRange=sense_range,
-                    compliance=compliance_i,
-                    nPoints=int(args["iv_steps"]),
-                    stepDelay=source_delay,
-                    start=start,
-                    end=end,
-                    NPLC=args["nplc"],
-                    handler=handler,
-                )
+                sweep_args = {}
+                sweep_args['sourceVoltage'] = True
+                sweep_args['senseRange'] = sense_range
+                sweep_args['compliance'] = compliance_i
+                sweep_args['nPoints'] = int(args["iv_steps"])
+                sweep_args['stepDelay'] = source_delay
+                sweep_args['start'] = args["sweep_end"]
+                sweep_args['end'] = args["sweep_start"]
+                sweep_args['NPLC'] = args["nplc"]
+                sweep_args['handler'] = handler
+                iv2 = measurement.sweep(**sweep_args)
 
                 data += iv2
 
-                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(
-                    iv2, light=(sweep == "light")
-                )
-
-            if sweep == "dark" and hasattr(measurement, "le"):
-                measurement.le.on()
+                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(iv2, light=(sweep == "light"))
 
         # TODO: read and interpret parameters for smart mode
         # # determine Vmpp and current compliance for mppt
@@ -1205,11 +1183,12 @@ def _ivt(
         #     Vmpp = None
         # self.logic.mppt.Vmpp = Vmpp
 
+        # mppt if
         if args["mppt_dwell"] > 0:
-            _log(
-                f"Performing max. power tracking on {idn}.", 20, mqttc,
-            )
-
+            # mppt needs light
+            if hasattr(measurement, "le"):
+                measurement.le.on()
+            _log(f"Performing max. power tracking on {idn}.", 20, mqttc)
             print(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
             if calibration is False:
@@ -1236,10 +1215,12 @@ def _ivt(
             data += vt
             data += mt
 
+        # "J_sc" if
         if args["v_dwell"] > 0:
-            _log(
-                f"Measuring output current and constant voltage on {idn}.", 20, mqttc,
-            )
+            # jsc needs light
+            if hasattr(measurement, "le"):
+                measurement.le.on()
+            _log(f"Measuring output current and constant voltage on {idn}.", 20, mqttc)
 
             if calibration is False:
                 kind = "it_measurement"
@@ -1258,8 +1239,7 @@ def _ivt(
 
             data += it
 
-        if hasattr(measurement, "le"):
-            measurement.le.off()
+        # it's probably wise to shut off the smu after every pixel
         measurement.sm.outOn(False)
 
         if calibration is True:
@@ -1268,10 +1248,11 @@ def _ivt(
                 print("RTD")
                 mqttc.append_payload("calibration/rtd", pickle.dumps(diode_dict))
             else:
-                mqttc.append_payload(
-                    "calibration/solarsim_diode", pickle.dumps(diode_dict)
-                )
+                mqttc.append_payload("calibration/solarsim_diode", pickle.dumps(diode_dict))
 
+    # don't leave the light on!
+    if hasattr(measurement, "le"):
+        measurement.le.off()
 
 def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
     """Run through pixel queue of EQE measurements.
@@ -1494,7 +1475,7 @@ def on_message(mqttc, obj, msg):
     msg_queue.put_nowait(msg)
 
 
-def msg_handler():
+def msg_handler(cli_args, process):
     """Handle MQTT messages in the msg queue.
 
     This function should run in a separate thread, polling the queue for messages.
@@ -1512,42 +1493,27 @@ def msg_handler():
 
             # perform a requested action
             if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
-                start_process(_run, (request, cli_args.mqtthost,))
+                start_process(cli_args, process, _run, (request, cli_args.mqtthost,))
             elif action == "stop":
-                stop_process()
+                stop_process(cli_args, process)
             elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
-                start_process(
-                    _calibrate_eqe, (request, cli_args.mqtthost, )
-                )
+                start_process(cli_args, process, _calibrate_eqe, (request, cli_args.mqtthost,))
             elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
-                start_process(
-                    _calibrate_psu, (request, cli_args.mqtthost,)
-                )
+                start_process(cli_args, process, _calibrate_psu, (request, cli_args.mqtthost,))
             elif (action == "calibrate_solarsim_diodes") and (request['args']['enable_solarsim'] == True) and (request['args']['enable_smu'] == True):
-                start_process(
-                    _calibrate_solarsim_diodes,
-                    (request, cli_args.mqtthost,),
-                )
+                start_process(cli_args, process, _calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
             elif (action == "calibrate_spectrum") and (request['args']['enable_solarsim'] == True):
-                start_process(
-                    _calibrate_spectrum, (request, cli_args.mqtthost,)
-                )
+                start_process(cli_args, process, _calibrate_spectrum, (request, cli_args.mqtthost,))
             elif (action == "calibrate_rtd") and (request['args']['enable_smu'] == True):
-                start_process(
-                    _calibrate_rtd, (request, cli_args.mqtthost, )
-                )
+                start_process(cli_args, process, _calibrate_rtd, (request, cli_args.mqtthost,))
             elif (action == "contact_check") and (request['args']['enable_smu'] == True):
-                start_process(
-                    _contact_check, (request, cli_args.mqtthost, )
-                )
+                start_process(cli_args, process, _contact_check, (request, cli_args.mqtthost,))
             elif (action == "home") and (request['args']['enable_stage'] == True):
-                start_process(_home, (request, cli_args.mqtthost,))
+                start_process(cli_args, process, _home, (request, cli_args.mqtthost,))
             elif (action == "goto") and (request['args']['enable_stage'] == True):
-                start_process(_goto, (request, cli_args.mqtthost,))
+                start_process(cli_args, process, _goto, (request, cli_args.mqtthost,))
             elif (action == "read_stage") and (request['args']['enable_stage'] == True):
-                start_process(
-                    _read_stage, (request, cli_args.mqtthost,)
-                )
+                start_process(cli_args, process, _read_stage, (request, cli_args.mqtthost,))
         except:
             pass
 
@@ -1581,7 +1547,7 @@ def main():
 
     print(f"{client_id} connected!")
 
-    msg_handler()
+    msg_handler(cli_args, process)
 
 
 # required when using multiprocessing in windows, advised on other platforms
