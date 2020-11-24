@@ -5,6 +5,11 @@ instrument control server
 This software controls laboratory instruments. It receives high level instructions from the user telling it what measurements to make via an MQTT subscription and uses those instructions to decide how to command various instruments and other lab equipment to carry out the measurements the user has requested. It may then publish the measurement data via MQTT.
 
 ## Hacking
+First, __if__ you're in conda, setup a new conda virual environment like so:
+```
+conda create -n ccc_env python gtk3 pygobject
+conda activate ccc_env
+```
 Make a python virtual environment, `cc_venv`, to hack in:  
 ```
 python -m venv cc_venv --system-site-packages
