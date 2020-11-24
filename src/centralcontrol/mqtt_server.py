@@ -28,7 +28,6 @@ import numpy as np
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
 from .fabric import fabric
 
-
 def get_args():
     """Get arguments parsed from the command line."""
     parser = argparse.ArgumentParser()
@@ -52,8 +51,8 @@ def start_process(cli_args, process, target, args):
     """
 
     if process.is_alive() == False:
-        process = multiprocessing.Process(target=target, args=args)
-        process.start()
+        ret_proc = multiprocessing.Process(target=target, args=args)
+        ret_proc.start()
         publish.single(
             "measurement/status",
             pickle.dumps("Busy"),
@@ -62,16 +61,16 @@ def start_process(cli_args, process, target, args):
             hostname=cli_args.mqtthost,
         )
     else:
+        ret_proc = process
         payload = {"level": 30, "msg": "Measurement server busy!"}
-        publish.single(
-            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
-        )
+        publish.single("measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
 
+    return ret_proc
 
 def stop_process(cli_args, process):
     """Stop a running process."""
 
-    if process.is_alive() is True:
+    if process.is_alive() == True:
         os.kill(process.pid, signal.SIGINT)
         process.join()
         print(f"Process still alive?: {process.is_alive()}")
@@ -94,9 +93,8 @@ def stop_process(cli_args, process):
             "level": 30,
             "msg": "Nothing to stop. Measurement server is idle.",
         }
-        publish.single(
-            "measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost
-        )
+        publish.single("measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
+    return process
 
 
 def _calibrate_eqe(request, mqtthost):
@@ -1045,7 +1043,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         measurement.mppt.current_compliance = compliance_i
 
         # setup data handler
-        if calibration is False:
+        if calibration == False:
             dh = DataHandler(pixel=pixel, mqttqp=mqttc)
             handler = dh.handle_data
         else:
@@ -1065,7 +1063,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             if hasattr(measurement, "le"):
                 measurement.le.on()
 
-            if calibration is False:
+            if calibration == False:
                 kind = "vt_measurement"
                 dh.kind = kind
                 _clear_plot(kind, mqttc)
@@ -1090,7 +1088,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
         # if performing sweeps
         sweeps = []
-        if args["sweep_check"] is True:
+        if args["sweep_check"] == True:
             # detmine type of sweeps to perform
             if (s := args["lit_sweep"]) == 0:
                 sweeps = ["dark", "light"]
@@ -1113,11 +1111,11 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     measurement.le.on()
                 sense_range = "f"
 
-            if args["sweep_check"] is True:
+            if args["sweep_check"] == True:
                 _log(f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc)
                 print(f'Sweeping voltage from {args["sweep_start"]} V to {args["sweep_end"]} V')
 
-                if calibration is False:
+                if calibration == False:
                     kind = "iv_measurement/1"
                     dh.kind = kind
                     dh.sweep = sweep
@@ -1139,11 +1137,11 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
                 Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
 
-            if args["return_switch"] is True:
+            if args["return_switch"] == True:
                 _log(f"Performing {sweep} sweep 2 on {idn}.", 20, mqttc)
                 print(f'Sweeping voltage from {args["sweep_end"]} V to {args["sweep_start"]} V')
 
-                if calibration is False:
+                if calibration == False:
                     kind = "iv_measurement/2"
                     dh.kind = kind
                     dh.sweep = sweep
@@ -1166,14 +1164,14 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
         # TODO: read and interpret parameters for smart mode
         # # determine Vmpp and current compliance for mppt
-        # if (self.args["sweep_check"] is True) & (self.args["return_switch"] is True):
+        # if (self.args["sweep_check"] == True) & (self.args["return_switch"] == True):
         #     if abs(Pmax_sweep1) > abs(Pmax_sweep2):
         #         Vmpp = Vmpp1
         #         compliance_i = Impp1 * 5
         #     else:
         #         Vmpp = Vmpp2
         #         compliance_i = Impp2 * 5
-        # elif self.args["sweep_check"] is True:
+        # elif self.args["sweep_check"] == True:
         #     Vmpp = Vmpp1
         #     compliance_i = Impp1 * 5
         # else:
@@ -1191,7 +1189,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             _log(f"Performing max. power tracking on {idn}.", 20, mqttc)
             print(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
-            if calibration is False:
+            if calibration == False:
                 kind = "mppt_measurement"
                 dh.kind = kind
                 _clear_plot(kind, mqttc)
@@ -1207,7 +1205,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 handler=handler,
             )
 
-            if calibration is False and len(vt) > 0:
+            if (calibration == False) and (len(vt) > 0):
                 dh.kind = "vtmppt_measurement"
                 for d in vt:
                     handler(d)
@@ -1222,7 +1220,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 measurement.le.on()
             _log(f"Measuring output current and constant voltage on {idn}.", 20, mqttc)
 
-            if calibration is False:
+            if calibration == False:
                 kind = "it_measurement"
                 dh.kind = kind
                 _clear_plot(kind, mqttc)
@@ -1242,9 +1240,9 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         # it's probably wise to shut off the smu after every pixel
         measurement.sm.outOn(False)
 
-        if calibration is True:
+        if calibration == True:
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
-            if rtd is True:
+            if rtd == True:
                 print("RTD")
                 mqttc.append_payload("calibration/rtd", pickle.dumps(diode_dict))
             else:
@@ -1367,7 +1365,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
             )
 
         # determine how live measurement data will be handled
-        if calibration is True:
+        if calibration == True:
             handler = lambda x: None
         else:
             kind = "eqe_measurement"
@@ -1400,7 +1398,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
         )
 
         # update eqe diode calibration data in
-        if calibration is True:
+        if calibration == True:
             diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
             mqttc.append_payload(
                 "calibration/eqe", pickle.dumps(diode_dict), retain=True,
@@ -1429,7 +1427,7 @@ def _run(request, mqtthost):
     if ('IV_stuff' in args) and (args['enable_solarsim'] == True):
         user_aborted = _calibrate_spectrum(request, mqtthost)
 
-    if user_aborted is False:
+    if user_aborted == False:
         with MQTTQueuePublisher() as mqttc:
             mqttc.connect(mqtthost)
             mqttc.loop_start()
@@ -1466,16 +1464,12 @@ def _run(request, mqtthost):
             )
 
 
-# queue for storing incoming messages
-msg_queue = queue.Queue()
-
-
-def on_message(mqttc, obj, msg):
+def on_message(mqttc, obj, msg, msg_queue):
     """Add an MQTT message to the message queue."""
     msg_queue.put_nowait(msg)
 
 
-def msg_handler(cli_args, process):
+def msg_handler(msg_queue, cli_args, process):
     """Handle MQTT messages in the msg queue.
 
     This function should run in a separate thread, polling the queue for messages.
@@ -1493,27 +1487,27 @@ def msg_handler(cli_args, process):
 
             # perform a requested action
             if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
-                start_process(cli_args, process, _run, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _run, (request, cli_args.mqtthost,))
             elif action == "stop":
-                stop_process(cli_args, process)
+                process = stop_process(cli_args, process)
             elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
-                start_process(cli_args, process, _calibrate_eqe, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _calibrate_eqe, (request, cli_args.mqtthost,))
             elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
-                start_process(cli_args, process, _calibrate_psu, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _calibrate_psu, (request, cli_args.mqtthost,))
             elif (action == "calibrate_solarsim_diodes") and (request['args']['enable_solarsim'] == True) and (request['args']['enable_smu'] == True):
-                start_process(cli_args, process, _calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
             elif (action == "calibrate_spectrum") and (request['args']['enable_solarsim'] == True):
-                start_process(cli_args, process, _calibrate_spectrum, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _calibrate_spectrum, (request, cli_args.mqtthost,))
             elif (action == "calibrate_rtd") and (request['args']['enable_smu'] == True):
-                start_process(cli_args, process, _calibrate_rtd, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _calibrate_rtd, (request, cli_args.mqtthost,))
             elif (action == "contact_check") and (request['args']['enable_smu'] == True):
-                start_process(cli_args, process, _contact_check, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _contact_check, (request, cli_args.mqtthost,))
             elif (action == "home") and (request['args']['enable_stage'] == True):
-                start_process(cli_args, process, _home, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _home, (request, cli_args.mqtthost,))
             elif (action == "goto") and (request['args']['enable_stage'] == True):
-                start_process(cli_args, process, _goto, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _goto, (request, cli_args.mqtthost,))
             elif (action == "read_stage") and (request['args']['enable_stage'] == True):
-                start_process(cli_args, process, _read_stage, (request, cli_args.mqtthost,))
+                process = start_process(cli_args, process, _read_stage, (request, cli_args.mqtthost,))
         except:
             pass
 
@@ -1526,13 +1520,16 @@ def main():
     # create dummy process
     process = multiprocessing.Process()
 
+    # queue for storing incoming messages
+    msg_queue = queue.Queue()
+
     # create mqtt client id
     client_id = f"measure-{uuid.uuid4().hex}"
 
     # setup mqtt subscriber client
     mqttc = mqtt.Client(client_id=client_id)
     mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
-    mqttc.on_message = on_message
+    mqttc.on_message = lambda mqttc, obj, msg: on_message(mqttc, obj, msg, msg_queue)
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
     mqttc.loop_start()
@@ -1547,7 +1544,7 @@ def main():
 
     print(f"{client_id} connected!")
 
-    msg_handler(cli_args, process)
+    msg_handler(msg_queue, cli_args, process)
 
 
 # required when using multiprocessing in windows, advised on other platforms
