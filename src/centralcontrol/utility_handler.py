@@ -103,7 +103,7 @@ def get_stage(pcba, uri, pcb_is_virt, stage_is_virt):
         if stage_is_virt == True:
             tmo = virt.motion
         else:
-            tmo = motion.motion
+            tmo = motion
         mo = tmo(address=uri, pcb_object=p)
         mo.connect()
         pos = mo.get_position()
@@ -128,7 +128,7 @@ def worker():
                     if task['stage_virt'] == True:
                         tmo = virt.motion
                     else:
-                        tmo = motion.motion
+                        tmo = motion
                     mo = tmo(address=task['stage_uri'], pcb_object=p)
                     mo.connect()
                     result = mo.home()
@@ -148,7 +148,7 @@ def worker():
                     if task['stage_virt'] == True:
                         tmo = virt.motion
                     else:
-                        tmo = motion.motion
+                        tmo = motion
                     mo = tmo(address=task['stage_uri'], pcb_object=p)
                     mo.connect()
                     result = mo.goto(task['pos'])
