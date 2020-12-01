@@ -7,7 +7,7 @@ Description=The measurement run handler service
 
 [Service]
 Environment=PYTHONUNBUFFERED=tomato_casserol
-ExecStart=python -m central_control.mqtt_server --mqtthost 127.0.0.1
+ExecStart=mqtt-server --mqtthost 127.0.0.1
 Restart=always
 RestartSec=3
 PrivateTmp=true

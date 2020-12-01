@@ -7,7 +7,7 @@ Description=The Utility Handler service
 
 [Service]
 Environment=PYTHONUNBUFFERED=tomato_casserol
-ExecStart=python -m central_control.utility_handler --address 127.0.0.1
+ExecStart=utility-handler --address 127.0.0.1
 RestartSec=3
 Restart=always
 PrivateTmp=true
