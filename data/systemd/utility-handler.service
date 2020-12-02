@@ -1,17 +1,10 @@
-#AssertPathExists=/opt/software/source/central-control/central_control/utility_handler.py
-
 [Unit]
-After=network-online.target
-Wants=network-online.target
 Description=The Utility Handler service
 
 [Service]
 Environment=PYTHONUNBUFFERED=tomato_casserol
-ExecStart=utility-handler --address 127.0.0.1
+ExecStart=/usr/bin/utility-handler --address 127.0.0.1
 RestartSec=3
 Restart=always
 PrivateTmp=true
 NoNewPrivileges=true
-
-[Install]
-WantedBy=default.target
