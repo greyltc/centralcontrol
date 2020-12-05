@@ -1,6 +1,7 @@
 import mpmath
 import time
 import numpy
+import random
 
 class motion():
   def __init__(self, *args, **kwargs):
@@ -88,6 +89,7 @@ class k2400():
   """
   idn = 'Virtual Sourcemeter'
   nplc = 1
+  ccheck = False
   def __init__(self, *args, **kwargs):
     self.t0 = time.time()
     self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
@@ -141,7 +143,7 @@ class k2400():
   def updateSweepStop(self, stopVal):
     self.sweepEnd = stopVal
 
-  def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f', auto_ohms = False):
+  def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f', auto_ohms=False):
     if auto_ohms == True:
       self.auto_ohms = True
     else:
@@ -256,7 +258,8 @@ class k2400():
         if self.auto_ohms == False:
           measurementLine = list([self.V, self.I, time.time()-self.t0, self.status])
         else:
-          measurementLine = list([self.V, self.I, self.V/self.I, time.time()-self.t0, self.status])
+          ohm = 700 + random.random() * 100
+          measurementLine = list([self.V, self.I, ohm, time.time()-self.t0, self.status])
         return [measurementLine]
     elif command == ":source:voltage:step?":
       dV = (self.sweepEnd - self.sweepStart)/self.nPoints
@@ -288,6 +291,9 @@ class k2400():
     else:
       m_len = 5
     return self.query_values("READ?")
+
+  def set_ccheck_mode(self, mode):
+    self.ccheck = mode
 
   def contact_check(self, *args, **kwargs):
     return True
