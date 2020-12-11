@@ -500,10 +500,24 @@ class k2400:
     if not self.four88point1:
       if sm == None:
         sm = self.sm
-      sm.write('*WAI')
-      one = sm.query('*OPC?')
-      if one != '1':
-        print(f"OPC returned {one}")
+      retries_left = 5
+      tout = sm.timeout  # save old timeout
+      sm.timeout = 100  # in ms
+      while retries_left > 0:
+        cmd = '*WAI'
+        bw = sm.write(cmd)
+        if bw == (len(cmd)+1):
+          one = "zero"
+          try:
+            one = sm.query('*OPC?')
+          except pyvisa.errors.VisaIOError:
+            pass
+          if one == '1':
+            break
+        retries_left = retries_left - 1
+      if retries_left == 0:
+        print("WARNING: OPC fail.")
+      sm.timeout = tout
 
   def arm(self):
     """arms trigger
