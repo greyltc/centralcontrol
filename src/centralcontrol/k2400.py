@@ -621,7 +621,7 @@ if __name__ == "__main__":
   k = k2400(addressString=address, terminator='\r', serialBaud=57600)
 
   con_time = time.time()
-  print(f"Connected to {k.addressString} in {time.time()-con_time} seconds")
+  print(f"Connected to {k.addressString} in {start-con_time} seconds")
 
   # do a contact check
   k.set_ccheck_mode(True)
