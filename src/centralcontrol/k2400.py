@@ -105,7 +105,7 @@ class k2400:
     return rm
 
   def _getSourceMeter(self, rm):
-    timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things acan back up and they're slow
+    timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
     open_params = {}
     open_params['resource_name'] = self.addressString
 
