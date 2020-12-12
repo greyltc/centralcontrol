@@ -14,11 +14,11 @@ class k2400:
   status = 0
   nplc_user_set = 1.0
   last_sweep_time = 0
+  readyForAction = False
+  four88point1 = False
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
-    self.readyForAction = False
-    self.four88point1 = False
     self.rm = self._getResourceManager(visa_lib)
 
     if scan:
@@ -32,7 +32,7 @@ class k2400:
 
   def __del__(self):
     try:
-      self.sm.write('abort')
+      self.sm.write(':abort')
     except:
       pass
 
@@ -169,6 +169,11 @@ class k2400:
       sm.flush(pyvisa.constants.VI_WRITE_BUF_DISCARD)
       sm.flush(pyvisa.constants.VI_IO_IN_BUF_DISCARD)
       sm.flush(pyvisa.constants.VI_IO_OUT_BUF_DISCARD)
+
+    try:
+      sm.write(':abort')
+    except:
+      pass
 
     try:
       sm.write('*RST')
@@ -490,12 +495,13 @@ class k2400:
   def opc(self, sm=None):
     """returns when all operations are complete
     """
-    if not self.four88point1:
-      if sm == None:
+    if self.four88point1 == False:
+      opc_timeout = False
+      if sm is None:
         sm = self.sm
       retries_left = 5
       tout = sm.timeout  # save old timeout
-      sm.timeout = 100  # in ms
+      sm.timeout = 2500  # in ms
       while retries_left > 0:
         cmd = '*WAI'
         bw = sm.write(cmd)
@@ -504,17 +510,25 @@ class k2400:
           try:
             one = sm.query('*OPC?')
           except pyvisa.errors.VisaIOError:
-            pass
+            opc_timeout = True  # need to handle this so we don't queue up OPC queries
           if one == '1':
             break
         retries_left = retries_left - 1
       if retries_left == 0:
-        print("WARNING: OPC fail.")
+        raise(ValueError("OPC FAIL"))
       sm.timeout = tout
       # we make sure there are no bytes left in the input buffer
-      self._flush_input_buffer(sm)
+      if opc_timeout == True:
+        time.sleep(2.5)  # wait for the opc commands to unqueue
+      self._flush_input_buffer(sm, delayms=500)
 
-  def _flush_input_buffer(self, sm):
+  def _stb(self, sm=None):
+    if not self.four88point1:
+      if sm == None:
+        sm = self.sm
+    return(sm.query('*STB?'))
+
+  def _flush_input_buffer(self, sm, delayms=0):
     try:
       session = sm.visalib.sessions[sm._session]  # that's a pyserial object
       session.interface.reset_input_buffer()
@@ -524,6 +538,7 @@ class k2400:
       bib = sm.bytes_in_buffer
       while bib > 0:
         sm.read_raw(bib)  # toss the bytes
+        time.sleep(delayms/1000)
         bib = sm.bytes_in_buffer
 
   def arm(self):
