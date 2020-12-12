@@ -514,9 +514,9 @@ class k2400:
           if one == '1':
             break
         retries_left = retries_left - 1
+      sm.timeout = tout
       if retries_left == 0:
         raise(ValueError("OPC FAIL"))
-      sm.timeout = tout
       # we make sure there are no bytes left in the input buffer
       if opc_timeout == True:
         time.sleep(2.5)  # wait for the opc commands to unqueue
