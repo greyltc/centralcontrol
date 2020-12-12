@@ -190,9 +190,7 @@ class k2400:
         time.sleep(0.1)
         #session = sm.visalib.sessions[sm._session]  # that's a pyserial object
         #session.interface.reset_input_buffer()
-        if hasattr(sm, 'bytes_in_buffer'):
-          if sm.bytes_in_buffer > 0:
-            sm.read_raw(sm.bytes_in_buffer)
+        self._flush_input_buffer(sm)
       except:
         pass
 
@@ -518,6 +516,20 @@ class k2400:
       if retries_left == 0:
         print("WARNING: OPC fail.")
       sm.timeout = tout
+      # we make sure there are no bytes left in the input buffer
+      self._flush_input_buffer(sm)
+
+  def _flush_input_buffer(self, sm):
+    try:
+      session = sm.visalib.sessions[sm._session]  # that's a pyserial object
+      session.interface.reset_input_buffer()
+    except Exception:
+      pass
+    if hasattr(sm, 'bytes_in_buffer'):
+      bib = sm.bytes_in_buffer
+      while bib > 0:
+        sm.read_raw(bib)  # toss the bytes
+        bib = sm.bytes_in_buffer
 
   def arm(self):
     """arms trigger
