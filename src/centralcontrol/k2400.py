@@ -186,11 +186,6 @@ class k2400:
         sm.write(':system:preset')
         self.opc(sm=sm)
         self.opc(sm=sm)
-        # if there is garbage left in the input buffer toss it
-        time.sleep(0.1)
-        #session = sm.visalib.sessions[sm._session]  # that's a pyserial object
-        #session.interface.reset_input_buffer()
-        self._flush_input_buffer(sm)
       except:
         pass
 
@@ -590,6 +585,9 @@ class k2400:
       elif m_len == 5:
         t_start = first_element[3]
         t_end = last_element[3]
+      else:
+        t_start = 0
+        t_end = 0
       self.last_sweep_time = t_end - t_start
       print(f"Sweep duration = {self.last_sweep_time} s")
     
@@ -608,7 +606,7 @@ class k2400:
     i = 0
     t_end = time.time() + t_dwell
     q = []
-    self.opc() # before we start reading, ensure the device is ready
+    #self.opc() # before we start reading, ensure the device is ready
     while (i < measurements) and (time.time() < t_end):
       i = i + 1
       measurement = self.measure()[0]
