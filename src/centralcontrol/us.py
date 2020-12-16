@@ -25,6 +25,8 @@ class us(object):
   axes = [1]
   poll_delay = 0.25 # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
 
+  end_buffers = 4  # disallow movement to closer than this many mm from an end (prevents home issues)
+
   def __init__(self, pcb_object, spm=steps_per_mm, homer=home_procedure):
     """
     sets up the microstepper object
