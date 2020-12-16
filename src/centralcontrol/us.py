@@ -203,7 +203,7 @@ class us(object):
   def get_position(self):
     result_mm = []
     for ax in self.axes:
-      get_cmd = f"g{ax}"
+      get_cmd = f"r{ax}"
       answer = self._pwrapint(get_cmd)
       result_mm.append(answer/self.steps_per_mm)
     return result_mm
