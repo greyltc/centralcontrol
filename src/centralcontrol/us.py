@@ -78,7 +78,7 @@ class us(object):
         if answer != '':
           raise(ValueError(f"Request to home axis {ax} via '{home_cmd}' failed with {answer}"))
         else:
-          self._wait_for_home_or_jog(ax, timeout=timeout-time.time()-t0)
+          self._wait_for_home_or_jog(ax, timeout=timeout-(time.time()-t0))
           if self.len_axes_mm[i] == 0:
             raise(ValueError(f"Homing of axis {ax} resulted in measured length of zero."))
     else:  # special home
@@ -103,7 +103,7 @@ class us(object):
           raise(ValueError(f"Error during specialized homing procedure. '{cmd}' rejected with {answer}"))
         else:
           if action in "hab":
-            self._wait_for_home_or_jog(ax, timeout=timeout-time.time()-t0)
+            self._wait_for_home_or_jog(ax, timeout=timeout-(time.time()-t0))
             if (action == "h"):
               ai = self.axes.index(ax)
               this_len = self.len_axes_mm[ai] 
@@ -115,7 +115,7 @@ class us(object):
                 if delta > allowed_deviation:
                   raise(ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]"))
           elif action == "g":
-            self._wait_for_goto(self, ax, goal, timeout=timeout-time.time()-t0, debug_prints=False)
+            self._wait_for_goto(self, ax, goal, timeout=timeout-(time.time()-t0), debug_prints=False)
 
   def _wait_for_home_or_jog(self, ax, timeout=float("inf"), debug_prints=False):
     t0 = time.time()
@@ -196,7 +196,7 @@ class us(object):
         raise(ValueError(f"Error asking axis {ax} to go to {targets_mm[i]} with response {answer}.{note}"))
     for i, target_step in enumerate(targets_step):
       ax = self.axes[i]
-      self._wait_for_goto(ax, target_step, timeout=float(timeout-time.time()-t0), debug_prints=False)
+      self._wait_for_goto(ax, target_step, timeout=float(timeout-(time.time()-t0)), debug_prints=False)
 
   # returns the stage's current position (a list matching the axes input)
   # axis is -1 for all available axes or a list of axes
