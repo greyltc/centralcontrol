@@ -103,7 +103,7 @@ class motion:
       if naxes != nzones:
         raise(ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes"))
       
-      for a, i in enumerate(self.axes):
+      for i, a in enumerate(self.axes):
         if self.actual_lengths[i] <= 0:
           print(f"Warning: axis {a} is not ready for motion. Homing recommended.")
 
@@ -126,8 +126,8 @@ class motion:
     naxes = len(self.axes)
     npos = len(pos)
     if naxes != npos:
-        raise(ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes"))
-    for a, i in enumerate(self.axes):
+      raise(ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes"))
+    for i, a in enumerate(self.axes):
       el = self.expected_lengths[i]
       al = self.actual_lengths[i]
       ko_lower = self.keepout_zones[i][0]
