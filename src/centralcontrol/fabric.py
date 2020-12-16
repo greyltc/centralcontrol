@@ -539,13 +539,8 @@ class fabric:
                 me = self.motion(address=self.motion_address, pcb_object=p)
                 me.connect()
                 if pixel["pos"] is not None:
-                    resp = me.goto(pixel["pos"])
-                else:
-                    resp = 0
-        else:
-            resp = 0
-
-        return resp
+                    me.goto(pixel["pos"])
+        return 0
 
     def select_pixel(self, pixel):
         """Select pixel on the mux.
@@ -899,7 +894,8 @@ class fabric:
         with self.pcb(self.pcb_address) as p:
             me = self.motion(address=self.motion_address, pcb_object=p)
             me.connect()
-            return me.goto(position)
+            me.goto(position)
+            return 0
 
     def contact_check(self, pixel_queue, handler=lambda x: None):
         """Perform contact checks on a queue of pixels.

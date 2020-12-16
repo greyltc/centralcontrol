@@ -151,9 +151,10 @@ def worker():
                         tmo = motion
                     mo = tmo(address=task['stage_uri'], pcb_object=p)
                     mo.connect()
-                    result = mo.goto(task['pos'])
-                    if result != 0:
-                        log_msg(f'GOTO failed with result {result}',lvl=logging.WARNING)
+                    try:
+                        mo.goto(task['pos'])
+                    except Exception as e:
+                        log_msg(f'{e}',lvl=logging.WARNING)
                     get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
 
             # handle any generic PCB command that has an empty return on success

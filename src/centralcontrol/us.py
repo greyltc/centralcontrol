@@ -1,651 +1,234 @@
 #!/usr/bin/env python3
 
+import time
+from collections import deque
+
+
 # this boilerplate is required to allow this module to be run directly as a script
-if __name__ == "__main__" and __package__ is None:
-    __package__ = "central_control"
+if __name__ == "__main__" and __package__ in [None, '']:
+    __package__ = "centralcontrol"
     from pathlib import Path
     import sys
     # get the dir that holds __package__ on the front of the search path
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from .pcb import pcb
-
-import time
-
-class us:
+class us(object):
   """interface to uStepperS via i2c via ethernet connected pcb"""
-  
-  #substrate_centers = [300, 260, 220, 180, 140, 100, 60, 20]  # mm from home to the centers of A, B, C, D, E, F, G, H substrates
-
+  # calculate a default steps_per_mm value
   motor_steps_per_rev = 200  # steps/rev
-  micro_stepping = 256 # microsteps/step
-  screw_pitch = 8.0  # mm/rev
+  micro_stepping = 256  # microsteps/step
+  screw_pitch = 8  # mm/rev
+  steps_per_mm = motor_steps_per_rev*micro_stepping/screw_pitch
+  home_procedure = "default"
+  pcb = None
+  len_axes_mm = [float('inf')]  # list of mm for how long the firmware thinks each axis is
+  axes = [1]
+  poll_delay = 0.25 # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
 
-  allowed_length_deviation = 5 # measured length can deviate from expected length by up to this, in mm
-  end_buffers = 5 # don't allow movement to within this many mm of the stage ends (needed to prevent potential homing issues)
-
-  otter_safe_x = 650 # xaxis safe location to home y for otter (in mm)
-
-  def __init__(self, pcb_object, expected_lengths, keepout_zones, steps_per_mm=motor_steps_per_rev*micro_stepping/screw_pitch, extra=''):
+  def __init__(self, pcb_object, spm=steps_per_mm, homer=home_procedure):
     """
     sets up the microstepper object
     needs handle to active PCB class object
     """
     self.pcb = pcb_object
-    self.steps_per_mm = steps_per_mm
-    self.extra = extra
-    self.expected_lengths = expected_lengths # this gets converted to steps in connect()
-    self.homed = None
-    self.keepout_zones = keepout_zones
+    self.steps_per_mm = spm
+    self.home_procedure = homer
+  #def __setattr__(self, name, value):
 
   def __del__(self):
-      pass
+    pass
+
+  # wrapper for handling firmware comms that should return ints
+  def _pwrapint(self, cmd):
+    answer = self.pcb.query(cmd)
+    intans = 0
+    try:
+      intans = int(answer)
+    except ValueError:
+      raise(ValueError(f"Expecting integer response to {cmd}, but got {answer}"))
+    return intans
+
+  def _update_len_axes_mm(self):
+    len_axes_mm = []
+    for ax in self.axes:
+      len_axes_mm.append(self._pwrapint(f"l{ax}")/self.steps_per_mm)
+    self.len_axes_mm = len_axes_mm
 
   def connect(self):
     """
     opens connection to the motor controller
+    and sets self.actual_lengths
     """
-    ret = -1
+    self.pcb.probe_axes()
+    self.axes = self.pcb.detected_axes
+    self._update_len_axes_mm()
+    return 0
+  
+  def home(self, procedure="default", timeout=float("inf"), expected_lengths=None, allowed_deviation=None):
+    t0 = time.time()
+    self.pcb.probe_axes()
+    self.axes = self.pcb.detected_axes
+    self._update_len_axes_mm()
+    if procedure == "default":
+      for i, ax in enumerate(self.axes):
+        home_cmd = f"h{ax}"
+        answer = self.pcb.query(home_cmd)
+        if answer != '':
+          raise(ValueError(f"Request to home axis {ax} via '{home_cmd}' failed with {answer}"))
+        else:
+          self._wait_for_home_or_jog(ax, timeout=timeout-time.time()-t0)
+          if self.len_axes_mm[i] == 0:
+            raise(ValueError(f"Homing of axis {ax} resulted in measured length of zero."))
+    else:  # special home
+      home_commands = procedure.split('!')
+      for hcmd in home_commands:
+        goal = 0
+        ax = hcmd[0]
+        action = hcmd[1]
+        if action == 'a':
+          cmd = f"j{ax}a"
+        elif action == 'b':
+          cmd = f"j{ax}b"
+        elif action == "h":
+          cmd = f"h{ax}"
+        elif action == "g":
+          goal = round(float(hcmd[2::])*self.steps_per_mm)
+          cmd = f"g{ax}{goal}"
+        else:
+          raise(ValueError(f"Malformed specialized homing procedure string at {hcmd} in {procedure}"))
+        answer = self.pcb.query(cmd)
+        if answer != '':
+          raise(ValueError(f"Error during specialized homing procedure. '{cmd}' rejected with {answer}"))
+        else:
+          if action in "hab":
+            self._wait_for_home_or_jog(ax, timeout=timeout-time.time()-t0)
+            if (action == "h"):
+              ai = self.axes.index(ax)
+              this_len = self.len_axes_mm[ai] 
+              if (this_len== 0):
+                raise(ValueError(f"Homing of axis {ax} resulted in measured length of zero."))
+              elif (allowed_deviation is not None) and (expected_lengths is not None):
+                el = expected_lengths[ai]
+                delta = abs(this_len-el)
+                if delta > allowed_deviation:
+                  raise(ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]"))
+          elif action == "g":
+            self._wait_for_goto(self, ax, goal, timeout=timeout-time.time()-t0, debug_prints=False)
 
+  def _wait_for_home_or_jog(self, ax, timeout=float("inf"), debug_prints=False):
+    t0 = time.time()
+    ai = self.axes.index(ax)
+    poll_cmd = f"l{ax}"
+    answer = None
     try:
-      stage_controllers = int(self.pcb.get('e'))
-      self.axes = []
-      self.current_position = [] # in mm
-      user_expected_lengths = self.expected_lengths
-      user_n_axes = len(user_expected_lengths)
-      self.expected_lengths = [] # in steps
-      self.measured_lengths = [] # in steps
-      max_axes = 3
-      for i in range(max_axes):
-        if (stage_controllers >> i) & 1 == 1:
-          self.axes += [i+1]
-          self.current_position += [None]
-          self.expected_lengths += [None]
-          self.measured_lengths += [None]
+      answer = self.pcb.query(poll_cmd)
+      self.len_axes_mm[ai] = int(answer)/self.steps_per_mm
+    except Exception:
+      print(f"Warning: got unexpected home/jog poll result: {answer}")
+      self.len_axes_mm[ai] = -1/self.steps_per_mm
+    dt = time.time() - t0
+    while (self.len_axes_mm[ai] == -1/self.steps_per_mm) and (dt <= timeout):
+      time.sleep(self.poll_delay)
+      if debug_prints == True:
+        print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+      answer = None
+      try:
+        answer = self.pcb.query(poll_cmd)
+        self.len_axes_mm[ai] = int(answer)/self.steps_per_mm
+      except Exception:
+        print(f"Warning: got unexpected home/jog poll result: {answer}")
+        self.len_axes_mm[ai] = -1/self.steps_per_mm
+      if debug_prints == True:
+        print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
+      dt = time.time() - t0
+    if (dt > timeout):
+      raise(ValueError(f"Timeout while waiting for axis {ax} to home/jog. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
 
-      self.n_axes = len(self.axes)
-      if self.n_axes != len(user_expected_lengths):
-        print(f'Warning: the user gave us {user_n_axes} expected lengths, but we found {self.n_axes} axes')
-      else:
-        for i, ax in enumerate(self.axes):
-          here = self.pcb.get(f'r{ax}')
-          try:
-            self.current_position[i] = here/self.steps_per_mm
-          except:
-            self.current_position[i] = here
-          self.expected_lengths[i] = user_expected_lengths[i]*self.steps_per_mm  # to steps
-        
-        if self.check_lengths() != 0:
-          print(f'Warning: stage lengths did not check out')
-
-        ret = 0
-    except:
-      pass
-    return (ret)
-
-  # check stage lengths
-  # axis = -1 check them all
-  # return codes
-  #  0 ok
-  # -1 lengths not okay
-  # -2 length(s) unknowable: homing required or currently homing or length request error
-  # -3 invalid axis
-  # -9 programming error
-  def check_lengths(self, axis = -1):
-    ret = -9
-    if axis == -1:
-      to_check = self.axes
-    else:
-      if axis in self.axes:
-        to_check = [axis]
-      else:
-        to_check = []
-        ret = -3
-    for ax in to_check:
-      driver_length = self.pcb.get(f'l{ax}') 
-      self.measured_lengths[self.axes.index(ax)] = driver_length
-      if (isinstance(driver_length, int)) and (driver_length > 0):
-        ald = self.allowed_length_deviation*self.steps_per_mm
-        el = self.expected_lengths[self.axes.index(ax)]
-        if (driver_length < el + ald) and (driver_length > el - ald):
-          ret = 0
-        else:
-          print(f"{driver_length} is not on ({el-ald},{el+ald})")
-          ret = -1
-          break
-      else:
-        self.homed = False
-        ret = -2
-        break
-    if axis == -1:
-      if ret == 0:
-        self.homed = True
-      else:
-        self.homed = False
-    print (f"check_result {ret}")
-    return(ret)
-
-
-  # homes the whole stage or just one axis
-  # axis = -1 homes them all, 1 is the first one
-  # block execution during procedure if block = True
-  # otter must call with block=True and axis =-1
-  # returns:
-  # a list of measured axes lengths in mm when block == true and no error
-  # 0 when block == false and no error
-  # -1 if the homing timed out
-  # -2 if a command was not properly acknowledged by the controlbox (possibly already homing?)
-  # -3 invalid axis
-  # -4 the otter stage can not home one axis alone, nor can it do non-blocking homes
-  # -5 otter home failed because stage 1 was not the expected length
-  # -9 if there was a programming error
-  def home(self, axis=-1, block=True, timeout = 130, enable_otter=True):
-    ret = -9
+  def _wait_for_goto(self, ax, goal, timeout=float("inf"), debug_prints=False):
     t0 = time.time()
-    if (('otter' in self.extra) and (enable_otter == True)):
-      if (axis == -1) and (block == True):
-        time_left = timeout - (time.time() - t0)
-        ret = self.otter_home(safex=self.otter_safe_x, timeout=time_left)
-      else:
-        ret = -4
-    else: # non-otter home
-      if axis == -1:
-        cmd = 'h'
-      else:
-        cmd = f'h{axis}'
-        if axis not in self.axes:
-          ret = -3
-      if ret != -3:
-        result = self.pcb.get(cmd)
-        if result != '':
-          ret = -2
-        else:
-          if block == True:
-            time_left = timeout - (time.time() - t0)
-            ret = self.wait_for_home_or_jog(axis=axis, timeout=time_left)
-          else: # non-blocking home
-            ret = 0
-    return(ret)
+    poll_cmd = f"r{ax}"
+    answer = None
+    answer_deque = deque([],3)
+    rslt_pos = -1
+    try:
+      answer = self.pcb.query(poll_cmd)
+      rslt_pos = int(answer)
+    except Exception:
+      print(f"Warning: got unexpected goto poll result: {answer}")
+    answer_deque.append(answer)
+    go_from = rslt_pos/self.steps_per_mm
+    dt = time.time() - t0
+    while (rslt_pos != goal) and (dt <= timeout):
+      time.sleep(self.poll_delay)
+      if debug_prints == True:
+        print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+      answer = None
+      try:
+        answer = self.pcb.query(poll_cmd)
+        rslt_pos = int(answer)
+      except Exception:
+        print(f"Warning: got unexpected goto poll result: {answer}")
+      answer_deque.append(answer)
+      if len(answer_deque) == 3:
+        if (answer_deque[0] == answer_deque[1]) and (answer_deque[1] == answer_deque[2]):
+          raise(ValueError(f"Motion seems to have stopped on {ax} at {rslt_pos/self.steps_per_mm} while trying to go from ~{go_from} to {goal/self.steps_per_mm}. Recent reading results were {answer_deque}"))
+      if debug_prints == True:
+        print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
+      dt = time.time() - t0
+    if (dt > timeout):
+      raise(ValueError(f"Timeout while waiting for axis {ax} to go from {go_from} to {goal/self.steps_per_mm}. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
 
-
-  # homes otter's stage
-  # safex is the x axis position that is safe to home y like normal
-  # this always blocks
-  # return codes
-  # a list of the stage dimensions if there was no error
-  # -1 if the timeout expired before the move completed (for block=True mode)
-  # -2 if a command was rejected by the firmware (maybe the axes is unhomed or currently homing?)
-  # -3 invalid axis
-  # -5 ax1 was not the expected length
-  # -6 attempt to move out of bounds
-  # -7 location and axes list length mismatch
-  # -8 movement concluded, but we did not reach the goal (stall?)
-  # -9 for programming error
-  def otter_home(self, safex=otter_safe_x, timeout=250):
-    ret = -9
+  def goto(self, targets_mm, timeout=float("inf")):
     t0 = time.time()
-    dims = [0,0]
-    ret = self.jog(2, direction='b', block=True, timeout=timeout)
-    if (ret == 0):  # ax2 jogged to motor end extreme
-      time_left = timeout - (time.time() - t0)
-      ret = self.home(axis=1, block=True, timeout=time_left, enable_otter=False)
-      if isinstance(ret, list): # ax1 homed
-        dims[0] = ret[0]
-        ret = self.check_lengths(1)
-        if ret == 0: # ax1 is the expected length
-          time_left = timeout - (time.time() - t0)
-          ret = self.goto(safex, axes=1, block=True, timeout=time_left)
-          if ret == 0: # ax1 safe loaction reached
-            time_left = timeout - (time.time() - t0)
-            ret = self.home(axis=2, block=True, timeout=time_left, enable_otter=False)
-            if isinstance(ret, list):  # ax2 homed
-              dims[1] = ret[0]
-              ret = dims
-              self.check_lengths()
-        else:
-          ret = -5
-    return(ret)
-
-
-  # jogs an axis in either direction 'a' or 'b'
-  # block == true means execution will not continue unil the motor stalls or the timeout expires
-  # returns:
-  # 0 for success
-  # -1 if timeout while waiting for completion
-  # -2 if a command was not properly acknowledged by the controlbox
-  # -3 invalid axis
-  # -9 for programming error
-  def jog(self, axis, direction='b', block=True, timeout=80):
-    ret = -9
-    t0 = time.time()
-    if axis not in self.axes:
-      ret = -3
-    else:
-      result = self.pcb.get(f'j{axis}{direction}')
-      if result != '':
-        ret = -2
-      else:
-        if block == True:
-          time_left = timeout - (time.time() - t0)
-          ret = self.wait_for_home_or_jog(axis=axis, timeout=time_left)
-          if ret == [0]:
-            ret = 0
-        else:
-          ret = 0
-    return(ret)
-
-
-  # blocks while an axis to finishes homing/jogging
-  # axis = -1 blocks while any axis has not finished
-  # returns:
-  # list of measured lengths of axes, zeros indicate non-homed axes
-  # -1 if timeout while waiting for completion
-  # -3 if invalid axis
-  # -9 if  programming error
-  def wait_for_home_or_jog(self, axis=-1, timeout=80):
-    ret = -9
-    t0 = time.time()
-    dims = []
-    if axis == -1:
-      to_wait_for = self.axes
-    else:
-      if axis in self.axes:
-        to_wait_for = [axis]
-      else:
-        ret = -3
-        to_wait_for = []
-    # do waits
-    for ax in to_wait_for:
-      time_left = timeout - (time.time() - t0)
-      ret = -1
-      while(time_left>0):
-        axl = self.pcb.get(f'l{ax}')
-        if (isinstance(axl, int)) and (axl >= 0):
-          dims += [axl]
-          ret = 0
-          self.current_position[self.axes.index(ax)] = self.pcb.get(f'r{ax}')/self.steps_per_mm
-          if axis != -1:
-            self.check_lengths(ax)
-          break
-        time_left = timeout - (time.time() - t0)
-    if ret == 0:
-      ret = dims
-    if axis == -1:
-      self.check_lengths()
-    return(ret)
-
+    targets_step = [round(x*self.steps_per_mm) for x in targets_mm]
+    for i, target_step in enumerate(targets_step):
+      ax = self.axes[i]
+      cmd = f"g{ax}{target_step}"
+      answer = self.pcb.query(cmd)
+      if answer != '':
+        try:
+          len_answer = self.pcb.query(f"l{ax}")
+          note = f" A subsequent stage length request query returned {len_answer}. -1 indicates the stage is busy and 0 indicates it is in the unhomed state and must be homed before further movement."
+        except Exception:
+          note = ""
+        raise(ValueError(f"Error asking axis {ax} to go to {targets_mm[i]} with response {answer}.{note}"))
+    for i, target_step in enumerate(targets_step):
+      ax = self.axes[i]
+      self._wait_for_goto(ax, target_step, timeout=float(timeout-time.time()-t0), debug_prints=False)
+    return 0
 
   # returns the stage's current position (a list matching the axes input)
   # axis is -1 for all available axes or a list of axes
   # returns None values for axes that could not be read
-  def get_position(self, axes=-1):
-    ret = []
-    if not hasattr(axes, "__len__"):
-      if axes == -1:
-        axes = self.axes
-      else:
-        axes = [axes]
-    
-    for ax in axes:
-      # TODO: probably shouldn't have to do a home check here first
-      home_check = self.pcb.get(f'r{ax}')
-      if isinstance(home_check, int) and home_check > 0:
-        steps = self.pcb.get(f'r{ax}')
-        pos = steps/self.steps_per_mm
-      else:
-        pos = None
-      ret += [pos]
-      self.current_position[self.axes.index(ax)] = pos
-    return(ret)
-
-
-  # makes relative movements
-  # mm is a list of offests from the current posision in mm
-  # axis is -1 for all available axes or a list of axes you wish to move
-  # the mm list and the axis list must match
-  # block=True if this is not to return until the movement is complete
-  # return codes
-  # 0 if there was no error
-  # -1 if the timeout expired before the move completed (for block=True mode)
-  # -2 if a command was rejected by the firmware (maybe the axes is unhomed or currently homing?)
-  # -3 invalid axis
-  # -6 attempt to move out of bounds
-  # -7 location and axes list length mismatch
-  # -8 movement concluded, but we did not reach the goal (stall?)
-  # -9 for programming error
-  def move(self, mm, axes=-1, block=True, timeout=80):
-    """
-    moves mm mm, blocks until movement complete, mm can be positive or negative to indicate movement direction
-    rejects movements outside limits
-    returns 0 upon sucessful move
-    """
-    ret = -9
-    t0 = time.time()
-
-    if not hasattr(mm, "__len__"):
-      mm = [mm]
-
-    if not hasattr(axes, "__len__"):
-      if axes == -1:
-        axes = self.axes
-      else:
-        axes = [axes]
-
-    if len(mm) != len(axes):
-      #raise ValueError("Move error")  #TODO: log movement error
-      ret = -7
-    else:
-      where = [0]*len(mm)  # final locations in mm
-      for i, ax in enumerate(axes):
-        here = self.pcb.get(f'r{ax}')
-        if (isinstance(here, int)) and (here > 0):
-          where[i] = here/self.steps_per_mm + mm[i]
-        else:
-          ret = -2
-          break
-      if ret != -2:
-        time_left = timeout - (time.time() - t0)
-        ret = self.goto(where, axes=axes, block=block, timeout=time_left)
-    return ret
-
+  def get_position(self):
+    result_mm = []
+    for ax in self.axes:
+      get_cmd = f"g{ax}"
+      answer = self._pwrapint(get_cmd)
+      result_mm.append(answer/self.steps_per_mm)
+    return result_mm
 
   def estop(self, axes=-1):
     """
     Emergency stop of the driver. Unpowers the motor(s)
     """
-    ret = -9
-    if not hasattr(axes, "__len__"):
-      if axes == -1:
-        axes = self.axes
-      else:
-        axes = [axes]
-    if len(axes) == self.n_axes:
-      result = self.pcb.get('b')
-      if result == '':
-        ret = 0
-      else:
-        ret = -2
-    else:
-      for ax in axes:
-        result = self.pcb.get(f'b{ax}')
-        if result == '':
-          if ret != -2: # this error needs to stick
-            ret = 0
-        else:
-          ret = -2
-    return(ret)
-  
-  def goto(self, new_pos, axes=-1, block=True, timeout=80):
-    ret = -9
-    if block != True:
-      print("Non-blocking movement is not supported at this time.")
-      return(ret)
-    t0 = time.time()
-    stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
-
-    if not hasattr(new_pos, "__len__"):
-      new_pos = [new_pos]
-
-    if not hasattr(axes, "__len__"):
-      if axes == -1:
-        axes = self.axes
-      else:
-        axes = [axes]
-    ax_pos = [-500 for x in axes] # stores positions updated during the blocking check loop. init to something wacky
-    goal_pos_steps = [-500 for x in axes] # store goal positions in steps. init to something wacky
-
-    starting_pos = []
-    for i, ax in enumerate(axes):
-      try:
-        starting_pos.append(self.pcb.get(f'r{ax}')/self.steps_per_mm)
-      except:
-        pass
-    print(f"Starting at= {starting_pos}")
-
-    if len(new_pos) != len(axes):
-      #raise ValueError("Move error")  #TODO: log movement error
-      ret = -7
-    else:
-      # check the new position
-      ebs = self.end_buffers * self.steps_per_mm
-      for i, ax in enumerate(axes):
-
-        goal_pos_steps[i] = round(new_pos[i]*self.steps_per_mm) # convert to steps
-        axl = self.pcb.get(f'l{ax}')
-        if isinstance(axl, int):
-          if (axl > 0):
-            axmin = ebs
-            axmax = axl - ebs
-            koz = self.keepout_zones[self.axes.index(ax)]
-            if len(koz) == 0:
-              koz += [-10] # something that's never enforced for no keepout
-              koz += [-10]
-            koz_min = min(koz)*self.steps_per_mm
-            koz_max = max(koz)*self.steps_per_mm
-            print(f"i={i}, np={goal_pos_steps[i]/self.steps_per_mm}, axmin={axmin/self.steps_per_mm}, axmax={axmax/self.steps_per_mm}, kozmin={koz_min/self.steps_per_mm}, kozmin={koz_max/self.steps_per_mm}")
-            if (goal_pos_steps[i] >= axmin and goal_pos_steps[i] <= axmax) and not (goal_pos_steps[i] >= koz_min and goal_pos_steps[i] <= koz_max):
-              ret = 0
-            else:
-              ret = -6
-              break
-          else:
-            self.homed = False
-            print(f"Got bad initial axis{ax} length reading: {axl}")
-            ret = -2
-            break
-        else:
-          self.homed = False
-          print(f"Unable to do initial axis{ax} length read: {axl}")
-          ret = -2
-          break
-
-      if ret == 0:  # the new goal is in bounds
-        for i, ax in enumerate(axes):
-          time_left = timeout - (time.time() - t0)
-          while ((time_left > 0) and (ret == 0)):
-            #time.sleep(stop_check_time_res)
-            cmd = f'r{ax}'
-            print(f'{ax}-r-b-{str(self.pcb.get(f"i{ax}")).rjust(8,"0")}')
-            read_pos = self.pcb.get(cmd)
-            print(f'{ax}-r-a-{str(self.pcb.get(f"i{ax}")).rjust(8,"0")}')
-            if isinstance(read_pos, int):
-              ax_pos[i] = read_pos
-              if ax_pos[i] == goal_pos_steps[i]:
-                break  # goal position reached
-            else:
-              print(f"Unable to read axis{ax} pos with result: {read_pos}")
-              ret = -2
-              break
-
-            gtr = self._goto(ax, goal_pos_steps[i])
-            ret = gtr[0]
-            if ret != 0: 
-              print(f"Unable to send axis{ax} goto command with result: {ret}")
-              ret = -2
-              break
-
-            #time.sleep(stop_check_time_res)
-            cmd = f'l{ax}'
-            print(f'{ax}-l-b-{str(self.pcb.get(f"i{ax}")).rjust(8,"0")}')
-            axl = self.pcb.get(cmd)
-            print(f'{ax}-l-a-{str(self.pcb.get(f"i{ax}")).rjust(8,"0")}')
-            if isinstance(read_pos, int):
-              if axl <= 0:
-                print(f"Got bad axis{ax} length reading: {axl}")
-                ret = -2
-                break
-            else:
-              print(f"Unable to read axis{ax} len with result: {axl}")
-              ret = -2
-              break
-            time.sleep(stop_check_time_res)
-
-            time_left = timeout - (time.time() - t0)
-          if ret !=0:
-            break  # break outer for loop to prevent advancement to the next axis if the inner while one has an error
-    if ret != 0:
-      print(f"GOTO failed with return code {ret}|axes={axes}|starting_at={starting_pos}|request_to={[p for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
-    final_pos = []
-    for i, ax in enumerate(axes):
-      try:
-        final_pos.append(self.pcb.get(f'r{ax}')/self.steps_per_mm)
-      except:
-        pass
-    print(f"Ending at= {final_pos}")
-    return (ret)
-
-  # sends the stage somewhere
-  # axis is -1 for all available axes or a list of axes you wish to move
-  # new_pos is a list of new positions for the axes in mm.
-  # this list length must match the axes selected
-  # block=True if this is not to return until the movement is complete
-  # return codes
-  # 0 if there was no error
-  # -1 if the timeout expired before the move completed (for block=True mode)
-  # -2 if a command was rejected by the firmware (maybe the axes is unhomed or currently homing?)
-  # -3 invalid axis
-  # -6 attempt to move out of bounds
-  # -7 location and axes list length mismatch
-  # -9 for programming error
-  def goto_old(self, new_pos, axes=-1, block=True, timeout=80):
-    """
-    goes to an absolute mm position, blocking, returns 0 on success
-    """
-    ret = -9
-    t0 = time.time()
-    stop_check_time_res = 0.25  # [s] delay to slow down the pos check loop in blocking mode
-    fail_log = []
-    steps = self.pcb.get(f'r1')
-    froma = steps/self.steps_per_mm
-    steps = self.pcb.get(f'r2')
-    fromb = steps/self.steps_per_mm
-    #print(f"From x:{pos1} y:{pos2}")
-
-    if not hasattr(new_pos, "__len__"):
-      new_pos = [new_pos]
-
-    if not hasattr(axes, "__len__"):
-      if axes == -1:
-        axes = self.axes
-      else:
-        axes = [axes]
-    ax_pos = [-500 for x in axes] # stores positions updated during the blocking check loop. init to something wacky
-
-    if len(new_pos) != len(axes):
-      #raise ValueError("Move error")  #TODO: log movement error
-      ret = -7
-    else:
-      # check the new position
-      ebs = self.end_buffers * self.steps_per_mm
-      for i, ax in enumerate(axes):
-
-        new_pos[i] = round(new_pos[i]*self.steps_per_mm) # convert to steps
-        axl = self.pcb.get(f'l{ax}')
-        if (axl is not None) and (axl > 0):
-          axmin = ebs
-          axmax = axl - ebs
-          koz = self.keepout_zones[self.axes.index(ax)]
-          if len(koz) == 0:
-            koz += [-10] # something that's never enforced for no keepout
-            koz += [-10]
-          koz_min = min(koz)*self.steps_per_mm
-          koz_max = max(koz)*self.steps_per_mm
-          print(f"i={i}, np={new_pos[i]/self.steps_per_mm}, axmin={axmin/self.steps_per_mm}, axmax={axmax/self.steps_per_mm}, kozmin={koz_min/self.steps_per_mm}, kozmin={koz_max/self.steps_per_mm}")
-          if (new_pos[i] >= axmin and new_pos[i] <= axmax) and not (new_pos[i] >= koz_min and new_pos[i] <= koz_max):
-            ret = 0
-          else:
-            ret = -6
-            break
-        else:
-          self.homed = False
-          ret = -2
-          break
-
-      if ret == 0:
-        # initiate the moves
-        for i, ax in enumerate(axes):
-          gtr = self._goto(ax,new_pos[i])
-          ret = gtr[0]
-          if ret != 0:
-            fail_log.append((ax,gtr[1]))  # if the fail log is only length one, it was a fail here
-            block = False  # we're bailing, no need for blocking
-            break
-
-        if (block==True):
-          time_left = timeout - (time.time() - t0)
-          movement_retries_left = 5
-          not_at_goal = [True for x in axes]
-          while (time_left > 0) and (movement_retries_left > 0) and (sum(not_at_goal) > 0):
-          # now let's wait for all the motion to be done
-            for i, ax in enumerate(axes):
-              if not_at_goal[i] == True:
-                try:
-                  cmd = f'r{ax}'
-                  read_pos = self.pcb.get(cmd)
-                  ax_pos[i] = int(read_pos)
-                except:
-                  ax_pos[i] = -100
-                  print(f"Fail to read pos via {cmd} with result {read_pos}")
-                if ax_pos[i] == new_pos[i]:
-                  not_at_goal[i] = False
-                else:
-                  gtr = self._goto(ax, new_pos[i])
-                  if gtr[0] != 0:
-                    movement_retries_left -= 1
-                    # if the fail log has len > 1 the entries were made here
-                    fail_log.append((ax,gtr[1]))
-            time.sleep(stop_check_time_res) # let's slow this check loop down a bit
-            time_left = timeout - (time.time() - t0)
-
-          if time_left > 0:
-            if sum(not_at_goal) == 0:
-              ret = 0
-              if (len(axes) == self.n_axes):
-                self.homed = True
-            elif movement_retries_left == 0:
-              ret = -2
-          else:
-            ret = -1 # out of time
-
-          for i, ax in enumerate(axes):
-            try:
-              self.current_position[i] = ax_pos[i]/self.steps_per_mm
-            except:
-              pass
-    
-    if ret != 0:
-      print(f"np = {new_pos}")
-      print(f"GOTO failed with return code {ret}|fail_log={fail_log}|axes={axes}|from=[{froma},{fromb}]|request={[p/self.steps_per_mm for p in new_pos]}|result={[b/self.steps_per_mm for b in ax_pos]}")
-      print(f"ACTUAL= [{self.pcb.get(f'r1')/self.steps_per_mm},{self.pcb.get(f'r2')/self.steps_per_mm}]")
-
-    return (ret)
-
-  # low level goto function. only to be called from inside the higher level goto. has a few retries
-  def _goto(self, ax, steps):
-    goto_retries_left = 5
-    while goto_retries_left > 0:
-      print(f'{ax}-g-b-{str(self.pcb.get(f"i{ax}")).rjust(8,"0")}')
-      resp = self.pcb.get(f'g{ax}{steps}')
-      print(f'{ax}-g-a-{str(self.pcb.get(f"i{ax}")).rjust(8,"0")}')
-      if resp == '':
-        ret = 0
-        break
-      else:
-        goto_retries_left -=1
-        print(f'Response from the PCB for g{ax}{steps}: {resp}. Rejects left = {goto_retries_left}')
-    if goto_retries_left == 0:
-      ret = -2
-    return (ret, resp)
+    # do it thrice because it's important
+    for i in range(3):
+      self.pcb.query('b')
+      for ax in self.axes:
+        estop_cmd = f"b{ax}"
+        self.pcb.query(estop_cmd)
 
   def close(self):
     pass
 
-
 if __name__ == "__main__":
+  from .pcb import pcb
   # motion test
   pcb_address = "10.46.0.239"
-  with pcb(pcb_address, ignore_adapter_resistors=True) as p:
-    me = us(p, expected_lengths=[250-125], keepout_zones=[[20,30]], steps_per_mm=6400, extra = '')
+  steps_per_mm = 6400
+  with pcb(pcb_address) as p:
+    me = us(p, spm=steps_per_mm)
 
     print('Connecting')
     result = me.connect()
@@ -654,85 +237,31 @@ if __name__ == "__main__":
     else:
       raise(ValueError(f"Connection failed with {result}"))
     time.sleep(1)
-
-    if me.homed != True:
-      print('Homing required!')
-      print('Homing')
-      result = me.home()
-      if isinstance(result, list):
-        print(f'Stage dims = {result}')
-      else:
-        raise(ValueError(f'Home failed with {result}'))
-      time.sleep(1)
-    else:
-      print('Homing not required!')
     
-    print('GOingTO the middle of the stage')
-    mid_mm = [x/2/me.steps_per_mm for x in me.measured_lengths]
-    result = me.goto(mid_mm)
-    if (result == 0):
-      print("Movement done.")
-    else:
-      raise(ValueError(f'GOTO failed with {result}'))
-    time.sleep(1)
-
-    print('GOingTO keepout zone')
-    keepo = [25]
-    result = me.goto(keepo)
-    if (result == 0):
-      raise(ValueError("Movement done. (bad)"))
-    else:
-      print(f'GOTO failed with {result} (yay!)')
-    time.sleep(1)
-      
-    print('Moving all axes 2cm forward via move')
-    move_mm = [20]*me.n_axes
-    result = me.move(move_mm)
-    if (result == 0):
-      print("Movement done.")
-    else:
-      raise(ValueError(f'Move failed with {result}'))
-    time.sleep(1)
-
-    print('Moving all axes 2cm backwards via move')
-    move_mm = [-20]*me.n_axes
-    result = me.move(move_mm)
-    if (result == 0):
-      print("Movement done.")
-    else:
-      raise(ValueError(f'Move failed with {result}'))
-    time.sleep(1)
-
-    print('Jogging')
-    result = me.jog(me.axes[0], direction='a')
-    if (result == 0):
-      print("Jogging done.")
-    else:
-      raise(ValueError(f'Jog failed with {result}'))
-    time.sleep(1)
-
-    print('Jogging')
-    result = me.jog(me.axes[0], direction='b')
-    if (result == 0):
-      print("Jogging done.")
-    else:
-      raise(ValueError(f'Jog failed with {result}'))
+    print('Homing')
+    me.home()
+    print(f"Homed!\nMeasured stage lengths = {me.len_axes_mm}")
+    
+    mid_mm = [x/2 for x in me.len_axes_mm]
+    print(f'GOingTO the middle of the stage: {mid_mm}')
+    me.goto(mid_mm)
+    print("Movement done.")
     time.sleep(1)
 
     print('Emergency Stopping')
-    result = me.estop()
-    if (result == 0):
-      print("Emergency stopped.")
-    else:
-      raise(ValueError(f'Failed to emergency stop with {result}'))
+    me.estop()
+    print('E-stopped...')
     time.sleep(10)
 
+    print('Testing failure handling')
+    try:
+      me.goto(mid_mm)
+    except Exception as e:
+      print(f'Got an exception: {e}')
+
     print('Homing')
-    result = me.home()
-    if isinstance(result, list):
-      print(f"Homed. The stage dimensions are {result}")
-    else:
-      raise(ValueError(f'Failed to home with {result}'))
+    me.home()
+    print(f"Homed!\nMeasured stage lengths = {me.len_axes_mm}")
 
     me.close()
     print("Test complete.")

@@ -273,10 +273,7 @@ def _calibrate_psu(request, mqtthost):
                         last_label = label
 
                     # move to pixel
-                    resp = measurement.goto_pixel(pixel)
-                    if resp != 0:
-                        _log(f"Stage error: {resp}! Aborting run!", 40, mqttc)
-                        break
+                    measurement.goto_pixel(pixel)
 
                     resp = measurement.select_pixel(pixel)
                     if resp != 0:
@@ -572,10 +569,7 @@ def _goto(request, mqtthost):
                     motion_virt=config["stage"]["virtual"],
                 )
 
-                goto = measurement.goto_stage_position(position)
-
-                if goto < 0:
-                    _log(f"Goto failed with result: {goto}", 40, mqttc)
+                measurement.goto_stage_position(position)
 
                 _log("Goto complete!", 20, mqttc)
 
@@ -1024,10 +1018,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
             last_label = label
 
         # move to pixel
-        resp = measurement.goto_pixel(pixel)
-        if resp != 0:
-            _log(f"Stage error: {resp}! Aborting run", 40, mqttc)
-            break
+        measurement.goto_pixel(pixel)
 
         # select pixel
         resp = measurement.select_pixel(pixel)
@@ -1331,10 +1322,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
             last_label = label
 
         # move to pixel
-        resp = measurement.goto_pixel(pixel)
-        if resp != 0:
-            _log(f"Stage error: {resp}! Aborting run!", 40, mqttc)
-            break
+        measurement.goto_pixel(pixel)
 
         resp = measurement.select_pixel(pixel)
         if resp != 0:

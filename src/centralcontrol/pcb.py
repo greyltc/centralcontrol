@@ -4,23 +4,26 @@ from telnetlib import Telnet
 import socket
 import os
 
-class pcb:
+class pcb(object):
   """
-  Interface for talking to my control PCB
+  Interface for talking to the control PCB
   """
   write_terminator = '\r\n'
-  #read_terminator = b'\r\n' # probably don't care. all whitespace gets stripped anyway
-  prompt = b'>>> '
-  
-  substrateList = []  # all the possible substrates
-  
-  substratesConnected = []  # the ones we've detected
-  adapters = []  # list of tuples of adapter boards: (substrate_letter, resistor_value)
+  #read_terminator = b'\r\n'
+  prompt_string = '>>> '
+  prompt = prompt_string.encode()
+  #prompt = read_terminator + prompt_string.encode()
+  comms_timeout = socket._GLOBAL_DEFAULT_TIMEOUT
+  telnet_host = "localhost"
+  telnet_port = 23
+  firmware_version = 'unknown'
+  detected_muxes = []
+  detected_axes = []
 
   class MyTelnet(Telnet):
     def read_response(self, timeout=None):
       found_prompt = False
-      resp = self.read_until(pcb.prompt, timeout=None)
+      resp = self.read_until(pcb.prompt, timeout=timeout)
       if resp.endswith(pcb.prompt):
         found_prompt = True
       ret = resp.rstrip(pcb.prompt).decode().strip()
@@ -35,22 +38,20 @@ class pcb:
         self.write(cmd.encode()+pcb.write_terminator)
       self.sock.sendall()
 
-  def __init__(self, address, ignore_adapter_resistors=True, timeout=socket._GLOBAL_DEFAULT_TIMEOUT):
-    self.timeout = timeout # pcb has this many seconds to respond
-    self.ignore_adapter_resistors = ignore_adapter_resistors
+  def __init__(self, address=None, timeout=comms_timeout):
+    self.comms_timeout = timeout # pcb has this many seconds to respond
 
-    addr_split = address.split(':')
-    if len(addr_split) == 1:
-      port = 23  # default port
-      host = addr_split[0]
-    else:
-      host, port = address.split(':')
-
-    self.host = host
-    self.port = int(port)
+    if address is not None:
+      addr_split = address.split(':')
+      if len(addr_split) == 1:
+        self.telnet_host = addr_split[0]
+      else:
+        h, p = address.split(':')
+        self.telnet_host = h
+        self.telnet_port = int(p)
 
   def __enter__(self):
-    self.tn = self.MyTelnet(self.host, self.port, timeout=self.timeout)
+    self.tn = self.MyTelnet(self.telnet_host, self.telnet_port, timeout=self.comms_timeout)
     self.sf = self.tn.sock.makefile("rwb", buffering=0)
 
     if os.name != 'nt':
@@ -59,43 +60,48 @@ class pcb:
     welcome_message, win = self.tn.read_response()
 
     if not win:
-      raise ValueError('Did not see welcome message from pcb')
+      raise ValueError('Firmware did not present command prompt on connection')
 
-    version = self.get('v')
-    mux = self.get("c")
-    stage = self.get("e")
-    #print(f"Connected to control PCB running firmware version {version}")
-
-    #substrates = self.substrateSearch()
-    #resistors = {}  # dict of measured resistor values where the key is the associated substrate
-
-    #if substrates == 0x00:
-    #  print('No multiplexer board detected.')
-    #else:
-    #  found = "Found MUX board(s): "
-    #  for i in range(len(self.substrateList)):
-    #    substrate = self.substrateList[i]
-    #    mask = 0x01 << (7-i)
-    #    if (mask & substrates) != 0x00:
-    #      self.substratesConnected = self.substratesConnected + substrate
-    #      if self.ignore_adapter_resistors:
-    #        resistors[substrate] = 0
-    #      else:
-    #        resistors[substrate] = self.get('d'+substrate)
-    #      found = found + substrate
-    #  #print(found)
-    #self.resistors = resistors
-    print(f"v={version}|m={mux}|s={stage}")
+    self.firmware_version = self.query('v')
+    self.probe_muxes()
+    self.probe_axes()
+    print(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
     return(self)
+
+  # figures out what muxes are connected
+  def probe_muxes(self):
+    mux_int = int(self.query('c'))
+    mux_bin_str = f"{mux_int:b}"
+    mux_bin_str_rev = mux_bin_str[::-1]
+    self.detected_muxes = []
+    start_char = 'A'
+    for i, b in enumerate(mux_bin_str_rev):
+      if b == '1':
+        self.detected_muxes.append(chr(ord(start_char)+i))
+
+# figures out what axes are connected
+  def probe_axes(self):
+    axes_int = int(self.query('e'))
+    axes_bin_str = f"{axes_int:b}"
+    axes_bin_str_rev = axes_bin_str[::-1]
+    self.detected_axes = []
+    start_char = '1'
+    for i, b in enumerate(axes_bin_str_rev):
+      if b == '1':
+        self.detected_axes.append(chr(ord(start_char)+i))
 
   def __exit__(self, type, value, traceback):
     try:
+      self.write(self, "exit")
+    except Exception:
+      pass
+    try:
       self.sf.close()
-    except:
+    except Exception:
       pass
     try:
       self.tn.close()
-    except:
+    except Exception:
       pass
 
   def pix_picker(self, substrate, pixel, suppressWarning=False):
@@ -106,7 +112,7 @@ class pcb:
     while try_num < retries:
       try:
         cmd = "s" + substrate + str(pixel)
-        answer, ready = self.query(cmd)
+        answer, ready = self._query(cmd)
       except:
         pass
       if ready:
@@ -131,10 +137,22 @@ class pcb:
     self.sf.write(cmd.encode())
     self.sf.flush()
 
-  def query(self, query):
+  # query with no ack check
+  def _query(self, query):
     self.write(query)
     return self.tn.read_response()
 
+  # query with better error handling and with ack check
+  def query(self, query):
+    answer = None
+    ack = False
+    try:
+      answer, ack = self._query(query)
+    except Exception:
+      raise(ValueError(f"Firmware comms failure while trying to send '{query}'"))
+    if ack == False:
+      raise(ValueError(f"Firmware did not acknowledge '{query}'"))
+    return answer
 
   def get(self, cmd):
     """
@@ -156,7 +174,7 @@ class pcb:
 
     while tries_left > 0:
       try:
-        answer, ready = self.query(cmd)
+        answer, ready = self._query(cmd)
         if (ready == True) and ('ERROR' not in answer):
           break
       except:
@@ -230,6 +248,6 @@ class pcb:
 # testing
 if __name__ == "__main__":
   pcb_address = '10.42.0.239'
-  with pcb(pcb_address, ignore_adapter_resistors=True) as p:
+  with pcb(pcb_address) as p:
     print(f"Mux Check result = {p.get('c')}")
     print(f"Stage Check result = {p.get('e')}")
