@@ -161,7 +161,6 @@ class motion:
     home_setup["allowed_deviation"] = self.allowed_length_deviation
     home_result = self.motion_engine.home(**home_setup)
     self.actual_lengths = self.motion_engine.len_axes_mm
-    return home_result
 
   def estop(self):
     """

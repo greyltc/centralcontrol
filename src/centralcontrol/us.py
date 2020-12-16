@@ -197,7 +197,6 @@ class us(object):
     for i, target_step in enumerate(targets_step):
       ax = self.axes[i]
       self._wait_for_goto(ax, target_step, timeout=float(timeout-time.time()-t0), debug_prints=False)
-    return 0
 
   # returns the stage's current position (a list matching the axes input)
   # axis is -1 for all available axes or a list of axes

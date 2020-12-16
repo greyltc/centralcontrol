@@ -131,12 +131,11 @@ def worker():
                         tmo = motion
                     mo = tmo(address=task['stage_uri'], pcb_object=p)
                     mo.connect()
-                    result = mo.home()
-                    if isinstance(result, list) or (result == 0):
-                        log_msg('Homing procedure complete.',lvl=logging.INFO)
+                    try:
+                        mo.home()
                         get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
-                    else:
-                        log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
+                    except Exception as e:
+                        log_msg(f'{e}',lvl=logging.WARNING)
 
             # send the stage some place
             elif task['cmd'] == 'goto':
@@ -153,9 +152,9 @@ def worker():
                     mo.connect()
                     try:
                         mo.goto(task['pos'])
+                        get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
                     except Exception as e:
                         log_msg(f'{e}',lvl=logging.WARNING)
-                    get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
 
             # handle any generic PCB command that has an empty return on success
             elif task['cmd'] == 'for_pcb':
