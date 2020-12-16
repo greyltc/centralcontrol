@@ -13,6 +13,7 @@ class mppt:
   Impp = None  # current at max power point
   Pmax = None  # power at max power point (for keeping track of voc and isc)
   abort = False
+  delay = 0  # number of ms to sleep before each measurement
 
   # under no circumstances should we violate this
   absolute_current_limit = 0.1  # always safe default
@@ -31,6 +32,7 @@ class mppt:
     self.Impp = None  # current at max power point
     self.Pmax = None
     self.abort = False
+    self.delay = 0
     
     self.current_compliance = None
     self.t0 = None  # the time we started the mppt algorithm
@@ -65,13 +67,15 @@ class mppt:
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
 
-  def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, compliance_override=None, extra="basic://7:10"):
+  def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, delay=0, compliance_override=None, extra="basic://7:10"):
     """
     general function to call begin a max power point tracking algorithm
     duration given in seconds, optionally calling callback function on each measurement point
+    delay in ms will insert a sleep for this many ms before every reading takes place
     """
     m = []  # list holding mppt measurements
     self.t0 = time.time()  # start the mppt timer
+    self.delay = delay
 
     if self.current_compliance is None:
       current_compliance = 0.04  # assume 40mA compliance if nobody told us otherwise
@@ -134,22 +138,22 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gd'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback, delay=1000))
       else:
         params = params.split(':')
-        if len(params) != 3:
-          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]"))        
+        if len(params) != 4:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]"))
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay=params[3]))
     elif (algo == 'snaith'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.1, min_step=0.001, NPLC=10, callback=callback))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.1, min_step=0.001, NPLC=10, callback=callback, delay=1000, snaith_mode=True))
       else:
         params = params.split(':')
-        if len(params) != 3:
-          raise (ValueError("MPPT configuration failure, Usage: --mppt-params snaith://[alpha]:[min_step]:[NPLC]"))        
+        if len(params) != 4:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params snaith://[alpha]:[min_step]:[NPLC]:[delayms]"))
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]), snaith_mode=True)
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2]), snaith_mode=True, delay=params[3])
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
 
@@ -158,15 +162,17 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp*self.Impp*1000*-1, self.Vmpp*1000, self.Impp*1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=0.1, min_step=0.001, NPLC=-1, snaith_mode=False):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x:None, alpha=0.1, min_step=0.001, NPLC=-1, snaith_mode=False, delay=1000):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
     min_step is the minimum voltage step size the algorithm will be allowed to take
+    delay is the number of ms to wait between setting the voltage and making a measurement
     """
     max_step = 0.1
     snaith_pre_soak_t = 15
     snaith_post_soak_t = 3
+    self.delay = delay
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
     print("===Starting up gradient descent maximum power point tracking algorithm===")
@@ -175,6 +181,7 @@ class mppt:
     print(f"Largest step (max_step) = {max_step*1000} [mV]")
     print(f"NPLC = {self.sm.getNPLC()}")
     print(f"Snaith mode = {snaith_mode}")
+    print(f"Source-measure delay = {self.delay} [ms]")
 
     self.q = deque()
     m = deque(maxlen=2) # keeps two measurements
@@ -250,6 +257,7 @@ class mppt:
       v_set = -0.0001
 
     self.sm.setSource(v_set)
+    time.sleep(self.delay/1000)
     measurement = self.sm.measure()[0]
     callback(measurement)
     v, i, tx, status = measurement

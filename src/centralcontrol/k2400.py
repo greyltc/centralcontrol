@@ -14,11 +14,11 @@ class k2400:
   status = 0
   nplc_user_set = 1.0
   last_sweep_time = 0
+  readyForAction = False
+  four88point1 = False
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
-    self.readyForAction = False
-    self.four88point1 = False
     self.rm = self._getResourceManager(visa_lib)
 
     if scan:
@@ -32,7 +32,7 @@ class k2400:
 
   def __del__(self):
     try:
-      self.sm.write('abort')
+      self.sm.write(':abort')
     except:
       pass
 
@@ -105,7 +105,7 @@ class k2400:
     return rm
 
   def _getSourceMeter(self, rm):
-    timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things acan back up and they're slow
+    timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
     open_params = {}
     open_params['resource_name'] = self.addressString
 
@@ -171,6 +171,11 @@ class k2400:
       sm.flush(pyvisa.constants.VI_IO_OUT_BUF_DISCARD)
 
     try:
+      sm.write(':abort')
+    except:
+      pass
+
+    try:
       sm.write('*RST')
     except:
       pass
@@ -186,13 +191,6 @@ class k2400:
         sm.write(':system:preset')
         self.opc(sm=sm)
         self.opc(sm=sm)
-        # if there is garbage left in the input buffer toss it
-        time.sleep(0.1)
-        #session = sm.visalib.sessions[sm._session]  # that's a pyserial object
-        #session.interface.reset_input_buffer()
-        if hasattr(sm, 'bytes_in_buffer'):
-          if sm.bytes_in_buffer > 0:
-            sm.read_raw(sm.bytes_in_buffer)
       except:
         pass
 
@@ -497,13 +495,51 @@ class k2400:
   def opc(self, sm=None):
     """returns when all operations are complete
     """
+    if self.four88point1 == False:
+      opc_timeout = False
+      if sm is None:
+        sm = self.sm
+      retries_left = 5
+      tout = sm.timeout  # save old timeout
+      sm.timeout = 2500  # in ms
+      while retries_left > 0:
+        cmd = '*WAI'
+        bw = sm.write(cmd)
+        if bw == (len(cmd)+1):
+          one = "zero"
+          try:
+            one = sm.query('*OPC?')
+          except pyvisa.errors.VisaIOError:
+            opc_timeout = True  # need to handle this so we don't queue up OPC queries
+          if one == '1':
+            break
+        retries_left = retries_left - 1
+      sm.timeout = tout
+      if retries_left == 0:
+        raise(ValueError("OPC FAIL"))
+      # we make sure there are no bytes left in the input buffer
+      if opc_timeout == True:
+        time.sleep(2.5)  # wait for the opc commands to unqueue
+      self._flush_input_buffer(sm, delayms=500)
+
+  def _stb(self, sm=None):
     if not self.four88point1:
       if sm == None:
         sm = self.sm
-      sm.write('*WAI')
-      one = sm.query('*OPC?')
-      if one != '1':
-        print(f"OPC returned {one}")
+    return(sm.query('*STB?'))
+
+  def _flush_input_buffer(self, sm, delayms=0):
+    try:
+      session = sm.visalib.sessions[sm._session]  # that's a pyserial object
+      session.interface.reset_input_buffer()
+    except Exception:
+      pass
+    if hasattr(sm, 'bytes_in_buffer'):
+      bib = sm.bytes_in_buffer
+      while bib > 0:
+        sm.read_raw(bib)  # toss the bytes
+        time.sleep(delayms/1000)
+        bib = sm.bytes_in_buffer
 
   def arm(self):
     """arms trigger
@@ -564,6 +600,9 @@ class k2400:
       elif m_len == 5:
         t_start = first_element[3]
         t_end = last_element[3]
+      else:
+        t_start = 0
+        t_end = 0
       self.last_sweep_time = t_end - t_start
       print(f"Sweep duration = {self.last_sweep_time} s")
     
@@ -582,7 +621,7 @@ class k2400:
     i = 0
     t_end = time.time() + t_dwell
     q = []
-    self.opc() # before we start reading, ensure the device is ready
+    #self.opc() # before we start reading, ensure the device is ready
     while (i < measurements) and (time.time() < t_end):
       i = i + 1
       measurement = self.measure()[0]
@@ -621,7 +660,7 @@ if __name__ == "__main__":
   k = k2400(addressString=address, terminator='\r', serialBaud=57600)
 
   con_time = time.time()
-  print(f"Connected to {k.addressString} in {time.time()-con_time} seconds")
+  print(f"Connected to {k.addressString} in {con_time-start} seconds")
 
   # do a contact check
   k.set_ccheck_mode(True)
