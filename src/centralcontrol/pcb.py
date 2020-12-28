@@ -104,32 +104,6 @@ class pcb(object):
     except Exception:
       pass
 
-  def pix_picker(self, substrate, pixel, suppressWarning=False):
-    win = False
-    ready = False
-    retries = 5
-    try_num = 0
-    while try_num < retries:
-      try:
-        cmd = "s" + substrate + str(pixel)
-        answer, ready = self._query(cmd)
-      except:
-        pass
-      if ready:
-        if answer == '':
-          break
-      retries += 1
-
-    if ready:
-      if answer == '':
-        win = True
-      else:
-        print('WARNING: Got unexpected response form PCB to "{:s}": {:s}'.format(cmd, answer))
-    else:
-      raise (ValueError("Comms are out of sync with the PCB"))
-
-    return win
-
   def write(self, cmd):
     if not cmd.endswith(self.write_terminator):
       cmd = cmd + self.write_terminator
@@ -153,74 +127,6 @@ class pcb(object):
     if ack == False:
       raise(ValueError(f"Firmware did not acknowledge '{query}'"))
     return answer
-
-  def get(self, cmd):
-    """
-    sends cmd to the pcb and returns the relevant command response
-    """
-    ready = False
-    ret = None
-
-    # TODO: don't need to retry some commands that start with these letters
-    # like eqe and stream
-    retry_cmds = ['j','h', 'l', 's', 'r', 'c', 'e', 'g']
-    super_retry_cmds = ['b']
-    if cmd[0] in retry_cmds:
-      tries_left = 5
-    elif cmd[0] in super_retry_cmds: # very important to get through because this is e-stop
-      tries_left = 5000
-    else:
-      tries_left = 1
-
-    while tries_left > 0:
-      try:
-        answer, ready = self._query(cmd)
-        if (ready == True) and ('ERROR' not in answer):
-          break
-      except:
-        ready = False
-        #raise (ValueError, "Failure while talking to PCB")
-      tries_left -= 1
-
-    if ready:
-      # try to parse by question
-      if cmd.startswith('g'):
-        if answer.startswith('ERROR'):
-          ret = answer
-        else:
-          ret = answer
-      elif cmd.startswith('l'):
-        if answer.startswith('ERROR'):
-          ret = answer
-        else:
-          ret = int(answer)
-      elif cmd.startswith('r'):
-        if answer.startswith('ERROR'):
-          ret = answer
-        else:
-          ret = int(answer)
-      elif cmd.startswith('h'):
-        if answer.startswith('ERROR'):
-          ret = None  # TODO: probably shouldn't just chuck this error...
-        else:
-          ret = answer
-      elif cmd.startswith('j'):
-        if answer.startswith('ERROR'):
-          ret = None  # TODO: probably shouldn't just chuck this error...
-        else:
-          ret = answer
-      else:  # not a question parsable command, attempt to parse by answer
-        if answer.startswith('AIN'):
-          ret = answer.split(' ')[1]
-        elif answer.startswith('Board'):
-          ret = int(answer.split(' ')[5])
-        else:  # could not parse by either question or answer, fine. just return the result
-          ret = answer
-    else: # ready is False
-      # TODO: should not raise here
-      raise (ValueError("Comms are out of sync with the PCB"))
-
-    return ret
 
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
     """Set TCP keepalive on an open socket.
@@ -248,6 +154,8 @@ class pcb(object):
 # testing
 if __name__ == "__main__":
   pcb_address = '10.42.0.239'
-  with pcb(pcb_address) as p:
-    print(f"Mux Check result = {p.get('c')}")
-    print(f"Stage Check result = {p.get('e')}")
+  with pcb(pcb_address, timeout=1) as p:
+    print('Controller connection initiated')
+    print(f"Controller firmware version: {p.firmware_version}")
+    print(f"Controller axes: {p.detected_axes}")
+    print(f"Controller muxes: {p.detected_muxes}")

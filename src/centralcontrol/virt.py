@@ -72,11 +72,6 @@ class pcb(object):
       self.jog_done_time.append(time.time())
       self.goto_done_time.append(time.time())
     self.virt_motion_setup = True
-  def pix_picker(self, *args, **kwargs):
-    win = True
-    return win
-  def get(self, *args, **kwargs):
-    return ""
   def __enter__(self):
     return(self)
   def __exit__(self, *args, **kwargs):
