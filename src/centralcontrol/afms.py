@@ -11,6 +11,8 @@ class afms:
   len_axes = [float('inf')]  # list of mm for how long the firmware thinks each axis is
   axes = [1]  # list of connected axis indicies
 
+  end_buffers = 1  # disallow movement to closer than this many mm from an end (prevents home issues)
+
   def __init__(self, location=com_port, spm=steps_per_mm, homer=home_procedure):
     """
     sets up the afms object
