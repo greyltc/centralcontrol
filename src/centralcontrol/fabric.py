@@ -31,7 +31,7 @@ import dp800
 import virtual_dp800
 import eqe
 
-class fabric:
+class fabric(object):
     """Experiment control logic."""
 
     # expecting mqtt queue publisher object
@@ -43,11 +43,16 @@ class fabric:
     #current_limit = float("inf")
     current_limit = 0.1  # always safe default
 
-    def __init__(self, current_limit):
+    # a virtual pcb object
+    fake_pcb = virt.pcb
+
+    # a real pcb object
+    fake_pcb = pcb
+
+    def __init__(self):
         """Get software revision."""
         # self.software_revision = __version__
         # print("Software revision: {:s}".format(self.software_revision))
-        self.current_limit = current_limit
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
@@ -328,10 +333,11 @@ class fabric:
             Control PCB address string.
         """
         self.motion_address = motion_address
+        self.motion = motion
         if is_virt == True:
-            self.motion = virt.motion
+            self.motion_pcb = virt.pcb
         else:
-            self.motion = motion
+            self.motion_pcb = pcb
 
     def connect_instruments(
         self,
@@ -520,29 +526,27 @@ class fabric:
         if hasattr(self, "sm"):
             self.sm.outOn(on=False)
 
-    def goto_pixel(self, pixel):
+    def goto_pixel(self, pixel, mo):
         """Move to a pixel.
 
         Parameters
         ----------
         pixel : dict
             Pixel information dictionary.
+        mo : class
+            Motion object.
 
         Returns
         -------
         response : int
             Response code. 0 is good, everything else means fail.
         """
-        # TODO: change this to not open and close the PCB object on every single movement
         if hasattr(self, "motion"):
-            with self.pcb(self.pcb_address) as p:
-                me = self.motion(address=self.motion_address, pcb_object=p)
-                me.connect()
                 if pixel["pos"] is not None:
-                    me.goto(pixel["pos"])
+                    mo.goto(pixel["pos"])
         return 0
 
-    def select_pixel(self, pixel):
+    def select_pixel(self, pixel, pcb):
         """Select pixel on the mux.
 
         Parameters
@@ -555,30 +559,21 @@ class fabric:
         response : int
             Response code. 0 is good, everything else means fail.
         """
-        # TODO: change this to not open and close the PCB object on every single movement
-        with self.pcb(self.pcb_address) as p:
-            # connect pixel
-            if (substrate := pixel["sub_name"]) is not None:
-                # open all relays
-                resp = p.get("s")
-
+        ret = 0
+        if hasattr(self, "pcb"):
+            ret = None
+            substrate = pixel["sub_name"]
+            if (substrate) is not None:
+                resp = pcb.query("s")  # open all relays
                 if resp == "":
-                    # select the correct pixel
-                    resp = p.pix_picker(substrate, pixel["pixel"])
+                    resp = pcb.query(f"s{substrate}{pixel['pixel']}")  # select the correct pixel
             else:
-                # open all mux relays
-                resp = p.get("s")
+                resp = pcb.query("s")  # open all mux relays
+            if resp == "":
+                ret = 0
+        return ret
 
-                # get responds to s with empty string on success
-                if resp == "":
-                    resp = 0
-
-            if resp is True:
-                resp = 0
-
-        return resp
-
-    def set_experiment_relay(self, exp_relay):
+    def set_experiment_relay(self, exp_relay, pcb):
         """Choose EQE or IV connection.
 
         Parameters
@@ -586,10 +581,12 @@ class fabric:
         exp_relay : {"eqe", "iv"}
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
-        with self.pcb(self.pcb_address) as p:
-            resp = p.get(exp_relay)
-
-        return resp
+        ret = 0
+        if hasattr(self, "pcb"):
+            ret = None
+            if pcb.query(exp_relay) == "":
+                ret = 0
+        return ret
 
     def slugify(self, value, allow_unicode=False):
         """Convert string to slug.
@@ -849,9 +846,9 @@ class fabric:
         for current in currents:
             self.psu.set_apply(channel=channel, voltage=max_voltage, current=current)
             time.sleep(1)
-            measurement = list(self.sm.measure()[0])
-            measurement.append(current)
-            data.append(measurement)
+            psu_data = list(self.sm.measure()[0])
+            psu_data.append(current)
+            data.append(psu_data)
 
         # disable PSU
         self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
@@ -867,77 +864,77 @@ class fabric:
 
         return data
 
-    def home_stage(self):
-        """Home the stage."""
-        with self.pcb(self.pcb_address) as p:
-            me = self.motion(address=self.motion_address, pcb_object=p)
-            me.connect()
-            return me.home()
+    # def home_stage(self):
+    #     """Home the stage."""
+    #     with self.pcb(self.pcb_address) as p:
+    #         me = self.motion(address=self.motion_address, pcb_object=p)
+    #         me.connect()
+    #         return me.home()
 
-    def read_stage_position(self):
-        """Read the current stage position along all available axes."""
-        with self.pcb(self.pcb_address) as p:
-            me = self.motion(address=self.motion_address, pcb_object=p)
-            me.connect()
-            return me.get_position()
+    # def read_stage_position(self):
+    #     """Read the current stage position along all available axes."""
+    #     with self.pcb(self.pcb_address) as p:
+    #         me = self.motion(address=self.motion_address, pcb_object=p)
+    #         me.connect()
+    #         return me.get_position()
 
-    def goto_stage_position(
-        self, position,
-    ):
-        """Go to stage position in steps.
+    # def goto_stage_position(
+    #     self, position,
+    # ):
+    #     """Go to stage position in steps.
 
-        Parameters
-        ----------
-        position : list of float
-            Position in mm along each available stage to move to.
-        """
-        with self.pcb(self.pcb_address) as p:
-            me = self.motion(address=self.motion_address, pcb_object=p)
-            me.connect()
-            me.goto(position)
-            return 0
+    #     Parameters
+    #     ----------
+    #     position : list of float
+    #         Position in mm along each available stage to move to.
+    #     """
+    #     with self.pcb(self.pcb_address) as p:
+    #         me = self.motion(address=self.motion_address, pcb_object=p)
+    #         me.connect()
+    #         me.goto(position)
+    #         return 0
 
-    def contact_check(self, pixel_queue, handler=lambda x: None):
-        """Perform contact checks on a queue of pixels.
+    # def contact_check(self, pixel_queue, handler=lambda x: None):
+    #     """Perform contact checks on a queue of pixels.
 
-        Parameters
-        ----------
-        pixel_queue : deque of dict
-            Queue of pixels to check
-        handler : handler callback
-            Handler that acts on failed contact check reports.
-        handler_kwargs : dict
-            Keyword arguments required by the handler.
+    #     Parameters
+    #     ----------
+    #     pixel_queue : deque of dict
+    #         Queue of pixels to check
+    #     handler : handler callback
+    #         Handler that acts on failed contact check reports.
+    #     handler_kwargs : dict
+    #         Keyword arguments required by the handler.
 
-        Returns
-        -------
-        fail_msg : str
-            Pass/fail summary.
-        """
-        failed = 0
-        self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
-        self.sm.write(":arm:source immediate")
-        with self.pcb(self.pcb_address) as p:
-            while len(pixel_queue) > 0:
-                # get pixel info
-                pixel = pixel_queue.popleft()
-                label = pixel["label"]
-                pix = pixel["pixel"]
+    #     Returns
+    #     -------
+    #     fail_msg : str
+    #         Pass/fail summary.
+    #     """
+    #     failed = 0
+    #     self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
+    #     self.sm.write(":arm:source immediate")
+    #     with self.pcb(self.pcb_address) as p:
+    #         while len(pixel_queue) > 0:
+    #             # get pixel info
+    #             pixel = pixel_queue.popleft()
+    #             label = pixel["label"]
+    #             pix = pixel["pixel"]
 
-                # add id str to handlers to display on plots
-                idn = f"{label}_pixel{pix}"
+    #             # add id str to handlers to display on plots
+    #             idn = f"{label}_pixel{pix}"
 
-                if pixel["sub_name"] is not None:
-                    p.pix_picker(pixel["sub_name"], pixel["pixel"])
-                else:
-                    p.get("s")
+    #             if pixel["sub_name"] is not None:
+    #                 p.pix_picker(pixel["sub_name"], pixel["pixel"])
+    #             else:
+    #                 p.query("s")
 
-                self.sm.measure()
-                if self.sm.contact_check() is True:
-                    failed += 1
-                    handler(f"Contact check FAILED! Device: {idn}")
-        self.sm.outOn(False)
-        return f"{failed} pixels failed the contact check."
+    #             self.sm.measure()
+    #             if self.sm.contact_check() is True:
+    #                 failed += 1
+    #                 handler(f"Contact check FAILED! Device: {idn}")
+    #     self.sm.outOn(False)
+    #     return f"{failed} pixels failed the contact check."
 
 
 def round_sf(x, sig_fig):

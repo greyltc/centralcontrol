@@ -23,7 +23,6 @@ import uuid
 
 import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
-import numpy as np
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
 from .fabric import fabric
@@ -66,6 +65,7 @@ def start_process(cli_args, process, target, args):
         publish.single("measurement/log", pickle.dumps(payload), qos=2, hostname=cli_args.mqtthost)
 
     return ret_proc
+
 
 def stop_process(cli_args, process):
     """Stop a running process."""
@@ -117,7 +117,8 @@ def _calibrate_eqe(request, mqtthost):
         mqttc.loop_start()
 
         try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+            with fabric() as measurement:
+                measurement.current_limit = request["config"]["smu"]["current_limit"]
                 # create temporary mqtt client
                 _log("Calibrating EQE...", 20, mqttc)
 
@@ -187,7 +188,8 @@ def _calibrate_psu(request, mqtthost):
         mqttc.connect(mqtthost)
         mqttc.loop_start()
         try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+            with fabric() as measurement:
+                measurement.current_limit = request["config"]["smu"]["current_limit"]
 
                 _log("Calibration LED PSU...", 20, mqttc)
 
@@ -215,6 +217,13 @@ def _calibrate_psu(request, mqtthost):
                 else:
                     motion_address = None
 
+                # the general purpose pcb object is to be virtualized
+                gp_pcb_is_fake = config["controller"]["virtual"]
+                gp_pcb_address = config["controller"]["address"]
+
+                # the motion pcb object is to be virtualized
+                motion_pcb_is_fake = config["stage"]["virtual"]
+
                 # connect instruments
                 measurement.connect_instruments(
                     visa_lib=config["visa"]["visa_lib"],
@@ -224,10 +233,10 @@ def _calibrate_psu(request, mqtthost):
                     smu_baud=config["smu"]["baud"],
                     smu_front_terminals=config["smu"]["front_terminals"],
                     smu_two_wire=config["smu"]["two_wire"],
-                    pcb_address=config["controller"]["address"],
-                    pcb_virt=config["pcb"]["virtual"],
+                    pcb_address=gp_pcb_address,
+                    pcb_virt=gp_pcb_is_fake,
                     motion_address=motion_address,
-                    motion_virt=config["stage"]["virtual"],
+                    motion_virt=motion_pcb_is_fake,
                     psu_address=config["psu"]["address"],
                     psu_virt=config["psu"]["virtual"],
                     psu_terminator=config["psu"]["terminator"],
@@ -239,69 +248,92 @@ def _calibrate_psu(request, mqtthost):
                     ],
                 )
 
-                if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
-                    # using smu to measure the current from the photodiode
-                    resp = measurement.set_experiment_relay("iv")
+                fake_pcb = measurement.fake_pcb
+                inner_pcb = measurement.fake_pcb
+                inner_init_args = {}
+                if gp_pcb_address is not None:
+                    if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
+                        inner_pcb = measurement.real_pcb
+                        inner_init_args['timeout'] = 1
+                        inner_init_args['address'] = gp_pcb_address
+                with fake_pcb() as fake_p:
+                    with inner_pcb(**inner_init_args) as inner_p:
+                        if gp_pcb_is_fake == True:
+                            gp_pcb = fake_p
+                        else:
+                            gp_pcb = inner_p
 
-                    if resp != "":
-                        _log(
-                            f"Experiment relay error: {resp}! Aborting run", 40, mqttc,
-                        )
-                        return
+                        if motion_address is not None:
+                            if motion_pcb_is_fake == gp_pcb_is_fake:
+                                mo = measurement.motion(motion_address, pcb_object=gp_pcb)
+                            elif motion_pcb_is_fake == True:
+                                mo = measurement.motion(motion_address, pcb_object=fake_p)
+                            else:
+                                mo = measurement.motion(motion_address, pcb_object=inner_p)
+                        else:
+                            mo = None
 
-                last_label = None
-                while len(pixel_queue) > 0:
-                    pixel = pixel_queue.popleft()
-                    label = pixel["label"]
-                    pix = pixel["pixel"]
-                    _log(
-                        f"Operating on substrate {label}, pixel {pix}...", 20, mqttc,
-                    )
+                        if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
+                            # using smu to measure the current from the photodiode
+                            resp = measurement.set_experiment_relay("iv", gp_pcb)
 
-                    # add id str to handlers to display on plots
-                    idn = f"{label}_pixel{pix}"
+                            if resp != "":
+                                _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
+                                return
 
-                    print(pixel)
-
-                    # we have a new substrate
-                    if last_label != label:
-                        _log(
-                            f"New substrate using '{pixel['layout']}' layout!",
-                            20,
-                            mqttc,
-                        )
-                        last_label = label
-
-                    # move to pixel
-                    measurement.goto_pixel(pixel)
-
-                    resp = measurement.select_pixel(pixel)
-                    if resp != 0:
-                        _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
-                        break
-
-                    timestamp = time.time()
-
-                    # perform measurement
-                    for channel in [1, 2, 3]:
-                        if config["psu"][f"ch{channel}_ocp"] != 0:
-                            psu_calibration = measurement.calibrate_psu(
-                                channel,
-                                0.9 * config["psu"][f"ch{channel}_ocp"],
-                                10,
-                                config["psu"][f"ch{channel}_voltage"],
+                        last_label = None
+                        while len(pixel_queue) > 0:
+                            pixel = pixel_queue.popleft()
+                            label = pixel["label"]
+                            pix = pixel["pixel"]
+                            _log(
+                                f"Operating on substrate {label}, pixel {pix}...", 20, mqttc,
                             )
 
-                            diode_dict = {
-                                "data": psu_calibration,
-                                "timestamp": timestamp,
-                                "diode": idn,
-                            }
-                            mqttc.append_payload(
-                                f"calibration/psu/ch{channel}",
-                                pickle.dumps(diode_dict),
-                                retain=True,
-                            )
+                            # add id str to handlers to display on plots
+                            idn = f"{label}_pixel{pix}"
+
+                            print(pixel)
+
+                            # we have a new substrate
+                            if last_label != label:
+                                _log(
+                                    f"New substrate using '{pixel['layout']}' layout!",
+                                    20,
+                                    mqttc,
+                                )
+                                last_label = label
+
+                            # move to pixel
+                            measurement.goto_pixel(pixel, mo)
+
+                            resp = measurement.select_pixel(pixel, gp_pcb)
+                            if resp != 0:
+                                _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
+                                break
+
+                            timestamp = time.time()
+
+                            # perform measurement
+                            for channel in [1, 2, 3]:
+                                if config["psu"][f"ch{channel}_ocp"] != 0:
+                                    psu_calibration = measurement.calibrate_psu(
+                                        channel,
+                                        0.9 * config["psu"][f"ch{channel}_ocp"],
+                                        10,
+                                        config["psu"][f"ch{channel}_voltage"],
+                                    )
+
+                                    diode_dict = {
+                                        "data": psu_calibration,
+                                        "timestamp": timestamp,
+                                        "diode": idn,
+                                    }
+                                    mqttc.append_payload(
+                                        f"calibration/psu/ch{channel}",
+                                        pickle.dumps(diode_dict),
+                                        retain=True,
+                                    )
 
                 _log("LED PSU calibration complete!", 20, mqttc)
             print("Finished calibrating PSU.")
@@ -337,7 +369,8 @@ def _calibrate_spectrum(request, mqtthost):
         mqttc.loop_start()
 
         try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+            with fabric() as measurement:
+                measurement.current_limit = request["config"]["smu"]["current_limit"]
 
                 _log("Calibrating solar simulator spectrum...", 20, mqttc)
 
@@ -377,412 +410,412 @@ def _calibrate_spectrum(request, mqtthost):
     return user_aborted
 
 
-def _calibrate_solarsim_diodes(request, mqtthost):
-    """Calibrate the solar simulator using photodiodes.
-
-    Parameters
-    ----------
-    request : dict
-        Request dictionary sent to the server.
-    mqtthost : str
-        MQTT broker IP address or hostname.
-    dummy : bool
-        Flag for dummy mode using virtual instruments.
-    """
-    print("calibrating solar sim diodes")
-
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
-        try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
-                _log("Calibrating solar simulator diodes...", 20, mqttc)
-
-                args = request["args"]
-
-                # get pixel queue
-                if 'IV_stuff' in args:
-                    # if the bitmask isn't empty
-                    pixel_queue = _build_q(request, experiment="solarsim")
-                else:
-                    # if it's emptpy, assume cal diode is connected externally
-                    pixel_dict = {
-                        "label": args["substrate_labels"][0],
-                        "layout": None,
-                        "sub_name": None,
-                        "pixel": 0,
-                        "pos": None,
-                        "area": None,
-                    }
-                    pixel_queue = collections.deque(pixel_dict)
-
-                _ivt(pixel_queue, request, measurement, mqttc, calibration=True)
-
-                _log("Solar simulator diode calibration complete!", 20, mqttc)
-
-            print("Solar sim diode calibration complete.")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            _log(f"SOLARSIM DIODE CALIBRATION ABORTED! " + str(e), 40, mqttc)
-
-        mqttc.append_payload(
-            "measurement/status", pickle.dumps("Ready"), retain=True,
-        )
-
-
-def _calibrate_rtd(request, mqtthost):
-    """Calibrate RTD's for temperature measurement.
-
-    Parameters
-    ----------
-    request : dict
-        Request dictionary sent to the server.
-    mqtthost : str
-        MQTT broker IP address or hostname.
-    dummy : bool
-        Flag for dummy mode using virtual instruments.
-    """
-    print("Calibrating rtds...")
-
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
-        try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
-                _log("Calibrating RTDs...", 20, mqttc)
-
-                request["args"]["i_dwell"] = 0
-                request["args"]["v_dwell"] = 0
-                request["args"]["mppt_dwell"] = 0
-
-                args = request["args"]
-
-                # get pixel queue
-                if 'IV_stuff' in args:
-                    # if the bitmask isn't empty
-                    pixel_queue = _build_q(request, experiment="solarsim")
-                    ivt_args = {}
-                    ivt_args['pixel_queue'] = pixel_queue
-                    ivt_args['request'] = pixel_queue
-                    ivt_args['measurement'] = measurement
-                    ivt_args['mqttc'] = mqttc
-                    ivt_args['calibration'] = True
-                    ivt_args['rtd'] = True
-                    _ivt(**ivt_args)
-                    _log("RTD calibration complete!", 20, mqttc)
-                else:
-                    # if it's emptpy, report error
-                    _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            _log(f"RTD CALIBRATION ABORTED! " + str(e), 40, mqttc)
-
-        mqttc.append_payload(
-            "measurement/status", pickle.dumps("Ready"), retain=True,
-        )
-
-
-def _home(request, mqtthost):
-    """Home the stage.
-
-    Parameters
-    ----------
-    request : dict
-        Request dictionary sent to the server.
-    mqtthost : str
-        MQTT broker IP address or hostname.
-    dummy : bool
-        Flag for dummy mode using virtual instruments.
-    """
-    print("Homing...")
-
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
-        try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
-                _log("Homing stage...", 20, mqttc)
-
-                config = request["config"]
-
-                measurement.connect_instruments(
-                    pcb_address=config["controller"]["address"],
-                    motion_address=config["stage"]["uri"],
-                    motion_virt=config["stage"]["virtual"],
-                )
-
-                homed = measurement.home_stage()
-
-                if isinstance(homed, list):
-                    _log(f"Stage lengths: {homed}", 20, mqttc)
-                else:
-                    _log(f"Home failed with result: {homed}", 40, mqttc)
-
-                _log("Homing complete!", 20, mqttc)
-
-            print("Homing complete.")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            publish.single(f"HOMING ABORTED! " + str(e), 40, mqttc)
-
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
-
-
-def _goto(request, mqtthost):
-    """Go to a stage position.
-
-    Parameters
-    ----------
-    request : dict
-        Request dictionary sent to the server.
-    mqtthost : str
-        MQTT broker IP address or hostname.
-    dummy : bool
-        Flag for dummy mode using virtual instruments.
-    """
-    print("Goto...")
-
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
-
-        try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
-
-                _log(f"Moving to stage position...", 20, mqttc)
-
-                args = request["args"]
-                position = [args["goto_x"], args["goto_y"], args["goto_z"]]
-
-                config = request["config"]
-                args = request["args"]
-
-                measurement.connect_instruments(
-                    pcb_address=config["controller"]["address"],
-                    motion_address=config["stage"]["uri"],
-                    motion_virt=config["stage"]["virtual"],
-                )
-
-                measurement.goto_stage_position(position)
-
-                _log("Goto complete!", 20, mqttc)
-
-            print("Goto complete.")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            _log(
-                f"GOTO ABORTED! " + str(e), 40, mqttc,
-            )
-
-        mqttc.append_payload(
-            "measurement/status", pickle.dumps("Ready"), retain=True,
-        )
-
-
-def _read_stage(request, mqtthost):
-    """Read the stage position.
-
-    Parameters
-    ----------
-    request : dict
-        Request dictionary sent to the server.
-    mqtthost : str
-        MQTT broker IP address or hostname.
-    dummy : bool
-        Flag for dummy mode using virtual instruments.
-    """
-    print("Reading stage...")
-
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
-        try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
-                _log(f"Reading stage position...", 20, mqttc)
-
-                config = request["config"]
-
-                measurement.connect_instruments(
-                    pcb_address=config["controller"]["address"],
-                    motion_address=config["stage"]["uri"],
-                    motion_virt=config["stage"]["virtual"],
-                )
-
-                stage_pos = measurement.read_stage_position()
-
-                if isinstance(stage_pos, list):
-                    _log(f"Stage lengths: {stage_pos}", 20, mqttc)
-                else:
-                    _log(
-                        f"Read position failed with result: {stage_pos}", 40, mqttc,
-                    )
-
-                _log("Read complete!", 20, mqttc)
-
-            print("Read stage complete.")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            _log(f"READ STAGE ABORTED! " + str(e), 40, mqttc)
-
-        mqttc.append_payload(
-            "measurement/status", pickle.dumps("Ready"), retain=True,
-        )
-
-
-def _contact_check(request, mqtthost):
-    """Perform contact check.
-
-    Parameters
-    ----------
-    request : dict
-        Request dictionary sent to the server.
-    mqtthost : str
-        MQTT broker IP address or hostname.
-    dummy : bool
-        Flag for dummy mode using virtual instruments.
-    """
-    print("Performing contact check...")
-
-    with MQTTQueuePublisher() as mqttc:
-        mqttc.connect(mqtthost)
-        mqttc.loop_start()
-        try:
-            with fabric(request["config"]["smu"]["current_limit"]) as measurement:
-                _log("Performing contact check...", 20, mqttc)
-
-                args = request["args"]
-                config = request["config"]
-
-                measurement.connect_instruments(
-                    visa_lib=config["visa"]["visa_lib"],
-                    smu_address=config["smu"]["address"],
-                    smu_virt=config["smu"]["virtual"],
-                    smu_terminator=config["smu"]["terminator"],
-                    smu_baud=config["smu"]["baud"],
-                    smu_front_terminals=config["smu"]["front_terminals"],
-                    smu_two_wire=config["smu"]["two_wire"],
-                    pcb_address=config["controller"]["address"],
-                    pcb_virt=config["pcb"]["virtual"],
-                )
-
-                # make a pixel queue for the contact check
-                # get length of bitmask string
-                b_len = len(args["iv_devs"])
-
-                # convert it to a string formatter for later
-                # hash (#) appends 0x for hex
-                # leading zero adds zero padding to resulting string
-                # x formats as hexadecimal
-                b_len_str = f"#0{b_len}x"
-
-                # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
-                # pixels selected in either bitmask.
-                iv_int = int(args["iv_devs"], 16)
-                eqe_int = int(args["eqe_devs"], 16)
-                # bitwise or
-                merge_int = iv_int | eqe_int
-
-                # convert int back to bitmask, overriding iv_pixel_address for build_q
-                args["iv_devs"] = format(merge_int, b_len_str)
-
-                iv_pixel_queue = _build_q(request, experiment="solarsim")
-
-                cch = ContactCheckHandler(mqttc)
-
-                response = measurement.contact_check(
-                    iv_pixel_queue, cch.handle_contact_check
-                )
-
-                print(response)
-
-                _log(response, 20, mqttc)
-
-                _log("Contact check complete!", 20, mqttc)
-
-            print("Contact check complete.")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            traceback.print_exc()
-            _log(f"CONTACT CHECK ABORTED! " + str(e), 40, mqttc)
-
-        mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
-
-
-def _get_substrate_positions(config, experiment):
-    """Calculate absolute positions of all substrate centres.
-
-    Read in info from config file.
-
-    Parameters
-    ----------
-    experiment : str
-        Name used to look up the experiment centre stage position from the config
-        file.
-
-    Returns
-    -------
-    substrate_centres : list of lists
-        Absolute substrate centre co-ordinates. Each sublist contains the positions
-        along each axis.
-    """
-    experiment_centre = config["stage"]["experiment_positions"][experiment]
-    print(f"{experiment} center: {experiment_centre}")
-
-    # read in number substrates in the array along each axis
-    substrate_number = config["substrates"]["number"]
-
-    # get number of substrate centres between the centre and the edge of the
-    # substrate array along each axis, e.g. if there are 4 rows, there are 1.5
-    # substrate centres to the outermost substrate
-    substrate_offsets = []
-    substrate_total = 1
-    for number in substrate_number:
-        if number % 2 == 0:
-            offset = number / 2 - 0.5
-        else:
-            offset = np.floor(number / 2)
-        substrate_offsets.append(offset)
-        substrate_total = substrate_total * number
-
-    print(f"Substrate offsets: {substrate_offsets}")
-
-    # read in substrate spacing in mm along each axis into a list
-    substrate_spacing = config["substrates"]["spacing"]
-
-    # get absolute substrate centres along each axis
-    axis_pos = []
-    for offset, spacing, number, centre in zip(
-        substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
-    ):
-        abs_offset = offset * spacing
-        print(f"Offset from experiment centre: {abs_offset}")
-        axis_pos.append(np.linspace(-abs_offset + centre, abs_offset + centre, number))
-
-    print(f"Positions along each axis: {axis_pos}")
-
-    # create array of positions
-    substrate_centres = []
-    n_axes = len(axis_pos)
-    if n_axes == 2:
-        for y in axis_pos[1]:
-            substrate_centres += [[x, y] for x in axis_pos[0]]
-    elif n_axes == 1:
-        substrate_centres = [[x] for x in axis_pos[0]]
-
-    print(f"Substrate centres (absolute): {substrate_centres}")
-
-    return substrate_centres
+# def _calibrate_solarsim_diodes(request, mqtthost):
+#     """Calibrate the solar simulator using photodiodes.
+
+#     Parameters
+#     ----------
+#     request : dict
+#         Request dictionary sent to the server.
+#     mqtthost : str
+#         MQTT broker IP address or hostname.
+#     dummy : bool
+#         Flag for dummy mode using virtual instruments.
+#     """
+#     print("calibrating solar sim diodes")
+
+#     with MQTTQueuePublisher() as mqttc:
+#         mqttc.connect(mqtthost)
+#         mqttc.loop_start()
+#         try:
+#             with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+#                 _log("Calibrating solar simulator diodes...", 20, mqttc)
+
+#                 args = request["args"]
+
+#                 # get pixel queue
+#                 if 'IV_stuff' in args:
+#                     # if the bitmask isn't empty
+#                     pixel_queue = _build_q(request, experiment="solarsim")
+#                 else:
+#                     # if it's emptpy, assume cal diode is connected externally
+#                     pixel_dict = {
+#                         "label": args["substrate_labels"][0],
+#                         "layout": None,
+#                         "sub_name": None,
+#                         "pixel": 0,
+#                         "pos": None,
+#                         "area": None,
+#                     }
+#                     pixel_queue = collections.deque(pixel_dict)
+
+#                 _ivt(pixel_queue, request, measurement, mqttc, calibration=True)
+
+#                 _log("Solar simulator diode calibration complete!", 20, mqttc)
+
+#             print("Solar sim diode calibration complete.")
+#         except KeyboardInterrupt:
+#             pass
+#         except Exception as e:
+#             traceback.print_exc()
+#             _log(f"SOLARSIM DIODE CALIBRATION ABORTED! " + str(e), 40, mqttc)
+
+#         mqttc.append_payload(
+#             "measurement/status", pickle.dumps("Ready"), retain=True,
+#         )
+
+
+# def _calibrate_rtd(request, mqtthost):
+#     """Calibrate RTD's for temperature measurement.
+
+#     Parameters
+#     ----------
+#     request : dict
+#         Request dictionary sent to the server.
+#     mqtthost : str
+#         MQTT broker IP address or hostname.
+#     dummy : bool
+#         Flag for dummy mode using virtual instruments.
+#     """
+#     print("Calibrating rtds...")
+
+#     with MQTTQueuePublisher() as mqttc:
+#         mqttc.connect(mqtthost)
+#         mqttc.loop_start()
+#         try:
+#             with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+#                 _log("Calibrating RTDs...", 20, mqttc)
+
+#                 request["args"]["i_dwell"] = 0
+#                 request["args"]["v_dwell"] = 0
+#                 request["args"]["mppt_dwell"] = 0
+
+#                 args = request["args"]
+
+#                 # get pixel queue
+#                 if 'IV_stuff' in args:
+#                     # if the bitmask isn't empty
+#                     pixel_queue = _build_q(request, experiment="solarsim")
+#                     ivt_args = {}
+#                     ivt_args['pixel_queue'] = pixel_queue
+#                     ivt_args['request'] = pixel_queue
+#                     ivt_args['measurement'] = measurement
+#                     ivt_args['mqttc'] = mqttc
+#                     ivt_args['calibration'] = True
+#                     ivt_args['rtd'] = True
+#                     _ivt(**ivt_args)
+#                     _log("RTD calibration complete!", 20, mqttc)
+#                 else:
+#                     # if it's emptpy, report error
+#                     _log("CALIBRATION ABORTED! No devices selected.", 40, mqttc)
+#         except KeyboardInterrupt:
+#             pass
+#         except Exception as e:
+#             traceback.print_exc()
+#             _log(f"RTD CALIBRATION ABORTED! " + str(e), 40, mqttc)
+
+#         mqttc.append_payload(
+#             "measurement/status", pickle.dumps("Ready"), retain=True,
+#         )
+
+
+# def _home(request, mqtthost):
+#     """Home the stage.
+
+#     Parameters
+#     ----------
+#     request : dict
+#         Request dictionary sent to the server.
+#     mqtthost : str
+#         MQTT broker IP address or hostname.
+#     dummy : bool
+#         Flag for dummy mode using virtual instruments.
+#     """
+#     print("Homing...")
+
+#     with MQTTQueuePublisher() as mqttc:
+#         mqttc.connect(mqtthost)
+#         mqttc.loop_start()
+#         try:
+#             with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+#                 _log("Homing stage...", 20, mqttc)
+
+#                 config = request["config"]
+
+#                 measurement.connect_instruments(
+#                     pcb_address=config["controller"]["address"],
+#                     motion_address=config["stage"]["uri"],
+#                     motion_virt=config["stage"]["virtual"],
+#                 )
+
+#                 homed = measurement.home_stage()
+
+#                 if isinstance(homed, list):
+#                     _log(f"Stage lengths: {homed}", 20, mqttc)
+#                 else:
+#                     _log(f"Home failed with result: {homed}", 40, mqttc)
+
+#                 _log("Homing complete!", 20, mqttc)
+
+#             print("Homing complete.")
+#         except KeyboardInterrupt:
+#             pass
+#         except Exception as e:
+#             traceback.print_exc()
+#             publish.single(f"HOMING ABORTED! " + str(e), 40, mqttc)
+
+#         mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
+
+
+# def _goto(request, mqtthost):
+#     """Go to a stage position.
+
+#     Parameters
+#     ----------
+#     request : dict
+#         Request dictionary sent to the server.
+#     mqtthost : str
+#         MQTT broker IP address or hostname.
+#     dummy : bool
+#         Flag for dummy mode using virtual instruments.
+#     """
+#     print("Goto...")
+
+#     with MQTTQueuePublisher() as mqttc:
+#         mqttc.connect(mqtthost)
+#         mqttc.loop_start()
+
+#         try:
+#             with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+
+#                 _log(f"Moving to stage position...", 20, mqttc)
+
+#                 args = request["args"]
+#                 position = [args["goto_x"], args["goto_y"], args["goto_z"]]
+
+#                 config = request["config"]
+#                 args = request["args"]
+
+#                 measurement.connect_instruments(
+#                     pcb_address=config["controller"]["address"],
+#                     motion_address=config["stage"]["uri"],
+#                     motion_virt=config["stage"]["virtual"],
+#                 )
+
+#                 measurement.goto_stage_position(position)
+
+#                 _log("Goto complete!", 20, mqttc)
+
+#             print("Goto complete.")
+#         except KeyboardInterrupt:
+#             pass
+#         except Exception as e:
+#             traceback.print_exc()
+#             _log(
+#                 f"GOTO ABORTED! " + str(e), 40, mqttc,
+#             )
+
+#         mqttc.append_payload(
+#             "measurement/status", pickle.dumps("Ready"), retain=True,
+#         )
+
+
+# def _read_stage(request, mqtthost):
+#     """Read the stage position.
+
+#     Parameters
+#     ----------
+#     request : dict
+#         Request dictionary sent to the server.
+#     mqtthost : str
+#         MQTT broker IP address or hostname.
+#     dummy : bool
+#         Flag for dummy mode using virtual instruments.
+#     """
+#     print("Reading stage...")
+
+#     with MQTTQueuePublisher() as mqttc:
+#         mqttc.connect(mqtthost)
+#         mqttc.loop_start()
+#         try:
+#             with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+#                 _log(f"Reading stage position...", 20, mqttc)
+
+#                 config = request["config"]
+
+#                 measurement.connect_instruments(
+#                     pcb_address=config["controller"]["address"],
+#                     motion_address=config["stage"]["uri"],
+#                     motion_virt=config["stage"]["virtual"],
+#                 )
+
+#                 stage_pos = measurement.read_stage_position()
+
+#                 if isinstance(stage_pos, list):
+#                     _log(f"Stage lengths: {stage_pos}", 20, mqttc)
+#                 else:
+#                     _log(
+#                         f"Read position failed with result: {stage_pos}", 40, mqttc,
+#                     )
+
+#                 _log("Read complete!", 20, mqttc)
+
+#             print("Read stage complete.")
+#         except KeyboardInterrupt:
+#             pass
+#         except Exception as e:
+#             traceback.print_exc()
+#             _log(f"READ STAGE ABORTED! " + str(e), 40, mqttc)
+
+#         mqttc.append_payload(
+#             "measurement/status", pickle.dumps("Ready"), retain=True,
+#         )
+
+
+# def _contact_check(request, mqtthost):
+#     """Perform contact check.
+
+#     Parameters
+#     ----------
+#     request : dict
+#         Request dictionary sent to the server.
+#     mqtthost : str
+#         MQTT broker IP address or hostname.
+#     dummy : bool
+#         Flag for dummy mode using virtual instruments.
+#     """
+#     print("Performing contact check...")
+
+#     with MQTTQueuePublisher() as mqttc:
+#         mqttc.connect(mqtthost)
+#         mqttc.loop_start()
+#         try:
+#             with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+#                 _log("Performing contact check...", 20, mqttc)
+
+#                 args = request["args"]
+#                 config = request["config"]
+
+#                 measurement.connect_instruments(
+#                     visa_lib=config["visa"]["visa_lib"],
+#                     smu_address=config["smu"]["address"],
+#                     smu_virt=config["smu"]["virtual"],
+#                     smu_terminator=config["smu"]["terminator"],
+#                     smu_baud=config["smu"]["baud"],
+#                     smu_front_terminals=config["smu"]["front_terminals"],
+#                     smu_two_wire=config["smu"]["two_wire"],
+#                     pcb_address=config["controller"]["address"],
+#                     pcb_virt=config["pcb"]["virtual"],
+#                 )
+
+#                 # make a pixel queue for the contact check
+#                 # get length of bitmask string
+#                 b_len = len(args["iv_devs"])
+
+#                 # convert it to a string formatter for later
+#                 # hash (#) appends 0x for hex
+#                 # leading zero adds zero padding to resulting string
+#                 # x formats as hexadecimal
+#                 b_len_str = f"#0{b_len}x"
+
+#                 # convert iv and eqe bitmasks to ints and perform bitwise or. This gets
+#                 # pixels selected in either bitmask.
+#                 iv_int = int(args["iv_devs"], 16)
+#                 eqe_int = int(args["eqe_devs"], 16)
+#                 # bitwise or
+#                 merge_int = iv_int | eqe_int
+
+#                 # convert int back to bitmask, overriding iv_pixel_address for build_q
+#                 args["iv_devs"] = format(merge_int, b_len_str)
+
+#                 iv_pixel_queue = _build_q(request, experiment="solarsim")
+
+#                 cch = ContactCheckHandler(mqttc)
+
+#                 response = measurement.contact_check(
+#                     iv_pixel_queue, cch.handle_contact_check
+#                 )
+
+#                 print(response)
+
+#                 _log(response, 20, mqttc)
+
+#                 _log("Contact check complete!", 20, mqttc)
+
+#             print("Contact check complete.")
+#         except KeyboardInterrupt:
+#             pass
+#         except Exception as e:
+#             traceback.print_exc()
+#             _log(f"CONTACT CHECK ABORTED! " + str(e), 40, mqttc)
+
+#         mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
+
+
+# def _get_substrate_positions(config, experiment):
+#     """Calculate absolute positions of all substrate centres.
+
+#     Read in info from config file.
+
+#     Parameters
+#     ----------
+#     experiment : str
+#         Name used to look up the experiment centre stage position from the config
+#         file.
+
+#     Returns
+#     -------
+#     substrate_centres : list of lists
+#         Absolute substrate centre co-ordinates. Each sublist contains the positions
+#         along each axis.
+#     """
+#     experiment_centre = config["stage"]["experiment_positions"][experiment]
+#     print(f"{experiment} center: {experiment_centre}")
+
+#     # read in number substrates in the array along each axis
+#     substrate_number = config["substrates"]["number"]
+
+#     # get number of substrate centres between the centre and the edge of the
+#     # substrate array along each axis, e.g. if there are 4 rows, there are 1.5
+#     # substrate centres to the outermost substrate
+#     substrate_offsets = []
+#     substrate_total = 1
+#     for number in substrate_number:
+#         if number % 2 == 0:
+#             offset = number / 2 - 0.5
+#         else:
+#             offset = np.floor(number / 2)
+#         substrate_offsets.append(offset)
+#         substrate_total = substrate_total * number
+
+#     print(f"Substrate offsets: {substrate_offsets}")
+
+#     # read in substrate spacing in mm along each axis into a list
+#     substrate_spacing = config["substrates"]["spacing"]
+
+#     # get absolute substrate centres along each axis
+#     axis_pos = []
+#     for offset, spacing, number, centre in zip(
+#         substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
+#     ):
+#         abs_offset = offset * spacing
+#         print(f"Offset from experiment centre: {abs_offset}")
+#         axis_pos.append(np.linspace(-abs_offset + centre, abs_offset + centre, number))
+
+#     print(f"Positions along each axis: {axis_pos}")
+
+#     # create array of positions
+#     substrate_centres = []
+#     n_axes = len(axis_pos)
+#     if n_axes == 2:
+#         for y in axis_pos[1]:
+#             substrate_centres += [[x, y] for x in axis_pos[0]]
+#     elif n_axes == 1:
+#         substrate_centres = [[x] for x in axis_pos[0]]
+
+#     print(f"Substrate centres (absolute): {substrate_centres}")
+
+#     return substrate_centres
 
 
 def _build_q(request, experiment):
@@ -871,28 +904,28 @@ class DataHandler:
         self.mqttqp.append_payload(f"data/raw/{self.kind}", pickle.dumps(payload))
 
 
-class ContactCheckHandler:
-    """Handler for contact check msgs."""
+# class ContactCheckHandler:
+#     """Handler for contact check msgs."""
 
-    def __init__(self, mqttqp=None):
-        """Construct data handler object.
+#     def __init__(self, mqttqp=None):
+#         """Construct data handler object.
 
-        Parameters
-        ----------
-        mqttqp : MQTTQueuePublisher
-            MQTT queue publisher object that publishes measurement data.
-        """
-        self.mqttqp = mqttqp
+#         Parameters
+#         ----------
+#         mqttqp : MQTTQueuePublisher
+#             MQTT queue publisher object that publishes measurement data.
+#         """
+#         self.mqttqp = mqttqp
 
-    def handle_contact_check(self, msg):
-        """Handle contact check message.
+#     def handle_contact_check(self, msg):
+#         """Handle contact check message.
 
-        Parameters
-        ----------
-        msg : str
-            Failure message.
-        """
-        self.mqttqp.append_payload("contact_check", pickle.dumps(msg))
+#         Parameters
+#         ----------
+#         msg : str
+#             Failure message.
+#         """
+#         self.mqttqp.append_payload("contact_check", pickle.dumps(msg))
 
 
 def _clear_plot(kind, mqttqp):
@@ -966,6 +999,13 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
     else:
         light_address = None
 
+    # the general purpose pcb object is to be virtualized
+    gp_pcb_is_fake = config["controller"]["virtual"]
+    gp_pcb_address = config["controller"]["address"]
+
+    # the motion pcb object is to be virtualized
+    motion_pcb_is_fake = config["stage"]["virtual"]
+
     # connect instruments
     measurement.connect_instruments(
         visa_lib=config["visa"]["visa_lib"],
@@ -975,273 +1015,299 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        pcb_address=config["controller"]["address"],
-        pcb_virt=config["controller"]["virtual"],
+        pcb_address=gp_pcb_address,
+        pcb_virt=gp_pcb_is_fake,
         motion_address=motion_address,
-        motion_virt=config["stage"]["virtual"],
+        motion_virt=motion_pcb_is_fake,
         light_address=light_address,
         light_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
     measurement.le.set_intensity(int(args["light_recipe_int"]))
 
-    if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
-        # set the master experiment relay
-        resp = measurement.set_experiment_relay("iv")
-
-        if resp != "":
-            _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
-            return
-
     source_delay = args["source_delay"]
-
     last_label = None
-    # scan through the pixels and do the requested measurements
-    while len(pixel_queue) > 0:
-        # instantiate container for all measurement data on pixel
-        data = []
 
-        # get pixel info
-        pixel = pixel_queue.popleft()
-        label = pixel["label"]
-        pix = pixel["pixel"]
-        print(f"Operating on substrate {label}, pixel {pix}...")
-
-        print(f"{pixel}")
-
-        # add id str to handlers to display on plots
-        idn = f"{label}_pixel{pix}"
-
-        # check if we have a new substrate
-        if last_label != label:
-            print(f"New substrate using '{pixel['layout']}' layout!")
-            last_label = label
-
-        # move to pixel
-        measurement.goto_pixel(pixel)
-
-        # select pixel
-        resp = measurement.select_pixel(pixel)
-        if resp != 0:
-            _log(f"Mux error: {resp}! Aborting run", 40, mqttc)
-            break
-
-        # init parameters derived from steadystate measurements
-        ssvoc = None
-
-        # get or estimate compliance current
-        compliance_i = measurement.compliance_current_guess(pixel["area"])
-        measurement.mppt.current_compliance = compliance_i
-
-        # setup data handler
-        if calibration == False:
-            dh = DataHandler(pixel=pixel, mqttqp=mqttc)
-            handler = dh.handle_data
-        else:
-            class Dummy:
-                pass
-            dh = Dummy()
-            handler = lambda x: None
-
-        timestamp = time.time()
-
-        # "Voc" if
-        if args["i_dwell"] > 0:
-            _log(
-                f"Measuring voltage output at constant current on {idn}.", 20, mqttc,
-            )
-            # Voc needs light
-            if hasattr(measurement, "le"):
-                measurement.le.on()
-
-            if calibration == False:
-                kind = "vt_measurement"
-                dh.kind = kind
-                _clear_plot(kind, mqttc)
-
-            vt = measurement.steady_state(
-                t_dwell=args["i_dwell"],
-                NPLC=args["nplc"],
-                sourceVoltage=False,
-                compliance=3,
-                senseRange="a",
-                setPoint=args["i_dwell_value"],
-                handler=handler,
-            )
-
-            data += vt
-
-            # if this was at Voc, use the last measurement as estimate of Voc
-            if args["i_dwell_value"] == 0:
-                ssvoc = vt[-1][0]
+    fake_pcb = measurement.fake_pcb
+    inner_pcb = measurement.fake_pcb
+    inner_init_args = {}
+    if gp_pcb_address is not None:
+        if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
+            inner_pcb = measurement.real_pcb
+            inner_init_args['timeout'] = 1
+            inner_init_args['address'] = gp_pcb_address
+    with fake_pcb() as fake_p:
+        with inner_pcb(**inner_init_args) as inner_p:
+            if gp_pcb_is_fake == True:
+                gp_pcb = fake_p
             else:
+                gp_pcb = inner_p
+
+            if motion_address is not None:
+                if motion_pcb_is_fake == gp_pcb_is_fake:
+                    mo = measurement.motion(motion_address, pcb_object=gp_pcb)
+                elif motion_pcb_is_fake == True:
+                    mo = measurement.motion(motion_address, pcb_object=fake_p)
+                else:
+                    mo = measurement.motion(motion_address, pcb_object=inner_p)
+            else:
+                mo = None
+
+            if args['enable_eqe'] == True:  # we don't need to switch the relay if there is no EQE
+                # set the master experiment relay
+                resp = measurement.set_experiment_relay("iv", gp_pcb)
+
+                if resp != "":
+                    _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
+                    return
+
+            # scan through the pixels and do the requested measurements
+            while len(pixel_queue) > 0:
+                # instantiate container for all measurement data on pixel
+                data = []
+
+                # get pixel info
+                pixel = pixel_queue.popleft()
+                label = pixel["label"]
+                pix = pixel["pixel"]
+                print(f"Operating on substrate {label}, pixel {pix}...")
+
+                print(f"{pixel}")
+
+                # add id str to handlers to display on plots
+                idn = f"{label}_pixel{pix}"
+
+                # check if we have a new substrate
+                if last_label != label:
+                    print(f"New substrate using '{pixel['layout']}' layout!")
+                    last_label = label
+
+                # move to pixel
+                measurement.goto_pixel(pixel, mo)
+
+                # select pixel
+                resp = measurement.select_pixel(pixel, gp_pcb)
+                if resp != 0:
+                    _log(f"Mux error: {resp}! Aborting run", 40, mqttc)
+                    break
+
+                # init parameters derived from steadystate measurements
                 ssvoc = None
 
-        # if performing sweeps
-        sweeps = []
-        if args["sweep_check"] == True:
-            # detmine type of sweeps to perform
-            if (s := args["lit_sweep"]) == 0:
-                sweeps = ["dark", "light"]
-            elif s == 1:
-                sweeps = ["light", "dark"]
-            elif s == 2:
-                sweeps = ["dark"]
-            elif s == 3:
-                sweeps = ["light"]
+                # get or estimate compliance current
+                compliance_i = measurement.compliance_current_guess(pixel["area"])
+                measurement.mppt.current_compliance = compliance_i
 
-        # perform sweeps
-        for sweep in sweeps:
-            # sweeps may or may not need light
-            if sweep == "dark":
-                if hasattr(measurement, "le"):
-                    measurement.le.off()
-                sense_range = "a"
-            else:
-                if hasattr(measurement, "le"):
-                    measurement.le.on()
-                sense_range = "f"
-
-            if args["sweep_check"] == True:
-                _log(f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc)
-                print(f'Sweeping voltage from {args["sweep_start"]} V to {args["sweep_end"]} V')
-
+                # setup data handler
                 if calibration == False:
-                    kind = "iv_measurement/1"
-                    dh.kind = kind
-                    dh.sweep = sweep
-                    _clear_plot("iv_measurement", mqttc)
+                    dh = DataHandler(pixel=pixel, mqttqp=mqttc)
+                    handler = dh.handle_data
+                else:
+                    class Dummy:
+                        pass
+                    dh = Dummy()
+                    handler = lambda x: None
 
-                sweep_args = {}
-                sweep_args['sourceVoltage'] = True
-                sweep_args['senseRange'] = sense_range
-                sweep_args['compliance'] = compliance_i
-                sweep_args['nPoints'] = int(args["iv_steps"])
-                sweep_args['stepDelay'] = source_delay
-                sweep_args['start'] = args["sweep_start"]
-                sweep_args['end'] = args["sweep_end"]
-                sweep_args['NPLC'] = args["nplc"]
-                sweep_args['handler'] = handler
-                iv1 = measurement.sweep(**sweep_args)
+                timestamp = time.time()
 
-                data += iv1
+                # "Voc" if
+                if args["i_dwell"] > 0:
+                    _log(
+                        f"Measuring voltage output at constant current on {idn}.", 20, mqttc,
+                    )
+                    # Voc needs light
+                    if hasattr(measurement, "le"):
+                        measurement.le.on()
 
-                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
+                    if calibration == False:
+                        kind = "vt_measurement"
+                        dh.kind = kind
+                        _clear_plot(kind, mqttc)
 
-            if args["return_switch"] == True:
-                _log(f"Performing {sweep} sweep 2 on {idn}.", 20, mqttc)
-                print(f'Sweeping voltage from {args["sweep_end"]} V to {args["sweep_start"]} V')
+                    vt = measurement.steady_state(
+                        t_dwell=args["i_dwell"],
+                        NPLC=args["nplc"],
+                        sourceVoltage=False,
+                        compliance=3,
+                        senseRange="a",
+                        setPoint=args["i_dwell_value"],
+                        handler=handler,
+                    )
 
-                if calibration == False:
-                    kind = "iv_measurement/2"
-                    dh.kind = kind
-                    dh.sweep = sweep
+                    data += vt
 
-                sweep_args = {}
-                sweep_args['sourceVoltage'] = True
-                sweep_args['senseRange'] = sense_range
-                sweep_args['compliance'] = compliance_i
-                sweep_args['nPoints'] = int(args["iv_steps"])
-                sweep_args['stepDelay'] = source_delay
-                sweep_args['start'] = args["sweep_end"]
-                sweep_args['end'] = args["sweep_start"]
-                sweep_args['NPLC'] = args["nplc"]
-                sweep_args['handler'] = handler
-                iv2 = measurement.sweep(**sweep_args)
+                    # if this was at Voc, use the last measurement as estimate of Voc
+                    if args["i_dwell_value"] == 0:
+                        ssvoc = vt[-1][0]
+                    else:
+                        ssvoc = None
 
-                data += iv2
+                # if performing sweeps
+                sweeps = []
+                if args["sweep_check"] == True:
+                    # detmine type of sweeps to perform
+                    if (s := args["lit_sweep"]) == 0:
+                        sweeps = ["dark", "light"]
+                    elif s == 1:
+                        sweeps = ["light", "dark"]
+                    elif s == 2:
+                        sweeps = ["dark"]
+                    elif s == 3:
+                        sweeps = ["light"]
 
-                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(iv2, light=(sweep == "light"))
+                # perform sweeps
+                for sweep in sweeps:
+                    # sweeps may or may not need light
+                    if sweep == "dark":
+                        if hasattr(measurement, "le"):
+                            measurement.le.off()
+                        sense_range = "a"
+                    else:
+                        if hasattr(measurement, "le"):
+                            measurement.le.on()
+                        sense_range = "f"
 
-        # TODO: read and interpret parameters for smart mode
-        # # determine Vmpp and current compliance for mppt
-        # if (self.args["sweep_check"] == True) & (self.args["return_switch"] == True):
-        #     if abs(Pmax_sweep1) > abs(Pmax_sweep2):
-        #         Vmpp = Vmpp1
-        #         compliance_i = Impp1 * 5
-        #     else:
-        #         Vmpp = Vmpp2
-        #         compliance_i = Impp2 * 5
-        # elif self.args["sweep_check"] == True:
-        #     Vmpp = Vmpp1
-        #     compliance_i = Impp1 * 5
-        # else:
-        #     # no sweeps have been measured so max power tracker will estimate Vmpp
-        #     # based on Voc (or measure it if also no Voc) and will use initial
-        #     # compliance set before any measurements were taken.
-        #     Vmpp = None
-        # self.logic.mppt.Vmpp = Vmpp
+                    if args["sweep_check"] == True:
+                        _log(f"Performing {sweep} sweep 1 on {idn}.", 20, mqttc)
+                        print(f'Sweeping voltage from {args["sweep_start"]} V to {args["sweep_end"]} V')
 
-        # mppt if
-        if args["mppt_dwell"] > 0:
-            # mppt needs light
-            if hasattr(measurement, "le"):
-                measurement.le.on()
-            _log(f"Performing max. power tracking on {idn}.", 20, mqttc)
-            print(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
+                        if calibration == False:
+                            kind = "iv_measurement/1"
+                            dh.kind = kind
+                            dh.sweep = sweep
+                            _clear_plot("iv_measurement", mqttc)
 
-            if calibration == False:
-                kind = "mppt_measurement"
-                dh.kind = kind
-                _clear_plot(kind, mqttc)
+                        sweep_args = {}
+                        sweep_args['sourceVoltage'] = True
+                        sweep_args['senseRange'] = sense_range
+                        sweep_args['compliance'] = compliance_i
+                        sweep_args['nPoints'] = int(args["iv_steps"])
+                        sweep_args['stepDelay'] = source_delay
+                        sweep_args['start'] = args["sweep_start"]
+                        sweep_args['end'] = args["sweep_end"]
+                        sweep_args['NPLC'] = args["nplc"]
+                        sweep_args['handler'] = handler
+                        iv1 = measurement.sweep(**sweep_args)
 
-            if ssvoc is not None:
-                # tell the mppt what our measured steady state Voc was
-                measurement.mppt.Voc = ssvoc
+                        data += iv1
 
-            (mt, vt) = measurement.track_max_power(
-                args["mppt_dwell"],
-                NPLC=args["nplc"],
-                extra=args["mppt_params"],
-                handler=handler,
-            )
+                        Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
 
-            if (calibration == False) and (len(vt) > 0):
-                dh.kind = "vtmppt_measurement"
-                for d in vt:
-                    handler(d)
+                    if args["return_switch"] == True:
+                        _log(f"Performing {sweep} sweep 2 on {idn}.", 20, mqttc)
+                        print(f'Sweeping voltage from {args["sweep_end"]} V to {args["sweep_start"]} V')
 
-            data += vt
-            data += mt
+                        if calibration == False:
+                            kind = "iv_measurement/2"
+                            dh.kind = kind
+                            dh.sweep = sweep
 
-        # "J_sc" if
-        if args["v_dwell"] > 0:
-            # jsc needs light
-            if hasattr(measurement, "le"):
-                measurement.le.on()
-            _log(f"Measuring output current and constant voltage on {idn}.", 20, mqttc)
+                        sweep_args = {}
+                        sweep_args['sourceVoltage'] = True
+                        sweep_args['senseRange'] = sense_range
+                        sweep_args['compliance'] = compliance_i
+                        sweep_args['nPoints'] = int(args["iv_steps"])
+                        sweep_args['stepDelay'] = source_delay
+                        sweep_args['start'] = args["sweep_end"]
+                        sweep_args['end'] = args["sweep_start"]
+                        sweep_args['NPLC'] = args["nplc"]
+                        sweep_args['handler'] = handler
+                        iv2 = measurement.sweep(**sweep_args)
 
-            if calibration == False:
-                kind = "it_measurement"
-                dh.kind = kind
-                _clear_plot(kind, mqttc)
+                        data += iv2
 
-            it = measurement.steady_state(
-                t_dwell=args["v_dwell"],
-                NPLC=args["nplc"],
-                sourceVoltage=True,
-                compliance=compliance_i,
-                senseRange="a",
-                setPoint=args["v_dwell_value"],
-                handler=handler,
-            )
+                        Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(iv2, light=(sweep == "light"))
 
-            data += it
+                # TODO: read and interpret parameters for smart mode
+                # # determine Vmpp and current compliance for mppt
+                # if (self.args["sweep_check"] == True) & (self.args["return_switch"] == True):
+                #     if abs(Pmax_sweep1) > abs(Pmax_sweep2):
+                #         Vmpp = Vmpp1
+                #         compliance_i = Impp1 * 5
+                #     else:
+                #         Vmpp = Vmpp2
+                #         compliance_i = Impp2 * 5
+                # elif self.args["sweep_check"] == True:
+                #     Vmpp = Vmpp1
+                #     compliance_i = Impp1 * 5
+                # else:
+                #     # no sweeps have been measured so max power tracker will estimate Vmpp
+                #     # based on Voc (or measure it if also no Voc) and will use initial
+                #     # compliance set before any measurements were taken.
+                #     Vmpp = None
+                # self.logic.mppt.Vmpp = Vmpp
 
-        # it's probably wise to shut off the smu after every pixel
-        measurement.sm.outOn(False)
+                # mppt if
+                if args["mppt_dwell"] > 0:
+                    # mppt needs light
+                    if hasattr(measurement, "le"):
+                        measurement.le.on()
+                    _log(f"Performing max. power tracking on {idn}.", 20, mqttc)
+                    print(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
-        if calibration == True:
-            diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
-            if rtd == True:
-                print("RTD")
-                mqttc.append_payload("calibration/rtd", pickle.dumps(diode_dict))
-            else:
-                mqttc.append_payload("calibration/solarsim_diode", pickle.dumps(diode_dict))
+                    if calibration == False:
+                        kind = "mppt_measurement"
+                        dh.kind = kind
+                        _clear_plot(kind, mqttc)
+
+                    if ssvoc is not None:
+                        # tell the mppt what our measured steady state Voc was
+                        measurement.mppt.Voc = ssvoc
+
+                    (mt, vt) = measurement.track_max_power(
+                        args["mppt_dwell"],
+                        NPLC=args["nplc"],
+                        extra=args["mppt_params"],
+                        handler=handler,
+                    )
+
+                    if (calibration == False) and (len(vt) > 0):
+                        dh.kind = "vtmppt_measurement"
+                        for d in vt:
+                            handler(d)
+
+                    data += vt
+                    data += mt
+
+                # "J_sc" if
+                if args["v_dwell"] > 0:
+                    # jsc needs light
+                    if hasattr(measurement, "le"):
+                        measurement.le.on()
+                    _log(f"Measuring output current and constant voltage on {idn}.", 20, mqttc)
+
+                    if calibration == False:
+                        kind = "it_measurement"
+                        dh.kind = kind
+                        _clear_plot(kind, mqttc)
+
+                    it = measurement.steady_state(
+                        t_dwell=args["v_dwell"],
+                        NPLC=args["nplc"],
+                        sourceVoltage=True,
+                        compliance=compliance_i,
+                        senseRange="a",
+                        setPoint=args["v_dwell_value"],
+                        handler=handler,
+                    )
+
+                    data += it
+
+                # it's probably wise to shut off the smu after every pixel
+                measurement.sm.outOn(False)
+
+                if calibration == True:
+                    diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
+                    if rtd == True:
+                        print("RTD")
+                        mqttc.append_payload("calibration/rtd", pickle.dumps(diode_dict))
+                    else:
+                        mqttc.append_payload("calibration/solarsim_diode", pickle.dumps(diode_dict))
 
     # don't leave the light on!
     if hasattr(measurement, "le"):
         measurement.le.off()
+
 
 def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
     """Run through pixel queue of EQE measurements.
@@ -1269,6 +1335,13 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
     else:
         motion_address = None
 
+    # the general purpose pcb object is to be virtualized
+    gp_pcb_is_fake = config["controller"]["virtual"]
+    gp_pcb_address = config["controller"]["address"]
+
+    # the motion pcb object is to be virtualized
+    motion_pcb_is_fake = config["stage"]["virtual"]
+
     # connect instruments
     measurement.connect_instruments(
         visa_lib=config["visa"]["visa_lib"],
@@ -1278,10 +1351,10 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
         smu_baud=config["smu"]["baud"],
         smu_front_terminals=config["smu"]["front_terminals"],
         smu_two_wire=config["smu"]["two_wire"],
-        pcb_address=config["controller"]["address"],
-        pcb_virt=config["controller"]["virtual"],
+        pcb_address=gp_pcb_address,
+        pcb_virt=gp_pcb_is_fake,
         motion_address=motion_address,
-        motion_virt=config["stage"]["virtual"],
+        motion_virt=motion_pcb_is_fake,
         lia_address=config["lia"]["address"],
         lia_virt=config["lia"]["virtual"],
         lia_terminator=config["lia"]["terminator"],
@@ -1295,102 +1368,124 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
         psu_virt=config["psu"]["virtual"],
     )
 
-    resp = measurement.set_experiment_relay("eqe")
+    fake_pcb = measurement.fake_pcb
+    inner_pcb = measurement.fake_pcb
+    inner_init_args = {}
+    if gp_pcb_address is not None:
+        if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
+            inner_pcb = measurement.real_pcb
+            inner_init_args['timeout'] = 1
+            inner_init_args['address'] = gp_pcb_address
+    with fake_pcb() as fake_p:
+        with inner_pcb(**inner_init_args) as inner_p:
+            if gp_pcb_is_fake == True:
+                gp_pcb = fake_p
+            else:
+                gp_pcb = inner_p
 
-    if resp != "":
-        _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
-        return
+            if motion_address is not None:
+                if motion_pcb_is_fake == gp_pcb_is_fake:
+                    mo = measurement.motion(motion_address, pcb_object=gp_pcb)
+                elif motion_pcb_is_fake == True:
+                    mo = measurement.motion(motion_address, pcb_object=fake_p)
+                else:
+                    mo = measurement.motion(motion_address, pcb_object=inner_p)
+            else:
+                mo = None
 
-    last_label = None
-    while len(pixel_queue) > 0:
-        pixel = pixel_queue.popleft()
-        label = pixel["label"]
-        pix = pixel["pixel"]
+            resp = measurement.set_experiment_relay("eqe")
+            if resp != "":
+                _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
+                return
 
-        # add id str to handlers to display on plots
-        idn = f"{label}_pixel{pix}"
+            last_label = None
+            while len(pixel_queue) > 0:
+                pixel = pixel_queue.popleft()
+                label = pixel["label"]
+                pix = pixel["pixel"]
 
-        _log(
-            f"Measuring EQE on {idn}", 20, mqttc,
-        )
+                # add id str to handlers to display on plots
+                idn = f"{label}_pixel{pix}"
 
-        print(f"{pixel}")
+                _log(
+                    f"Measuring EQE on {idn}", 20, mqttc,
+                )
 
-        # we have a new substrate
-        if last_label != label:
-            print(f"New substrate using '{pixel['layout']}' layout!")
-            last_label = label
+                print(f"{pixel}")
 
-        # move to pixel
-        measurement.goto_pixel(pixel)
+                # we have a new substrate
+                if last_label != label:
+                    print(f"New substrate using '{pixel['layout']}' layout!")
+                    last_label = label
 
-        resp = measurement.select_pixel(pixel)
-        if resp != 0:
-            _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
-            break
+                # move to pixel
+                measurement.goto_pixel(pixel, mo)
 
-        _log(
-            f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm",
-            20,
-            mqttc,
-        )
+                resp = measurement.select_pixel(pixel, gp_pcb)
+                if resp != 0:
+                    _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
+                    break
 
-        compliance_i = measurement.compliance_current_guess(pixel["area"])
+                _log(
+                    f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm",
+                    20,
+                    mqttc,
+                )
 
-        # if time constant is longer than 1s the instrument aborts its autogain
-        # function so need to make sure "user" is used under these conditions
-        if ((auto_gain_method := config["lia"]["auto_gain_method"]) == "instr") and (
-            measurement.lia.time_contstants[args["eqe_int"]] > 1
-        ):
-            auto_gain_method = "user"
-            _log(
-                (
-                    "Instrument autogain cannot be used when time constant > 1s. 'user'"
-                    + " autogain setting will be used instead."
-                ),
-                30,
-                mqttc,
-            )
+                compliance_i = measurement.compliance_current_guess(pixel["area"])
 
-        # determine how live measurement data will be handled
-        if calibration == True:
-            handler = lambda x: None
-        else:
-            kind = "eqe_measurement"
-            dh = DataHandler(kind=kind, pixel=pixel, mqttqp=mqttc)
-            handler = dh.handle_data
-            _clear_plot(kind, mqttc)
+                # if time constant is longer than 1s the instrument aborts its autogain
+                # function so need to make sure "user" is used under these conditions
+                if ((auto_gain_method := config["lia"]["auto_gain_method"]) == "instr") and (
+                    measurement.lia.time_contstants[args["eqe_int"]] > 1
+                ):
+                    auto_gain_method = "user"
+                    _log(
+                        (
+                            "Instrument autogain cannot be used when time constant > 1s. 'user'"
+                            + " autogain setting will be used instead."
+                        ),
+                        30,
+                        mqttc,
+                    )
 
-        # get human-readable timestamp
-        timestamp = time.time()
+                # determine how live measurement data will be handled
+                if calibration == True:
+                    handler = lambda x: None
+                else:
+                    kind = "eqe_measurement"
+                    dh = DataHandler(kind=kind, pixel=pixel, mqttqp=mqttc)
+                    handler = dh.handle_data
+                    _clear_plot(kind, mqttc)
 
-        # perform measurement
-        eqe = measurement.eqe(
-            psu_ch1_voltage=config["psu"]["ch1_voltage"],
-            psu_ch1_current=args["chan1"],
-            psu_ch2_voltage=config["psu"]["ch2_voltage"],
-            psu_ch2_current=args["chan2"],
-            psu_ch3_voltage=config["psu"]["ch3_voltage"],
-            psu_ch3_current=args["chan3"],
-            smu_voltage=args["eqe_bias"],
-            smu_compliance=compliance_i,
-            start_wl=args["eqe_start"],
-            end_wl=args["eqe_end"],
-            num_points=int(args["eqe_step"]),
-            grating_change_wls=config["monochromator"]["grating_change_wls"],
-            filter_change_wls=config["monochromator"]["filter_change_wls"],
-            time_constant=args["eqe_int"],
-            auto_gain=True,
-            auto_gain_method=auto_gain_method,
-            handler=handler,
-        )
+                # get human-readable timestamp
+                timestamp = time.time()
 
-        # update eqe diode calibration data in
-        if calibration == True:
-            diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
-            mqttc.append_payload(
-                "calibration/eqe", pickle.dumps(diode_dict), retain=True,
-            )
+                # perform measurement
+                eqe = measurement.eqe(
+                    psu_ch1_voltage=config["psu"]["ch1_voltage"],
+                    psu_ch1_current=args["chan1"],
+                    psu_ch2_voltage=config["psu"]["ch2_voltage"],
+                    psu_ch2_current=args["chan2"],
+                    psu_ch3_voltage=config["psu"]["ch3_voltage"],
+                    psu_ch3_current=args["chan3"],
+                    smu_voltage=args["eqe_bias"],
+                    smu_compliance=compliance_i,
+                    start_wl=args["eqe_start"],
+                    end_wl=args["eqe_end"],
+                    num_points=int(args["eqe_step"]),
+                    grating_change_wls=config["monochromator"]["grating_change_wls"],
+                    filter_change_wls=config["monochromator"]["filter_change_wls"],
+                    time_constant=args["eqe_int"],
+                    auto_gain=True,
+                    auto_gain_method=auto_gain_method,
+                    handler=handler,
+                )
+
+                # update eqe diode calibration data in
+                if calibration == True:
+                    diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
+                    mqttc.append_payload("calibration/eqe", pickle.dumps(diode_dict), retain=True)
 
 
 def _run(request, mqtthost):
@@ -1419,13 +1514,10 @@ def _run(request, mqtthost):
         with MQTTQueuePublisher() as mqttc:
             mqttc.connect(mqtthost)
             mqttc.loop_start()
-
-            mqttc.append_payload(
-                "measurement/status", pickle.dumps("Busy"), retain=True,
-            )
             try:
-                with fabric(request["config"]["smu"]["current_limit"]) as measurement:
+                with fabric() as measurement:
                     _log("Starting run...", 20, mqttc)
+                    measurement.current_limit = request["config"]["smu"]["current_limit"]
 
                     if 'IV_stuff' in args:
                         q = _build_q(request, experiment="solarsim")
@@ -1447,9 +1539,7 @@ def _run(request, mqtthost):
                 traceback.print_exc()
                 _log(f"RUN ABORTED! " + str(e), 40, mqttc)
 
-            mqttc.append_payload(
-                "measurement/status", pickle.dumps("Ready"), retain=True,
-            )
+            mqttc.append_payload("measurement/status", pickle.dumps("Ready"), retain=True)
 
 
 def on_message(mqttc, obj, msg, msg_queue):
@@ -1482,20 +1572,20 @@ def msg_handler(msg_queue, cli_args, process):
                 process = start_process(cli_args, process, _calibrate_eqe, (request, cli_args.mqtthost,))
             elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
                 process = start_process(cli_args, process, _calibrate_psu, (request, cli_args.mqtthost,))
-            elif (action == "calibrate_solarsim_diodes") and (request['args']['enable_solarsim'] == True) and (request['args']['enable_smu'] == True):
-                process = start_process(cli_args, process, _calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
-            elif (action == "calibrate_spectrum") and (request['args']['enable_solarsim'] == True):
-                process = start_process(cli_args, process, _calibrate_spectrum, (request, cli_args.mqtthost,))
-            elif (action == "calibrate_rtd") and (request['args']['enable_smu'] == True):
-                process = start_process(cli_args, process, _calibrate_rtd, (request, cli_args.mqtthost,))
-            elif (action == "contact_check") and (request['args']['enable_smu'] == True):
-                process = start_process(cli_args, process, _contact_check, (request, cli_args.mqtthost,))
-            elif (action == "home") and (request['args']['enable_stage'] == True):
-                process = start_process(cli_args, process, _home, (request, cli_args.mqtthost,))
-            elif (action == "goto") and (request['args']['enable_stage'] == True):
-                process = start_process(cli_args, process, _goto, (request, cli_args.mqtthost,))
-            elif (action == "read_stage") and (request['args']['enable_stage'] == True):
-                process = start_process(cli_args, process, _read_stage, (request, cli_args.mqtthost,))
+            #elif (action == "calibrate_solarsim_diodes") and (request['args']['enable_solarsim'] == True) and (request['args']['enable_smu'] == True):
+            #    process = start_process(cli_args, process, _calibrate_solarsim_diodes, (request, cli_args.mqtthost,))
+            #elif (action == "calibrate_spectrum") and (request['args']['enable_solarsim'] == True):
+            #    process = start_process(cli_args, process, _calibrate_spectrum, (request, cli_args.mqtthost,))
+            #elif (action == "calibrate_rtd") and (request['args']['enable_smu'] == True):
+            #    process = start_process(cli_args, process, _calibrate_rtd, (request, cli_args.mqtthost,))
+            #elif (action == "contact_check") and (request['args']['enable_smu'] == True):
+            #    process = start_process(cli_args, process, _contact_check, (request, cli_args.mqtthost,))
+            #elif (action == "home") and (request['args']['enable_stage'] == True):
+            #    process = start_process(cli_args, process, _home, (request, cli_args.mqtthost,))
+            #elif (action == "goto") and (request['args']['enable_stage'] == True):
+            #    process = start_process(cli_args, process, _goto, (request, cli_args.mqtthost,))
+            #elif (action == "read_stage") and (request['args']['enable_stage'] == True):
+            #    process = start_process(cli_args, process, _read_stage, (request, cli_args.mqtthost,))
         except:
             pass
 

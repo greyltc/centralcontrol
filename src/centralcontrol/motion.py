@@ -78,6 +78,9 @@ class motion:
           us_setup = {}
           us_setup["pcb_object"] = pcb_object
           us_setup["spm"] = self.steps_per_mm
+          if hasattr(pcb_object, 'is_virtual'):
+            if pcb_object.is_virtual == True:
+              pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
           self.motion_engine = us(**us_setup)
     else:
       raise(ValueError(f"Unexpected motion controller protocol {self.scheme} in {address}"))
@@ -96,8 +99,8 @@ class motion:
       nexpect = len(self.expected_lengths)
       nzones = len(self.keepout_zones)
 
-      if naxes != nexpect:
-        raise(ValueError(f"Error: axis count mismatch. Found {nlengths} measured lengths, but the hardware reports {naxes} axes"))
+      if naxes != nlengths:
+        raise(ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes"))
       if naxes != nexpect:
         raise(ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes"))
       if naxes != nzones:

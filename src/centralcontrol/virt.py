@@ -3,36 +3,7 @@ import time
 import numpy
 import random
 
-class motion():
-  def __init__(self, *args, **kwargs):
-    print(f"virtual motion init args={args}, kwargs={kwargs}")
-    addr = kwargs['address']
-    content = addr.lstrip('us://')
-    pieces = content.split('/')
-    expected_lengths_in_mm = pieces[0]
-    self.naxis = len(expected_lengths_in_mm.split(','))
-    self.loc = [14.1]*self.naxis
-  def connect(self):
-    print ("Connected to virtual motion controller")
-    return 0
-  def move(self, mm):
-    print("Virtually moving {:}mm".format(mm))
-    for i,m in enumerate(mm):
-      self.loc[i] = self.loc[i] + m
-    return 0
-  def goto(self, mm):
-    print("Virtually moving to {:}mm".format(mm))
-    self.loc = mm
-    return 0
-  def home(self):
-    print("Virtually homing")
-    return 0
-  def estop(self):
-    return 0
-  def get_position(self):
-    return self.loc
-
-class illumination():
+class illumination(object):
   runtime = 60000
   intensity = 100
   def __init__(self, *args, **kwargs):
@@ -71,9 +42,36 @@ class illumination():
 def get_temperatures(self, *args, **kwargs):
   return([25.3,17.3])
 
-class pcb():
+class pcb(object):
+  is_virtual = True
+  virt_speed = 50  # virtual movement speed in mm per sec
+  virt_motion_setup = False  # to track if we're prepared to virtualize motion
+  firmware_version = '1.0.0'
+  detected_axes = ['1', '2', '3']
+  detected_muxes = ['A']
   def __init__(self, *args, **kwargs):
     pass
+  def prepare_virt_motion(self, spm, el):
+    self.spm = spm
+    self.el = el
+    self.homed = []
+    self.homing = []
+    self.jogging = []
+    self.pos = []
+    self.goal = []
+    self.home_done_time = []
+    self.jog_done_time = []
+    self.goto_done_time = []
+    for i, s in enumerate(spm):
+      self.homed.append(True)
+      self.homing.append(False)
+      self.jogging.append(False)
+      self.pos.append(round(self.el[i]/2))
+      self.goal.append(round(self.el[i]/2))
+      self.home_done_time.append(time.time())
+      self.jog_done_time.append(time.time())
+      self.goto_done_time.append(time.time())
+    self.virt_motion_setup = True
   def pix_picker(self, *args, **kwargs):
     win = True
     return win
@@ -83,8 +81,98 @@ class pcb():
     return(self)
   def __exit__(self, *args, **kwargs):
     pass
+  def probe_axes(self):
+    if len(self.spm) == 1:
+      self.detected_axes = ['1']
+    elif len(self.spm) == 2:
+      self.detected_axes = ['1', '2']
+    elif len(self.spm) == 3:
+      self.detected_axes = ['1', '2', '3']
+  def query(self, cmd):
+    if self.virt_motion_setup == True:
+      # now let's do timing related motion calcs
+      now = time.time()
+      for i, s in enumerate(self.spm):
+        if now > self.home_done_time[i]:  # homing for this axis is done
+          self.homed[i] = True
+          self.homing[i] = False
+          self.pos[i] = 0.95*self.el[i]
 
-class k2400():
+        if now >= self.goto_done_time[i]:  # goto for this axis is done
+          self.pos[i] = self.goal[i]
+        else:  # axis is in motion from goto, so we must calculate where we are
+          time_remaining = self.goto_done_time[i] - now
+          distance_remaining = time_remaining * self.virt_speed
+          if self.goal[i] < self.pos[i]:  # moving reverse
+            self.pos[i] = self.goal[i] + distance_remaining
+          else:
+            self.pos[i] = self.goal[i] - distance_remaining
+
+        if now > self.jog_done_time[i]:  # jogging for this axis is done
+          self.jogging[i] = False
+
+    # now we're ready to parse the command and respond to it
+    if (len(cmd) == 2) and (cmd[0] == 'l'):  # axis length request
+      axi = self.detected_axes.index(cmd[1])
+      if self.homing[axi] == True:  # homing ongoing
+          return(str(-1))
+      elif self.homed[axi] == False:
+        return(str(0))
+      else:
+        return str(self.el[axi])
+    elif (len(cmd) == 2) and (cmd[0] == 'h'):  # axis home request
+      axi = self.detected_axes.index(cmd[1])
+      self.home_done_time[axi] = time.time() + 2*self.el[axi]/self.virt_speed
+      self.homed[axi] = False
+      self.homing[axi] = True
+      return ''
+    elif (len(cmd) == 2) and (cmd[0] == 'j'):  # axis jog request
+      axi = self.detected_axes.index(cmd[1])
+      direction = cmd[2]
+      # 'r' command while jogging gives error 102, so we can just set pos now
+      if direction == 'a':
+        self.pos[axi] = 0  
+      else:
+        self.pos[axi] = self.el[axi]
+      self.jog_done_time[axi] = time.time() + self.el[axi]/self.virt_speed
+      self.homed[axi] = False
+      self.jogging[axi] = True
+      return ''
+    elif (len(cmd) == 2) and (cmd[0] == 'i'):  # axis driver status byte
+      return '11111111'
+    elif (cmd[0] == 'g'):  # goto command
+      axi = self.detected_axes.index(cmd[1])
+      self.goal[axi] = round(float(cmd[2::]))
+      self.goto_done_time[axi] = time.time() + abs(self.goal[axi]-self.pos[axi])/self.virt_speed
+      return ''
+    elif (len(cmd) == 2) and (cmd[0] == 'r'):  # axis position request
+      axi = self.detected_axes.index(cmd[1])
+      if (self.homing[axi] == True) or (self.jogging[axi] == True):
+        return('ERROR 102')
+      else:
+        return(str(self.pos[axi]))
+    elif (cmd[0] == 'b'):  # estop
+      if self.virt_motion_setup == True:
+        if len(cmd) == 2:
+          to_estop = [cmd[1]]
+        else:
+          to_estop = self.detected_axes
+        for ax in to_estop:
+          axi = self.detected_axes.index(ax)
+          self.goto_done_time[axi] = time.time()
+          self.goal[axi] = self.pos[axi]
+          self.home_done_time[axi] = time.time()
+          self.jog_done_time[axi] = time.time()
+          self.homed[axi] = False
+          self.homing[axi] = True
+          self.jogging[axi] = True
+      return ''
+    elif (cmd[0] == 's'):  # pixel selection
+      return ''
+    elif (cmd == 'iv') or (cmd == 'iv'):  # relay selection
+      return ''
+
+class k2400(object):
   """Solar cell device simulator (looks like k2400 class)
   """
   idn = 'Virtual Sourcemeter'

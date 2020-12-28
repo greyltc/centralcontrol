@@ -14,6 +14,7 @@ import argparse
 import pickle
 import threading
 import queue
+import serial  # for mono
 
 from . import virt
 from .motion import motion
@@ -79,11 +80,11 @@ def manager():
                 tpcb = pcb
             try:
                 with tpcb(cmd_msg['pcb'], timeout=10) as p:
-                    p.get('b')
-                log_msg('Emergency stop done. Re-Homing required before any further movements.', lvl=logging.INFO)
-            except Exception:
+                    p.query('b')
+                log_msg('Emergency stop command issued. Re-Homing required before any further movements.', lvl=logging.INFO)
+            except Exception as e:
                 log_msg(f'Unable to complete task.', lvl=logging.WARNING)
-                logging.exception("caught")
+                logging.exception(e)
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
@@ -94,19 +95,8 @@ def manager():
         cmdq.task_done()
 
 # asks for the current stage position and sends it up to /response
-def get_stage(pcba, uri, pcb_is_virt, stage_is_virt):
-    if pcb_is_virt == True:
-        tpcb = virt.pcb
-    else:
-        tpcb = pcb
-    with tpcb(pcba, timeout=1) as p:
-        if stage_is_virt == True:
-            tmo = virt.motion
-        else:
-            tmo = motion
-        mo = tmo(address=uri, pcb_object=p)
-        mo.connect()
-        pos = mo.get_position()
+def send_pos(mo):
+    pos = mo.get_position()
     payload = {'pos': pos}
     payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
     output = {'destination':'response', 'payload': payload}  # post the position to the response channel
@@ -118,64 +108,56 @@ def worker():
     while True:
         task = taskq.get()
         log_msg(f"New task: {task['cmd']} (queue size = {taskq.unfinished_tasks})",lvl=logging.DEBUG)
+        # handle pcb and stage virtualization
+        stage_pcb_class = pcb
+        pcb_class = pcb
+        if hasattr(task, 'stage_virt'):
+            if task['stage_virt'] == True:
+                stage_pcb_class = virt.pcb
+        if hasattr(task, 'pcb_virt'):
+            if task['pcb_virt'] == True:
+                pcb_class = virt.pcb
         try:
             if task['cmd'] == 'home':
-                if task['pcb_virt'] == True:
-                    tpcb = virt.pcb
-                else:
-                    tpcb = pcb
-                with tpcb(task['pcb'], timeout=1) as p:
-                    if task['stage_virt'] == True:
-                        tmo = virt.motion
-                    else:
-                        tmo = motion
-                    mo = tmo(address=task['stage_uri'], pcb_object=p)
-                    mo.connect()
-                    result = mo.home()
-                    if isinstance(result, list) or (result == 0):
+                with stage_pcb_class(task['pcb'], timeout=1) as p:
+                    mo = motion(address=task['stage_uri'], pcb_object=p)
+                    try:
+                        mo.connect()
+                        mo.home()
                         log_msg('Homing procedure complete.',lvl=logging.INFO)
-                        get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
-                    else:
-                        log_msg(f'Home failed with result {result}',lvl=logging.WARNING)
+                    except Exception as e:
+                        log_msg(f'{e}', lvl=logging.WARNING)
+                    send_pos(mo)
 
             # send the stage some place
             elif task['cmd'] == 'goto':
-                if task['pcb_virt'] == True:
-                    tpcb = virt.pcb
-                else:
-                    tpcb = pcb
-                with tpcb(task['pcb'], timeout=1) as p:
-                    if task['stage_virt'] == True:
-                        tmo = virt.motion
-                    else:
-                        tmo = motion
-                    mo = tmo(address=task['stage_uri'], pcb_object=p)
-                    mo.connect()
+                with stage_pcb_class(task['pcb'], timeout=1) as p:
+                    mo = motion(address=task['stage_uri'], pcb_object=p)
                     try:
+                        mo.connect()
                         mo.goto(task['pos'])
                     except Exception as e:
-                        log_msg(f'{e}',lvl=logging.WARNING)
-                    get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
+                        log_msg(f'{e}', lvl=logging.WARNING)
+                    send_pos(mo)
 
             # handle any generic PCB command that has an empty return on success
             elif task['cmd'] == 'for_pcb':
-                if task['pcb_virt'] == True:
-                    tpcb = virt.pcb
-                else:
-                    tpcb = pcb
-                with tpcb(task['pcb'], timeout=1) as p:
+                with pcb_class(task['pcb'], timeout=1) as p:
                     # special case for pixel selection to avoid parallel connections
                     if (task['pcb_cmd'].startswith('s') and ('stream' not in task['pcb_cmd']) and (len(task['pcb_cmd']) != 1)):
-                        p.get('s')  # deselect all before selecting one
-                    result = p.get(task['pcb_cmd'])
+                        p.query('s')  # deselect all before selecting one
+                    result = p.query(task['pcb_cmd'])
                 if result == '':
-                    log_msg(f"Command acknowledged: {task['pcb_cmd']}",lvl=logging.DEBUG)
+                    log_msg(f"Command acknowledged: {task['pcb_cmd']}", lvl=logging.DEBUG)
                 else:
-                    log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}",lvl=logging.WARNING)
+                    log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}", lvl=logging.WARNING)
 
             # get the stage location
             elif task['cmd'] == 'read_stage':
-                get_stage(task['pcb'], task['stage_uri'], task['pcb_virt'], task['stage_virt'])
+                with stage_pcb_class(task['pcb'], timeout=1) as p:
+                    mo = motion(address=task['stage_uri'], pcb_object=p)
+                    mo.connect()
+                    send_pos(mo)
 
             # zero the mono
             elif task['cmd'] == 'mono_zero':
@@ -184,13 +166,14 @@ def worker():
                     log_msg("1 FILTER virtually worked!", lvl=logging.INFO)
                 else:
                     try:
-                        rm = pyvisa.ResourceManager('@py')
-                        with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
-                            log_msg(mono.query("0 GOTO").strip(), lvl=logging.INFO)
-                            log_msg(mono.query("1 FILTER").strip(), lvl=logging.INFO)
-                    except Exception:
-                        log_msg(f'Unable to zero Monochromator',lvl=logging.WARNING)
-                        logging.exception("caught")
+                        with serial.Serial(task['mono_address'], 9600, timeout=1) as mono:
+                            mono.write("0 GOTO")
+                            log_msg(mono.readline.strip(), lvl=logging.INFO)
+                            mono.write("1 FILTER")
+                            log_msg(mono.readline.strip(), lvl=logging.INFO)
+                    except Exception as e:
+                        log_msg(f'Unable to zero Monochromator', lvl=logging.WARNING)
+                        log_msg(f'{e}', lvl=logging.WARNING)
 
             elif task['cmd'] == 'spec':
                 if task['le_virt'] == True:
@@ -215,13 +198,9 @@ def worker():
             # device round robin commands
             elif task['cmd'] == 'round_robin':
                 if len(task['slots']) > 0:
-                    if task['pcb_virt'] == True:
-                        tpcb = virt.pcb
-                    else:
-                        tpcb = pcb
-                    with tpcb(task['pcb'], timeout=1) as p:
-                        p.get('iv') # make sure the circuit is in I-V mode (not eqe)
-                        p.get('s') # make sure we're starting with nothing selected
+                    with pcb_class(task['pcb'], timeout=1) as p:
+                        p.query('iv') # make sure the circuit is in I-V mode (not eqe)
+                        p.query('s') # make sure we're starting with nothing selected
                         if task['smu_virt'] == True:
                             smu = virt.k2400
                         else:
@@ -239,7 +218,7 @@ def worker():
 
                         for i, slot in enumerate(task['slots']):
                             dev = task['pads'][i]
-                            p.get(f"s{slot}{dev}")  # select the device
+                            p.query(f"s{slot}{dev}")  # select the device
                             if task['type'] == 'current':
                                 pass  # TODO: smu measure current command goes here
                             elif task['type'] == 'rtd':
@@ -250,7 +229,7 @@ def worker():
                             elif task['type'] == 'connectivity':
                                 if k.contact_check() == False:
                                     log_msg(f'{slot} -- {dev} appears disconnected.',lvl=logging.INFO)
-                            p.get(f"s{slot}0") # disconnect the slot
+                            p.query(f"s{slot}0") # disconnect the slot
 
                         if task['type'] == 'connectivity':
                             k.set_ccheck_mode(False)
@@ -258,7 +237,7 @@ def worker():
                         elif task['type'] == 'rtd':
                             log_msg(f'Temperature measurement complete.',lvl=logging.INFO)
                             k.setupDC(sourceVoltage=False)
-                        p.get("s")
+                        p.query("s")
                         k.disconnect()
         except Exception:
             log_msg(f'Unable to complete task.',lvl=logging.WARNING)
@@ -269,16 +248,12 @@ def worker():
             rm = pyvisa.ResourceManager('@py')
             if 'pcb' in task:
                 log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
-                if task['pcb_virt'] == True:
-                    tpcb = virt.pcb
-                else:
-                    tpcb = pcb
                 try:
-                    with tpcb(task['pcb'], timeout=1) as p:
+                    with pcb_class(task['pcb'], timeout=1) as p:
                         log_msg('Controller connection initiated',lvl=logging.INFO)
-                        log_msg(f"Controller firmware version: {p.get('v')}",lvl=logging.INFO)
-                        log_msg(f"Controller stage bitmask value: {p.get('e')}",lvl=logging.INFO)
-                        log_msg(f"Controller mux bitmask value: {p.get('c')}",lvl=logging.INFO)
+                        log_msg(f"Controller firmware version: {p.firmware_version}",lvl=logging.INFO)
+                        log_msg(f"Controller axes: {p.detected_axes}",lvl=logging.INFO)
+                        log_msg(f"Controller muxes: {p.detected_muxes}",lvl=logging.INFO)
                 except Exception:
                     log_msg(f'Could not talk to control box',lvl=logging.WARNING)
                     logging.exception("caught")
