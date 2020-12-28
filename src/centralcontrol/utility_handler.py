@@ -111,10 +111,10 @@ def worker():
         # handle pcb and stage virtualization
         stage_pcb_class = pcb
         pcb_class = pcb
-        if hasattr(task, 'stage_virt'):
+        if 'stage_virt' in task:
             if task['stage_virt'] == True:
                 stage_pcb_class = virt.pcb
-        if hasattr(task, 'pcb_virt'):
+        if 'pcb_virt' in task:
             if task['pcb_virt'] == True:
                 pcb_class = virt.pcb
         try:

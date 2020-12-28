@@ -62,7 +62,7 @@ class pcb(object):
     self.home_done_time = []
     self.jog_done_time = []
     self.goto_done_time = []
-    for i, s in enumerate(spm):
+    for i, s in enumerate(el):
       self.homed.append(True)
       self.homing.append(False)
       self.jogging.append(False)
@@ -77,31 +77,31 @@ class pcb(object):
   def __exit__(self, *args, **kwargs):
     pass
   def probe_axes(self):
-    if len(self.spm) == 1:
+    if len(self.el) == 1:
       self.detected_axes = ['1']
-    elif len(self.spm) == 2:
+    elif len(self.el) == 2:
       self.detected_axes = ['1', '2']
-    elif len(self.spm) == 3:
+    elif len(self.el) == 3:
       self.detected_axes = ['1', '2', '3']
   def query(self, cmd):
     if self.virt_motion_setup == True:
       # now let's do timing related motion calcs
       now = time.time()
-      for i, s in enumerate(self.spm):
+      for i, s in enumerate(self.el):
         if now > self.home_done_time[i]:  # homing for this axis is done
           self.homed[i] = True
           self.homing[i] = False
-          self.pos[i] = 0.95*self.el[i]
+          self.pos[i] = round(0.95*self.el[i])
 
         if now >= self.goto_done_time[i]:  # goto for this axis is done
-          self.pos[i] = self.goal[i]
+          self.pos[i] = round(self.goal[i])
         else:  # axis is in motion from goto, so we must calculate where we are
           time_remaining = self.goto_done_time[i] - now
           distance_remaining = time_remaining * self.virt_speed
           if self.goal[i] < self.pos[i]:  # moving reverse
-            self.pos[i] = self.goal[i] + distance_remaining
+            self.pos[i] = round(self.goal[i] + distance_remaining)
           else:
-            self.pos[i] = self.goal[i] - distance_remaining
+            self.pos[i] = round(self.goal[i] - distance_remaining)
 
         if now > self.jog_done_time[i]:  # jogging for this axis is done
           self.jogging[i] = False
