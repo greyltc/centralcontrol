@@ -44,7 +44,7 @@ def get_temperatures(self, *args, **kwargs):
 
 class pcb(object):
   is_virtual = True
-  virt_speed = 50  # virtual movement speed in mm per sec
+  virt_speed = 300  # virtual movement speed in mm per sec
   virt_motion_setup = False  # to track if we're prepared to virtualize motion
   firmware_version = '1.0.0'
   detected_axes = ['1', '2', '3']
@@ -53,8 +53,10 @@ class pcb(object):
     pass
   def prepare_virt_motion(self, spm, el):
     self.spm = spm
+    self.vs = self.virt_speed*spm  # convert to mm/s
     self.el = el
     self.homed = []
+    self.ml = []
     self.homing = []
     self.jogging = []
     self.pos = []
@@ -66,8 +68,9 @@ class pcb(object):
       self.homed.append(True)
       self.homing.append(False)
       self.jogging.append(False)
-      self.pos.append(round(self.el[i]/2))
-      self.goal.append(round(self.el[i]/2))
+      self.ml.append(round(self.el[i]*spm))
+      self.pos.append(round(self.ml[i]/2))
+      self.goal.append(round(self.ml[i]/2))
       self.home_done_time.append(time.time())
       self.jog_done_time.append(time.time())
       self.goto_done_time.append(time.time())
@@ -88,10 +91,10 @@ class pcb(object):
       # now let's do timing related motion calcs
       now = time.time()
       for i, s in enumerate(self.el):
-        if now > self.home_done_time[i]:  # homing for this axis is done
+        if (now > self.home_done_time[i]) and (self.homing[i] == True):  # homing for this axis is done
           self.homed[i] = True
           self.homing[i] = False
-          self.pos[i] = round(0.95*self.el[i])
+          self.pos[i] = round(0.95*self.ml[i])
 
         if now >= self.goto_done_time[i]:  # goto for this axis is done
           self.pos[i] = round(self.goal[i])
@@ -103,42 +106,45 @@ class pcb(object):
           else:
             self.pos[i] = round(self.goal[i] - distance_remaining)
 
-        if now > self.jog_done_time[i]:  # jogging for this axis is done
+        if (now > self.jog_done_time[i]) and (self.jogging[i] == True):  # homing for this axis is done
+          self.homed[i] = False
+          self.ml[i] = 0
           self.jogging[i] = False
 
     # now we're ready to parse the command and respond to it
     if (len(cmd) == 2) and (cmd[0] == 'l'):  # axis length request
       axi = self.detected_axes.index(cmd[1])
-      if self.homing[axi] == True:  # homing ongoing
+      if self.homing[axi] == True:  # homing/jogging ongoing
           return(str(-1))
       elif self.homed[axi] == False:
         return(str(0))
       else:
-        return str(self.el[axi])
+        return str(self.ml[axi])
     elif (len(cmd) == 2) and (cmd[0] == 'h'):  # axis home request
       axi = self.detected_axes.index(cmd[1])
-      self.home_done_time[axi] = time.time() + 2*self.el[axi]/self.virt_speed
+      self.home_done_time[axi] = time.time() + 2*self.el[axi]*self.spm/self.vs
       self.homed[axi] = False
       self.homing[axi] = True
       return ''
-    elif (len(cmd) == 2) and (cmd[0] == 'j'):  # axis jog request
+    elif (len(cmd) == 3) and (cmd[0] == 'j'):  # axis jog request
       axi = self.detected_axes.index(cmd[1])
       direction = cmd[2]
       # 'r' command while jogging gives error 102, so we can just set pos now
       if direction == 'a':
-        self.pos[axi] = 0  
+        self.pos[axi] = 0
       else:
-        self.pos[axi] = self.el[axi]
-      self.jog_done_time[axi] = time.time() + self.el[axi]/self.virt_speed
+        self.pos[axi] = round(self.el[axi]*self.spm)
+      self.jog_done_time[axi] = time.time() + self.el[axi]*self.spm/self.vs
       self.homed[axi] = False
       self.jogging[axi] = True
+      self.ml[axi] = -1
       return ''
     elif (len(cmd) == 2) and (cmd[0] == 'i'):  # axis driver status byte
       return '11111111'
     elif (cmd[0] == 'g'):  # goto command
       axi = self.detected_axes.index(cmd[1])
       self.goal[axi] = round(float(cmd[2::]))
-      self.goto_done_time[axi] = time.time() + abs(self.goal[axi]-self.pos[axi])/self.virt_speed
+      self.goto_done_time[axi] = time.time() + abs(self.goal[axi]-self.pos[axi])/self.vs
       return ''
     elif (len(cmd) == 2) and (cmd[0] == 'r'):  # axis position request
       axi = self.detected_axes.index(cmd[1])
@@ -166,6 +172,8 @@ class pcb(object):
       return ''
     elif (cmd == 'iv') or (cmd == 'iv'):  # relay selection
       return ''
+    else:
+      return "Command virtually unsupported"
 
 class k2400(object):
   """Solar cell device simulator (looks like k2400 class)
