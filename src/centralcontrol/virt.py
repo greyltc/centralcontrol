@@ -55,7 +55,6 @@ class pcb(object):
     self.spm = spm
     self.vs = self.virt_speed*spm  # convert to mm/s
     self.el = el
-    self.homed = []
     self.ml = []
     self.homing = []
     self.jogging = []
@@ -66,7 +65,6 @@ class pcb(object):
     self.jog_done_time = []
     self.goto_done_time = []
     for i, s in enumerate(el):
-      self.homed.append(True)
       self.homing.append(False)
       self.jogging.append(False)
       self.goingto.append(False)
@@ -94,7 +92,7 @@ class pcb(object):
       now = time.time()
       for i, s in enumerate(self.el):
         if (now > self.home_done_time[i]) and (self.homing[i] == True):  # homing for this axis is done
-          self.homed[i] = True
+          self.ml[i] = round(self.el[i]*self.spm)
           self.homing[i] = False
           self.pos[i] = round(0.95*self.ml[i])
         
@@ -110,32 +108,25 @@ class pcb(object):
             else:
               self.pos[i] = round(self.goal[i] - distance_remaining)
 
-        if (now > self.jog_done_time[i]) and (self.jogging[i] == True):  # homing for this axis is done
-          self.homed[i] = False
+        if (now > self.jog_done_time[i]) and (self.jogging[i] == True):  # jogging for this axis is done
           self.ml[i] = 0
           self.jogging[i] = False
 
     # now we're ready to parse the command and respond to it
     if (len(cmd) == 2) and (cmd[0] == 'l'):  # axis length request
       axi = self.detected_axes.index(cmd[1])
-      if self.homing[axi] == True:  # homing/jogging ongoing
-          return(str(-1))
-      elif self.homed[axi] == False:
-        return(str(0))
-      else:
-        return str(self.ml[axi])
+      return str(self.ml[axi])
     elif cmd[0] == 'h':  # axis home request
       if len(cmd) == 2:
-        axi = self.detected_axes.index(cmd[1])
+        operate_on = [cmd[1]]
+      else:
+        operate_on = self.detected_axes
+      for ax in operate_on:
+        axi = self.detected_axes.index(ax)
         self.home_done_time[axi] = time.time() + 2*self.el[axi]*self.spm/self.vs
-        self.homed[axi] = False
+        self.ml[axi] = -1
         self.homing[axi] = True
-        return ''
-      else:  # home all axes
-        for i, el in enumerate(self.el):
-          self.home_done_time[i] = time.time() + 2*self.el[i]*self.spm/self.vs
-          self.homed[i] = False
-          self.homing[i] = True
+      return ''
     elif (len(cmd) == 3) and (cmd[0] == 'j'):  # axis jog request
       axi = self.detected_axes.index(cmd[1])
       direction = cmd[2]
@@ -145,7 +136,6 @@ class pcb(object):
       else:
         self.pos[axi] = round(self.el[axi]*self.spm)
       self.jog_done_time[axi] = time.time() + self.el[axi]*self.spm/self.vs
-      self.homed[axi] = False
       self.jogging[axi] = True
       self.ml[axi] = -1
       return ''
@@ -171,13 +161,15 @@ class pcb(object):
           to_estop = self.detected_axes
         for ax in to_estop:
           axi = self.detected_axes.index(ax)
+          self.ml[axi] = 0
           self.goto_done_time[axi] = time.time()
           self.goal[axi] = self.pos[axi]
           self.home_done_time[axi] = time.time()
           self.jog_done_time[axi] = time.time()
-          self.homed[axi] = False
-          self.homing[axi] = True
-          self.jogging[axi] = True
+          self.goto_done_time[axi] = time.time()
+          self.homing[axi] = False
+          self.jogging[axi] = False
+          self.goingto[axi] = False
       return ''
     elif (cmd[0] == 's'):  # pixel selection
       return ''
