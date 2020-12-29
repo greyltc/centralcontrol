@@ -270,6 +270,7 @@ def _calibrate_psu(request, mqtthost):
                                 mo = measurement.motion(motion_address, pcb_object=fake_p)
                             else:
                                 mo = measurement.motion(motion_address, pcb_object=inner_p)
+                            mo.connect()
                         else:
                             mo = None
 
@@ -1050,6 +1051,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     mo = measurement.motion(motion_address, pcb_object=fake_p)
                 else:
                     mo = measurement.motion(motion_address, pcb_object=inner_p)
+                mo.connect()
             else:
                 mo = None
 
@@ -1390,6 +1392,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
                     mo = measurement.motion(motion_address, pcb_object=fake_p)
                 else:
                     mo = measurement.motion(motion_address, pcb_object=inner_p)
+                mo.connect()
             else:
                 mo = None
 
