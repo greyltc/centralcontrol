@@ -115,7 +115,7 @@ class us(object):
                 if delta > allowed_deviation:
                   raise(ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]"))
           elif action == "g":
-            self._wait_for_goto(self, ax, goal, timeout=timeout-(time.time()-t0), debug_prints=False)
+            self._wait_for_goto(ax, goal, timeout=timeout-(time.time()-t0), debug_prints=False)
 
   def _wait_for_home_or_jog(self, ax, timeout=float("inf"), debug_prints=False):
     t0 = time.time()

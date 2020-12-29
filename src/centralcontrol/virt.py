@@ -59,6 +59,7 @@ class pcb(object):
     self.ml = []
     self.homing = []
     self.jogging = []
+    self.goingto = []
     self.pos = []
     self.goal = []
     self.home_done_time = []
@@ -68,6 +69,7 @@ class pcb(object):
       self.homed.append(True)
       self.homing.append(False)
       self.jogging.append(False)
+      self.goingto.append(False)
       self.ml.append(round(self.el[i]*spm))
       self.pos.append(round(self.ml[i]/2))
       self.goal.append(round(self.ml[i]/2))
@@ -95,16 +97,18 @@ class pcb(object):
           self.homed[i] = True
           self.homing[i] = False
           self.pos[i] = round(0.95*self.ml[i])
-
-        if now >= self.goto_done_time[i]:  # goto for this axis is done
-          self.pos[i] = round(self.goal[i])
-        else:  # axis is in motion from goto, so we must calculate where we are
-          time_remaining = self.goto_done_time[i] - now
-          distance_remaining = time_remaining * self.virt_speed
-          if self.goal[i] < self.pos[i]:  # moving reverse
-            self.pos[i] = round(self.goal[i] + distance_remaining)
-          else:
-            self.pos[i] = round(self.goal[i] - distance_remaining)
+        
+        if self.goingto[i] == True:
+          if (now > self.goto_done_time[i]):
+            self.pos[i] = round(self.goal[i])
+            self.goingto[i] = False
+          else:  # axis is in motion from goto, so we must calculate where we are
+            time_remaining = self.goto_done_time[i] - now
+            distance_remaining = time_remaining * self.virt_speed
+            if self.goal[i] < self.pos[i]:  # moving reverse
+              self.pos[i] = round(self.goal[i] + distance_remaining)
+            else:
+              self.pos[i] = round(self.goal[i] - distance_remaining)
 
         if (now > self.jog_done_time[i]) and (self.jogging[i] == True):  # homing for this axis is done
           self.homed[i] = False
@@ -120,12 +124,18 @@ class pcb(object):
         return(str(0))
       else:
         return str(self.ml[axi])
-    elif (len(cmd) == 2) and (cmd[0] == 'h'):  # axis home request
-      axi = self.detected_axes.index(cmd[1])
-      self.home_done_time[axi] = time.time() + 2*self.el[axi]*self.spm/self.vs
-      self.homed[axi] = False
-      self.homing[axi] = True
-      return ''
+    elif cmd[0] == 'h':  # axis home request
+      if len(cmd) == 2:
+        axi = self.detected_axes.index(cmd[1])
+        self.home_done_time[axi] = time.time() + 2*self.el[axi]*self.spm/self.vs
+        self.homed[axi] = False
+        self.homing[axi] = True
+        return ''
+      else:  # home all axes
+        for i, el in enumerate(self.el):
+          self.home_done_time[i] = time.time() + 2*self.el[i]*self.spm/self.vs
+          self.homed[i] = False
+          self.homing[i] = True
     elif (len(cmd) == 3) and (cmd[0] == 'j'):  # axis jog request
       axi = self.detected_axes.index(cmd[1])
       direction = cmd[2]
@@ -143,6 +153,7 @@ class pcb(object):
       return '11111111'
     elif (cmd[0] == 'g'):  # goto command
       axi = self.detected_axes.index(cmd[1])
+      self.goingto[axi] = True
       self.goal[axi] = round(float(cmd[2::]))
       self.goto_done_time[axi] = time.time() + abs(self.goal[axi]-self.pos[axi])/self.vs
       return ''

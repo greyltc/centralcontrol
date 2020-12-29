@@ -83,8 +83,9 @@ def manager():
                     p.query('b')
                 log_msg('Emergency stop command issued. Re-Homing required before any further movements.', lvl=logging.INFO)
             except Exception as e:
-                log_msg(f'Unable to complete task.', lvl=logging.WARNING)
-                logging.exception(e)
+                emsg = "Unable to emergency stop."
+                log_msg(emsg, lvl=logging.WARNING)
+                logging.exception(emsg)
         elif (taskq.unfinished_tasks == 0):
             # the worker is available so let's give it something to do
             taskq.put_nowait(cmd_msg)
@@ -121,23 +122,17 @@ def worker():
             if task['cmd'] == 'home':
                 with stage_pcb_class(task['pcb'], timeout=1) as p:
                     mo = motion(address=task['stage_uri'], pcb_object=p)
-                    try:
-                        mo.connect()
-                        mo.home()
-                        log_msg('Homing procedure complete.',lvl=logging.INFO)
-                    except Exception as e:
-                        log_msg(f'{e}', lvl=logging.WARNING)
+                    mo.connect()
+                    mo.home()
+                    log_msg('Homing procedure complete.',lvl=logging.INFO)
                     send_pos(mo)
 
             # send the stage some place
             elif task['cmd'] == 'goto':
                 with stage_pcb_class(task['pcb'], timeout=1) as p:
                     mo = motion(address=task['stage_uri'], pcb_object=p)
-                    try:
-                        mo.connect()
-                        mo.goto(task['pos'])
-                    except Exception as e:
-                        log_msg(f'{e}', lvl=logging.WARNING)
+                    mo.connect()
+                    mo.goto(task['pos'])
                     send_pos(mo)
 
             # handle any generic PCB command that has an empty return on success
@@ -165,15 +160,13 @@ def worker():
                     log_msg("0 GOTO virtually worked!", lvl=logging.INFO)
                     log_msg("1 FILTER virtually worked!", lvl=logging.INFO)
                 else:
-                    try:
-                        with serial.Serial(task['mono_address'], 9600, timeout=1) as mono:
-                            mono.write("0 GOTO")
-                            log_msg(mono.readline.strip(), lvl=logging.INFO)
-                            mono.write("1 FILTER")
-                            log_msg(mono.readline.strip(), lvl=logging.INFO)
-                    except Exception as e:
-                        log_msg(f'Unable to zero Monochromator', lvl=logging.WARNING)
-                        log_msg(f'{e}', lvl=logging.WARNING)
+
+                    with serial.Serial(task['mono_address'], 9600, timeout=1) as mono:
+                        mono.write("0 GOTO")
+                        log_msg(mono.readline.strip(), lvl=logging.INFO)
+                        mono.write("1 FILTER")
+                        log_msg(mono.readline.strip(), lvl=logging.INFO)
+
 
             elif task['cmd'] == 'spec':
                 if task['le_virt'] == True:
@@ -239,9 +232,9 @@ def worker():
                             k.setupDC(sourceVoltage=False)
                         p.query("s")
                         k.disconnect()
-        except Exception:
-            log_msg(f'Unable to complete task.',lvl=logging.WARNING)
-            logging.exception("caught")
+        except Exception as e:
+            log_msg(e, lvl=logging.WARNING)
+            logging.exception(e)
 
         # system health check
         if task['cmd'] == 'check_health':
@@ -254,9 +247,10 @@ def worker():
                         log_msg(f"Controller firmware version: {p.firmware_version}",lvl=logging.INFO)
                         log_msg(f"Controller axes: {p.detected_axes}",lvl=logging.INFO)
                         log_msg(f"Controller muxes: {p.detected_muxes}",lvl=logging.INFO)
-                except Exception:
-                    log_msg(f'Could not talk to control box',lvl=logging.WARNING)
-                    logging.exception("caught")
+                except Exception as e:
+                    emsg = f'Could not talk to control box'
+                    log_msg(emsg, lvl=logging.WARNING)
+                    logging.exception(emsg)
 
             if 'psu' in task:
                 log_msg(f"Checking power supply@{task['psu']}...",lvl=logging.INFO)
@@ -268,9 +262,10 @@ def worker():
                             log_msg('Power supply connection initiated',lvl=logging.INFO)
                             idn = psu.query("*IDN?")
                             log_msg(f'Power supply identification string: {idn.strip()}',lvl=logging.INFO)
-                    except Exception:
-                        log_msg(f'Could not talk to PSU',lvl=logging.WARNING)
-                        logging.exception("caught")
+                    except Exception as e:
+                        emsg = f'Could not talk to PSU'
+                        log_msg(emsg, lvl=logging.WARNING)
+                        logging.exception(emsg)
 
             if 'smu_address' in task:
                 log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
@@ -300,9 +295,10 @@ def worker():
                             log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
                             idn = smu.query("*IDN?")
                             log_msg(f'Sourcemeter identification string: {idn}',lvl=logging.INFO)
-                    except Exception:
-                        log_msg(f'Could not talk to sourcemeter',lvl=logging.WARNING)
-                        logging.exception("caught")
+                    except Exception as e:
+                        emsg = f'Could not talk to sourcemeter'
+                        log_msg(emsg, lvl=logging.WARNING)
+                        logging.exception(emsg)
 
             if 'lia_address' in task:
                 log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
@@ -315,9 +311,10 @@ def worker():
                             log_msg('Lock-in connection initiated',lvl=logging.INFO)
                             idn = lia.query("*IDN?")
                             log_msg(f'Lock-in identification string: {idn.strip()}',lvl=logging.INFO)
-                    except Exception:
-                        log_msg(f'Could not talk to lock-in',lvl=logging.WARNING)
-                        logging.exception("caught")
+                    except Exception as e:
+                        emsg = f'Could not talk to lock-in'
+                        log_msg(emsg, lvl=logging.WARNING)
+                        logging.exception(emsg)
 
             if 'mono_address' in task:
                 log_msg(f"Checking monochromator@{task['mono_address']}...",lvl=logging.INFO)
@@ -329,9 +326,10 @@ def worker():
                             log_msg('Monochromator connection initiated',lvl=logging.INFO)
                             qu = mono.query("?nm")
                             log_msg(f'Monochromator wavelength query result: {qu.strip()}',lvl=logging.INFO)
-                    except Exception:
-                        log_msg(f'Could not talk to monochromator',lvl=logging.WARNING)
-                        logging.exception("caught")
+                    except Exception as e:
+                        emsg = f'Could not talk to monochromator'
+                        log_msg(emsg, lvl=logging.WARNING)
+                        logging.exception(emsg)
 
             if 'le_address' in task:
                 log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
@@ -349,9 +347,10 @@ def worker():
                         log_msg("Timeout waiting for wavelabs to connect",lvl=logging.WARNING)
                     else:
                         log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}",lvl=logging.WARNING)
-                except Exception:
-                    log_msg(f'Could not talk to light engine',lvl=logging.WARNING)
-                    logging.exception("caught")
+                except Exception as e:
+                    emsg = f'Could not talk to light engine'
+                    log_msg(emsg,lvl=logging.WARNING)
+                    logging.exception(emsg)
 
         taskq.task_done()
 

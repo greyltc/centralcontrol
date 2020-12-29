@@ -22,7 +22,7 @@ class motion:
   motion_timeout_fraction = 1/2  # fraction of home_timeout for movement timeouts
   expected_lengths = [float("inf")]  # list of mm
   actual_lengths = [float("inf")]  # list of mm
-  keepout_zones = [[-1,-1]]  # list of lists of mm
+  keepout_zones = [[-2,-2]]  # list of lists of mm
   axes = [1]  # list of connected axis indicies
   allowed_length_deviation = 5 # measured length can deviate from expected length by up to this, in mm
   location = "controller"
@@ -46,13 +46,20 @@ class motion:
     except Exception:
       raise(ValueError("Incorrect motion controller address format: {address}"))
     self.location = parsed.netloc + parsed.path
+    empty_koz = [-2, -2]  # a keepout zone that will never activate
     if "el" in qparsed:
       splitted = qparsed['el'][0].split(',')
       self.expected_lengths = [float(y) for y in splitted]
+      self.keepout_zones = []
+      for i, l in enumerate(self.expected_lengths):  # ensure default koz works
+        self.keepout_zones.append(empty_koz)
     if "spm" in qparsed:
       self.steps_per_mm = int(qparsed['spm'][0])
     if "kz" in qparsed:
       self.keepout_zones = json.loads(qparsed['kz'][0])
+      for i, z in enumerate(self.keepout_zones):
+        if z == []:
+          self.keepout_zones[i] = empty_koz
     if "hto" in qparsed:
       self.home_timeout = float(qparsed['hto'][0])
     if "homer" in qparsed:
