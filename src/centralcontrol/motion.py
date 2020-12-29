@@ -1,16 +1,15 @@
-from .afms import afms
-from .us import us
-import json
-from urllib.parse import urlparse, parse_qs
-
 # this boilerplate is required to allow this module to be run directly as a script
-if __name__ == "__main__" and __package__ is None:
+if __name__ == "__main__" and __package__ in [None, '']:
     __package__ = "centralcontrol"
     from pathlib import Path
     import sys
     # get the dir that holds __package__ on the front of the search path
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from .afms import afms
+from .us import us
+import json
+from urllib.parse import urlparse, parse_qs
 
 class motion:
   """
@@ -184,3 +183,84 @@ class motion:
     """
     return self.motion_engine.get_position()
 
+# testing
+def main():
+  import time
+  fake_hardware = True
+  if fake_hardware == True:
+    from .virt import pcb as pcbclass
+    pcbobj_init_args = {}
+  else:
+    from .pcb import pcb as pcbclass
+    pcbobj_init_args = {}
+    office_ip = '10.46.0.239'
+    pcbobj_init_args['address'] = office_ip
+  otter_config_uri = 'us://controller?el=875,375&kz=[[],[0,62]]&spm=6400&hto=130&homer=2b!1h!1g650!2h'
+  oxford_config_uri = 'us://controller?el=375'
+  office_config_uri = 'us://controller?el=125'
+  stage_config_uri = office_config_uri
+
+  print(f'Connecting to a {"fake" if fake_hardware == True else "real"} stage with URI-->{stage_config_uri}')
+  with pcbclass(**pcbobj_init_args) as p:
+    mo = motion(address=stage_config_uri, pcb_object=p)
+    mo.connect()
+    print(f'Connected.')
+    print(f'Measured lengths: {mo.actual_lengths}')
+    print(f'Axes: {mo.axes}')
+
+    print('Initiating homing prodecure...')
+    mo.home()
+    print('Homing complete.')
+    print(f'Measured lengths: {mo.actual_lengths}')
+
+    print(f'Current Position: {mo.get_position()}')
+
+    mid = [x/2 for x in mo.actual_lengths]
+    print(f'Going to midway: {mid}')
+    mo.goto(mid)
+    print('Done.')
+    here = mo.get_position()
+    print(f'Current Position: {here}')
+
+    # choose how long the dance should last
+    #goto_dance_duration = float("inf")
+    goto_dance_duration = 60
+    dance_axis = 0  # which axis to dance (zero indexed)
+    print(f'Now doing goto dance for {goto_dance_duration} seconds...')
+
+    dance_width_mm = 5
+    ndancepoints = 10
+
+    dancemin = 4 + dance_width_mm/2
+    dancemax = mo.actual_lengths[dance_axis] - dancemin
+    dancespace = [dancemin + float(x)/(ndancepoints-1)*(dancemax-dancemin) for x in range(ndancepoints)]
+    dancepoints = []
+    for p in dancespace:
+      dancepoints.append(p-dance_width_mm/2)
+      dancepoints.append(p+dance_width_mm/2)
+      dancepoints.append(p-dance_width_mm/2)
+    
+    dancepoints_rev = dancepoints.copy()
+    dancepoints_rev.reverse()
+    del dancepoints_rev[0]
+    del dancepoints_rev[-1]
+    full_dancelist = dancepoints + dancepoints_rev
+
+    t0 = time.time()
+    target = here
+    while ((time.time() - t0) < goto_dance_duration):
+      goal = full_dancelist.pop(0)
+      target[dance_axis] = goal
+      print(f"New target = {target}")
+      mo.goto(target)
+      full_dancelist.append(goal)  # allow for wrapping
+    print(f'Dance complete!')
+
+    print(f'Doing emergency stop.')
+    mo.estop()
+  
+  print()
+
+
+if __name__ == "__main__":
+  main()

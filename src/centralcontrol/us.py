@@ -107,7 +107,7 @@ class us(object):
             if (action == "h"):
               ai = self.axes.index(ax)
               this_len = self.len_axes_mm[ai] 
-              if (this_len== 0):
+              if this_len == 0:
                 raise(ValueError(f"Homing of axis {ax} resulted in measured length of zero."))
               elif (allowed_deviation is not None) and (expected_lengths is not None):
                 el = expected_lengths[ai]
