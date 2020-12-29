@@ -47,7 +47,7 @@ class fabric(object):
     fake_pcb = virt.pcb
 
     # a real pcb object
-    fake_pcb = pcb
+    real_pcb = pcb
 
     def __init__(self):
         """Get software revision."""
