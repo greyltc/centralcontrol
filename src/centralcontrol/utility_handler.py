@@ -332,13 +332,13 @@ def worker():
                         logging.exception(emsg)
 
             if 'le_address' in task:
-                log_msg(f"Checking light engine@{task['le_address']}...",lvl=logging.INFO)
+                log_msg(f"Checking light engine@{task['le_address']}...", lvl=logging.INFO)
                 if task['le_virt'] == True:
                     ill = virt.illumination
                 else:
                     ill = illumination
                 try:
-                    le = ill(address=task['le_address'], default_recipe=task['le_recipe'])
+                    le = ill(address=task['le_address'], default_recipe=task['le_recipe'], connection_timeout=1)
                     con_res = le.connect()
                     le.disconnect()
                     if con_res == 0:
