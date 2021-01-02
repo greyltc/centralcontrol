@@ -342,13 +342,13 @@ def worker():
                     con_res = le.connect()
                     le.disconnect()
                     if con_res == 0:
-                        log_msg('Light engine connection successful',lvl=logging.INFO)
+                        log_msg('Light engine connection successful', lvl=logging.INFO)
                     elif (con_res == -1):
-                        log_msg("Timeout waiting for wavelabs to connect",lvl=logging.WARNING)
+                        log_msg("Timeout waiting for wavelabs to connect", lvl=logging.WARNING)
                     else:
-                        log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}",lvl=logging.WARNING)
+                        log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}", lvl=logging.WARNING)
                 except Exception as e:
-                    emsg = f'Could not talk to light engine'
+                    emsg = f'Light engine connection check failed: {e}'
                     log_msg(emsg,lvl=logging.WARNING)
                     logging.exception(emsg)
 
