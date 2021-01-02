@@ -508,4 +508,5 @@ if __name__ == "__main__":
       wl.startFreeFloat(time = disco_time, channel_nums=chan_names, channel_values=chan_values)
       time.sleep(disco_sleep/1000)
     wl.startFreeFloat() # stop freefloat
+  del(wl)
   print("Done!")

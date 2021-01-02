@@ -75,7 +75,7 @@ class illumination:
     """
     fetches a spectrum if the light engine supports it
     """
-    self.light_engine.__del__()
+    del(self.light_engine)
 
   def set_runtime(self, ms):
     """
@@ -110,3 +110,6 @@ class illumination:
       temp.append(self.light_engine.get_vis_led_temp())
       temp.append(self.light_engine.get_ir_led_temp())
     return temp
+
+  def __del__(self):
+      del(self.light_engine)

@@ -126,6 +126,7 @@ def worker():
                     mo.home()
                     log_msg('Homing procedure complete.',lvl=logging.INFO)
                     send_pos(mo)
+                del(mo)
 
             # send the stage some place
             elif task['cmd'] == 'goto':
@@ -134,6 +135,7 @@ def worker():
                     mo.connect()
                     mo.goto(task['pos'])
                     send_pos(mo)
+                del(mo)
 
             # handle any generic PCB command that has an empty return on success
             elif task['cmd'] == 'for_pcb':
@@ -153,6 +155,7 @@ def worker():
                     mo = motion(address=task['stage_uri'], pcb_object=p)
                     mo.connect()
                     send_pos(mo)
+                del(mo)
 
             # zero the mono
             elif task['cmd'] == 'mono_zero':
@@ -160,7 +163,6 @@ def worker():
                     log_msg("0 GOTO virtually worked!", lvl=logging.INFO)
                     log_msg("1 FILTER virtually worked!", lvl=logging.INFO)
                 else:
-
                     with serial.Serial(task['mono_address'], 9600, timeout=1) as mono:
                         mono.write("0 GOTO")
                         log_msg(mono.readline.strip(), lvl=logging.INFO)
@@ -186,7 +188,7 @@ def worker():
                         log_msg(f'Unable to set light engine intensity.',lvl=logging.INFO)
                 else:
                     log_msg(f'Unable to connect to light engine.',lvl=logging.INFO)
-                le.disconnect()
+                del(le)
 
             # device round robin commands
             elif task['cmd'] == 'round_robin':
@@ -231,10 +233,24 @@ def worker():
                             log_msg(f'Temperature measurement complete.',lvl=logging.INFO)
                             k.setupDC(sourceVoltage=False)
                         p.query("s")
-                        k.disconnect()
+                        del(k)
+
         except Exception as e:
             log_msg(e, lvl=logging.WARNING)
             logging.exception(e)
+            try:
+                del(le)  # ensure le is cleaned up
+            except:
+                pass
+            try:
+                del(mo)  # ensure mo is cleaned up
+            except:
+                pass
+            try:
+                del(k)  # ensure k is cleaned up
+            except:
+                pass
+
 
         # system health check
         if task['cmd'] == 'check_health':
@@ -333,6 +349,7 @@ def worker():
 
             if 'le_address' in task:
                 log_msg(f"Checking light engine@{task['le_address']}...", lvl=logging.INFO)
+                le = None
                 if task['le_virt'] == True:
                     ill = virt.illumination
                 else:
@@ -340,7 +357,6 @@ def worker():
                 try:
                     le = ill(address=task['le_address'], default_recipe=task['le_recipe'], connection_timeout=1)
                     con_res = le.connect()
-                    le.disconnect()
                     if con_res == 0:
                         log_msg('Light engine connection successful', lvl=logging.INFO)
                     elif (con_res == -1):
@@ -351,6 +367,10 @@ def worker():
                     emsg = f'Light engine connection check failed: {e}'
                     log_msg(emsg,lvl=logging.WARNING)
                     logging.exception(emsg)
+                try:
+                    del(le)
+                except:
+                    pass
 
         taskq.task_done()
 
