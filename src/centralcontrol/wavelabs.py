@@ -80,6 +80,7 @@ class wavelabs:
     
   def __del__(self):
     try:
+      self.connection.settimeout(1)
       self.off()
     except:
       pass
