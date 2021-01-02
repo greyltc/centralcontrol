@@ -172,7 +172,7 @@ def worker():
                 if task['le_virt'] == True:
                     le = virt.illumination(address=task['le_address'], default_recipe=task['le_recipe'])
                 else:
-                    le = illumination(address=task['le_address'], default_recipe=task['le_recipe'])
+                    le = illumination(address=task['le_address'], default_recipe=task['le_recipe'], connection_timeout=1)
                 con_res = le.connect()
                 if con_res == 0:
                     response = {}
