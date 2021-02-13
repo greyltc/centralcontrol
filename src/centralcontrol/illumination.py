@@ -112,4 +112,5 @@ class illumination:
     return temp
 
   def __del__(self):
-      del(self.light_engine)
+    del(self.light_engine)
+    self.light_engine = None
