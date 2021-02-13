@@ -81,24 +81,28 @@ class wavelabs:
   def __del__(self):
     try:
       self.connection.settimeout(1)
+    except Exception as e:
+      pass
+
+    try:
       self.off()
-    except:
+    except Exception as e:
       pass
 
     try:
       self.sock_file.close()
-    except:
+    except Exception as e:
       pass
     
     try:
       self.connection.close()
-    except:
+    except Exception as e:
       pass
 
     try:
       self.server.server_close()
-    except:
-      pass    
+    except Exception as e:
+      pass 
 
   def recvXML(self):
     """reads xml object from socket"""
