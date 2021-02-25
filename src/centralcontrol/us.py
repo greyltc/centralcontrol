@@ -35,6 +35,7 @@ class us(object):
     self.pcb = pcb_object
     self.steps_per_mm = spm
     self.home_procedure = homer
+    self.stage_firmwares = {}
   #def __setattr__(self, name, value):
 
   def __del__(self):
@@ -64,6 +65,10 @@ class us(object):
     self.pcb.probe_axes()
     self.axes = self.pcb.detected_axes
     self._update_len_axes_mm()
+    for ax in self.axes:
+      fw_cmd = f"w{ax}"
+      self.stage_firmwares[ax] = self.pcb.query(fw_cmd) 
+    print(f"Connected to stage(s) with firmware(s): {self.stage_firmwares}")
     return 0
   
   def home(self, procedure="default", timeout=float("inf"), expected_lengths=None, allowed_deviation=None):
@@ -71,6 +76,12 @@ class us(object):
     self.pcb.probe_axes()
     self.axes = self.pcb.detected_axes
     self._update_len_axes_mm()
+    self.pcb.query("t")  # reset all the stage controllers before we home
+    time.sleep(2);  # wait 2 seconds for them to complete their resets
+    for i, ax in enumerate(self.axes):
+      # now is our chance to reprogram any driver registers we might want to to override the firmware
+      self.pcb.query(f"y{ax}57,678")  # as an example, this puts 678 into the XENC register (57=0x39)
+
     if procedure == "default":
       for i, ax in enumerate(self.axes):
         home_cmd = f"h{ax}"
@@ -133,6 +144,7 @@ class us(object):
       time.sleep(self.poll_delay)
       if debug_prints == True:
         print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+        #print(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
       answer = None
       try:
         answer = self.pcb.query(poll_cmd)
@@ -142,6 +154,7 @@ class us(object):
         self.len_axes_mm[ai] = -1/self.steps_per_mm
       if debug_prints == True:
         print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
+        #print(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
       dt = time.time() - t0
     if (dt > timeout):
       raise(ValueError(f"Timeout while waiting for axis {ax} to home/jog. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
@@ -163,7 +176,8 @@ class us(object):
     while (rslt_pos != goal) and (dt <= timeout):
       time.sleep(self.poll_delay)
       if debug_prints == True:
-        print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+        #print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+        print(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
       answer = None
       try:
         answer = self.pcb.query(poll_cmd)
@@ -175,12 +189,13 @@ class us(object):
         if (answer_deque[0] == answer_deque[1]) and (answer_deque[1] == answer_deque[2]):
           raise(ValueError(f"Motion seems to have stopped on {ax} at {rslt_pos/self.steps_per_mm} while trying to go from ~{go_from} to {goal/self.steps_per_mm}. Recent reading results were {answer_deque}"))
       if debug_prints == True:
-        print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
+        #print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
+        print(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
       dt = time.time() - t0
     if (dt > timeout):
       raise(ValueError(f"Timeout while waiting for axis {ax} to go from {go_from} to {goal/self.steps_per_mm}. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
 
-  def goto(self, targets_mm, timeout=float("inf")):
+  def goto(self, targets_mm, timeout=float("inf"), debug_prints=False):
     t0 = time.time()
     targets_step = [round(x*self.steps_per_mm) for x in targets_mm]
     for i, target_step in enumerate(targets_step):
@@ -196,7 +211,7 @@ class us(object):
         raise(ValueError(f"Error asking axis {ax} to go to {targets_mm[i]} with response {answer}.{note}"))
     for i, target_step in enumerate(targets_step):
       ax = self.axes[i]
-      self._wait_for_goto(ax, target_step, timeout=timeout-(time.time()-t0), debug_prints=False)
+      self._wait_for_goto(ax, target_step, timeout=timeout-(time.time()-t0), debug_prints=debug_prints)
 
   # returns the stage's current position (a list matching the axes input)
   # axis is -1 for all available axes or a list of axes

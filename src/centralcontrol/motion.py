@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # this boilerplate is required to allow this module to be run directly as a script
 if __name__ == "__main__" and __package__ in [None, '']:
     __package__ = "centralcontrol"
@@ -124,7 +126,7 @@ class motion:
 #    """
 #    return self.motion_engine.move(mm)
 
-  def goto(self, pos, timeout=None):
+  def goto(self, pos, timeout=None, debug_prints=False):
     """
     goes to an absolute mm position, blocking, reuturns 0 on success
     """
@@ -154,7 +156,7 @@ class motion:
         raise(ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]"))
       if goal > upper_lim:
         raise(ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]"))
-    goto_result = self.motion_engine.goto(pos, timeout=timeout)
+    goto_result = self.motion_engine.goto(pos, timeout=timeout, debug_prints=debug_prints)
     return goto_result
 
   def home(self, timeout=None):
@@ -186,7 +188,7 @@ class motion:
 # testing
 def main():
   import time
-  fake_hardware = True
+  fake_hardware = False
   if fake_hardware == True:
     from .virt import pcb as pcbclass
     pcbobj_init_args = {}
@@ -252,7 +254,7 @@ def main():
       goal = full_dancelist.pop(0)
       target[dance_axis] = goal
       print(f"New target = {target}")
-      mo.goto(target)
+      mo.goto(target, debug_prints=True)
       full_dancelist.append(goal)  # allow for wrapping
     print(f'Dance complete!')
 
