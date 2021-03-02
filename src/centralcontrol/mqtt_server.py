@@ -278,7 +278,7 @@ def _calibrate_psu(request, mqtthost):
                             # using smu to measure the current from the photodiode
                             resp = measurement.set_experiment_relay("iv", gp_pcb)
 
-                            if resp != "":
+                            if resp != 0:
                                 _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
                                 return
 
@@ -1059,7 +1059,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 # set the master experiment relay
                 resp = measurement.set_experiment_relay("iv", gp_pcb)
 
-                if resp != "":
+                if resp != 0:
                     _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
                     return
 
@@ -1397,7 +1397,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
                 mo = None
 
             resp = measurement.set_experiment_relay("eqe")
-            if resp != "":
+            if resp != 0:
                 _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
                 return
 

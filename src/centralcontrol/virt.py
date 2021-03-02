@@ -116,6 +116,8 @@ class pcb(object):
     if (len(cmd) == 2) and (cmd[0] == 'l'):  # axis length request
       axi = self.detected_axes.index(cmd[1])
       return str(self.ml[axi])
+    elif (cmd == 'iv') or (cmd == 'eqe'):  # relay selection (must be before ax driver status byte cmd below)
+      return ''
     elif cmd[0] == 'h':  # axis home request
       if len(cmd) == 2:
         operate_on = [cmd[1]]
@@ -173,8 +175,8 @@ class pcb(object):
       return ''
     elif (cmd[0] == 's'):  # pixel selection
       return ''
-    elif (cmd == 'iv') or (cmd == 'iv'):  # relay selection
-      return ''
+    elif (cmd[0] == 'w'):  # firmware request
+      return 'virtual FW version 4'
     else:
       return "Command virtually unsupported"
 
