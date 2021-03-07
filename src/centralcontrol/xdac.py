@@ -12,7 +12,7 @@ class xdac(object):
   req_port = 5555
   sub_port = 5556
 
-  cal_file_name = "calibration.json"
+  cal_file_name = f"xdac_calibration.json"
 
   n_chans = 8
 
@@ -174,31 +174,16 @@ class xdac(object):
     
     offsets = c.mean(0)
 
+    if self.cal_data is None:
+      self.cal_data = {}
+    self.cal_data['current_offsets'] = list(offsets)
+
     plo = pathlib.Path(self.cal_file_name)
-    was_file = plo.is_file()
-    if was_file == True:
-      mode = 'r+'
-    else:
-      mode = 'w'
-    with open(str(plo), mode) as fp:
-      if was_file == True:
-        try:
-          cal_data = json.load(fp)
-        except Exception as e:
-          raise(ValueError(f"Error loading {self.cal_file_name} as json"))
-        if type(cal_data) != dict:
-          raise(ValueError(f"{self.cal_file_name} has incorrect json format"))
-      else:
-        cal_data = {}
-      cal_data['current_offsets'] = list(offsets)
+    with open(str(plo), 'w') as fp:
+      json.dump(self.cal_data, fp)
 
-      # save the new cal to file
-      json.dump(cal_data, fp)
-
-    # make use of the new cal now
-    self.cal_data = cal_data
     self.lg.info('Calibration complete!')
-    self.lg.info(f'Channel offsets = {offsets} mA')
+    self.lg.info(f'Current zero-offsets = {offsets} mA')
 
 # testing
 if __name__ == "__main__":
