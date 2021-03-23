@@ -268,14 +268,15 @@ class k2400:
     # Bit 5 (Math) — Set to 1 if math expression (calc1) is enabled.
     # Bit 6 (Null) — Set to 1 if Null is enabled.
     # Bit 7 (Limits) — Set to 1 if a limit test (calc2) is enabled.
-    # Bits 8 and 9 (Limit Results) — Provides limit test results (see grading  and sorting modes below).
+    # Bits 8 and 9 (Limit Results) — Provides limit test results (see grading and sorting modes below).
     # Bit 10 (Auto-ohms) — Set to 1 if auto-ohms enabled.
     # Bit 11 (V-Meas) — Set to 1 if V-Measure is enabled.
     # Bit 12 (I-Meas) — Set to 1 if I-Measure is enabled.
     # Bit 13 (Ω-Meas) — Set to 1 if Ω-Measure is enabled.
-    # Bit 14 (V-Sour) — Set to 1 if V-Source used.Bit 15 (I-Sour) — Set to 1 if I-Source used.
+    # Bit 14 (V-Sour) — Set to 1 if V-Source used.
+    # Bit 15 (I-Sour) — Set to 1 if I-Source used.
     # Bit 16 (Range Compliance) — Set to 1 if in range compliance.
-    # Bit 17 (Offset Compensation) — Set to 1 if Offset Compensated Ohms is     enabled.
+    # Bit 17 (Offset Compensation) — Set to 1 if Offset Compensated Ohms is enabled.
     # Bit 18 — Contact check failure (see AppendixF).
     # Bits 19, 20 and 21 (Limit Results) — Provides limit test results (see grading and sorting modes below).
     # Bit 22 (Remote Sense) — Set to 1 if 4-wire remote sense selected.
