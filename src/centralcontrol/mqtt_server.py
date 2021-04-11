@@ -1084,6 +1084,10 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     print(f"New substrate using '{pixel['layout']}' layout!")
                     last_label = label
 
+                # force light off for motion if configured
+                if hasattr(measurement, "le") and 'off_during_motoin' in config['solarsim']:
+                    if config['solarsim']['off_during_motion'] == True:
+                        measurement.le.off()
                 # move to pixel
                 measurement.goto_pixel(pixel, mo)
 
