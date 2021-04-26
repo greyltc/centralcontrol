@@ -142,7 +142,7 @@ def _calibrate_eqe(request, mqtthost):
                         pixel_queue = collections.deque(maxlen=1)
                         pixel_queue.append(pixel_dict)
                 else:
-                    # if it's emptpy, assume cal diode is connected externally
+                    # if it's empty, assume cal diode is connected externally
                     pixel_dict = {
                         "label": "external",
                         "layout": None,
@@ -150,6 +150,7 @@ def _calibrate_eqe(request, mqtthost):
                         "pixel": 0,
                         "pos": None,
                         "area": None,
+                        "mux_string": None
                     }
                     pixel_queue = collections.deque()
                     pixel_queue.append(pixel_dict)
@@ -308,7 +309,7 @@ def _calibrate_psu(request, mqtthost):
                             # move to pixel
                             measurement.goto_pixel(pixel, mo)
 
-                            resp = measurement.select_pixel(pixel, gp_pcb)
+                            resp = measurement.select_pixel(pixel["mux_string"], gp_pcb)
                             if resp != 0:
                                 _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
                                 break
@@ -862,6 +863,7 @@ def _build_q(request, experiment):
         pos = [a+b for a,b in zip(center,loc)]
         pixel_dict['pos'] = pos
         pixel_dict['area'] = things['area']
+        pixel_dict['mux_string'] = things['mux_string']
         pixel_q.append(pixel_dict)
     return pixel_q
 
@@ -1092,7 +1094,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 measurement.goto_pixel(pixel, mo)
 
                 # select pixel
-                resp = measurement.select_pixel(pixel, gp_pcb)
+                resp = measurement.select_pixel(pixel['mux_string'], gp_pcb)
                 if resp != 0:
                     _log(f"Mux error: {resp}! Aborting run", 40, mqttc)
                     break
@@ -1428,7 +1430,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
                 # move to pixel
                 measurement.goto_pixel(pixel, mo)
 
-                resp = measurement.select_pixel(pixel, gp_pcb)
+                resp = measurement.select_pixel(pixel['mux_string'], gp_pcb)
                 if resp != 0:
                     _log(f"Mux error: {resp}! Aborting run!", 40, mqttc)
                     break

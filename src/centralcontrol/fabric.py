@@ -546,7 +546,7 @@ class fabric(object):
                     mo.goto(pixel["pos"])
         return 0
 
-    def select_pixel(self, pixel, pcb):
+    def select_pixel(self, mux_string, pcb):
         """Select pixel on the mux.
 
         Parameters
@@ -559,18 +559,15 @@ class fabric(object):
         response : int
             Response code. 0 is good, everything else means fail.
         """
-        ret = 0
-        if hasattr(self, "pcb"):
-            ret = None
-            substrate = pixel["sub_name"]
-            if (substrate) is not None:
-                resp = pcb.query("s")  # open all relays
-                if resp == "":
-                    resp = pcb.query(f"s{substrate}{pixel['pixel']}")  # select the correct pixel
-            else:
-                resp = pcb.query("s")  # open all mux relays
+        ret = None
+        if mux_string is not None:
+            resp = pcb.query("s")  # open all relays
             if resp == "":
-                ret = 0
+                resp = pcb.query(mux_string)  # select the correct pixel
+        else:
+            resp = pcb.query("s")  # open all mux relays
+        if resp == "":
+            ret = 0
         return ret
 
     def set_experiment_relay(self, exp_relay, pcb):

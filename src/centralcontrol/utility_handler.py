@@ -213,7 +213,8 @@ def worker():
 
                         for i, slot in enumerate(task['slots']):
                             dev = task['pads'][i]
-                            p.query(f"s{slot}{dev}")  # select the device
+                            mux_string = task['mux_strings'][i]
+                            p.query(mux_string)  # select the device
                             if task['type'] == 'current':
                                 pass  # TODO: smu measure current command goes here
                             elif task['type'] == 'rtd':
