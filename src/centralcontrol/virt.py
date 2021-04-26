@@ -88,7 +88,7 @@ class pcb(object):
     elif len(self.el) == 3:
       self.detected_axes = ['1', '2', '3']
   def query(self, cmd):
-    print(f"Virtual CALL. Class={type(self).__name}. function={inspect.currentframe().f_code.co_name}. args={args}. kwargs={kwargs}")
+    print(f"Virtual CALL. Class={type(self).__name__}. function={inspect.currentframe().f_code.co_name}. args={args}. kwargs={kwargs}")
     if self.virt_motion_setup == True:
       # now let's do timing related motion calcs
       now = time.time()
