@@ -13,7 +13,8 @@ class pcb(object):
   prompt_string = '>>> '
   prompt = prompt_string.encode()
   #prompt = read_terminator + prompt_string.encode()
-  comms_timeout = socket._GLOBAL_DEFAULT_TIMEOUT
+  comms_timeout = 5.0  # telnet blocking operations timeout
+  response_timeout = 6.0 # give the PCB this long to send a long message
   telnet_host = "localhost"
   telnet_port = 23
   firmware_version = 'unknown'
@@ -53,11 +54,12 @@ class pcb(object):
   def __enter__(self):
     self.tn = self.MyTelnet(self.telnet_host, self.telnet_port, timeout=self.comms_timeout)
     self.sf = self.tn.sock.makefile("rwb", buffering=0)
+    self.tn.sock.settimeout(self.comms_timeout)
 
     if os.name != 'nt':
       pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
 
-    welcome_message, win = self.tn.read_response()
+    welcome_message, win = self.tn.read_response(timeout=self.response_timeout)
 
     if not win:
       raise ValueError('Firmware did not present command prompt on connection')
@@ -114,7 +116,7 @@ class pcb(object):
   # query with no ack check
   def _query(self, query):
     self.write(query)
-    return self.tn.read_response()
+    return self.tn.read_response(timeout=self.comms_timeout)
 
   # query with better error handling and with ack check
   def query(self, query):
@@ -153,7 +155,7 @@ class pcb(object):
 
 # testing
 if __name__ == "__main__":
-  pcb_address = '10.42.0.239'
+  pcb_address = '10.46.0.239'
   with pcb(pcb_address, timeout=1) as p:
     print('Controller connection initiated')
     print(f"Controller firmware version: {p.firmware_version}")

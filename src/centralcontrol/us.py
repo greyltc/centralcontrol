@@ -71,7 +71,7 @@ class us(object):
     print(f"Connected to stage(s) with firmware(s): {self.stage_firmwares}")
     return 0
   
-  def home(self, procedure="default", timeout=float("inf"), expected_lengths=None, allowed_deviation=None):
+  def home(self, procedure="default", timeout=300, expected_lengths=None, allowed_deviation=None):
     t0 = time.time()
     self.pcb.probe_axes()
     self.axes = self.pcb.detected_axes
@@ -128,7 +128,7 @@ class us(object):
           elif action == "g":
             self._wait_for_goto(ax, goal, timeout=timeout-(time.time()-t0), debug_prints=False)
 
-  def _wait_for_home_or_jog(self, ax, timeout=float("inf"), debug_prints=False):
+  def _wait_for_home_or_jog(self, ax, timeout=300, debug_prints=False):
     t0 = time.time()
     ai = self.axes.index(ax)
     poll_cmd = f"l{ax}"
@@ -159,43 +159,43 @@ class us(object):
     if (dt > timeout):
       raise(ValueError(f"Timeout while waiting for axis {ax} to home/jog. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
 
-  def _wait_for_goto(self, ax, goal, timeout=float("inf"), debug_prints=False):
+  def _wait_for_goto(self, ax, goal, timeout=300, debug_prints=False):
+    deque_len = 5
     t0 = time.time()
-    poll_cmd = f"r{ax}"
-    answer = None
-    answer_deque = deque([],3)
-    rslt_pos = -1
-    try:
-      answer = self.pcb.query(poll_cmd)
-      rslt_pos = int(answer)
-    except Exception:
-      print(f"Warning: got unexpected goto poll result: {answer}")
-    answer_deque.append(answer)
-    go_from = rslt_pos/self.steps_per_mm
+    here = self._get_pos(ax)
+    start_mm = here/self.steps_per_mm
+    loc_deque = deque([], deque_len)
+    loc_deque.append(here)
     dt = time.time() - t0
-    while (rslt_pos != goal) and (dt <= timeout):
+    while (here != goal) and (dt <= timeout):
       time.sleep(self.poll_delay)
       if debug_prints == True:
         #print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
         print(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
-      answer = None
-      try:
-        answer = self.pcb.query(poll_cmd)
-        rslt_pos = int(answer)
-      except Exception:
-        print(f"Warning: got unexpected goto poll result: {answer}")
-      answer_deque.append(answer)
-      if len(answer_deque) == 3:
-        if (answer_deque[0] == answer_deque[1]) and (answer_deque[1] == answer_deque[2]):
-          raise(ValueError(f"Motion seems to have stopped on {ax} at {rslt_pos/self.steps_per_mm} while trying to go from ~{go_from} to {goal/self.steps_per_mm}. Recent reading results were {answer_deque}"))
+      here = self._get_pos(ax)
+      loc_deque.append(here)
+      if len(loc_deque) == deque_len:  # deque full
+        unique = set(loc_deque)
+        if len(unique) == 1:
+          raise(ValueError(f"Motion seems to have stopped on {ax} at {unique.pop()/self.steps_per_mm} while trying to go from ~{start_mm} to {goal/self.steps_per_mm}. The loc_deque was {loc_deque}"))
       if debug_prints == True:
         #print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
         print(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
       dt = time.time() - t0
     if (dt > timeout):
-      raise(ValueError(f"Timeout while waiting for axis {ax} to go from {go_from} to {goal/self.steps_per_mm}. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
+      raise(ValueError(f"Timeout while waiting for axis {ax} to go from ~{start_mm} to {goal/self.steps_per_mm}. The duration was {dt} [s] but the limit is {timeout} [s]. The loc_deque was {loc_deque}"))
 
-  def goto(self, targets_mm, timeout=float("inf"), debug_prints=False):
+  # lower level (step based) position request function
+  def _get_pos(self, ax):
+    try:
+      pcb_ans = self.pcb.query(f"r{ax}")
+      rslt_pos = int(pcb_ans)
+    except Exception:
+      print(f"Warning: got unexpected _get_pos result: {pcb_ans}")
+      rslt_pos = -1
+    return (rslt_pos)
+
+  def goto(self, targets_mm, timeout=300, debug_prints=False):
     t0 = time.time()
     targets_step = [round(x*self.steps_per_mm) for x in targets_mm]
     for i, target_step in enumerate(targets_step):
