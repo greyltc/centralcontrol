@@ -12,7 +12,7 @@ class xdac(object):
   req_port = 5555
   sub_port = 5556
 
-  cal_file_name = f"xdac_calibration.json"
+  cal_file_name = "xdac_calibration.json"
 
   n_chans = 8
 
@@ -192,7 +192,7 @@ if __name__ == "__main__":
   x.lg.setLevel(logging.DEBUG)
 
   # edit me
-  do_cal = True
+  do_cal = False
 
   if do_cal == True:
     x.do_current_zero_offset_cal()
