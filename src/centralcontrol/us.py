@@ -196,12 +196,20 @@ class us(object):
     return (rslt_pos)
 
   def goto(self, targets_mm, timeout=300, debug_prints=False):
+    retry_max = 5
     t0 = time.time()
     targets_step = [round(x*self.steps_per_mm) for x in targets_mm]
     for i, target_step in enumerate(targets_step):
       ax = self.axes[i]
       cmd = f"g{ax}{target_step}"
-      answer = self.pcb.query(cmd)
+      retries = 0
+      while (retries <= retry_max):
+        answer = self.pcb.query(cmd)
+        retries = retries + 1
+        if answer == '':
+          break
+        else:
+          print(f"Warning: got unexpected goto command ({cmd}) result: {answer}")
       if answer != '':
         try:
           len_answer = self.pcb.query(f"l{ax}")
