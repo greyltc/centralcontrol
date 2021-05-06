@@ -434,7 +434,7 @@ class k2400:
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
-    if stepDelay == -1 then step delay is on auto (1ms)
+    if stepDelay == -1 then step delay is on auto (1ms), otherwise it's in seconds
     """
     sm = self.sm
     self.opc()
@@ -473,10 +473,11 @@ class k2400:
     sm.write(':source:{:s}:mode sweep'.format(src))
     sm.write(':source:sweep:spacing linear')
     if stepDelay == -1:
-      sm.write(':source:delay:auto on') # this just sets delay to 1ms
+      # this just sets delay to 1ms (probably. the actual delay is in table 3-4, page 97, 3-13 of the k2400 manual)
+      sm.write(':source:delay:auto on')
     else:
       sm.write(':source:delay:auto off')
-      sm.write(':source:delay {:0.6f}'.format(stepDelay))
+      sm.write(f':source:delay {stepDelay:0.6f}') # this value is in seconds!
     self.opc()
     sm.write(':trigger:count {:d}'.format(nPoints))
     sm.write(':source:sweep:points {:d}'.format(nPoints))
