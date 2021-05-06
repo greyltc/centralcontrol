@@ -16,6 +16,7 @@ class k2400:
   last_sweep_time = 0
   readyForAction = False
   four88point1 = False
+  default_comms_timeout = 50000 # in ms
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     self.quiet = quiet
@@ -105,7 +106,7 @@ class k2400:
     return rm
 
   def _getSourceMeter(self, rm):
-    timeoutMS = 30000 # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
+    timeoutMS = self.default_comms_timeout # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
     open_params = {}
     open_params['resource_name'] = self.addressString
 
@@ -235,7 +236,7 @@ class k2400:
     """ Do initial setup for sourcemeter
     """
     sm = self.sm
-    sm.timeout = 50000  #long enough to collect an entire sweep [ms]
+    sm.timeout = self.default_comms_timeout  #long enough to collect an entire sweep [ms]
     self.auto_ohms = False
 
     sm.write(':status:preset')
@@ -475,9 +476,11 @@ class k2400:
     if stepDelay == -1:
       # this just sets delay to 1ms (probably. the actual delay is in table 3-4, page 97, 3-13 of the k2400 manual)
       sm.write(':source:delay:auto on')
+      approx_point_duration = 0.04  # used for calculating dynamic sweep timeout
     else:
       sm.write(':source:delay:auto off')
       sm.write(f':source:delay {stepDelay:0.6f}') # this value is in seconds!
+      approx_point_duration = 0.04 + stepDelay  # used for calculating dynamic sweep timeout
     self.opc()
     sm.write(':trigger:count {:d}'.format(nPoints))
     sm.write(':source:sweep:points {:d}'.format(nPoints))
@@ -493,6 +496,12 @@ class k2400:
 
     sm.write(':system:azero once')
     self.opc() # ensure the instrument is ready after all this
+
+    # calculate the expected sweep duration with safety margin padding
+    max_sweep_duration = nPoints * approx_point_duration * 1.2
+
+    # make sure long sweeps don't result in comms timeouts
+    sm.timeout = max_sweep_duration*1000  # [ms]
 
   def opc(self, sm=None):
     """returns when all operations are complete
@@ -521,7 +530,7 @@ class k2400:
         raise(ValueError("OPC FAIL"))
       # we make sure there are no bytes left in the input buffer
       if opc_timeout == True:
-        time.sleep(2.5)  # wait for the opc commands to unqueue
+        time.sleep(2.6)  # wait for the opc commands to unqueue
       self._flush_input_buffer(sm, delayms=500)
 
   def _stb(self, sm=None):
@@ -607,6 +616,7 @@ class k2400:
         t_end = 0
       self.last_sweep_time = t_end - t_start
       print(f"Sweep duration = {self.last_sweep_time} s")
+      self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep
     
     # update the status byte
     self.status = int(reshaped[-1][-1])
