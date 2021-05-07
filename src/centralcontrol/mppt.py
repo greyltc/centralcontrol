@@ -92,7 +92,6 @@ class mppt:
       print("Learning Voc...")
       # TODO: trouble here if Voc is larger than 3V...
       self.sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='a')
-      self.sm.write(':arm:source immediate') # this sets up the trigger/reading method we'll use below
       ssvocs=self.sm.measureUntil(t_dwell=1)
       self.Voc = ssvocs[-1][0]
     else:
@@ -106,7 +105,6 @@ class mppt:
       current_compliance = self.absolute_current_limit
 
     self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
-    self.sm.write(':arm:source immediate')  # this sets up the trigger/reading method we'll use below
 
     # if no compliance override, do our own compliance set via one single measurement here
     if compliance_override is None:

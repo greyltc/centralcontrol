@@ -654,9 +654,6 @@ class fabric(object):
             setPoint=setPoint,
             senseRange=senseRange,
         )
-        self.sm.write(
-            ":arm:source immediate"
-        )  # this sets up the trigger/reading method we'll use below
 
         raw = self.sm.measureUntil(t_dwell=t_dwell, cb=handler)
 
@@ -689,8 +686,6 @@ class fabric(object):
             end=end,
             senseRange=senseRange,
         )
-        self.sm.write(":arm:source immediate")
-
         handler(raw := self.sm.measure(nPoints))
         return raw
 
@@ -833,7 +828,6 @@ class fabric(object):
 
         # set smu to short circuit and enable output
         self.sm.setupDC(sourceVoltage=True, compliance=self.current_limit, setPoint=0, senseRange="a")
-        self.sm.write(":arm:source immediate")
 
         # set up PSU
         self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
@@ -910,7 +904,6 @@ class fabric(object):
     #     """
     #     failed = 0
     #     self.sm.setupDC(sourceVoltage=False, compliance=5, setPoint=0)
-    #     self.sm.write(":arm:source immediate")
     #     with self.pcb(self.pcb_address) as p:
     #         while len(pixel_queue) > 0:
     #             # get pixel info

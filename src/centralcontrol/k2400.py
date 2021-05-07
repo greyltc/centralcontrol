@@ -315,7 +315,6 @@ class k2400:
           self.sm.write(':sense:voltage:nplcycles 0.1')
           # setup I=0 voltage measurement
           self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='f', auto_ohms=False)
-          self.sm.write(':arm:source immediate')
         else:
           self.sm.write(':output:smode himpedance')
           self.outOn(on=False)
@@ -622,9 +621,9 @@ class k2400:
       v_start = first_element[0]
       v_end = last_element[0]
       self.last_sweep_time = t_end - t_start
-      print(f"Sweep duration = {self.last_sweep_time} [s]")
-      print(f"Average sweep point time = {self.last_sweep_time/len(reshaped)*1000} [ms]")
-      print(f"Sweep rate = {(v_start-v_end)/self.last_sweep_time} V/s")
+      print(f"Sweep duration = {self.last_sweep_time:0.2f} [s]")
+      print(f"Average sweep point time = {self.last_sweep_time/len(reshaped)*1000:0.0f} [ms]")
+      print(f"Sweep rate = {(v_start-v_end)/self.last_sweep_time:0.3f} V/s")
       self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep
     
     # update the status byte
@@ -691,9 +690,6 @@ if __name__ == "__main__":
   # setup DC resistance measurement
   k.setupDC(auto_ohms=True)
 
-  # this sets up the trigger/reading method we'll use below
-  k.write(':arm:source immediate')
-
   print(f"One auto ohms measurement: {k.measure()}")
 
   # measure 
@@ -718,9 +714,6 @@ if __name__ == "__main__":
 
   print(f"One V=0 measurement: {k.measure()}")
 
-  # this sets up the trigger/reading method we'll use below
-  k.write(':arm:source immediate')
-  
   # measure 
   mTime = 10
   k.setNPLC(0.01)

@@ -1028,7 +1028,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
     )
     measurement.le.set_intensity(int(args["light_recipe_int"]))
 
-    source_delay = args["source_delay"]
+    source_delay = args["source_delay"]/1000  # scale this from ms to s because that's what the SMU wants
     last_label = None
 
     fake_pcb = measurement.fake_pcb
@@ -1190,7 +1190,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                         sweep_args['senseRange'] = sense_range
                         sweep_args['compliance'] = compliance_i
                         sweep_args['nPoints'] = int(args["iv_steps"])
-                        sweep_args['stepDelay'] = source_delay/1000  # scale this from ms to s because that's what the SMU wants
+                        sweep_args['stepDelay'] = source_delay
                         sweep_args['start'] = args["sweep_start"]
                         sweep_args['end'] = args["sweep_end"]
                         sweep_args['NPLC'] = args["nplc"]
