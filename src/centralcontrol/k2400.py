@@ -439,6 +439,10 @@ class k2400:
     """
     sm = self.sm
     self.opc()
+
+    nplc = self.getNPLC()
+    approx_measure_time = 1000/50*nplc  # [ms] assume 50Hz line freq just because that's safer
+
     if sourceVoltage:
       src = 'voltage'
       snc = 'current'
@@ -476,11 +480,11 @@ class k2400:
     if stepDelay == -1:
       # this just sets delay to 1ms (probably. the actual delay is in table 3-4, page 97, 3-13 of the k2400 manual)
       sm.write(':source:delay:auto on')
-      approx_point_duration = 0.04  # used for calculating dynamic sweep timeout
+      approx_point_duration = 5 + approx_measure_time  # used for calculating dynamic sweep timeout [ms]
     else:
       sm.write(':source:delay:auto off')
       sm.write(f':source:delay {stepDelay:0.6f}') # this value is in seconds!
-      approx_point_duration = 0.04 + stepDelay  # used for calculating dynamic sweep timeout
+      approx_point_duration = stepDelay*1000 + approx_measure_time  # [ms] used for calculating dynamic sweep timeout
     self.opc()
     sm.write(':trigger:count {:d}'.format(nPoints))
     sm.write(':source:sweep:points {:d}'.format(nPoints))
@@ -498,11 +502,11 @@ class k2400:
     self.opc() # ensure the instrument is ready after all this
 
     # calculate the expected sweep duration with safety margin padding
-    max_sweep_duration = nPoints * approx_point_duration * 1.2
+    max_sweep_duration = nPoints * approx_point_duration * 1.2  # [ms]
 
     # make sure long sweeps don't result in comms timeouts
     max_transport_time = 10000 # [ms] let's assume no sweep will ever take longer than 10s to transport
-    sm.timeout = max_sweep_duration*1000 + max_transport_time  # [ms]
+    sm.timeout = max_sweep_duration + max_transport_time  # [ms]
 
   def opc(self, sm=None):
     """returns when all operations are complete
@@ -615,8 +619,12 @@ class k2400:
       else:
         t_start = 0
         t_end = 0
+      v_start = first_element[0]
+      v_end = last_element[0]
       self.last_sweep_time = t_end - t_start
-      print(f"Sweep duration = {self.last_sweep_time} s")
+      print(f"Sweep duration = {self.last_sweep_time} [s]")
+      print(f"Average sweep point time = {self.last_sweep_time/len(reshaped)*1000} [ms]")
+      print(f"Sweep rate = {(v_start-v_end)/self.last_sweep_time} V/s")
       self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep
     
     # update the status byte
