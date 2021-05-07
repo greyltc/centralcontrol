@@ -501,7 +501,8 @@ class k2400:
     max_sweep_duration = nPoints * approx_point_duration * 1.2
 
     # make sure long sweeps don't result in comms timeouts
-    sm.timeout = max_sweep_duration*1000  # [ms]
+    max_transport_time = 10000 # [ms] let's assume no sweep will ever take longer than 10s to transport
+    sm.timeout = max_sweep_duration*1000 + max_transport_time  # [ms]
 
   def opc(self, sm=None):
     """returns when all operations are complete
