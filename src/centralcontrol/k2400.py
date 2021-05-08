@@ -434,7 +434,7 @@ class k2400:
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
-    if stepDelay == -1 then step delay is on auto (1ms), otherwise it's in seconds
+    if stepDelay < 0 then step delay is on auto (~5ms), otherwise it's setr to the value here (in seconds)
     """
     sm = self.sm
     self.opc()
@@ -476,7 +476,7 @@ class k2400:
     sm.write(':output on')
     sm.write(':source:{:s}:mode sweep'.format(src))
     sm.write(':source:sweep:spacing linear')
-    if stepDelay == -1:
+    if stepDelay < 0:
       # this just sets delay to 1ms (probably. the actual delay is in table 3-4, page 97, 3-13 of the k2400 manual)
       sm.write(':source:delay:auto on')
       approx_point_duration = 5 + approx_measure_time  # used for calculating dynamic sweep timeout [ms]
@@ -500,7 +500,7 @@ class k2400:
     sm.write(':system:azero once')
     self.opc() # ensure the instrument is ready after all this
 
-    # calculate the expected sweep duration with safety margin padding
+    # calculate the expected sweep duration with safety margin
     max_sweep_duration = nPoints * approx_point_duration * 1.2  # [ms]
 
     # make sure long sweeps don't result in comms timeouts
