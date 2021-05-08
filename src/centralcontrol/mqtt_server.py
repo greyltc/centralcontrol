@@ -1446,7 +1446,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
                 # if time constant is longer than 1s the instrument aborts its autogain
                 # function so need to make sure "user" is used under these conditions
                 if ((auto_gain_method := config["lia"]["auto_gain_method"]) == "instr") and (
-                    measurement.lia.time_contstants[args["eqe_int"]] > 1
+                    measurement.lia.time_constants[args["eqe_int"]] > 1
                 ):
                     auto_gain_method = "user"
                     _log(
