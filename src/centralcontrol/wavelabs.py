@@ -79,6 +79,7 @@ class wavelabs:
     self.default_recipe = default_recipe
     
   def __del__(self):
+    print("Shutting down connection to wavelabs software")
     try:
       self.connection.settimeout(1)
     except Exception as e:
