@@ -1169,7 +1169,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                     if sweep == "dark":
                         if hasattr(measurement, "le"):
                             measurement.le.off()
-                        sense_range = "a"
+                        sense_range = "f"
                     else:
                         if hasattr(measurement, "le"):
                             measurement.le.on()
