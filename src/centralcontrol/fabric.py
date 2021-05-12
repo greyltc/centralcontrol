@@ -78,7 +78,7 @@ class fabric(object):
         if imax is not None:
             ret_val = imax
         elif (area is not None) and (jmax is not None):
-            ret_val = jmax/area/1000  #scale mA to A
+            ret_val = jmax*area/1000  #scale mA to A
         
         # enforce the global current limit
         if ret_val > self.current_limit:
