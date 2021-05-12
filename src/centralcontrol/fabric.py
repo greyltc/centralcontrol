@@ -67,35 +67,25 @@ class fabric(object):
         self.disconnect_all_instruments()
         print("cleaned up successfully")
 
-    def compliance_current_guess(self, area=None):
+    def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
-
-        Parameters
-        ----------
-        area : float
-            Device area in cm^2.
+        area in cm^2 (defaults to 0.5cm^2 if not given)
+        jmax in mA/cm^2 (defaults to 50mA/cm^2 if not given)
+        imax in A (overrides jmax/area calc)
+        returns value in A
         """
-        # set maximum current density (in mA/cm^2) slightly higher than an ideal Si
-        # cell
-        max_j = 50
-
-        print(f"compliance area: {area}")
-
-        # calculate equivalent current in A for given device area
-        # multiply by 5 to allow more data to be taken in forward bias (useful for
-        # equivalent circuit fitting)
-        # reduce to maximum compliance of keithley 2400 if too high
-        if area is None:
-            # no area info given so can't make a calcualted guess
-            compliance_i = 1
-        elif (compliance_i := 5 * max_j * area / 1000) > 1:
-            compliance_i = 1
-
+        ret_val = 0.5*0.05  # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
+        if imax is not None:
+            ret_val = imax
+        elif (area is not None) and (jmax is not None):
+            ret_val = jmax/area/1000  #scale mA to A
+        
         # enforce the global current limit
-        if compliance_i > self.current_limit:
-            compliance_i = self.current_limit
-
-        return compliance_i
+        if ret_val > self.current_limit:
+            print("Warning: Detected & denied an attempt to damage equipment through overcurrent")
+            ret_val = self.current_limit
+        
+        return ret_val
 
     def _connect_smu(
         self,

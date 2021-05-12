@@ -1103,7 +1103,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                 ssvoc = None
 
                 # get or estimate compliance current
-                compliance_i = measurement.compliance_current_guess(pixel["area"])
+                compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
                 measurement.mppt.current_compliance = compliance_i
 
                 # setup data handler
@@ -1120,9 +1120,7 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
 
                 # "Voc" if
                 if args["i_dwell"] > 0:
-                    _log(
-                        f"Measuring voltage output at constant current on {idn}.", 20, mqttc,
-                    )
+                    _log(f"Measuring voltage output at constant current on {idn}.", 20, mqttc)
                     # Voc needs light
                     if hasattr(measurement, "le"):
                         measurement.le.on()
@@ -1132,12 +1130,13 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                         dh.kind = kind
                         _clear_plot(kind, mqttc)
 
+                    # constant current dwell step
                     vt = measurement.steady_state(
                         t_dwell=args["i_dwell"],
                         NPLC=args["nplc"],
                         sourceVoltage=False,
-                        compliance=3,
-                        senseRange="a",
+                        compliance=config["ccd"]["max_voltage"],
+                        senseRange="a",  # NOTE: "a" can possibly cause unknown delays between points
                         setPoint=args["i_dwell_value"],
                         handler=handler,
                     )
@@ -1441,7 +1440,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, calibration=False):
                     mqttc,
                 )
 
-                compliance_i = measurement.compliance_current_guess(pixel["area"])
+                compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
 
                 # if time constant is longer than 1s the instrument aborts its autogain
                 # function so need to make sure "user" is used under these conditions
