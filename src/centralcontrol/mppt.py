@@ -65,7 +65,7 @@ class mppt:
         self.Vmpp = Vmpp
         self.Impp = Impp
         self.Pmax = Pmax
-        print("V_mpp = {self.Vmpp}[V]\nI_mpp = {self.Impp}[A]\nP_max = {self.Pmax}[W]")
+        print(f"V_mpp = {self.Vmpp}[V]\nI_mpp = {self.Impp}[A]\nP_max = {self.Pmax}[W]")
         if ((min(v)<=0) and (max(v)>=0)):  # if we had data on both sizes of 0V, then we can estimate Isc
           self.Isc = Isc
           print("I_sc = {self.Isc}[A]")
