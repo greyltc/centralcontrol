@@ -679,7 +679,7 @@ class fabric(object):
         handler(raw := self.sm.measure(nPoints))
         return raw
 
-    def track_max_power(self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None):
+    def track_max_power(self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None, voc_compliance=3, i_limit=0.04):
         """Track maximum power point.
 
         Parameters
@@ -697,7 +697,7 @@ class fabric(object):
         """
         message = "Tracking maximum power point for {:} seconds".format(duration)
 
-        raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra, callback=handler)
+        raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra, callback=handler, voc_compliance=voc_compliance, i_limit=i_limit)
         self.mppt.reset()
 
         return raw

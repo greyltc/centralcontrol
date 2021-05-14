@@ -55,19 +55,28 @@ class mppt:
     Pmax = p[maxIndex]
     Impp = i[maxIndex]
     if light is True:  # this was from a light i-v curve
+      print(f"MPPT IV curve inspector investigating new light curve params: {(Pmax, Vmpp, Impp, Voc, Isc)}")
       if (self.Pmax is None) or (Pmax > self.Pmax):
+        if self.Pmax is None:
+          because = "there was no previous one."
+        else:
+          because = f"we beat the old max power value, {Pmax} > f{self.Pmax} [W]"
+        print(f"New refrence IV curve found for MPPT algo because {because}")
         self.Vmpp = Vmpp
         self.Impp = Impp
         self.Pmax = Pmax
-        if min(v) <=0 and max(v)>=0:  # if we had data on both sizes of 0V, then we can estimate Isc
+        print("V_mpp = {self.Vmpp}[V]\nI_mpp = {self.Impp}[A]\nP_max = {self.Pmax}[W]")
+        if ((min(v)<=0) and (max(v)>=0)):  # if we had data on both sizes of 0V, then we can estimate Isc
           self.Isc = Isc
+          print("I_sc = {self.Isc}[A]")
           self.current_compliance = abs(Isc)*3
-        if min(i) <=0 and max(i)>=0:  # if we had data on both sizes of 0A, then we can estimate Voc
+        if ((min(i) <=0) and (max(i)>=0)):  # if we had data on both sizes of 0A, then we can estimate Voc
           self.Voc = Voc
+          print("V_oc = {self.Voc}[V]")
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
 
-  def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, delay=0, compliance_override=None, extra="basic://7:10"):
+  def launch_tracker(self, duration=30, callback=lambda x:None, NPLC=-1, delay=0, voc_compliance=3, i_limit=0.04, extra="basic://7:10"):
     """
     general function to call begin a max power point tracking algorithm
     duration given in seconds, optionally calling callback function on each measurement point
@@ -77,45 +86,26 @@ class mppt:
     self.t0 = time.time()  # start the mppt timer
     self.delay = delay
 
-    if self.current_compliance is None:
-      current_compliance = 0.04  # assume 40mA compliance if nobody told us otherwise
-    else:
-      current_compliance = self.current_compliance
-    
-    if compliance_override is not None:
-      current_compliance = compliance_override
-      
+    if (self.current_compliance is None) or (i_limit < self.current_compliance):
+      self.current_compliance = i_limit
+
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
-    
+
     if (self.Voc is None):
-      print("Learning Voc...")
-      # TODO: trouble here if Voc is larger than 3V...
-      self.sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange='a')
+      self.sm.setupDC(sourceVoltage=False, compliance=voc_compliance, setPoint=0, senseRange='a')
       ssvocs=self.sm.measureUntil(t_dwell=1)
       self.Voc = ssvocs[-1][0]
+      print(f"mppt algo had to find V_oc = {self.Voc} [V] because nobody gave us any voltage info...")
     else:
       ssvocs = []
 
     if self.Vmpp is None:
-      self.Vmpp = 0.7 * self.Voc # start at 70% of Voc if nobody told us otherwise
+      self.Vmpp = 0.7 * self.Voc  # start at 70% of Voc if nobody told us otherwise
+      print(f"mppt algo assuming V_mpp = {self.Vmpp} [V] from V_oc because nobody told us otherwise...")
 
-    # clamp current to global limit
-    if current_compliance > self.absolute_current_limit:
-      current_compliance = self.absolute_current_limit
-
-    self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
-
-    # if no compliance override, do our own compliance set via one single measurement here
-    if compliance_override is None:
-      m.append(cm:=self.sm.measure()[0])
-      callback(cm)
-      current_compliance = abs(cm[1] * 2)  # current compliance is 2x impp
-      # clamp current to global limit
-      if current_compliance > self.absolute_current_limit:
-        current_compliance = self.absolute_current_limit
-      self.sm.setupDC(sourceVoltage=True, compliance=current_compliance, setPoint=self.Vmpp, senseRange='f')
-      self.current_compliance = current_compliance
+    # get the smu ready for doing the mppt
+    self.sm.setupDC(sourceVoltage=True, compliance=self.current_compliance, setPoint=self.Vmpp, senseRange='f')
 
     if self.Voc >= 0:
       self.voltage_lock = True  # lock mppt voltage to be >0
@@ -136,16 +126,16 @@ class mppt:
         m.append(m_tracked:=self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1]))
     elif (algo == 'gd'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback, delay=1000))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback, delay=1000, snaith_mode=False))
       else:
         params = params.split(':')
         if len(params) != 4:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]"))
         params = [float(f) for f in params]
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay=params[3]))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay=params[3], snaith_mode=False))
     elif (algo == 'snaith'):
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.1, min_step=0.001, NPLC=10, callback=callback, delay=1000, snaith_mode=True))
+        m.append(m_tracked:=self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=5, min_step=0.001, NPLC=10, callback=callback, delay=1000, snaith_mode=True))
       else:
         params = params.split(':')
         if len(params) != 4:
@@ -180,11 +170,12 @@ class mppt:
     print(f"NPLC = {self.sm.getNPLC()}")
     print(f"Snaith mode = {snaith_mode}")
     print(f"Source-measure delay = {self.delay} [ms]")
+    print(f"V_initial = {start_voltage} [V]")
 
     self.q = deque()
-    m = deque(maxlen=2) # keeps two measurements
-    x = deque(maxlen=2) # keeps two x values
-    y = deque(maxlen=2) # keeps two loss(y) values
+    m = deque(maxlen=2)  # keeps two measurements
+    x = deque(maxlen=2)  # keeps two x values
+    y = deque(maxlen=2)  # keeps two loss(y) values
 
     if snaith_mode == True:
       duration = duration - snaith_pre_soak_t - snaith_post_soak_t

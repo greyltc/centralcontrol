@@ -1265,6 +1265,8 @@ def _ivt(pixel_queue, request, measurement, mqttc, calibration=False, rtd=False)
                         args["mppt_dwell"],
                         NPLC=args["nplc"],
                         extra=args["mppt_params"],
+                        voc_compliance=config["ccd"]["max_voltage"],
+                        i_limit=compliance_i,
                         handler=handler,
                     )
 
