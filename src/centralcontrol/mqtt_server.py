@@ -1,15 +1,8 @@
 #!/usr/bin/env python3
 """MQTT Server for interacting with the system."""
 
-# this boilerplate allows this module to be run directly as a script
-if __name__ == "__main__" and (__package__ is None or __package__ == ""):
-    __package__ = "centralcontrol"
-    from pathlib import Path
-    import sys
-    # get the dir that holds __package__ on the front of the search path
-    print(__file__)
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
+from pathlib import Path
+import sys
 import argparse
 import collections
 import multiprocessing
@@ -25,6 +18,13 @@ import paho.mqtt.client as mqtt
 import paho.mqtt.publish as publish
 
 from mqtt_tools.queue_publisher import MQTTQueuePublisher
+
+# this boilerplate code allows this module to be run directly as a script
+if (__name__ == "__main__") and (__package__ in [None, '']):
+  __package__ = "centralcontrol"
+  # get the dir that holds __package__ on the front of the search path
+  sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from .fabric import fabric
 
 def get_args():
@@ -295,7 +295,7 @@ def _calibrate_psu(request, mqtthost):
                             # add id str to handlers to display on plots
                             idn = f"{label}_pixel{pix}"
 
-                            print(pixel)
+                            #print(pixel)
 
                             # we have a new substrate
                             if last_label != label:
@@ -307,7 +307,9 @@ def _calibrate_psu(request, mqtthost):
                                 last_label = label
 
                             # move to pixel
+                            #_log(f"Initiating movement to {idn}", 10, mqttc)
                             measurement.goto_pixel(pixel, mo)
+                            #_log(f"Movement complete.", 10, mqttc)
 
                             resp = measurement.select_pixel(pixel["mux_string"], gp_pcb)
                             if resp != 0:
