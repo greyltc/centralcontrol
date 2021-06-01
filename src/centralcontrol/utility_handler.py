@@ -68,7 +68,7 @@ class UtilityHandler(object):
 
   # The callback for when the client receives a CONNACK response from the server.
   def on_connect(self, client, userdata, flags, rc):
-    print("Connected with result code "+str(rc))
+    self.lg.debug(f"Connected with result code {rc}")
 
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
@@ -405,6 +405,7 @@ class UtilityHandler(object):
 
   # send up a log message to the status channel
   def log_msg(self, msg, lvl=logging.DEBUG):
+    self.lg(f'Message to client: {msg}')
     payload = {'log':{'level':lvl, 'text':msg}}
     payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
     output = {'destination':'status', 'payload': payload}
