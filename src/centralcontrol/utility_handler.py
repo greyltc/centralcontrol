@@ -405,7 +405,7 @@ class UtilityHandler(object):
 
   # send up a log message to the status channel
   def log_msg(self, msg, lvl=logging.DEBUG):
-    self.lg(f'Message to client: {msg}')
+    self.lg.info(f'Message to client: {msg}')
     payload = {'log':{'level':lvl, 'text':msg}}
     payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
     output = {'destination':'status', 'payload': payload}
@@ -473,7 +473,7 @@ class UtilityHandler(object):
     # manual interface.
     self.client.loop_forever()
 
-if __name__ == "__main__":
+def main():
   parser = argparse.ArgumentParser(description='Utility handler')
   parser.add_argument('-a', '--address', type=str, default='127.0.0.1', help='ip address/hostname of the mqtt server')
   parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
@@ -481,3 +481,6 @@ if __name__ == "__main__":
 
   u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
   u.run()
+
+if __name__ == "__main__":
+  main()
