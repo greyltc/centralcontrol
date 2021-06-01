@@ -46,7 +46,10 @@ class UtilityHandler(object):
   # for outgoing messages
   outputq = queue.Queue()
 
-  def __init__(self):
+  def __init__(self, mqtt_server_address='127.0.0.1', mqtt_server_port=1883):
+    self.mqtt_server_address = mqtt_server_address
+    self.mqtt_server_port = mqtt_server_port
+
     # setup logging
     self.lg = logging.getLogger(f'{__package__}.{__class__.__name__}')
     self.lg.setLevel(logging.DEBUG)
@@ -445,11 +448,6 @@ class UtilityHandler(object):
     return t
 
   def run(self):
-    parser = argparse.ArgumentParser(description='Utility handler')
-    parser.add_argument('-a', '--address', type=str, default='127.0.0.1', help='ip address/hostname of the mqtt server')
-    parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
-    args = parser.parse_args()
-
     self.loop = GLib.MainLoop.new(None, False)
 
     # start the manager (decides what to do with commands from mqtt)
@@ -463,11 +461,10 @@ class UtilityHandler(object):
     self.client.on_message = self.handle_message
 
     # connect to the mqtt server
-    self.client.connect(args.address, port=args.port, keepalive=60)
+    self.client.connect(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
 
     # start the sender (publishes messages from worker and manager)
     threading.Thread(target=self.sender, args=(self.client,)).start()
-
 
     # Blocking call that processes network traffic, dispatches callbacks and
     # handles reconnecting.
@@ -476,5 +473,10 @@ class UtilityHandler(object):
     self.client.loop_forever()
 
 if __name__ == "__main__":
-  u = UtilityHandler()
+  parser = argparse.ArgumentParser(description='Utility handler')
+  parser.add_argument('-a', '--address', type=str, default='127.0.0.1', help='ip address/hostname of the mqtt server')
+  parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
+  args = parser.parse_args()
+
+  u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
   u.run()
