@@ -434,7 +434,7 @@ class k2400:
     """setup for a sweep operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
-    if stepDelay < 0 then step delay is on auto (~5ms), otherwise it's setr to the value here (in seconds)
+    if stepDelay < 0 then step delay is on auto (~5ms), otherwise it's set to the value here (in seconds)
     """
     sm = self.sm
     self.opc()
