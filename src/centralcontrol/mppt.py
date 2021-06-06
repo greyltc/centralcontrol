@@ -10,6 +10,7 @@ class mppt:
   """
   Voc = None
   Isc = None
+  Mmpp = None  # measurement from max power point
   Vmpp = None  # voltage at max power point
   Impp = None  # current at max power point
   Pmax = None  # power at max power point (for keeping track of voc and isc)
@@ -29,9 +30,10 @@ class mppt:
   def reset(self):
     self.Voc = None
     self.Isc = None
+    self.Mmpp = None  # measurement from max power point
     self.Vmpp = None  # voltage at max power point
     self.Impp = None  # current at max power point
-    self.Pmax = None
+    self.Pmax = None  # power at max power point
     self.abort = False
     self.delay = 0
 
@@ -46,6 +48,7 @@ class mppt:
     """
     v = numpy.array([e[0] for e in vector])
     i = numpy.array([e[1] for e in vector])
+    t = numpy.array([e[2] for e in vector])
     p = v * i * -1
     iscIndex = numpy.argmin(abs(v))
     Isc = i[iscIndex]
@@ -55,6 +58,7 @@ class mppt:
     Vmpp = v[maxIndex]
     Pmax = p[maxIndex]
     Impp = i[maxIndex]
+    Tmpp = t[maxIndex]
     if light is True:  # this was from a light i-v curve
       print(f"MPPT IV curve inspector investigating new light curve params: {(Pmax, Vmpp, Impp, Voc, Isc)}")
       if (self.Pmax is None) or (Pmax > self.Pmax):
@@ -66,6 +70,7 @@ class mppt:
         self.Vmpp = Vmpp
         self.Impp = Impp
         self.Pmax = Pmax
+        self.Mmpp = (Vmpp, Impp, Tmpp)  # store off measurement value for this one
         print(f"V_mpp = {self.Vmpp}[V]\nI_mpp = {self.Impp}[A]\nP_max = {self.Pmax}[W]")
         if ((min(v) <= 0) and (max(v) >= 0)):  # if we had data on both sizes of 0V, then we can estimate Isc
           self.Isc = Isc
@@ -131,13 +136,13 @@ class mppt:
       else:
         do_snaith = False
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.1, min_step=0.001, NPLC=10, callback=callback, delay=1000, snaith_mode=do_snaith, max_step=0.1))
+        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.1, min_step=0.001, NPLC=-1, callback=callback, delay=1000, snaith_mode=do_snaith, max_step=0.1, momentum=0))
       else:
         params = params.split(':')
-        if len(params) != 5:
-          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]"))
+        if len(params) != 6:
+          raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]"))
         params = [float(f) for f in params]
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay=params[3], snaith_mode=do_snaith, max_step=params[4]))
+        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5]))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
 
@@ -146,7 +151,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.1, min_step=0.001, NPLC=-1, snaith_mode=False, delay=1000, max_step=0.1):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.1, min_step=0.001, NPLC=-1, snaith_mode=False, delay=1000, max_step=0.1, momentum=0):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -160,12 +165,13 @@ class mppt:
       self.sm.setNPLC(NPLC)
     print("===Starting up gradient descent maximum power point tracking algorithm===")
     print(f"Learning rate (alpha) = {alpha}")
+    print(f"V_initial = {start_voltage} [V]")
+    print(f"Momentum = {momentum}")
     print(f"Smallest step (min_step) = {min_step*1000} [mV]")
     print(f"Largest step (max_step) = {max_step*1000} [mV]")
     print(f"NPLC = {self.sm.getNPLC()}")
     print(f"Snaith mode = {snaith_mode}")
     print(f"Source-measure delay = {self.delay} [ms]")
-    print(f"V_initial = {start_voltage} [V]")
 
     self.q = deque()
     m = deque(maxlen=2)  # keeps two measurements
@@ -178,16 +184,22 @@ class mppt:
       print("Snaith Pre Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
       spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
       self.q.extend(spos)
+      self.Mmpp = spos[-1]
 
     # the loss function we'll be minimizing here is power produced by the sourcemeter
     loss = lambda a, b, t: a * b * -1
 
-    # do one bootstrap measurement
+    # register a bootstrap measurement
     W = start_voltage
-    m.append(self.measure(W, callback=callback))
+    if self.Mmpp is None:
+      m.append(self.measure(W, callback=callback))
+    else:
+      # take the bootstrap measurement to be the one from the best i-v curve's mppt (if we have that)
+      m.append(self.Mmpp)
     x.append(W)
     y.append(loss(*m[-1]))
-    run_time = m[-1][2] - self.t0  # recompute runtime
+    run_time = time.time() - self.t0
+    v_step = 0
 
     # get the sign of a number
     sign = lambda x: (1, -1)[int(x < 0)]
@@ -200,7 +212,7 @@ class mppt:
       run_time = time.time() - self.t0  # recompute runtime
       if x[-1] != x[-2]:  # prevent div by zero
         gradient = (y[-1] - y[-2]) / (x[-1] - x[-2])  # calculate the slope in the loss function from the last two measurements
-        v_step = alpha * gradient  # calculate the voltage step size based on alpha and the gradient
+        v_step = alpha * gradient + momentum * v_step # calculate the voltage step size based on the learning rate, the gradient and the momentum
       else:  # handle div by zero
         some_sign = random.choice([-1, 1])
         if min_step == 0:
