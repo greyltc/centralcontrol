@@ -431,8 +431,12 @@ class fabric(object):
             Response code. 0 is good, everything else means fail.
         """
     if hasattr(self, "motion"):
-      if pixel["pos"] is not None:
-        mo.goto(pixel["pos"])
+      # ignore motion to position None and to places infinately far away
+      # inf appears when the user wishes to disable motion for a specific pixel
+      # in the layout configuration file
+      there = pixel["pos"]
+      if (there is not None) and (float("inf") not in there):
+        mo.goto(there)
     return 0
 
   def select_pixel(self, mux_string, pcb):

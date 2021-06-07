@@ -365,7 +365,10 @@ def _build_q(request, experiment):
     loc = things['loc']
     pos = [a + b for a, b in zip(center, loc)]
     pixel_dict['pos'] = pos
-    pixel_dict['area'] = things['area']
+    if things['area'] == -1:  # handle custom area
+      pixel_dict['area'] = args['a_ovr_spin']
+    else:
+      pixel_dict['area'] = things['area']
     pixel_dict['mux_string'] = things['mux_string']
     pixel_q.append(pixel_dict)
   return pixel_q
