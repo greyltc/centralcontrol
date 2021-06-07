@@ -77,7 +77,7 @@ class mppt:
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
 
-def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:0.01"):
+def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:10"):
     """
     general function to call begin a max power point tracking algorithm
     duration given in seconds, optionally calling callback function on each measurement point
