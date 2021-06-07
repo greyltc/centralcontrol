@@ -550,8 +550,6 @@ class fabric(object):
             Length of time to track max power for in seconds.
         NPLC : float or int
             Number of power line cycles. If -1, keep using previous setting.
-        step_delay : float or int
-            Settling delay. If -1, set to auto.
         extra : str
             Extra protocol settings to pass to mppt.
         handler : handler object
