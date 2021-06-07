@@ -134,13 +134,13 @@ class mppt:
       else:
         do_snaith = False
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.8, min_step=0.001, NPLC=-1, callback=callback, delay=1000, snaith_mode=do_snaith, max_step=0.1, momentum=0, delta_zero=0))
+        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.8, min_step=0.001, NPLC=-1, callback=callback, delay_ms=1000, snaith_mode=do_snaith, max_step=0.1, momentum=0, delta_zero=0))
       else:
         params = params.split(':')
         if len(params) != 7:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]"))
         params = [float(f) for f in params]
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6]))
+        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6]))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
 
@@ -291,9 +291,9 @@ class mppt:
     dwell_time, dwell period duration in seconds
     """
     print("===Starting up dumb maximum power point tracking algorithm===")
-    print(f'dAngleMax = {dAngleMax}')
-    print(f'dwell_time = {dwell_time}')
-    print(f'sweep_delay = {sweep_delay_ms}')
+    print(f'dAngleMax = {dAngleMax} [deg]')
+    print(f'dwell_time = {dwell_time} [s]')
+    print(f'sweep_delay_ms = {sweep_delay_ms} [ms]')
 
     # work in voltage steps that are this fraction of Voc
     dV = self.Voc / 301
