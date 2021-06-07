@@ -435,7 +435,7 @@ class fabric(object):
       # inf appears when the user wishes to disable motion for a specific pixel
       # in the layout configuration file
       there = pixel["pos"]
-      if (there is not None) and (float("inf") not in there):
+      if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
         mo.goto(there)
     return 0
 
