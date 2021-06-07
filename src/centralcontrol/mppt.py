@@ -19,12 +19,11 @@ class mppt:
   # under no circumstances should we violate this
   absolute_current_limit = 0.1  # always safe default
 
-  currentCompliance = None
   t0 = None  # the time we started the mppt algorithm
 
   def __init__(self, sm, absolute_current_limit):
     self.sm = sm
-    self.absolute_current_limit = absolute_current_limit
+    self.absolute_current_limit = abs(absolute_current_limit)
 
   def reset(self):
     self.Voc = None
@@ -35,7 +34,6 @@ class mppt:
     self.Pmax = None  # power at max power point
     self.abort = False
 
-    self.current_compliance = None
     self.t0 = None  # the time we started the mppt algorithm
 
   def register_curve(self, vector, light=True):
@@ -73,14 +71,13 @@ class mppt:
         if ((min(v) <= 0) and (max(v) >= 0)):  # if we had data on both sizes of 0V, then we can estimate Isc
           self.Isc = Isc
           print("I_sc = {self.Isc}[A]")
-          self.current_compliance = abs(Isc) * 3
         if ((min(i) <= 0) and (max(i) >= 0)):  # if we had data on both sizes of 0A, then we can estimate Voc
           self.Voc = Voc
           print("V_oc = {self.Voc}[V]")
     # returns maximum power[W], Vmpp, Impp and the index
     return (Pmax, Vmpp, Impp, maxIndex)
 
-  def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.04, extra="basic://7:10"):
+def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:0.01"):
     """
     general function to call begin a max power point tracking algorithm
     duration given in seconds, optionally calling callback function on each measurement point
@@ -88,8 +85,8 @@ class mppt:
     m = []  # list holding mppt measurements
     self.t0 = time.time()  # start the mppt timer
 
-    if (self.current_compliance is None) or (i_limit < self.current_compliance):
-      self.current_compliance = i_limit
+    if abs(i_limit) > abs(self.absolute_current_limit):
+      i_limit = abs(self.absolute_current_limit)
 
     if NPLC != -1:
       self.sm.setNPLC(NPLC)
@@ -107,7 +104,7 @@ class mppt:
       print(f"mppt algo assuming V_mpp = {self.Vmpp} [V] from V_oc because nobody told us otherwise...")
 
     # get the smu ready for doing the mppt
-    self.sm.setupDC(sourceVoltage=True, compliance=self.current_compliance, setPoint=self.Vmpp, senseRange='f')
+    self.sm.setupDC(sourceVoltage=True, compliance=i_limit, setPoint=self.Vmpp, senseRange='f')
 
     # this locks the smu to the device's power quadrant
     if self.Voc >= 0:
@@ -134,7 +131,7 @@ class mppt:
       else:
         do_snaith = False
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.8, min_step=0.001, NPLC=-1, callback=callback, delay_ms=1000, snaith_mode=do_snaith, max_step=0.1, momentum=0, delta_zero=0))
+        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.05, min_step=0.001, NPLC=10, callback=callback, delay_ms=500, snaith_mode=do_snaith, max_step=0.1, momentum=0.1, delta_zero=0.01))
       else:
         params = params.split(':')
         if len(params) != 7:
@@ -149,7 +146,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.8, min_step=0.001, NPLC=-1, snaith_mode=False, delay_ms=1000, max_step=0.1, momentum=0, delta_zero=0.00):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.05, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
@@ -209,11 +206,13 @@ class mppt:
       obj1 = objective(input[1])  # last objective
       v0 = input[0][0]  # this voltage
       v1 = input[1][0]  # last voltage
+      time0 = input[0][2]  # this timestamp
+      time1 = input[1][2]  # last timestamp
       if v0 == v1:
         ret = None  # don't try to divide by zero
       else:
         # find the gradient
-        ret = (obj0 - obj1) / (v0 - v1)  
+        ret = (obj0 - obj1) / (v0 - v1) / (time0 - time1)
       return ret
 
     # the mppt loop
