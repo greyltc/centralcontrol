@@ -350,25 +350,29 @@ class mppt:
             # this measurement
             obj0s = []
             v0s = []
+            t0s = []
             for ch, ch_data in sorted(data[0].items()):
                 obj0s.append(objective(ch_data))
                 v0s.append(ch_data[0])
+                t0s.append(ch_data[2])
 
             # last measurement
             obj1s = []
             v1s = []
+            t1s = []
             for ch, ch_data in sorted(data[1].items()):
                 obj1s.append(objective(ch_data))
                 v1s.append(ch_data[0])
+                t1s.append(ch_data[2])
 
             gradient = []
-            for obj0, obj1, v0, v1 in zip(obj0s, obj1s, v0s, v1s):
+            for obj0, obj1, v0, v1, t0, t1 in zip(obj0s, obj1s, v0s, v1s, t0s, t1s):
                 if v0 == v1:
                     # don't try to divide by zero
                     gradient.append(None)
                 else:
                     # find the gradient
-                    gradient.append((obj0 - obj1) / (v0 - v1))
+                    gradient.append((obj0 - obj1) / (v0 - v1) / (t0 - t1))
 
             return gradient
 
