@@ -26,7 +26,7 @@ class mppt:
     def __init__(self, sm, absolute_current_limit):
         """Construct object."""
         self.sm = sm
-        self.absolute_current_limit = absolute_current_limit
+        self.absolute_current_limit = abs(absolute_current_limit)
 
     def reset(self):
         """Reset params."""
@@ -38,7 +38,6 @@ class mppt:
         self.Pmax = {}  # power at max power point
         self.abort = False
 
-        self.current_compliance = None
         self.t0 = None  # the time we started the mppt algorithm
 
     def register_curve(self, vector, light=True):
@@ -125,8 +124,8 @@ class mppt:
         m = []  # list holding mppt measurements
         self.t0 = time.time()  # start the mppt timer
 
-        if (self.current_compliance is None) or (i_limit < self.current_compliance):
-            self.current_compliance = i_limit
+        if abs(i_limit) > abs(self.absolute_current_limit):
+            i_limit = abs(self.absolute_current_limit)
 
         if NPLC != -1:
             self.sm.nplc = NPLC
@@ -170,8 +169,7 @@ class mppt:
         algo = extra_split[0]
         params = extra_split[1]
         # if algo == "basic":
-        #     if len(params) == 0:
-        #         # use defaults
+        #     if len(params) == 0:  #  use defaults
         #         m.append(
         #             m_tracked := self.really_dumb_tracker(duration, callback=callback)
         #         )
@@ -180,8 +178,7 @@ class mppt:
         #         if len(params) != 3:
         #             raise (
         #                 ValueError(
-        #                     "MPPT configuration failure, Usage: --mppt-params "
-        #                     + "basic://[degrees]:[dwell]:[sweep_delay_ms]"
+        #                     "MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]:[sweep_delay_ms]"
         #                 )
         #             )
         #         params = [float(f) for f in params]
@@ -205,15 +202,15 @@ class mppt:
                     m_tracked := self.gradient_descent(
                         duration,
                         start_voltage=self.Vmpp,
-                        alpha=0.8,
+                        alpha=0.05,
                         min_step=0.001,
-                        NPLC=-1,
+                        NPLC=10,
                         callback=callback,
-                        delay_ms=1000,
+                        delay_ms=500,
                         snaith_mode=do_snaith,
                         max_step=0.1,
-                        momentum=0,
-                        delta_zero=0,
+                        momentum=0.1,
+                        delta_zero=0.01,
                     )
                 )
             else:
@@ -255,14 +252,14 @@ class mppt:
         duration,
         start_voltage,
         callback=lambda x: None,
-        alpha=0.8,
+        alpha=0.05,
         min_step=0.001,
-        NPLC=-1,
+        NPLC=10,
         snaith_mode=False,
-        delay_ms=1000,
+        delay_ms=500,
         max_step=0.1,
-        momentum=0,
-        delta_zero=0.001,
+        momentum=0.1,
+        delta_zero=0.01,
     ):
         """Run gradient descent MPPT algorithm.
 
@@ -277,9 +274,6 @@ class mppt:
 
         if NPLC != -1:
             self.sm.nplc = NPLC
-
-        if delay_ms != -1:
-            self.sm.settling_delay = delay_ms / 1000
 
         print(
             "===Starting up gradient descent maximum power point tracking algorithm==="
@@ -308,6 +302,7 @@ class mppt:
                 + f"{this_soak_t:0.1f} seconds..."
             )
 
+            # init container for ss data
             spos = {}
             for ch in range(self.sm.num_channels):
                 spos[ch] = []
@@ -315,6 +310,7 @@ class mppt:
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
+                time.sleep(delay_ms / 1000)
                 data = self.sm.measure()
                 callback(data)
                 for ch, ch_data in sorted(data.items()):
@@ -342,7 +338,12 @@ class mppt:
         deltas = [delta_zero] * len(self.Vmpp)
         next_voltages = []
         for ch, vmp in sorted(self.Vmpp.items()):
-            next_voltages.append(vmp + deltas[ch])
+            new_v = vmp + deltas[ch]
+            if (self.voltage_lock is True) and (new_v < 0):
+                new_v = 0.0001
+            elif (self.voltage_lock is False) and (new_v > 0):
+                new_v = -0.0001
+            next_voltages.append(new_v)
 
         def compute_grad(data):
             # this measurement
@@ -378,6 +379,7 @@ class mppt:
 
             # apply new voltage and record a measurement and store the result in slot 0
             self.sm.configure_dc(next_voltages, "v")
+            time.sleep(delay_ms / 1000)
             m.appendleft(self.sm.measure())
             # record independant variable
             # x.appendleft(w)
@@ -406,8 +408,13 @@ class mppt:
                     deltas[ix] = sign(delta) * max_step
 
             # apply voltage step, calculate new voltage
-            for ix, (v, delta) in enumerate(zip(next_voltages, deltas)):
-                next_voltages[ix] = v + delta
+            for ix, (old_v, delta) in enumerate(zip(next_voltages, deltas)):
+                new_v = old_v + delta
+                if (self.voltage_lock is True) and (new_v < 0):
+                    new_v = 0.0001
+                elif (self.voltage_lock is False) and (new_v > 0):
+                    new_v = -0.0001
+                next_voltages[ix] = new_v
 
             # update runtime
             run_time = time.time() - self.t0
@@ -431,6 +438,7 @@ class mppt:
                 callback(data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
+                time.sleep(delay_ms / 1000)
 
             self.q.extend(spos)
 

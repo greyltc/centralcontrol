@@ -47,7 +47,7 @@ def start_process(cli_args, process, target, args):
     args : tuple
         Arguments required by the function.
     """
-    if process.is_alive() == False:
+    if process.is_alive() is False:
         ret_proc = multiprocessing.Process(target=target, args=args)
         ret_proc.start()
         publish.single(
@@ -69,7 +69,7 @@ def start_process(cli_args, process, target, args):
 
 def stop_process(cli_args, process):
     """Stop a running process."""
-    if process.is_alive() == True:
+    if process.is_alive() is True:
         os.kill(process.pid, signal.SIGINT)
         process.join()
         print(f"Process still alive?: {process.is_alive()}")
@@ -122,7 +122,6 @@ def _calibrate_spectrum(request, mqtthost):
                 args = request["args"]
 
                 measurement.connect_instruments(
-                    visa_lib=config["visa"]["visa_lib"],
                     light_address=config["solarsim"]["address"],
                     light_virt=config["solarsim"]["virtual"],
                     light_recipe=args["light_recipe"],
@@ -374,8 +373,6 @@ def _ivt(pixels, request, measurement, mqttc):
                 ssvocs = {}
                 for ch, ch_data in sorted(vt.items()):
                     ssvocs[ch] = ch_data[-1][0]
-            else:
-                ssvocs = None
 
         # if performing sweeps
         sweeps = []
@@ -467,9 +464,9 @@ def _ivt(pixels, request, measurement, mqttc):
             dh.kind = kind
             _clear_plot(kind, mqttc)
 
-            if ssvoc is not None:
+            if ssvocs is not None:
                 # tell the mppt what our measured steady state Voc was
-                measurement.mppt.Voc = ssvoc
+                measurement.mppt.Voc = ssvocs
 
             (mt, vt) = measurement.track_max_power(
                 args["mppt_dwell"],
@@ -537,7 +534,7 @@ def _run(request, mqtthost):
     args = request["args"]
 
     # calibrate spectrum if required
-    if ("IV_stuff" in args) and (args["enable_solarsim"] == True):
+    if ("IV_stuff" in args) and (args["enable_solarsim"] is True):
         user_aborted = _calibrate_spectrum(request, mqtthost)
 
     if user_aborted is False:
@@ -594,8 +591,8 @@ def msg_handler(msg_queue, cli_args, process):
 
             # perform a requested action
             if (action == "run") and (
-                (request["args"]["enable_eqe"] == True)
-                or (request["args"]["enable_iv"] == True)
+                (request["args"]["enable_eqe"] is True)
+                or (request["args"]["enable_iv"] is True)
             ):
                 process = start_process(
                     cli_args, process, _run, (request, cli_args.mqtthost)
@@ -609,6 +606,7 @@ def msg_handler(msg_queue, cli_args, process):
 
 
 def main():
+    """Get args and start MQTT."""
     # get command line arguments
     cli_args = get_args()
 

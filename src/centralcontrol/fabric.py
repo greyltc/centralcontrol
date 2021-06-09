@@ -64,6 +64,7 @@ class fabric(object):
 
     def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
+
         area in cm^2
         jmax in mA/cm^2
         imax in A (overrides jmax/area calc)
