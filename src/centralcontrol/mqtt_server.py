@@ -334,7 +334,7 @@ def _ivt(pixels, request, measurement, mqttc):
     # loop over repeats
     for loop in range(args["loops"]):
         # init parameters derived from steadystate measurements
-        ssvoc = None
+        ssvocs = None
 
         # get or estimate compliance current
         compliance_i = measurement.compliance_current_guess(
@@ -371,9 +371,11 @@ def _ivt(pixels, request, measurement, mqttc):
 
             # if this was at Voc, use the last measurement as estimate of Voc
             if args["i_dwell_value"] == 0:
-                ssvoc = vt[-1][0]
+                ssvocs = {}
+                for ch, ch_data in sorted(vt.items()):
+                    ssvocs[ch] = ch_data[-1][0]
             else:
-                ssvoc = None
+                ssvocs = None
 
         # if performing sweeps
         sweeps = []
@@ -511,7 +513,7 @@ def _ivt(pixels, request, measurement, mqttc):
     # don't leave the light on!
     if hasattr(measurement, "le"):
         measurement.le.off()
-    
+
     # stop daq
     mqttc.append_payload("daq/stop", pickle.dumps(""))
 

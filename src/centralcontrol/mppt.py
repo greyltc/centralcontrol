@@ -9,12 +9,12 @@ from collections import deque
 class mppt:
     """Maximum power point tracker class."""
 
-    Voc = None
-    Isc = None
-    Mmpp = None  # measurement from max power point
-    Vmpp = None  # voltage at max power point
-    Impp = None  # current at max power point
-    Pmax = None  # power at max power point (for keeping track of voc and isc)
+    Voc = {}
+    Isc = {}
+    Mmpp = {}  # measurement from max power point
+    Vmpp = {}  # voltage at max power point
+    Impp = {}  # current at max power point
+    Pmax = {}  # power at max power point (for keeping track of voc and isc)
     abort = False
 
     # under no circumstances should we violate this
@@ -30,12 +30,12 @@ class mppt:
 
     def reset(self):
         """Reset params."""
-        self.Voc = None
-        self.Isc = None
-        self.Mmpp = None  # measurement from max power point
-        self.Vmpp = None  # voltage at max power point
-        self.Impp = None  # current at max power point
-        self.Pmax = None  # power at max power point
+        self.Voc = {}
+        self.Isc = {}
+        self.Mmpp = {}  # measurement from max power point
+        self.Vmpp = {}  # voltage at max power point
+        self.Impp = {}  # current at max power point
+        self.Pmax = {}  # power at max power point
         self.abort = False
 
         self.current_compliance = None
@@ -44,59 +44,69 @@ class mppt:
     def register_curve(self, vector, light=True):
         """Register an IV curve with the max power point tracker.
 
-        Given a list of raw measurements, figures out which one produced the highest
-        power
+        Given a dictionary or lists of raw measurements for each smu channel, figures
+        out which one produced the highest power
 
         Updates some values for mppt if light=True
         """
-        v = numpy.array([e[0] for e in vector])
-        i = numpy.array([e[1] for e in vector])
-        t = numpy.array([e[2] for e in vector])
-        p = v * i * -1
-        iscIndex = numpy.argmin(abs(v))
-        Isc = i[iscIndex]
-        vocIndex = numpy.argmin(abs(i))
-        Voc = v[vocIndex]
-        maxIndex = numpy.argmax(p)
-        Vmpp = v[maxIndex]
-        Pmax = p[maxIndex]
-        Impp = i[maxIndex]
-        Tmpp = t[maxIndex]
-        if light is True:  # this was from a light i-v curve
-            print(
-                "MPPT IV curve inspector investigating new light curve params: "
-                + f"{(Pmax, Vmpp, Impp, Voc, Isc)}"
-            )
-            if (self.Pmax is None) or (Pmax > self.Pmax):
-                if self.Pmax is None:
-                    because = "there was no previous one."
-                else:
-                    because = (
-                        f"we beat the old max power value, {Pmax} > f{self.Pmax} [W]"
-                    )
-                print(f"New refrence IV curve found for MPPT algo because {because}")
-                self.Vmpp = Vmpp
-                self.Impp = Impp
-                self.Pmax = Pmax
-                # store off measurement value for this one
-                self.Mmpp = (Vmpp, Impp, Tmpp)
+        Vmpps = {}
+        Pmaxs = {}
+        Impps = {}
+        maxIndexs = {}
+        for ch, ch_data in sorted(vector.items()):
+            v = numpy.array([e[0] for e in ch_data])
+            i = numpy.array([e[1] for e in ch_data])
+            t = numpy.array([e[2] for e in ch_data])
+            p = v * i * -1
+            iscIndex = numpy.argmin(abs(v))
+            Isc = i[iscIndex]
+            vocIndex = numpy.argmin(abs(i))
+            Voc = v[vocIndex]
+            maxIndex = numpy.argmax(p)
+            Vmpp = v[maxIndex]
+            Pmax = p[maxIndex]
+            Impp = i[maxIndex]
+            Tmpp = t[maxIndex]
+            Vmpps[ch] = Vmpp
+            Pmaxs[ch] = Pmax
+            Impps[ch] = Impp
+            maxIndexs[ch] = maxIndex
+            if light is True:  # this was from a light i-v curve
                 print(
-                    f"V_mpp = {self.Vmpp}[V]\nI_mpp = {self.Impp}[A]\nP_max = "
-                    + f"{self.Pmax}[W]"
+                    "MPPT IV curve inspector investigating new light curve params: "
+                    + f"{(Pmax, Vmpp, Impp, Voc, Isc)}"
                 )
-                if (min(v) <= 0) and (
-                    max(v) >= 0
-                ):  # if we had data on both sizes of 0V, then we can estimate Isc
-                    self.Isc = Isc
-                    print(f"I_sc = {self.Isc}[A]")
-                    self.current_compliance = abs(Isc) * 3
-                if (min(i) <= 0) and (
-                    max(i) >= 0
-                ):  # if we had data on both sizes of 0A, then we can estimate Voc
-                    self.Voc = Voc
-                    print(f"V_oc = {self.Voc}[V]")
-        # returns maximum power[W], Vmpp, Impp and the index
-        return (Pmax, Vmpp, Impp, maxIndex)
+                if (self.Pmax is {}) or (Pmax > self.Pmax[ch]):
+                    if self.Pmax is {}:
+                        because = "there was no previous one."
+                    else:
+                        because = (
+                            f"we beat the old max power value, {Pmax} > "
+                            + f"{self.Pmax[ch]} [W]"
+                        )
+                    print(
+                        f"New refrence IV curve found for MPPT algo because {because}"
+                    )
+                    self.Vmpp[ch] = Vmpp
+                    self.Impp[ch] = Impp
+                    self.Pmax[ch] = Pmax
+                    # store off measurement value for this one
+                    self.Mmpp[ch] = (Vmpp, Impp, Tmpp)
+                    print(
+                        f"V_mpp = {self.Vmpp[ch]}[V]\nI_mpp = {self.Impp[ch]}[A]\n"
+                        + f"P_max = {self.Pmax[ch]}[W]"
+                    )
+                    if (min(v) <= 0) and (max(v) >= 0):
+                        # if we had data on both sizes of 0V, then we can estimate Isc
+                        self.Isc[ch] = Isc
+                        print(f"I_sc = {self.Isc[ch]}[A]")
+                    if (min(i) <= 0) and (max(i) >= 0):
+                        # if we had data on both sizes of 0A, then we can estimate Voc
+                        self.Voc[ch] = Voc
+                        print(f"V_oc = {self.Voc[ch]}[V]")
+
+        # returns dict of maximum power[W], Vmpp, Impp and the index
+        return (Pmaxs, Vmpps, Impps, maxIndexs)
 
     def launch_tracker(
         self,
@@ -121,36 +131,36 @@ class mppt:
         if NPLC != -1:
             self.sm.nplc = NPLC
 
-        if self.Voc is None:
+        if self.Voc == {}:
             self.sm.configure_dc(0, "i")
             ssvocs = self.sm.measure()
-            self.Voc = ssvocs[-1][0]
+            for ch, ch_data in sorted(ssvocs.items()):
+                self.Voc[ch] = ch_data[-1][0]
             print(
                 f"mppt algo had to find V_oc = {self.Voc} [V] because nobody gave us "
                 + "any voltage info..."
             )
         else:
-            ssvocs = []
+            ssvocs = {}
 
-        if self.Vmpp is None:
-            self.Vmpp = (
-                0.7 * self.Voc
-            )  # start at 70% of Voc if nobody told us otherwise
+        if self.Vmpp == {}:
+            # start at 70% of Voc if nobody told us otherwise
+            for ch, voc in sorted(self.Voc.items()):
+                self.Vmpp[ch] = 0.7 * voc
             print(
                 f"mppt algo assuming V_mpp = {self.Vmpp} [V] from V_oc because nobody "
                 + "told us otherwise..."
             )
 
         # get the smu ready for doing the mppt
-        self.sm.setupDC(
-            sourceVoltage=True,
-            compliance=self.current_compliance,
-            setPoint=self.Vmpp,
-            senseRange="f",
-        )
+        values = []
+        for ch, vmp in sorted(self.Vmpp.items()):
+            values.append(vmp)
+        self.sm.configure_dc(values, "v")
 
         # this locks the smu to the device's power quadrant
-        if self.Voc >= 0:
+        # all devices have to be in the same quadrant so just check first one
+        if self.Voc[0] >= 0:
             self.voltage_lock = True  # lock mppt voltage to be >0
         else:
             self.voltage_lock = False  # lock mppt voltage to be <0
@@ -159,32 +169,32 @@ class mppt:
         extra_split = extra.split(sep="://", maxsplit=1)
         algo = extra_split[0]
         params = extra_split[1]
-        if algo == "basic":
-            if len(params) == 0:
-                # use defaults
-                m.append(
-                    m_tracked := self.really_dumb_tracker(duration, callback=callback)
-                )
-            else:
-                params = params.split(":")
-                if len(params) != 3:
-                    raise (
-                        ValueError(
-                            "MPPT configuration failure, Usage: --mppt-params "
-                            + "basic://[degrees]:[dwell]:[sweep_delay_ms]"
-                        )
-                    )
-                params = [float(f) for f in params]
-                m.append(
-                    m_tracked := self.really_dumb_tracker(
-                        duration,
-                        callback=callback,
-                        dAngleMax=params[0],
-                        dwell_time=params[1],
-                        sweep_delay_ms=params[2],
-                    )
-                )
-        elif algo in ["gd", "snaith"]:
+        # if algo == "basic":
+        #     if len(params) == 0:
+        #         # use defaults
+        #         m.append(
+        #             m_tracked := self.really_dumb_tracker(duration, callback=callback)
+        #         )
+        #     else:
+        #         params = params.split(":")
+        #         if len(params) != 3:
+        #             raise (
+        #                 ValueError(
+        #                     "MPPT configuration failure, Usage: --mppt-params "
+        #                     + "basic://[degrees]:[dwell]:[sweep_delay_ms]"
+        #                 )
+        #             )
+        #         params = [float(f) for f in params]
+        #         m.append(
+        #             m_tracked := self.really_dumb_tracker(
+        #                 duration,
+        #                 callback=callback,
+        #                 dAngleMax=params[0],
+        #                 dwell_time=params[1],
+        #                 sweep_delay_ms=params[2],
+        #             )
+        #         )
+        if algo in ["gd", "snaith"]:
             if algo == "snaith":
                 do_snaith = True
             else:
@@ -238,15 +248,6 @@ class mppt:
                 + f"point tracking"
             )
 
-        run_time = time.time() - self.t0
-        print(
-            "Final value seen by the max power point tracker after running for "
-            + f"{run_time:.1f} seconds is"
-        )
-        print(
-            f"{self.Vmpp * self.Impp * 1000 * -1:0.4f} mW @ {self.Vmpp * 1000:0.2f} mV"
-            + f" and {self.Impp * 1000:0.2f} mA"
-        )
         return (m, ssvocs)
 
     def gradient_descent(
@@ -261,7 +262,7 @@ class mppt:
         delay_ms=1000,
         max_step=0.1,
         momentum=0,
-        delta_zero=0.00,
+        delta_zero=0.001,
     ):
         """Run gradient descent MPPT algorithm.
 
@@ -276,6 +277,9 @@ class mppt:
 
         if NPLC != -1:
             self.sm.nplc = NPLC
+
+        if delay_ms != -1:
+            self.sm.settling_delay = delay_ms / 1000
 
         print(
             "===Starting up gradient descent maximum power point tracking algorithm==="
@@ -292,17 +296,30 @@ class mppt:
 
         self.q = deque()
         process_q_len = 20
-        m = deque(maxlen=process_q_len)  # measurement buffer for the mppt algorithm
+        # measurement buffer for the mppt algorithm
+        m = deque(maxlen=process_q_len)
         # x = deque(maxlen=process_q_len)  # keeps independant variable setpoints
 
         if snaith_mode is True:
             duration = duration - snaith_pre_soak_t - snaith_post_soak_t
             this_soak_t = snaith_pre_soak_t
             print(
-                f"Snaith Pre Soaking @ Mpp (V={start_voltage * 1000:0.2f}[mV]) for "
+                f"Snaith Pre Soaking @ Mpp (V={start_voltage:0.2f} [V]) for "
                 + f"{this_soak_t:0.1f} seconds..."
             )
-            spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
+
+            spos = {}
+            for ch in range(self.sm.num_channels):
+                spos[ch] = []
+
+            # run steady state measurement
+            t0 = time.time()
+            while time.time() - t0 < this_soak_t:
+                data = self.sm.measure()
+                callback(data)
+                for ch, ch_data in sorted(data.items()):
+                    spos[ch].extend(ch_data)
+
             self.q.extend(spos)
 
         # the objective function we'll be trying to find the minimum of here is power
@@ -315,272 +332,310 @@ class mppt:
             return (1, -1)[int(num < 0)]
 
         # register a bootstrap measurement
-        w = start_voltage
-        m.appendleft(self.measure(w, delay_ms=delay_ms, callback=callback))
+        m.appendleft(self.sm.measure())
         # x.appendleft(w)
         run_time = time.time() - self.t0
 
         # we don't know too much about which way is down the gradient before we
         # actually get started running the mppt algo here, so let's seed with this
         # initial delta value
-        delta = delta_zero
-        w += delta
+        deltas = [delta_zero] * len(self.Vmpp)
+        next_voltages = []
+        for ch, vmp in sorted(self.Vmpp.items()):
+            next_voltages.append(vmp + deltas[ch])
 
-        def compute_grad(input):
-            obj0 = objective(input[0])  # this objective
-            obj1 = objective(input[1])  # last objective
-            v0 = input[0][0]  # this voltage
-            v1 = input[1][0]  # last voltage
-            if v0 == v1:
-                ret = None  # don't try to divide by zero
-            else:
-                # find the gradient
-                ret = (obj0 - obj1) / (v0 - v1)
-            return ret
+        def compute_grad(data):
+            # this measurement
+            obj0s = []
+            v0s = []
+            for ch, ch_data in sorted(data[0].items()):
+                obj0s.append(objective(ch_data))
+                v0s.append(ch_data[0])
+
+            # last measurement
+            obj1s = []
+            v1s = []
+            for ch, ch_data in sorted(data[1].items()):
+                obj1s.append(objective(ch_data))
+                v1s.append(ch_data[0])
+
+            gradient = []
+            for obj0, obj1, v0, v1 in zip(obj0s, obj1s, v0s, v1s):
+                if v0 == v1:
+                    # don't try to divide by zero
+                    gradient.append(None)
+                else:
+                    # find the gradient
+                    gradient.append((obj0 - obj1) / (v0 - v1))
+
+            return gradient
 
         # the mppt loop
         i = 0
         while not self.abort and (run_time < duration):
             i += 1
             some_sign = random.choice([-1, 1])
-            # apply new voltage and record a measurement and store the result in slot 0
 
-            m.appendleft(self.measure(w, delay_ms=delay_ms, callback=callback))
+            # apply new voltage and record a measurement and store the result in slot 0
+            self.sm.configure_dc(next_voltages, "v")
+            m.appendleft(self.sm.measure())
             # record independant variable
             # x.appendleft(w)
 
             # compute a gradient value
-            gradient = compute_grad(m)
-
-            if gradient is not None:
-                # use gradient descent with momentum algo to compute our next voltage
-                # step
-                delta = -1 * alpha * gradient + momentum * delta
-            else:  # handle divide by zero case
-                if min_step == 0:
-                    delta = some_sign * 0.0001
+            gradients = compute_grad(m)
+            for ix, gradient in enumerate(gradients):
+                if gradient is not None:
+                    # use gradient descent with momentum algo to compute our next
+                    # voltage step
+                    deltas[ix] = -1 * alpha * gradient + momentum * deltas[ix]
                 else:
-                    delta = some_sign * min_step
+                    # handle divide by zero case
+                    if min_step == 0:
+                        deltas[ix] = some_sign * 0.0001
+                    else:
+                        deltas[ix] = some_sign * min_step
 
             # enforce step size limits
-            if (abs(delta) < min_step) and (
-                min_step > 0
-            ):  # enforce minimum step size if we're doing that
-                delta = some_sign * min_step
-            elif (abs(delta) > max_step) and (
-                max_step < float("inf")
-            ):  # enforce maximum step size if we're doing that
-                delta = sign(delta) * max_step
+            for ix, delta in enumerate(deltas):
+                if (abs(delta) < min_step) and (min_step > 0):
+                    # enforce minimum step size if we're doing that
+                    deltas[ix] = some_sign * min_step
+                elif (abs(delta) > max_step) and (max_step < float("inf")):
+                    # enforce maximum step size if we're doing that
+                    deltas[ix] = sign(delta) * max_step
 
             # apply voltage step, calculate new voltage
-            w += delta
+            for ix, (v, delta) in enumerate(zip(next_voltages, deltas)):
+                next_voltages[ix] = v + delta
 
             # update runtime
             run_time = time.time() - self.t0
 
         if snaith_mode is True:
             this_soak_t = snaith_post_soak_t
+
             print(
-                f"Snaith Post Soaking @ Mpp (V={start_voltage * 1000:0.2f}[mV]) for "
+                f"Snaith Pre Soaking @ Mpp (V={start_voltage:0.2f} [V]) for "
                 + f"{this_soak_t:0.1f} seconds..."
             )
-            spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
+
+            spos = {}
+            for ch in range(self.sm.num_channels):
+                spos[ch] = []
+
+            # run steady state measurement
+            t0 = time.time()
+            while time.time() - t0 < this_soak_t:
+                data = self.sm.measure()
+                callback(data)
+                for ch, ch_data in sorted(data.items()):
+                    spos[ch].extend(ch_data)
+
             self.q.extend(spos)
 
         # take whatever the most recent readings were to be the mppt
-        self.Vmpp = m[0][0]
-        self.Impp = m[0][1]
+        for ch, ch_data in m[0]:
+            self.Vmpp[ch] = ch_data[0]
+            self.Impp[ch] = ch_data[0]
 
         q = self.q
         del self.q
         return q
 
-    def measure(self, v_set, delay_ms=0, callback=lambda x: None):
-        """Set the voltage and make a measurement."""
-        # enforce quadrant restrictions to prevent the mppt from erroniously wandering
-        # out of the power quadrant
-        if (self.voltage_lock is True) and (v_set < 0):
-            v_set = 0.0001
-        elif (self.voltage_lock is False) and (v_set > 0):
-            v_set = -0.0001
+    # def measure(self, v_set, delay_ms=0, callback=lambda x: None):
+    #     """Set the voltage and make a measurement."""
+    #     # enforce quadrant restrictions to prevent the mppt from erroniously wandering
+    #     # out of the power quadrant
+    #     if (self.voltage_lock is True) and (v_set < 0):
+    #         v_set = 0.0001
+    #     elif (self.voltage_lock is False) and (v_set > 0):
+    #         v_set = -0.0001
 
-        self.sm.setSource(v_set)
-        time.sleep(delay_ms / 1000)
-        measurement = self.sm.measure()[0]
-        callback(measurement)
+    #     self.sm.setSource(v_set)
+    #     time.sleep(delay_ms / 1000)
+    #     measurement = self.sm.measure()[0]
+    #     callback(measurement)
 
-        v, i, tx, status = measurement
+    #     v, i, tx, status = measurement
 
-        self.q.append(measurement)
-        return (v, i, tx)
+    #     self.q.append(measurement)
+    #     return (v, i, tx)
 
-    def really_dumb_tracker(
-        self,
-        duration,
-        callback=lambda x: None,
-        dAngleMax=7,
-        dwell_time=10,
-        sweep_delay_ms=30,
-    ):
-        """Dumb mppt.
+    # def really_dumb_tracker(
+    #     self,
+    #     duration,
+    #     callback=lambda x: None,
+    #     dAngleMax=7,
+    #     dwell_time=10,
+    #     sweep_delay_ms=30,
+    # ):
+    #     """Dumb mppt.
 
-        A super dumb maximum power point tracking algorithm that alternates between
-        periods of exploration around the mppt and periods of constant voltage dwells.
+    #     A super dumb maximum power point tracking algorithm that alternates between
+    #     periods of exploration around the mppt and periods of constant voltage dwells.
 
-        runs for duration seconds and returns a nx4 deque of the measurements it made.
+    #     runs for duration seconds and returns a nx4 deque of the measurements it made.
 
-        dAngleMax, exploration limits, [exploration degrees] (plus and minus)
-        dwell_time, dwell period duration in seconds
-        """
-        print("===Starting up dumb maximum power point tracking algorithm===")
-        print(f"dAngleMax = {dAngleMax} [deg]")
-        print(f"dwell_time = {dwell_time} [s]")
-        print(f"sweep_delay_ms = {sweep_delay_ms} [ms]")
+    #     dAngleMax, exploration limits, [exploration degrees] (plus and minus)
+    #     dwell_time, dwell period duration in seconds
+    #     """
+    #     print("===Starting up dumb maximum power point tracking algorithm===")
+    #     print(f"dAngleMax = {dAngleMax} [deg]")
+    #     print(f"dwell_time = {dwell_time} [s]")
+    #     print(f"sweep_delay_ms = {sweep_delay_ms} [ms]")
 
-        # work in voltage steps that are this fraction of Voc
-        dV = self.Voc / 301
+    #     # work in voltage steps that are this fraction of Voc
+    #     dV = max([voc for ch, voc in self.Voc]) / 301
 
-        self.q = deque()
-        Vmpp = self.Vmpp
+    #     self.q = deque()
+    #     Vmpp = self.Vmpp
 
-        if duration <= 10:
-            # if the user only wants to mppt for 20 or less seconds, shorten the
-            # initial dwell
-            initial_soak = duration * 0.2
-        else:
-            initial_soak = dwell_time
+    #     if duration <= 10:
+    #         # if the user only wants to mppt for 10 or less seconds, shorten the
+    #         # initial dwell
+    #         initial_soak = duration * 0.2
+    #     else:
+    #         initial_soak = dwell_time
 
-        print(
-            "Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(
-                self.Vmpp * 1000, initial_soak
-            )
-        )
-        ssmpps = self.sm.measureUntil(t_dwell=initial_soak, cb=callback)
-        self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
-        if self.Isc is None:
-            # if nobody told us otherwise, just assume Isc is 10% higher than Impp
-            self.Isc = self.Impp * 1.1
-        self.q.extend(ssmpps)
+    #     print(f"Soaking @ Mpp (V={self.Vmpp} [V]) for {initial_soak:0.1f} seconds...")
+    #     # init container for all data
+    #     ssmpps = {}
+    #     for ch in range(self.sm.num_channels):
+    #         ssmpps[ch] = []
 
-        Impp = self.Impp
-        Voc = self.Voc
-        Isc = self.Isc
+    #     # run steady state measurement
+    #     t0 = time.time()
+    #     while time.time() - t0 < initial_soak:
+    #         data = self.sm.measure()
+    #         callback(data)
+    #         for ch, ch_data in sorted(data.items()):
+    #             ssmpps[ch].extend(ch_data)
 
-        run_time = time.time() - self.t0
-        while not self.abort and (run_time < duration):
-            print("Exploring for new Mpp...")
-            i_explore = numpy.array(Impp)
-            v_explore = numpy.array(Vmpp)
+    #     # use most recent current measurement as Impp
+    #     self.Impp = {}
+    #     for ch, ch_data in sorted(ssmpps.items()):
+    #         self.Impp[ch] = ch_data[-1][1]
 
-            angleMpp = numpy.rad2deg(numpy.arctan(Impp / Vmpp * Voc / Isc))
-            print("MPP ANGLE = {:0.2f}".format(angleMpp))
-            v_set = Vmpp
-            highEdgeTouched = False
-            lowEdgeTouched = False
-            while not self.abort and not (highEdgeTouched and lowEdgeTouched):
-                (v, i, t) = self.measure(
-                    v_set, delay_ms=sweep_delay_ms, callback=callback
-                )
-                run_time = t - self.t0
+    #     # if nobody told us otherwise, just assume Isc is 10% higher than Impp
+    #     if self.Isc is {}:
+    #         for ch, impp in sorted(self.Impp.items()):
+    #             self.Isc[ch] = impp * 1.1
 
-                i_explore = numpy.append(i_explore, i)
-                v_explore = numpy.append(v_explore, v)
-                thisAngle = numpy.rad2deg(numpy.arctan(i / v * Voc / Isc))
-                dAngle = angleMpp - thisAngle
-                # print(
-                #     f"dAngle={dAngle}, highEdgeTouched={highEdgeTouched}, "
-                #     + f"lowEdgeTouched={lowEdgeTouched}"
-                # )
+    #     self.q.extend(ssmpps)
 
-                if (highEdgeTouched is False) and (dAngle > dAngleMax):
-                    highEdgeTouched = True
-                    dV = dV * -1
-                    print("Reached high voltage edge because angle exceeded")
+    #     Impp = self.Impp
+    #     Voc = self.Voc
+    #     Isc = self.Isc
 
-                if (lowEdgeTouched is False) and (dAngle < -dAngleMax):
-                    lowEdgeTouched = True
-                    dV = dV * -1
-                    print("Reached low voltage edge because angle exceeded")
+    #     run_time = time.time() - self.t0
+    #     while not self.abort and (run_time < duration):
+    #         print("Exploring for new Mpp...")
+    #         i_explore = numpy.array(Impp)
+    #         v_explore = numpy.array(Vmpp)
 
-                v_set = v_set + dV
-                if ((v_set > 0) and (dV > 0)) or ((v_set < 0) and (dV < 0)):
-                    #  walking towards Voc
-                    if (highEdgeTouched is False) and (dV > 0) and v_set >= Voc:
-                        highEdgeTouched = True
-                        dV = dV * -1  # switch our voltage walking direction
-                        v_set = v_set + dV
-                        print("WARNING: Reached high voltage edge because we hit Voc")
+    #         angleMpp = numpy.rad2deg(numpy.arctan(Impp / Vmpp * Voc / Isc))
+    #         print(f"MPP ANGLE = {angleMpp:0.2f}")
+    #         v_set = Vmpp
+    #         highEdgeTouched = False
+    #         lowEdgeTouched = False
+    #         while not self.abort and not (highEdgeTouched and lowEdgeTouched):
+    #             (v, i, t) = self.measure(
+    #                 v_set, delay_ms=sweep_delay_ms, callback=callback
+    #             )
+    #             run_time = t - self.t0
 
-                    if (lowEdgeTouched is False) and (dV < 0) and v_set <= Voc:
-                        lowEdgeTouched = True
-                        dV = dV * -1  # switch our voltage walking direction
-                        v_set = v_set + dV
-                        print("WARNING: Reached high voltage edge because we hit Voc")
+    #             i_explore = numpy.append(i_explore, i)
+    #             v_explore = numpy.append(v_explore, v)
+    #             thisAngle = numpy.rad2deg(numpy.arctan(i / v * Voc / Isc))
+    #             dAngle = angleMpp - thisAngle
+    #             # print(
+    #             #     f"dAngle={dAngle}, highEdgeTouched={highEdgeTouched}, "
+    #             #     + f"lowEdgeTouched={lowEdgeTouched}"
+    #             # )
 
-                else:
-                    #  walking towards Jsc
-                    if (highEdgeTouched is False) and (dV > 0) and v_set >= 0:
-                        highEdgeTouched = True
-                        dV = dV * -1  # switch our voltage walking direction
-                        v_set = v_set + dV
-                        print("WARNING: Reached low voltage edge because we hit 0V")
+    #             if (highEdgeTouched is False) and (dAngle > dAngleMax):
+    #                 highEdgeTouched = True
+    #                 dV = dV * -1
+    #                 print("Reached high voltage edge because angle exceeded")
 
-                    if (lowEdgeTouched is False) and (dV < 0) and v_set <= 0:
-                        lowEdgeTouched = True
-                        dV = dV * -1  # switch our voltage walking direction
-                        v_set = v_set + dV
-                        print("WARNING: Reached low voltage edge because we hit 0V")
+    #             if (lowEdgeTouched is False) and (dAngle < -dAngleMax):
+    #                 lowEdgeTouched = True
+    #                 dV = dV * -1
+    #                 print("Reached low voltage edge because angle exceeded")
 
-            print("Done exploring.")
+    #             v_set = v_set + dV
+    #             if ((v_set > 0) and (dV > 0)) or ((v_set < 0) and (dV < 0)):
+    #                 #  walking towards Voc
+    #                 if (highEdgeTouched is False) and (dV > 0) and v_set >= Voc:
+    #                     highEdgeTouched = True
+    #                     dV = dV * -1  # switch our voltage walking direction
+    #                     v_set = v_set + dV
+    #                     print("WARNING: Reached high voltage edge because we hit Voc")
 
-            # find the powers for the values we just explored
-            p_explore = v_explore * i_explore * -1
-            maxIndex = numpy.argmax(p_explore)
-            Vmpp = v_explore[maxIndex]
-            Impp = i_explore[maxIndex]
+    #                 if (lowEdgeTouched is False) and (dV < 0) and v_set <= Voc:
+    #                     lowEdgeTouched = True
+    #                     dV = dV * -1  # switch our voltage walking direction
+    #                     v_set = v_set + dV
+    #                     print("WARNING: Reached high voltage edge because we hit Voc")
 
-            print(
-                "New Mpp found: {:.6f} mW @ {:.6f} V".format(
-                    p_explore[maxIndex] * 1000, Vmpp
-                )
-            )
+    #             else:
+    #                 #  walking towards Jsc
+    #                 if (highEdgeTouched is False) and (dV > 0) and v_set >= 0:
+    #                     highEdgeTouched = True
+    #                     dV = dV * -1  # switch our voltage walking direction
+    #                     v_set = v_set + dV
+    #                     print("WARNING: Reached low voltage edge because we hit 0V")
 
-            dFromLastMppAngle = angleMpp - numpy.rad2deg(
-                numpy.arctan(Impp / Vmpp * Voc / Isc)
-            )
+    #                 if (lowEdgeTouched is False) and (dV < 0) and v_set <= 0:
+    #                     lowEdgeTouched = True
+    #                     dV = dV * -1  # switch our voltage walking direction
+    #                     v_set = v_set + dV
+    #                     print("WARNING: Reached low voltage edge because we hit 0V")
 
-            print(
-                "That's {:.6f} degrees different from the previous Mpp.".format(
-                    dFromLastMppAngle
-                )
-            )
+    #         print("Done exploring.")
 
-            # time_left = duration - run_time
+    #         # find the powers for the values we just explored
+    #         p_explore = v_explore * i_explore * -1
+    #         maxIndex = numpy.argmax(p_explore)
+    #         Vmpp = v_explore[maxIndex]
+    #         Impp = i_explore[maxIndex]
 
-            # if time_left <= 0:
-            #  break
+    #         print(f"New Mpp found: {p_explore[maxIndex] * 1000:.6f} mW @ {Vmpp:.6f} V")
 
-            print("Teleporting to Mpp!")
-            self.sm.setSource(Vmpp)
+    #         dFromLastMppAngle = angleMpp - numpy.rad2deg(
+    #             numpy.arctan(Impp / Vmpp * Voc / Isc)
+    #         )
 
-            # if time_left < dwell_time:
-            #  dwell = time_left
-            # else:
-            dwell = dwell_time
+    #         print(
+    #             f"That's {dFromLastMppAngle:.6f} degrees different from the previous "
+    #             + "Mpp."
+    #         )
 
-            print(
-                "Dwelling @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(
-                    Vmpp * 1000, dwell
-                )
-            )
-            dq = self.sm.measureUntil(t_dwell=dwell, cb=callback)
-            Impp = dq[-1][1]
-            self.q.extend(dq)
+    #         # time_left = duration - run_time
 
-            run_time = time.time() - self.t0
+    #         # if time_left <= 0:
+    #         #  break
 
-        q = self.q
-        del self.q
-        self.Impp = Impp
-        self.Vmpp = Vmpp
-        return q
+    #         print("Teleporting to Mpp!")
+    #         self.sm.setSource(Vmpp)
+
+    #         # if time_left < dwell_time:
+    #         #  dwell = time_left
+    #         # else:
+    #         dwell = dwell_time
+
+    #         print(
+    #             f"Dwelling @ Mpp (V={Vmpp * 1000:0.2f}[mV]) for {dwell:0.1f} seconds..."
+    #         )
+    #         dq = self.sm.measureUntil(t_dwell=dwell, cb=callback)
+    #         Impp = dq[-1][1]
+    #         self.q.extend(dq)
+
+    #         run_time = time.time() - self.t0
+
+    #     q = self.q
+    #     del self.q
+    #     self.Impp = Impp
+    #     self.Vmpp = Vmpp
+    #     return q
