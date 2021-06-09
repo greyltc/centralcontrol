@@ -112,8 +112,9 @@ class mppt:
         duration=30,
         callback=lambda x: None,
         NPLC=-1,
-        i_limit=0.04,
-        extra="basic://7:10",
+        voc_compliance=3,
+        i_limit=0.1,
+        extra="basic://7:10:10",
     ):
         """Luanch mppt.
 

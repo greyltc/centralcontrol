@@ -345,6 +345,10 @@ def _ivt(pixels, request, measurement, mqttc):
         dh = DataHandler(pixels=pixels, mqttqp=mqttc)
         handler = dh.handle_data
 
+        # turn on SMU outputs at voc
+        measurement.sm.configure_dc(0, "i")
+        measurement.sm.enable_output(True)
+
         # "Voc" if
         if args["i_dwell"] > 0:
             _log(
