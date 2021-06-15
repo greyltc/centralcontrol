@@ -3,6 +3,7 @@
 import numpy
 import time
 import random
+import warnings
 from collections import deque
 
 
@@ -132,7 +133,7 @@ class mppt:
         if NPLC != -1:
             self.sm.nplc = NPLC
 
-        channels = [ch for ch, _ in pixels.items()]
+        channels = [ch for ch in pixels.keys()]
 
         if self.Voc == {}:
             # disable output for high impedance mode Voc measurement
@@ -303,8 +304,6 @@ class mppt:
         m = deque(maxlen=process_q_len)
         # x = deque(maxlen=process_q_len)  # keeps independant variable setpoints
 
-        channels = [ch for ch, _ in pixels.items()]
-
         if snaith_mode is True:
             duration = duration - snaith_pre_soak_t - snaith_post_soak_t
             this_soak_t = snaith_pre_soak_t
@@ -322,7 +321,8 @@ class mppt:
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
                 time.sleep(delay_ms / 1000)
-                data = self.sm.measure(channels, measurement="dc")
+                data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+                self.detect_short_circuits(data, pixels)
                 callback(data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
@@ -339,7 +339,10 @@ class mppt:
             return (1, -1)[int(num < 0)]
 
         # register a bootstrap measurement
-        m.appendleft(self.sm.measure(channels, measurement="dc"))
+        data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+        self.detect_short_circuits(data, pixels)
+        callback(data)
+        m.appendleft(data)
         # x.appendleft(w)
         run_time = time.time() - self.t0
 
@@ -347,12 +350,12 @@ class mppt:
         # actually get started running the mppt algo here, so let's seed with this
         # initial delta value
         deltas = {}
-        for ch, _ in self.Vmpp.items():
+        for ch in pixels.keys():
             deltas[ch] = delta_zero
 
         next_voltages = {}
-        for ch, vmp in sorted(self.Vmpp.items()):
-            new_v = vmp + deltas[ch]
+        for ch in pixels.keys():
+            new_v = self.Vmpp[ch] + deltas[ch]
             if (self.voltage_lock is True) and (new_v < 0):
                 new_v = 0.0001
             elif (self.voltage_lock is False) and (new_v > 0):
@@ -361,31 +364,35 @@ class mppt:
 
         def compute_grad(data):
             # this measurement
-            obj0s = []
-            v0s = []
-            t0s = []
+            obj0s = {}
+            v0s = {}
+            t0s = {}
             for ch, ch_data in sorted(data[0].items()):
-                obj0s.append(objective(ch_data))
-                v0s.append(ch_data[0])
-                t0s.append(ch_data[2])
+                obj0s[ch] = objective(ch_data)
+                v0s[ch] = ch_data[0]
+                t0s[ch] = ch_data[2]
 
             # last measurement
-            obj1s = []
-            v1s = []
-            t1s = []
+            obj1s = {}
+            v1s = {}
+            t1s = {}
             for ch, ch_data in sorted(data[1].items()):
-                obj1s.append(objective(ch_data))
-                v1s.append(ch_data[0])
-                t1s.append(ch_data[2])
+                obj1s[ch] = objective(ch_data)
+                v1s[ch] = ch_data[0]
+                t1s[ch] = ch_data[2]
 
-            gradient = []
-            for obj0, obj1, v0, v1, t0, t1 in zip(obj0s, obj1s, v0s, v1s, t0s, t1s):
-                if v0 == v1:
+            gradient = {}
+            for ch in data.keys():
+                if v0s[ch] == v1s[ch]:
                     # don't try to divide by zero
-                    gradient.append(None)
+                    gradient[ch] = None
                 else:
                     # find the gradient
-                    gradient.append((obj0 - obj1) / (v0 - v1) / (t0 - t1))
+                    gradient[ch] = (
+                        (obj0s[ch] - obj1s[ch])
+                        / (v0s[ch] - v1s[ch])
+                        / (t0s[ch] - t1s[ch])
+                    )
 
             return gradient
 
@@ -398,41 +405,44 @@ class mppt:
             # apply new voltage and record a measurement and store the result in slot 0
             self.sm.configure_dc(next_voltages, "v")
             time.sleep(delay_ms / 1000)
-            m.appendleft(self.sm.measure(channels, measurement="dc"))
+            data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+            self.detect_short_circuits(data, pixels)
+            m.appendleft(data)
+            callback(data)
             # record independant variable
             # x.appendleft(w)
 
             # compute a gradient value
             gradients = compute_grad(m)
-            for ix, gradient in enumerate(gradients):
+            for ch, gradient in gradients.items():
                 if gradient is not None:
                     # use gradient descent with momentum algo to compute our next
                     # voltage step
-                    deltas[ix] = -1 * alpha * gradient + momentum * deltas[ix]
+                    deltas[ch] = -1 * alpha * gradient + momentum * deltas[ch]
                 else:
                     # handle divide by zero case
                     if min_step == 0:
-                        deltas[ix] = some_sign * 0.0001
+                        deltas[ch] = some_sign * 0.0001
                     else:
-                        deltas[ix] = some_sign * min_step
+                        deltas[ch] = some_sign * min_step
 
             # enforce step size limits
-            for ix, delta in enumerate(deltas):
+            for ch, delta in deltas.items():
                 if (abs(delta) < min_step) and (min_step > 0):
                     # enforce minimum step size if we're doing that
-                    deltas[ix] = some_sign * min_step
+                    deltas[ch] = some_sign * min_step
                 elif (abs(delta) > max_step) and (max_step < float("inf")):
                     # enforce maximum step size if we're doing that
-                    deltas[ix] = sign(delta) * max_step
+                    deltas[ch] = sign(delta) * max_step
 
             # apply voltage step, calculate new voltage
-            for ch, old_v in sorted(next_voltages.items()):
-                new_v = old_v + deltas[ch]
+            for ch in pixels.keys():
+                new_v = next_voltages[ch] + deltas[ch]
                 if (self.voltage_lock is True) and (new_v < 0):
                     new_v = 0.0001
                 elif (self.voltage_lock is False) and (new_v > 0):
                     new_v = -0.0001
-                next_voltages[ix] = new_v
+                next_voltages[ch] = new_v
 
             # update runtime
             run_time = time.time() - self.t0
@@ -446,13 +456,14 @@ class mppt:
             )
 
             spos = {}
-            for ch in channels:
+            for ch in pixels.keys():
                 spos[ch] = []
 
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
-                data = self.sm.measure(channels, "dc")
+                data = self.sm.measure([ch for ch in pixels.keys()], "dc")
+                self.detect_short_circuits(data, pixels)
                 callback(data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
@@ -463,7 +474,7 @@ class mppt:
         # take whatever the most recent readings were to be the mppt
         for ch, ch_data in m[0]:
             self.Vmpp[ch] = ch_data[0]
-            self.Impp[ch] = ch_data[0]
+            self.Impp[ch] = ch_data[1]
 
         q = self.q
         del self.q
@@ -665,3 +676,91 @@ class mppt:
     #     self.Impp = Impp
     #     self.Vmpp = Vmpp
     #     return q
+
+    def detect_short_circuits(self, data, pixels):
+        """Check status code of SMU measurements and disable a channel if it's shorted.
+
+        Disabling a channel means removing it from the pixels dictionary. Also discard
+        shorted data.
+
+        Paramters
+        ---------
+        data : dict
+            SMU measurement data dictionary. Keys are SMU channel numbers.
+        pixels : dict
+            Pixel information dictionary. Keys are SMU channel numbers.
+        """
+        channels = [ch for ch in pixels.keys()]
+
+        for ch in channels:
+            ch_data = data[ch]
+            statuses = [row[3] for row in ch_data]
+            if 1 in statuses:
+                # current has exceeded smu i_threshold so disable channel and stop
+                # measuring it
+                self.sm.enable_output(False, ch)
+                pixels.pop(ch, None)
+                warnings.warn(
+                    f"Short circuit detected on channel {ch}! The device connected to "
+                    + "this channel will no longer be measured."
+                )
+
+                # remove shorted data
+                data.pop(ch, None)
+            elif 2 in statuses:
+                # smu overcurrent on its input has occured so stop measuring channel
+                # this takes out both channels on smu board so need to figure out which
+                # is shorted
+                # first check if it's already been removed from list by a previous
+                # detection on the other board channel
+                if ch in pixels.keys():
+                    # get other channel number on board
+                    if ch % 2 == 0:
+                        other_ch = ch + 1
+                    else:
+                        other_ch = ch - 1
+
+                    # disable ch and measure other_ch
+                    self.sm.enable_output(False, ch)
+                    status = self.sm.measure(other_ch, "dc")[ch][0][3]
+                    if status == 2:
+                        # other channel on board is shorted, re-enable ch
+                        self.sm.enable_output(True, ch)
+
+                        # disable and remove other_ch
+                        self.sm.enable_output(False, other_ch)
+                        pixels.pop(other_ch, None)
+                        warnings.warn(
+                            f"Short circuit detected on channel {other_ch}! The device"
+                            + " connected to this channel will no longer be measured."
+                        )
+                        # remove shorted data
+                        data.pop(other_ch, None)
+
+                        # ch could still also be shorted so check it
+                        status = self.sm.measure(ch, "dc")[ch][0][3]
+                        if status == 2:
+                            # it is shorted so disable and remove it
+                            self.sm.enable_output(False, ch)
+                            pixels.pop(ch, None)
+                            warnings.warn(
+                                f"Short circuit detected on channel {ch}! The device"
+                                + " connected to this channel will no longer be "
+                                + "measured."
+                            )
+
+                            # remove shorted data
+                            data.pop(ch, None)
+                    else:
+                        # ch is shorted so remove it
+                        pixels.pop(ch, None)
+                        warnings.warn(
+                            f"Short circuit detected on channel {ch}! The device"
+                            + " connected to this channel will no longer be "
+                            + "measured."
+                        )
+
+                        # remove shorted data
+                        data.pop(ch, None)
+            else:
+                pass

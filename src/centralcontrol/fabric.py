@@ -288,6 +288,11 @@ class fabric(object):
             Pixel information dictionary. Keys are SMU channel numbers.
         handler : handler object
             Handler to process data.
+
+        Returns
+        -------
+        data : dict
+            Dictionary of SMU measurement data. Dictionary keys are channel numbers.
         """
         if nplc != -1:
             self.sm.nplc = nplc
