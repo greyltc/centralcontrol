@@ -19,7 +19,7 @@ from . import virt
 from .mppt import mppt
 from .illumination import illumination
 
-from m1k.tcp.client import m1kTCPClient
+from m1kTCPClient import m1kTCPClient
 
 
 class fabric(object):
