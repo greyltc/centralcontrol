@@ -345,10 +345,6 @@ def _ivt(pixels, request, measurement, mqttc):
         dh = DataHandler(pixels=pixels, mqttqp=mqttc)
         handler = dh.handle_data
 
-        # turn on SMU outputs at voc
-        measurement.sm.configure_dc(0, "i")
-        measurement.sm.enable_output(True)
-
         # "Voc" if
         if args["i_dwell"] > 0:
             _log(
@@ -369,6 +365,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 settling_delay=settling_delay,
                 source_voltage=False,
                 set_point=args["i_dwell_value"],
+                pixels=pixels,
                 handler=handler,
             )
 
@@ -478,6 +475,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 extra=args["mppt_params"],
                 voc_compliance=config["ccd"]["max_voltage"],
                 i_limit=compliance_i,
+                pixels=pixels,
                 handler=handler,
             )
 
@@ -505,6 +503,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 settling_delay=settling_delay,
                 source_voltage=True,
                 set_point=args["v_dwell_value"],
+                pixels=pixels,
                 handler=handler,
             )
 

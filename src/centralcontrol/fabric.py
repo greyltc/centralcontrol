@@ -16,7 +16,6 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from . import virt
-from .pcb import pcb
 from .mppt import mppt
 from .illumination import illumination
 
@@ -34,12 +33,6 @@ class fabric(object):
 
     # current_limit = float("inf")
     current_limit = 0.025  # always safe default
-
-    # a virtual pcb object
-    fake_pcb = virt.pcb
-
-    # a real pcb object
-    real_pcb = pcb
 
     # assumed temperature
     T = 300
@@ -270,6 +263,7 @@ class fabric(object):
         settling_delay=-1,
         source_voltage=True,
         set_point=0,
+        pixels={},
         handler=lambda x: None,
     ):
         """Make steady state measurements.
@@ -290,6 +284,8 @@ class fabric(object):
             (False).
         set_point : float
             Constant or voltage or current to source.
+        pixels : dict
+            Pixel information dictionary. Keys are SMU channel numbers.
         handler : handler object
             Handler to process data.
         """
@@ -304,17 +300,28 @@ class fabric(object):
         else:
             source_mode = "i"
 
-        self.sm.configure_dc(set_point, source_mode)
+        channels = [ch for ch, _ in pixels.items()]
+
+        if (source_mode == "i") and (set_point == 0):
+            # measuring at Voc so set smu outputs to high impedance mode
+            self.sm.enable_output(False, channels)
+        else:
+            # configure smu outputs and enable them
+            values = {}
+            for ch in channels:
+                values[ch] = set_point
+            self.sm.configure_dc(values, source_mode)
+            self.sm.enable_output(True, channels)
 
         # init container for all data
         ss_data = {}
-        for ch in range(self.sm.num_channels):
+        for ch in channels:
             ss_data[ch] = []
 
         # run steady state measurement
         t0 = time.time()
         while time.time() - t0 < t_dwell:
-            data = self.sm.measure()
+            data = self.sm.measure(channels, measurement="dc")
             handler(data)
             for ch, ch_data in sorted(data.items()):
                 ss_data[ch].extend(ch_data)
@@ -360,29 +367,35 @@ class fabric(object):
                 settling_delay=-1,
                 source_voltage=False,
                 set_point=0,
+                pixels=pixels,
             )
 
-            max_vs = []
+            max_vs = {}
             for ch, ssvoc in sorted(ssvocs.items()):
-                # check if the device area has been defined for the channel
-                try:
-                    area = pixels[ch]["area"]
-                except KeyError:
-                    # pixel area for this channel hasn't been defined because the pixel
-                    # wasn't requested so just set it to 1 as it doesn't matter
-                    area = 1
+                area = pixels[ch]["area"]
                 max_v = smart_compliance(ssvoc[0][0], self.current_limit, area)
-                max_vs.append(max_v)
+                max_vs[ch] = max_v
 
-            values = []
-            for ch, max_v in enumerate(max_vs):
-                values.append([v if v < max_v else max_v for v in rvalues])
+            values = {}
+            for ch, max_v in max_vs.items():
+                values[ch] = [v if v < max_v else max_v for v in rvalues]
         else:
-            values = [rvalues for x in range(self.sm.num_channels)]
+            values = {}
+            for ch, _ in pixels.items():
+                values[ch] = rvalues
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
-        data = self.sm.measure("sweep")
+        # get and set initial values then enable outputs
+        channels = [ch for ch, _ in pixels.items()]
+        init_values = {}
+        for ch, vs in values.items():
+            init_values[ch] = vs[0]
+        self.sm.configure_dc(init_values, source_mode)
+        self.sm.enable_output(True, channels)
+
+        # perform measurement
+        data = self.sm.measure(channels, measurement="sweep")
         handler(data)
 
         return data
@@ -422,6 +435,7 @@ class fabric(object):
         duration=30,
         NPLC=-1,
         extra="basic://7:10",
+        pixels={},
         handler=lambda x: None,
         voc_compliance=3,
         i_limit=0.04,
@@ -436,6 +450,8 @@ class fabric(object):
             Number of power line cycles. If -1, keep using previous setting.
         extra : str
             Extra protocol settings to pass to mppt.
+        pixels : dict
+            Pixel information dictionary. Keys are SMU channel numbers.
         handler : handler object
             Handler with handle_data method to process data.
         """
@@ -446,6 +462,7 @@ class fabric(object):
             callback=handler,
             voc_compliance=voc_compliance,
             i_limit=i_limit,
+            pixels=pixels,
         )
         self.mppt.reset()
 

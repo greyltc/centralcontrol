@@ -115,6 +115,7 @@ class mppt:
         voc_compliance=3,
         i_limit=0.1,
         extra="basic://7:10:10",
+        pixels={},
     ):
         """Luanch mppt.
 
@@ -131,9 +132,12 @@ class mppt:
         if NPLC != -1:
             self.sm.nplc = NPLC
 
+        channels = [ch for ch, _ in pixels.items()]
+
         if self.Voc == {}:
-            self.sm.configure_dc(0, "i")
-            ssvocs = self.sm.measure()
+            # disable output for high impedance mode Voc measurement
+            self.sm.enable_output(False, channels)
+            ssvocs = self.sm.measure(channels, measurement="dc")
             for ch, ch_data in sorted(ssvocs.items()):
                 self.Voc[ch] = ch_data[-1][0]
             print(
@@ -153,10 +157,11 @@ class mppt:
             )
 
         # get the smu ready for doing the mppt
-        values = []
+        values = {}
         for ch, vmp in sorted(self.Vmpp.items()):
-            values.append(vmp)
+            values[ch] = vmp
         self.sm.configure_dc(values, "v")
+        self.sm.enable_outputs(True, channels)
 
         # this locks the smu to the device's power quadrant
         # all devices have to be in the same quadrant so just check first one
@@ -212,6 +217,7 @@ class mppt:
                         max_step=0.1,
                         momentum=0.1,
                         delta_zero=0.01,
+                        pixels={},
                     )
                 )
             else:
@@ -238,6 +244,7 @@ class mppt:
                         max_step=params[4],
                         momentum=params[5],
                         delta_zero=params[6],
+                        pixels={},
                     )
                 )
         else:
@@ -261,6 +268,7 @@ class mppt:
         max_step=0.1,
         momentum=0.1,
         delta_zero=0.01,
+        pixels={},
     ):
         """Run gradient descent MPPT algorithm.
 
@@ -295,6 +303,8 @@ class mppt:
         m = deque(maxlen=process_q_len)
         # x = deque(maxlen=process_q_len)  # keeps independant variable setpoints
 
+        channels = [ch for ch, _ in pixels.items()]
+
         if snaith_mode is True:
             duration = duration - snaith_pre_soak_t - snaith_post_soak_t
             this_soak_t = snaith_pre_soak_t
@@ -305,14 +315,14 @@ class mppt:
 
             # init container for ss data
             spos = {}
-            for ch in range(self.sm.num_channels):
+            for ch, _ in pixels.items():
                 spos[ch] = []
 
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
                 time.sleep(delay_ms / 1000)
-                data = self.sm.measure()
+                data = self.sm.measure(channels, measurement="dc")
                 callback(data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
@@ -329,22 +339,25 @@ class mppt:
             return (1, -1)[int(num < 0)]
 
         # register a bootstrap measurement
-        m.appendleft(self.sm.measure())
+        m.appendleft(self.sm.measure(channels, measurement="dc"))
         # x.appendleft(w)
         run_time = time.time() - self.t0
 
         # we don't know too much about which way is down the gradient before we
         # actually get started running the mppt algo here, so let's seed with this
         # initial delta value
-        deltas = [delta_zero] * len(self.Vmpp)
-        next_voltages = []
+        deltas = {}
+        for ch, _ in self.Vmpp.items():
+            deltas[ch] = delta_zero
+
+        next_voltages = {}
         for ch, vmp in sorted(self.Vmpp.items()):
             new_v = vmp + deltas[ch]
             if (self.voltage_lock is True) and (new_v < 0):
                 new_v = 0.0001
             elif (self.voltage_lock is False) and (new_v > 0):
                 new_v = -0.0001
-            next_voltages.append(new_v)
+            next_voltages[ch] = new_v
 
         def compute_grad(data):
             # this measurement
@@ -385,7 +398,7 @@ class mppt:
             # apply new voltage and record a measurement and store the result in slot 0
             self.sm.configure_dc(next_voltages, "v")
             time.sleep(delay_ms / 1000)
-            m.appendleft(self.sm.measure())
+            m.appendleft(self.sm.measure(channels, measurement="dc"))
             # record independant variable
             # x.appendleft(w)
 
@@ -413,8 +426,8 @@ class mppt:
                     deltas[ix] = sign(delta) * max_step
 
             # apply voltage step, calculate new voltage
-            for ix, (old_v, delta) in enumerate(zip(next_voltages, deltas)):
-                new_v = old_v + delta
+            for ch, old_v in sorted(next_voltages.items()):
+                new_v = old_v + deltas[ch]
                 if (self.voltage_lock is True) and (new_v < 0):
                     new_v = 0.0001
                 elif (self.voltage_lock is False) and (new_v > 0):
@@ -433,13 +446,13 @@ class mppt:
             )
 
             spos = {}
-            for ch in range(self.sm.num_channels):
+            for ch in channels:
                 spos[ch] = []
 
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
-                data = self.sm.measure()
+                data = self.sm.measure(channels, "dc")
                 callback(data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
