@@ -110,7 +110,10 @@ class fabric(object):
         self.sm_idn = self.sm.get_id()
 
         # set up smu terminals
-        self.sm.configure_channel_settings(auto_off=False, four_wire=not (smu_two_wire))
+        self.sm.configure_channel_settings(four_wire=not (smu_two_wire))
+
+        # apply external calibration to all smu channels
+        self.sm.use_external_calibration()
 
         # instantiate max-power tracker object based on smu
         self.mppt = mppt(self.sm, self.current_limit)
