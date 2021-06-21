@@ -107,6 +107,7 @@ class fabric(object):
             mode.
         """
         self.sm = m1kTCPClient(smu_address, smu_port, smu_terminator, smu_plf)
+        self.sm.reset()
         self.sm_idn = self.sm.get_id()
 
         # set up smu terminals
