@@ -202,6 +202,8 @@ class fabric(object):
         while len(self._connected_instruments) > 0:
             instr = self._connected_instruments.pop()
             print(instr)
+            if instr == self.sm:
+                self.sm.reset()
             try:
                 instr.disconnect()
             except:

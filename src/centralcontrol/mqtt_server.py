@@ -507,7 +507,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 handler=handler,
             )
 
-    # make sure to shut off the smu
+    # shut off the smu
     measurement.sm.enable_output(False)
 
     # don't leave the light on!
