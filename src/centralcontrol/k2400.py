@@ -28,9 +28,9 @@ class k2400:
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     # setup logging
     self.lg = logging.getLogger(__name__)
+    self.lg.setLevel(logging.DEBUG)
 
     if not self.lg.hasHandlers():
-      self.lg.setLevel(logging.DEBUG)
       # set up logging to systemd's journal if it's there
       if 'systemd' in sys.modules:
         sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)

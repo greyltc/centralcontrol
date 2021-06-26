@@ -71,10 +71,9 @@ class MQTTServer(object):
   def __init__(self):
     # setup logging
     self.lg = logging.getLogger(__name__)
+    self.lg.setLevel(logging.DEBUG)
 
     if not self.lg.hasHandlers():
-      self.lg.setLevel(logging.DEBUG)
-
       # set up a logging handler for passing messages to the UI log window
       uih = logging.Handler()
       uih.setLevel(logging.INFO)

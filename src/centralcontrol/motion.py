@@ -48,9 +48,9 @@ class motion:
     """
     # setup logging
     self.lg = logging.getLogger(__name__)
+    self.lg.setLevel(logging.DEBUG)
 
     if not self.lg.hasHandlers():
-      self.lg.setLevel(logging.DEBUG)
       # set up logging to systemd's journal if it's there
       if 'systemd' in sys.modules:
         sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
