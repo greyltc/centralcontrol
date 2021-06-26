@@ -114,7 +114,7 @@ class illumination(object):
     clean up connection to light
     """
     self.lg.debug("ill disconnect() called")
-    del(self.light_engine)
+    self.__del__()
     self.lg.debug("ill disconnect() complete")
 
   def set_runtime(self, ms):
@@ -167,6 +167,7 @@ class illumination(object):
 
   def __del__(self):
     self.lg.debug("ill __del__() called")
-    del(self.light_engine)
+    if hasattr(self, "light_engine"):
+      del(self.light_engine)
     self.light_engine = None
     self.lg.debug("ill __del__() complete")

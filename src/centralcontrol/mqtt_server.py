@@ -70,7 +70,7 @@ class DataHandler(object):
 
 class MQTTServer(object):
   # for outgoing messages
-  outq = queue.Queue()
+  outq = multiprocessing.Queue()
 
   # queue for storing incoming messages
   msg_queue = queue.Queue()
@@ -104,7 +104,7 @@ class MQTTServer(object):
     self.cli_args = self.get_args()
 
     # create dummy process
-    #self.process = multiprocessing.Process()
+    self.process = multiprocessing.Process()
 
     # create mqtt client id
     self.client_id = f"measure-{uuid.uuid4().hex}"
@@ -575,7 +575,7 @@ class MQTTServer(object):
 
           # setup data handler
           if calibration == False:
-            dh = DataHandler(pixel=pixel, mqttc=self.mqttc)
+            dh = DataHandler(pixel=pixel, outq=self.outq)
             handler = dh.handle_data
           else:
             class Dummy:
@@ -875,7 +875,7 @@ class MQTTServer(object):
             handler = lambda x: None
           else:
             kind = "eqe_measurement"
-            dh = DataHandler(kind=kind, pixel=pixel, mqttc=self.mqttc)
+            dh = DataHandler(kind=kind, pixel=pixel, outq=self.outq)
             handler = dh.handle_data
             self._clear_plot(kind)
 
@@ -981,8 +981,7 @@ class MQTTServer(object):
   def out_relay(self):
     while True:
       to_send = self.outq.get()
-      self.mqttc.publish(**to_send).wait_for_publish()
-      self.outq.task_done()
+      self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
 
   def run(self):
 
