@@ -10,7 +10,7 @@ try:
 except ImportError:
   pass
 
-class illumination:
+class illumination(object):
   """
   generic class for handling a light source
   only supports wavelabs and newport via USB (ftdi driver)

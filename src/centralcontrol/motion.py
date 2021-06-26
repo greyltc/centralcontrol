@@ -13,6 +13,7 @@ from .us import us
 import json
 from urllib.parse import urlparse, parse_qs
 
+import sys
 import logging
 # for logging directly to systemd journal if we can
 try:

@@ -479,7 +479,7 @@ class UtilityHandler(object):
     self.client.connect(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
 
     # start the sender (publishes messages from worker and manager)
-    threading.Thread(target=self.sender, args=(self.client,)).start()
+    threading.Thread(target=self.sender, args=(self.client,), daemon=True).start()
 
     # start the mqtt client loop
     threading.Thread(target=self.mqtt_loop).start()

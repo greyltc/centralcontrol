@@ -6,6 +6,7 @@ import sys
 import argparse
 import collections
 import multiprocessing
+import threading
 import os
 import pickle
 import queue
@@ -33,7 +34,7 @@ from .fabric import fabric
 
 class DataHandler(object):
   """Handler for measurement data."""
-  def __init__(self, kind="", pixel={}, sweep="", mqttc=None):
+  def __init__(self, kind="", pixel={}, sweep="", outq=None):
     """Construct data handler object.
 
         Parameters
@@ -50,7 +51,7 @@ class DataHandler(object):
     self.kind = kind
     self.pixel = pixel
     self.sweep = sweep
-    self.mqttc = mqttc
+    self.outq = outq
 
   def handle_data(self, data):
     """Handle measurement data.
@@ -65,9 +66,15 @@ class DataHandler(object):
         "pixel": self.pixel,
         "sweep": self.sweep
     }
-    self.mqttc.publish(f"data/raw/{self.kind}", pickle.dumps(payload), qos=2)
+    self.outq.put({"topic":f"data/raw/{self.kind}", "payload":pickle.dumps(payload), "qos":2})
 
 class MQTTServer(object):
+  # for outgoing messages
+  outq = queue.Queue()
+
+  # queue for storing incoming messages
+  msg_queue = queue.Queue()
+
   def __init__(self):
     # setup logging
     self.lg = logging.getLogger(__name__)
@@ -97,10 +104,7 @@ class MQTTServer(object):
     self.cli_args = self.get_args()
 
     # create dummy process
-    self.process = multiprocessing.Process()
-
-    # queue for storing incoming messages
-    self.msg_queue = queue.Queue()
+    #self.process = multiprocessing.Process()
 
     # create mqtt client id
     self.client_id = f"measure-{uuid.uuid4().hex}"
@@ -110,14 +114,7 @@ class MQTTServer(object):
     self.mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
     
     self.mqttc.on_message = self.on_message
-    self.mqttc.connect(self.cli_args.mqtthost)
-    self.mqttc.subscribe("measurement/#", qos=2)
-    self.mqttc.loop_start()
 
-    self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
-
-    self.lg.debug(f"{self.client_id} connected!")
-    
     self.lg.debug(f"{__name__} initialized.")
 
   def get_args(self):
@@ -152,11 +149,12 @@ class MQTTServer(object):
     """Stop a running process."""
 
     if process.is_alive() == True:
-      os.kill(process.pid, signal.SIGINT)
+      #os.kill(process.pid, signal.SIGINT)
+      process.terminate()
       process.join()
       self.lg.debug(f"{process.is_alive()=}")
       self.lg.info("Request to stop completed!")
-      self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
+      self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
     else:
       self.lg.warn("Nothing to stop. Measurement server is idle.")
     return process
@@ -208,7 +206,7 @@ class MQTTServer(object):
       traceback.print_exc()
       self.lg.error("EQE CALIBRATION ABORTED! " + str(e))
 
-      self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
+      self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
 
 
   def _calibrate_psu(self, request):
@@ -326,7 +324,7 @@ class MQTTServer(object):
                   psu_calibration = measurement.calibrate_psu(channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10, config["psu"][f"ch{channel}_voltage"])
 
                   diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
-                  self.mqttc.publish(f"calibration/psu/ch{channel}", pickle.dumps(diode_dict), qos=2, retain=True)
+                  self.outq.put({"topic":"calibration/psu/ch{channel}", "payload":pickle.dumps(diode_dict), "qos":2, "retain":True})
 
       self.lg.info("LED PSU calibration complete!")
     except KeyboardInterrupt:
@@ -335,7 +333,7 @@ class MQTTServer(object):
       traceback.print_exc()
       self.lg.error("PSU CALIBRATION ABORTED! " + str(e))
 
-    self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
+    self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
 
 
   def _calibrate_spectrum(self, request):
@@ -371,7 +369,7 @@ class MQTTServer(object):
         spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
         # publish calibration
-        self.mqttc.publish("calibration/spectrum", pickle.dumps(spectrum_dict), qos=2, retain=True).wait_for_publish()
+        self.outq.put({"topic":"calibration/spectrum", "payload":pickle.dumps(spectrum_dict), "qos":2, "retain":True})
 
       self.lg.info("Finished calibrating solar simulator spectrum!")
     except KeyboardInterrupt:
@@ -380,12 +378,12 @@ class MQTTServer(object):
       traceback.print_exc()
       self.lg.error(f"SPECTRUM CALIBRATION ABORTED! " + str(e))
 
-    self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
+    self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
 
     return user_aborted
 
 
-  def _build_q(request, experiment):
+  def _build_q(self, request, experiment):
     """Generate a queue of pixels to run through.
 
       Parameters
@@ -446,13 +444,13 @@ class MQTTServer(object):
       mqttqp : MQTTQueuePublisher
           MQTT queue publisher object that publishes measurement data.
       """
-    self.mqttc.publish(f"plotter/{kind}/clear", pickle.dumps(""), qos=2)
+    self.outq.put({"topic":f"plotter/{kind}/clear", "payload":pickle.dumps(""), "qos":2})
 
 
   # send up a log message to the status channel
   def send_log_msg(self, record):
     payload = {"level": record.levelno, "msg": record.msg}
-    self.mqttc.publish("measurement/log", pickle.dumps(payload), qos=2)
+    self.outq.put({"topic":"measurement/log", "payload":pickle.dumps(payload), "qos":2})
 
 
   def _ivt(self, pixel_queue, request, measurement, calibration=False, rtd=False):
@@ -589,7 +587,7 @@ class MQTTServer(object):
 
           # "Voc" if
           if args["i_dwell"] > 0:
-            self.log.info(f"Measuring voltage output at constant current on {idn}")
+            self.lg.info(f"Measuring voltage output at constant current on {idn}")
             # Voc needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
@@ -762,9 +760,9 @@ class MQTTServer(object):
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
             if rtd == True:
               self.lg.debug("RTD")
-              self.mqttc.publish("calibration/rtd", pickle.dumps(diode_dict), qos=2)
+              self.outq.put({"topic":"calibration/rtz", "payload":pickle.dumps(diode_dict), "qos":2})
             else:
-              self.mqttc.publish("calibration/solarsim_diode", pickle.dumps(diode_dict), qos=2)
+              self.outq.put({"topic":"calibration/solarsim_diode", "payload":pickle.dumps(diode_dict), "qos":2})
 
     # don't leave the light on!
     if hasattr(measurement, "le"):
@@ -890,7 +888,7 @@ class MQTTServer(object):
           # update eqe diode calibration data in
           if calibration == True:
             diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
-            self.mqttc.publish("calibration/eqe", pickle.dumps(diode_dict), qos=2, retain=True)
+            self.outq.put({"topic":"calibration/eqe", "payload":pickle.dumps(diode_dict), "qos":2, "retain":True})
 
 
   def _run(self, request):
@@ -941,8 +939,7 @@ class MQTTServer(object):
         traceback.print_exc()
         self.lg.error(f"RUN ABORTED! " + str(e))
 
-      self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
-
+      self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
 
   # The callback for when a PUBLISH message is received from the server.
   def on_message(self, client, userdata, msg):
@@ -980,9 +977,32 @@ class MQTTServer(object):
 
       self.msg_queue.task_done()
 
+  # relays outgoing messages
+  def out_relay(self):
+    while True:
+      to_send = self.outq.get()
+      self.mqttc.publish(**to_send).wait_for_publish()
+      self.outq.task_done()
+
+  def run(self):
+
+    self.mqttc.connect(self.cli_args.mqtthost)
+    self.mqttc.subscribe("measurement/#", qos=2)
+    self.mqttc.loop_start()
+
+    # start the out relay thread
+    threading.Thread(target=self.out_relay, daemon=True).start()
+
+    self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
+
+    self.lg.debug(f"{self.client_id} connected!")
+
+    # start the message handler
+    self.msg_handler()
+
 def main():
   ms = MQTTServer()
-  ms.msg_handler()
+  ms.run()
 
 # required when using multiprocessing in windows, advised on other platforms
 if __name__ == "__main__":
