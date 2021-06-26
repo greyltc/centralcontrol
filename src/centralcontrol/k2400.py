@@ -4,6 +4,13 @@ import sys
 import time
 import pyvisa
 
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
+
 class k2400:
   """
   Intertace for Keithley 2400 sourcemeter
@@ -19,17 +26,37 @@ class k2400:
   default_comms_timeout = 50000 # in ms
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+
+    if not self.lg.hasHandlers():
+      self.lg.setLevel(logging.DEBUG)
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+
     self.quiet = quiet
     self.rm = self._getResourceManager(visa_lib)
 
     if scan:
-      print(self.rm.list_resources())
+      self.lg.debug(f"{self.rm.list_resources()}")
 
     self.addressString = addressString
     self.terminator = terminator
     self.serialBaud = serialBaud
     self.sm, self.ifc = self._getSourceMeter(self.rm)
     self._setupSourcemeter(front=front, twoWire=twoWire)
+
+    self.lg.debug(f"{__name__} initialized.")
 
   def __del__(self):
     try:
@@ -88,11 +115,11 @@ class k2400:
         rm = pyvisa.ResourceManager()
       except:
         exctype, value2 = sys.exc_info()[:2]
-        print('Unable to connect to instrument.')
-        print('Error 1 (using {:s} backend):'.format(visa_lib))
-        print(value1)
-        print('Error 2 (using pyvisa default backend):')
-        print(value2)
+        self.lg.error('Unable to connect to instrument.')
+        self.lg.error('Error 1 (using {:s} backend):'.format(visa_lib))
+        self.lg.error(value1)
+        self.lg.error('Error 2 (using pyvisa default backend):')
+        self.lg.error(value2)
         raise ValueError("Unable to create a resource manager.")
 
     vLibPath = rm.visalib.get_library_paths()[0]
@@ -102,7 +129,7 @@ class k2400:
       self.backend = vLibPath
 
     if not self.quiet:
-      print("Using {:s} pyvisa backend.".format(self.backend))
+      self.lg.debug("Using {:s} pyvisa backend.".format(self.backend))
     return rm
 
   def _getSourceMeter(self, rm):
@@ -198,20 +225,20 @@ class k2400:
     try:
       self.idn = sm.query('*IDN?')  # ask the device to identify its self
     except:
-      print('Unable perform "*IDN?" query.')
+      self.lg.error('Unable perform "*IDN?" query.')
       exctype, value = sys.exc_info()[:2]
-      print(value)
+      self.lg.error(value)
       #try:
       #  sm.close()
       #except:
       #  pass
-      print(smCommsMsg)
+      self.lg.error(smCommsMsg)
       raise ValueError("Failed to talk to sourcemeter.")
 
     if self.idnContains in self.idn:
       if not self.quiet:
-        print("Sourcemeter found:")
-        print(self.idn)
+        self.lg.debug("Sourcemeter found:")
+        self.lg.debug(self.idn)
       if not self.four88point1:
         self.check488point1(sm=sm)
     else:
@@ -226,7 +253,7 @@ class k2400:
     try:
       if (sm.interface_type == pyvisa.constants.InterfaceType.gpib) and (sm.query(':system:mep:state?') == '0'):
         self.four88point1 = True
-        print('High performance 488.1 comms mode activated!')
+        self.lg.debug('High performance 488.1 comms mode activated!')
       else:
         self.four88point1 = False
     except:
@@ -322,9 +349,9 @@ class k2400:
           self.sm.write(f':sense:voltage:nplcycles {self.nplc_user_set}')
           self.sm.write(':system:ccheck off')
       else:
-        print("Contact check option not installed")
+        self.lg.debug("Contact check option not installed")
     else:
-      print("Contact check function requires 4-wire mode")
+      self.lg.debug("Contact check function requires 4-wire mode")
 
   def disconnect(self):
     self.__del__()
@@ -577,7 +604,7 @@ class k2400:
       self.sm.send_command(command)
       #self.sm.send_command(0x08) # whole bus trigger
     else:
-      print('Bus commands can only be sent over GPIB')
+      self.lg.debug('Bus commands can only be sent over GPIB')
 
   def measure(self, nPoints=1):
     """Makes a measurement and returns the result
@@ -621,9 +648,9 @@ class k2400:
       v_start = first_element[0]
       v_end = last_element[0]
       self.last_sweep_time = t_end - t_start
-      print(f"Sweep duration = {self.last_sweep_time:0.2f} [s]")
-      print(f"Average sweep point time = {self.last_sweep_time/len(reshaped)*1000:0.0f} [ms]")
-      print(f"Sweep rate = {(v_start-v_end)/self.last_sweep_time:0.3f} V/s")
+      self.lg.debug(f"Sweep duration = {self.last_sweep_time:0.2f} [s]")
+      self.lg.debug(f"Average sweep point time = {self.last_sweep_time/len(reshaped)*1000:0.0f} [ms]")
+      self.lg.debug(f"Sweep rate = {(v_start-v_end)/self.last_sweep_time:0.3f} V/s")
       self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep
     
     # update the status byte

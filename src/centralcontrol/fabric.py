@@ -30,6 +30,12 @@ import dp800
 import virtual_dp800
 import eqe
 
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
 
 class fabric(object):
   """Experiment control logic."""
@@ -54,6 +60,26 @@ class fabric(object):
     # self.software_revision = __version__
     # print("Software revision: {:s}".format(self.software_revision))
 
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+
+    if not self.lg.hasHandlers():
+      self.lg.setLevel(logging.DEBUG)
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+    
+    self.lg.debug(f"{__name__} initialized.")
+
   def __enter__(self):
     """Enter the runtime context related to this object."""
     return self
@@ -63,9 +89,9 @@ class fabric(object):
 
         Make sure everything gets cleaned up properly.
         """
-    print("exiting...")
+    self.lg.debug("exiting...")
     self.disconnect_all_instruments()
-    print("cleaned up successfully")
+    self.lg.debug("cleaned up successfully")
 
   def compliance_current_guess(self, area=None, jmax=None, imax=None):
     """Guess what the compliance current should be for i-v-t measurements.
@@ -82,7 +108,7 @@ class fabric(object):
 
     # enforce the global current limit
     if ret_val > self.current_limit:
-      print("Warning: Detected & denied an attempt to damage equipment through overcurrent")
+      self.lg.warn("Detected & denied an attempt to damage equipment through overcurrent")
       ret_val = self.current_limit
 
     return ret_val
@@ -116,7 +142,7 @@ class fabric(object):
     else:
       self.sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud)
     self.sm_idn = self.sm.idn
-    print(f"SMU connect time = {time.time() - t0} s")
+    self.lg.debug(f"SMU connect time = {time.time() - t0} s")
 
     # set up smu terminals
     self.sm.setTerminals(front=smu_front_terminals)
@@ -159,7 +185,7 @@ class fabric(object):
 
     # default lia_output_interface is RS232
     self.lia.connect(lia_address, output_interface=lia_output_interface, **{"timeout": 90000})
-    print(self.lia.idn)
+    self.lg.debug(self.lia.idn)
 
     self._connected_instruments.append(self.lia)
 
@@ -378,10 +404,10 @@ class fabric(object):
 
   def disconnect_all_instruments(self):
     """Disconnect all instruments."""
-    print("disconnecting instruments...")
+    self.lg.debug("disconnecting instruments...")
     while len(self._connected_instruments) > 0:
       instr = self._connected_instruments.pop()
-      print(instr)
+      self.lg.debug(instr)
       try:
         instr.disconnect()
       except:

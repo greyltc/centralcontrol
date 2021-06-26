@@ -1,6 +1,14 @@
 from .wavelabs import wavelabs
 #from .newport import Newport
 import os
+import sys
+
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
 
 class illumination:
   """
@@ -14,6 +22,23 @@ class illumination:
     """
     sets up communication to light source
     """
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+
+    if not self.lg.hasHandlers():
+      self.lg.setLevel(logging.DEBUG)
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
 
     connection_timeout = connection_timeout # s
 
@@ -45,72 +70,103 @@ class illumination:
     #  self.light_engine = Newport(address=address)
     self.protocol = protocol
 
+    self.lg.debug(f"{__name__} initialized.")
+
   def connect(self):
     """
     makes connection to light source
     """
-    return self.light_engine.connect()
+    self.lg.debug("ill connect() called")
+    ret = self.light_engine.connect()
+    self.lg.debug("ill connect() compelte")
+    return ret
 
   def on(self):
     """
     turns light on
     """
-    return self.light_engine.on()
+    self.lg.debug("ill on() called")
+    ret = self.light_engine.on()
+    self.lg.debug("ill on() complete")
+    return ret
 
   def off(self):
     """
     turns light off
     """
-    return self.light_engine.off()
+    self.lg.debug("ill off() called")
+    ret = self.light_engine.off()
+    self.lg.debug("ill off() complete")
+    return ret
   
   def get_spectrum(self):
     """
     fetches a spectrum if the light engine supports it
     """
+    self.lg.debug("ill get_spectrum() called")
     spec = self.light_engine.get_spectrum()
-    print(f"System temperatures = {self.get_temperatures()} degC")
+    self.lg.debug("ill get_spectrum() complete")
+    self.get_temperatures()  # just to trigger the logging
     return spec
 
   def disconnect(self):
     """
-    fetches a spectrum if the light engine supports it
+    clean up connection to light
     """
+    self.lg.debug("ill disconnect() called")
     del(self.light_engine)
+    self.lg.debug("ill disconnect() complete")
 
   def set_runtime(self, ms):
     """
     sets the recipe runtime in ms
     """
-    return self.light_engine.set_runtime(ms)
+    self.lg.debug(f"ill set_runtime({ms=}) called")
+    ret = self.light_engine.set_runtime(ms)
+    self.lg.debug("ill set_runtime() complete")
+    return ret
 
   def get_runtime(self):
     """
     gets the recipe runtime in ms
     """
-    return self.light_engine.get_runtime()
+    self.lg.debug("ill get_runtime() called")
+    runtime = self.light_engine.get_runtime()
+    self.lg.debug(f"ill get_runtime() complete with {runtime=}")
+    return runtime
 
   def set_intensity(self, percent):
     """
     sets the recipe runtime in ms
     """
-    return self.light_engine.set_intensity(percent)
+    self.lg.debug(f"ill set_intensity({percent=}) called")
+    ret = self.light_engine.set_intensity(percent)
+    self.lg.debug("ill set_intensity() complete")
+    return ret
 
   def get_intensity(self):
     """
     gets the recipe runtime in ms
     """
-    return self.light_engine.get_intensity()
+    self.lg.debug("ill get_intensity() called")
+    intensity = self.light_engine.get_intensity()
+    self.lg.debug(f"ill get_intensity() complete with {intensity=}")
+    return intensity
 
   def get_temperatures(self):
     """
     returns a list of light engine temperature measurements
     """
+    self.lg.debug("ill get_temperatures() called")
     temp = []
     if 'wavelabs' in self.protocol:
       temp.append(self.light_engine.get_vis_led_temp())
       temp.append(self.light_engine.get_ir_led_temp())
+    self.lg.debug(f"ill get_temperatures() complete with {temp=}")
     return temp
 
   def __del__(self):
+    self.lg.debug("ill __del__() called")
     del(self.light_engine)
     self.light_engine = None
+    self.lg.debug("ill __del__() complete")

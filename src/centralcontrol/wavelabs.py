@@ -5,6 +5,14 @@ import xml.etree.cElementTree as ET
 import time
 import xml.etree as elT
 
+import sys
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
+
 class wavelabs:
   """interface to the wavelabs LED solar simulator"""
   iseq = 0  # sequence number for comms with wavelabs software
@@ -68,8 +76,25 @@ class wavelabs:
     wavelabs://listen_ip:listen_port (should probably be wavelabs://0.0.0.0:3334)
     or
     wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
-    
     """
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+
+    if not self.lg.hasHandlers():
+      self.lg.setLevel(logging.DEBUG)
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+
     self.relay = relay
     self.host = host
     self.port = port
@@ -77,9 +102,11 @@ class wavelabs:
     self.def_port_relay = 3335
     self.timeout = connection_timeout
     self.default_recipe = default_recipe
+
+    self.lg.debug(f"{__name__} initialized.")
     
   def __del__(self):
-    print("Shutting down connection to wavelabs software")
+    self.lg.debug("Shutting down connection to wavelabs software")
     try:
       self.connection.settimeout(1)
     except Exception as e:
@@ -116,8 +143,8 @@ class wavelabs:
       parser.feed(new)
     parser.close()
     if target.error != 0:
-      print("Got error number {:} from WaveLabs software: {:}".format(target.error, target.error_message))
-      print(f"Raw message: {fed}")
+      self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
+      self.lg.warn(f"Raw message: {fed}")
     return target
 
   def startServer(self):

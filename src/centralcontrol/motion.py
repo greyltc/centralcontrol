@@ -13,6 +13,13 @@ from .us import us
 import json
 from urllib.parse import urlparse, parse_qs
 
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
+
 class motion:
   """
   generic class for handling substrate movement
@@ -39,6 +46,24 @@ class motion:
     """
     sets up communication to motion controller
     """
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+
+    if not self.lg.hasHandlers():
+      self.lg.setLevel(logging.DEBUG)
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+
     parsed = None
     qparsed = None
     try:
@@ -92,11 +117,14 @@ class motion:
           self.motion_engine = us(**us_setup)
     else:
       raise(ValueError(f"Unexpected motion controller protocol {self.scheme} in {address}"))
+    
+    self.lg.debug(f"{__name__} initialized.")
 
   def connect(self):
     """
     makes connection to motion controller and does a light check that the given axes config is correct
     """
+    self.lg.debug(f'motion.connect() called')
     result = self.motion_engine.connect()
     if result == 0:
       self.actual_lengths = self.motion_engine.len_axes_mm
@@ -116,8 +144,9 @@ class motion:
       
       for i, a in enumerate(self.axes):
         if self.actual_lengths[i] <= 0:
-          print(f"Warning: axis {a} is not ready for motion. Homing recommended.")
+          self.lg.warn(f"Warning: axis {a} is not ready for motion. Homing recommended.")
 
+    self.lg.debug(f'motion connected')
     return result
 
 #  def move(self, mm):
@@ -130,6 +159,7 @@ class motion:
     """
     goes to an absolute mm position, blocking, reuturns 0 on success
     """
+    self.lg.debug(f'goto({pos=}) called')
     if timeout == None:
       timeout = self.home_timeout*self.motion_timeout_fraction
     if not hasattr(pos, "__len__"):
@@ -157,12 +187,14 @@ class motion:
       if goal > upper_lim:
         raise(ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]"))
     goto_result = self.motion_engine.goto(pos, timeout=timeout, debug_prints=debug_prints)
+    self.lg.debug(f'goto() complete')
     return goto_result
 
   def home(self, timeout=None):
     """
     homes to a limit switch, blocking, reuturns 0 on success
     """
+    self.lg.debug(f'home() called')
     if timeout is None:
       timeout = self.home_timeout
     home_setup = {}
@@ -172,18 +204,25 @@ class motion:
     home_setup["allowed_deviation"] = self.allowed_length_deviation
     home_result = self.motion_engine.home(**home_setup)
     self.actual_lengths = self.motion_engine.len_axes_mm
+    self.lg.debug(f'home() complete')
 
   def estop(self):
     """
     emergency stop of the driver
     """
-    return self.motion_engine.estop()
+    self.lg.debug('motion estop() called')
+    ret = self.motion_engine.estop()
+    self.lg.debug('motion estop() complete')
+    return ret
 
   def get_position(self):
     """
     returns the current stage location in mm
     """
-    return self.motion_engine.get_position()
+    self.lg.debug('motion get_position() called')
+    pos = self.motion_engine.get_position()
+    self.lg.debug(f'motion get_position() complete with {pos=}')
+    return pos
 
 # testing
 def main():

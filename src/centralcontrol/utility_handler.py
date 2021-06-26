@@ -8,7 +8,6 @@ import queue
 import serial  # for monochromator
 from pathlib import Path
 import sys
-import logging
 import pyvisa
 import collections
 import numpy as np
@@ -18,6 +17,8 @@ import time
 import gi
 from gi.repository import GLib
 
+import logging
+import logging.handlers
 # for logging directly to systemd journal if we can
 try:
   import systemd.journal
@@ -51,20 +52,31 @@ class UtilityHandler(object):
     self.mqtt_server_port = mqtt_server_port
 
     # setup logging
-    self.lg = logging.getLogger(f'{__package__}.{__class__.__name__}')
-    self.lg.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-    ch.setFormatter(logFormat)
-    self.lg.addHandler(ch)
+    self.lg = logging.getLogger(__name__)
 
-    # set up logging to systemd's journal if it's there
-    if 'systemd' in sys.modules:
-      sysL = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-      sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-      sysL.setFormatter(sysLogFormat)
-      self.lg.addHandler(sysL)
+    if not self.lg.hasHandlers():
+      self.lg.setLevel(logging.DEBUG)
 
+      # set up a logging handler for passing messages to the UI log window
+      uih = logging.Handler()
+      uih.setLevel(logging.INFO)
+      uih.emit = self.send_log_msg
+      self.lg.addHandler(uih)
+
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+    
+    self.lg.debug(f"{__name__} initialized.")
 
   # The callback for when the client receives a CONNACK response from the server.
   def on_connect(self, client, userdata, flags, rc):
@@ -102,7 +114,7 @@ class UtilityHandler(object):
   def manager(self):
     while True:
       cmd_msg = self.filter_cmd(self.cmdq.get())
-      self.log_msg('New command message!',lvl=logging.DEBUG)
+      self.lg.debug('New command message!')
       if cmd_msg['cmd'] == 'estop':
         if cmd_msg['pcb_virt'] == True:
           tpcb = virt.pcb
@@ -111,18 +123,18 @@ class UtilityHandler(object):
         try:
           with tpcb(cmd_msg['pcb'], timeout=10) as p:
             p.query('b')
-          self.log_msg('Emergency stop command issued. Re-Homing required before any further movements.', lvl=logging.INFO)
+          self.lg.warn('Emergency stop command issued. Re-Homing required before any further movements.')
         except Exception as e:
           emsg = "Unable to emergency stop."
-          self.log_msg(emsg, lvl=logging.WARNING)
+          self.lg.warn(emsg)
           logging.exception(emsg)
       elif (self.taskq.unfinished_tasks == 0):
         # the worker is available so let's give it something to do
         self.taskq.put_nowait(cmd_msg)
       elif (self.taskq.unfinished_tasks > 0):
-        self.log_msg(f'Backend busy (task queue size = {self.taskq.unfinished_tasks}). Command rejected.', lvl=logging.WARNING)
+        self.lg.warn(f'Backend busy (task queue size = {self.taskq.unfinished_tasks}). Command rejected.')
       else:
-        self.log_msg(f'Command message rejected:: {cmd_msg}', lvl=logging.DEBUG)
+        self.lg.debug(f'Command message rejected:: {cmd_msg}')
       self.cmdq.task_done()
 
   # asks for the current stage position and sends it up to /response
@@ -138,7 +150,7 @@ class UtilityHandler(object):
   def worker(self):
     while True:
       task = self.taskq.get()
-      self.log_msg(f"New task: {task['cmd']} (queue size = {self.taskq.unfinished_tasks})",lvl=logging.DEBUG)
+      self.lg.debug(f"New task: {task['cmd']} (queue size = {self.taskq.unfinished_tasks})")
       # handle pcb and stage virtualization
       stage_pcb_class = pcb
       pcb_class = pcb
@@ -154,7 +166,7 @@ class UtilityHandler(object):
             mo = motion(address=task['stage_uri'], pcb_object=p)
             mo.connect()
             mo.home()
-            self.log_msg('Homing procedure complete.',lvl=logging.INFO)
+            self.lg.info('Homing procedure complete.')
             self.send_pos(mo)
           del(mo)
 
@@ -175,9 +187,9 @@ class UtilityHandler(object):
               p.query('s')  # deselect all before selecting one
             result = p.query(task['pcb_cmd'])
           if result == '':
-            self.log_msg(f"Command acknowledged: {task['pcb_cmd']}", lvl=logging.DEBUG)
+            self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
           else:
-            self.log_msg(f"Command {task['pcb_cmd']} not acknowleged with {result}", lvl=logging.WARNING)
+            self.lg.warn(f"Command {task['pcb_cmd']} not acknowleged with {result}")
 
         # get the stage location
         elif task['cmd'] == 'read_stage':
@@ -190,14 +202,14 @@ class UtilityHandler(object):
         # zero the mono
         elif task['cmd'] == 'mono_zero':
           if task['mono_virt'] == True:
-            self.log_msg("0 GOTO virtually worked!", lvl=logging.INFO)
-            self.log_msg("1 FILTER virtually worked!", lvl=logging.INFO)
+            self.lg.info("0 GOTO virtually worked!")
+            self.lg.info("1 FILTER virtually worked!")
           else:
             with serial.Serial(task['mono_address'], 9600, timeout=1) as mono:
               mono.write("0 GOTO")
-              self.log_msg(mono.readline.strip(), lvl=logging.INFO)
+              self.lg.info(mono.readline.strip())
               mono.write("1 FILTER")
-              self.log_msg(mono.readline.strip(), lvl=logging.INFO)
+              self.lg.info(mono.readline.strip())
 
         elif task['cmd'] == 'spec':
           if task['le_virt'] == True:
@@ -214,9 +226,9 @@ class UtilityHandler(object):
               output = {'destination':'calibration/spectrum', 'payload': pickle.dumps(response)}
               self.outputq.put(output)
             else:
-              self.log_msg(f'Unable to set light engine intensity.',lvl=logging.INFO)
+              self.lg.info(f'Unable to set light engine intensity.')
           else:
-            self.log_msg(f'Unable to connect to light engine.',lvl=logging.INFO)
+            self.lg.info(f'Unable to connect to light engine.')
           del(le)
 
         # device round robin commands
@@ -237,7 +249,7 @@ class UtilityHandler(object):
               elif task['type'] == 'rtd':
                 k.setupDC(auto_ohms=True)
               elif task['type'] == 'connectivity':
-                self.log_msg(f'Checking connections. Only failures will be printed.',lvl=logging.INFO)
+                self.lg.info(f'Checking connections. Only failures will be printed.')
                 k.set_ccheck_mode(True)
 
               for i, slot in enumerate(task['slots']):
@@ -250,22 +262,22 @@ class UtilityHandler(object):
                   m = k.measure()[0]
                   ohm = m[2]
                   if (ohm < 3000) and (ohm > 500):
-                    self.log_msg(f'{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C',lvl=logging.INFO)
+                    self.lg.info(f'{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C')
                 elif task['type'] == 'connectivity':
                   if k.contact_check() == False:
-                    self.log_msg(f'{slot} -- {dev} appears disconnected.',lvl=logging.INFO)
+                    self.lg.info(f'{slot} -- {dev} appears disconnected.')
                 p.query(f"s{slot}0") # disconnect the slot
 
               if task['type'] == 'connectivity':
                 k.set_ccheck_mode(False)
-                self.log_msg(f'Contact check complete.',lvl=logging.INFO)
+                self.lg.info('Contact check complete.')
               elif task['type'] == 'rtd':
-                self.log_msg(f'Temperature measurement complete.',lvl=logging.INFO)
+                self.lg.info('Temperature measurement complete.')
                 k.setupDC(sourceVoltage=False)
               p.query("s")
               del(k)
       except Exception as e:
-        self.log_msg(e, lvl=logging.WARNING)
+        self.lg.warn(e)
         logging.exception(e)
         try:
           del(le)  # ensure le is cleaned up
@@ -284,37 +296,37 @@ class UtilityHandler(object):
       if task['cmd'] == 'check_health':
         rm = pyvisa.ResourceManager('@py')
         if 'pcb' in task:
-          self.log_msg(f"Checking controller@{task['pcb']}...",lvl=logging.INFO)
+          self.lg.info(f"Checking controller@{task['pcb']}...")
           try:
             with pcb_class(task['pcb'], timeout=1) as p:
-              self.log_msg('Controller connection initiated',lvl=logging.INFO)
-              self.log_msg(f"Controller firmware version: {p.firmware_version}",lvl=logging.INFO)
-              self.log_msg(f"Controller axes: {p.detected_axes}",lvl=logging.INFO)
-              self.log_msg(f"Controller muxes: {p.detected_muxes}",lvl=logging.INFO)
+              self.lg.info('Controller connection initiated')
+              self.lg.info(f"Controller firmware version: {p.firmware_version}")
+              self.lg.info(f"Controller axes: {p.detected_axes}")
+              self.lg.info(f"Controller muxes: {p.detected_muxes}")
           except Exception as e:
             emsg = f'Could not talk to control box'
-            self.log_msg(emsg, lvl=logging.WARNING)
+            self.lg.warn(emsg)
             logging.exception(emsg)
 
         if 'psu' in task:
-          self.log_msg(f"Checking power supply@{task['psu']}...",lvl=logging.INFO)
+          self.lg.info(f"Checking power supply@{task['psu']}...")
           if task['psu_virt'] == True:
-            self.log_msg(f'Power supply looks virtually great!',lvl=logging.INFO)
+            self.lg.info(f'Power supply looks virtually great!')
           else:
             try:
               with rm.open_resource(task['psu']) as psu:
-                self.log_msg('Power supply connection initiated',lvl=logging.INFO)
+                self.lg.info('Power supply connection initiated')
                 idn = psu.query("*IDN?")
-                self.log_msg(f'Power supply identification string: {idn.strip()}',lvl=logging.INFO)
+                self.lg.info(f'Power supply identification string: {idn.strip()}')
             except Exception as e:
               emsg = f'Could not talk to PSU'
-              self.log_msg(emsg, lvl=logging.WARNING)
+              self.lg.warn(emsg)
               logging.exception(emsg)
 
         if 'smu_address' in task:
-          self.log_msg(f"Checking sourcemeter@{task['smu_address']}...",lvl=logging.INFO)
+          self.lg.info(f"Checking sourcemeter@{task['smu_address']}...")
           if task['smu_virt'] == True:
-            self.log_msg(f'Sourcemeter looks virtually great!',lvl=logging.INFO)
+            self.lg.info(f'Sourcemeter looks virtually great!')
           else:
             # for sourcemeter
             open_params = {}
@@ -336,47 +348,47 @@ class UtilityHandler(object):
 
             try:
               with rm.open_resource(**open_params) as smu:
-                self.log_msg('Sourcemeter connection initiated',lvl=logging.INFO)
+                self.lg.info('Sourcemeter connection initiated')
                 idn = smu.query("*IDN?")
-                self.log_msg(f'Sourcemeter identification string: {idn}',lvl=logging.INFO)
+                self.lg.info(f'Sourcemeter identification string: {idn}')
             except Exception as e:
               emsg = f'Could not talk to sourcemeter'
-              self.log_msg(emsg, lvl=logging.WARNING)
+              self.lg.warn(emsg)
               logging.exception(emsg)
 
         if 'lia_address' in task:
-          self.log_msg(f"Checking lock-in@{task['lia_address']}...",lvl=logging.INFO)
+          self.lg.info(f"Checking lock-in@{task['lia_address']}...")
           if task['lia_virt'] == True:
-            self.log_msg(f'Lock-in looks virtually great!',lvl=logging.INFO)
+            self.lg.info(f'Lock-in looks virtually great!')
           else:
             try:
               with rm.open_resource(task['lia_address'], baud_rate=9600) as lia:
                 lia.read_termination = '\r'
-                self.log_msg('Lock-in connection initiated',lvl=logging.INFO)
+                self.lg.info('Lock-in connection initiated')
                 idn = lia.query("*IDN?")
-                self.log_msg(f'Lock-in identification string: {idn.strip()}',lvl=logging.INFO)
+                self.lg.info(f'Lock-in identification string: {idn.strip()}')
             except Exception as e:
               emsg = f'Could not talk to lock-in'
-              self.log_msg(emsg, lvl=logging.WARNING)
+              self.lg.warn(emsg)
               logging.exception(emsg)
 
         if 'mono_address' in task:
-          self.log_msg(f"Checking monochromator@{task['mono_address']}...",lvl=logging.INFO)
+          self.lg.info(f"Checking monochromator@{task['mono_address']}...")
           if task['mono_virt'] == True:
-            self.log_msg(f'Monochromator looks virtually great!',lvl=logging.INFO)
+            self.lg.info(f'Monochromator looks virtually great!')
           else:
             try:
               with rm.open_resource(task['mono_address'], baud_rate=9600) as mono:
-                self.log_msg('Monochromator connection initiated',lvl=logging.INFO)
+                self.lg.info('Monochromator connection initiated')
                 qu = mono.query("?nm")
-                self.log_msg(f'Monochromator wavelength query result: {qu.strip()}',lvl=logging.INFO)
+                self.lg.info(f'Monochromator wavelength query result: {qu.strip()}')
             except Exception as e:
               emsg = f'Could not talk to monochromator'
-              self.log_msg(emsg, lvl=logging.WARNING)
+              self.lg.warn(emsg)
               logging.exception(emsg)
 
         if 'le_address' in task:
-          self.log_msg(f"Checking light engine@{task['le_address']}...", lvl=logging.INFO)
+          self.lg.info(f"Checking light engine@{task['le_address']}...")
           le = None
           if task['le_virt'] == True:
             ill = virt.illumination
@@ -386,14 +398,14 @@ class UtilityHandler(object):
             le = ill(address=task['le_address'], default_recipe=task['le_recipe'], connection_timeout=1)
             con_res = le.connect()
             if con_res == 0:
-              self.log_msg('Light engine connection successful', lvl=logging.INFO)
+              self.lg.info('Light engine connection successful')
             elif (con_res == -1):
-              self.log_msg("Timeout waiting for wavelabs to connect", lvl=logging.WARNING)
+              self.lg.warn("Timeout waiting for wavelabs to connect")
             else:
-              self.log_msg(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}", lvl=logging.WARNING)
+              self.lg.warn(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}")
           except Exception as e:
             emsg = f'Light engine connection check failed: {e}'
-            self.log_msg(emsg,lvl=logging.WARNING)
+            self.lg.info(emsg)
             logging.exception(emsg)
           try:
             del(le)
@@ -402,15 +414,12 @@ class UtilityHandler(object):
 
       self.taskq.task_done()
 
-
   # send up a log message to the status channel
-  def log_msg(self, msg, lvl=logging.DEBUG):
-    self.lg.info(f'Message to client: {msg}')
-    payload = {'log':{'level':lvl, 'text':msg}}
+  def send_log_msg(self, record):
+    payload = {'log':{'level':record.levelno, 'text':record.msg}}
     payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
     output = {'destination':'status', 'payload': payload}
     self.outputq.put(output)
-
 
   # thread that publishes mqtt messages on behalf of the worker and manager
   def sender(self, mqttc):
@@ -418,6 +427,12 @@ class UtilityHandler(object):
       to_send = self.outputq.get()
       mqttc.publish(to_send['destination'], to_send['payload'], qos=2).wait_for_publish()
       self.outputq.task_done()
+
+  # thread for the mqtt loop. if that dies, it kills the glib main loop
+  def mqtt_loop(self):
+    time.sleep(1)
+    self.client.loop_forever()
+    self.loop.quit()
 
   # converts RTD resistance to temperature. set r0 to 100 for PT100 and 1000 for PT1000
   def rtd_r_to_t(self, r, r0=1000, poly=None):
@@ -467,11 +482,10 @@ class UtilityHandler(object):
     # start the sender (publishes messages from worker and manager)
     threading.Thread(target=self.sender, args=(self.client,)).start()
 
-    # Blocking call that processes network traffic, dispatches callbacks and
-    # handles reconnecting.
-    # Other loop*() functions are available that give a threaded interface and a
-    # manual interface.
-    self.client.loop_forever()
+    # start the mqtt client loop
+    threading.Thread(target=self.mqtt_loop).start()
+
+    self.loop.run()  # run the glib loop. gets killed only when client.loop_forever dies
 
 def main():
   parser = argparse.ArgumentParser(description='Utility handler')
@@ -480,7 +494,7 @@ def main():
   args = parser.parse_args()
 
   u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
-  u.run()
+  u.run()  # loops forever
 
 if __name__ == "__main__":
   main()
