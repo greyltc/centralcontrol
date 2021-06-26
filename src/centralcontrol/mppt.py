@@ -131,7 +131,7 @@ class mppt:
       else:
         do_snaith = False
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.05, min_step=0.001, NPLC=10, callback=callback, delay_ms=500, snaith_mode=do_snaith, max_step=0.1, momentum=0.1, delta_zero=0.01))
+        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.5, min_step=0.001, NPLC=10, callback=callback, delay_ms=500, snaith_mode=do_snaith, max_step=0.1, momentum=0.1, delta_zero=0.01))
       else:
         params = params.split(':')
         if len(params) != 7:
@@ -146,7 +146,7 @@ class mppt:
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
     return (m, ssvocs)
 
-  def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.05, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
+  def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
     """
     gradient descent MPPT algorithm
     alpha is the "learning rate"
