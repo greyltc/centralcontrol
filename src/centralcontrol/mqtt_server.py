@@ -967,13 +967,13 @@ class MQTTServer(object):
 
         # perform a requested action
         if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
-          self.process = self.start_process(self.cli_args, self.process, self._run, (request,))
+          self.process = self.start_process(self.process, self._run, (request,))
         elif action == "stop":
-          self.process = self.stop_process(self.cli_args, self.process)
+          self.process = self.stop_process(self.process)
         elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
-          self.process = self.start_process(self.cli_args, self.process, self._calibrate_eqe, (request,))
+          self.process = self.start_process(self.process, self._calibrate_eqe, (request,))
         elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
-          self.process = self.start_process(self.cli_args, self.process, self._calibrate_psu, (request,))
+          self.process = self.start_process(self.process, self._calibrate_psu, (request,))
 
       except Exception as e:
         self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
