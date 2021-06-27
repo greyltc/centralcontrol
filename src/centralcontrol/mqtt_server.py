@@ -7,10 +7,8 @@ import argparse
 import collections
 import multiprocessing
 import threading
-import os
 import pickle
 import queue
-import signal
 import time
 import traceback
 import uuid
@@ -72,8 +70,11 @@ class MQTTServer(object):
   # for outgoing messages
   outq = multiprocessing.Queue()
 
-  # queue for storing incoming messages
+  # for incoming messages
   msg_queue = queue.Queue()
+
+  # long tasks get their own process
+  process = multiprocessing.Process()
 
   def __init__(self):
     # setup logging
@@ -103,16 +104,12 @@ class MQTTServer(object):
     # get command line arguments
     self.cli_args = self.get_args()
 
-    # create dummy process
-    self.process = multiprocessing.Process()
-
     # create mqtt client id
     self.client_id = f"measure-{uuid.uuid4().hex}"
 
     # setup mqtt subscriber client
     self.mqttc = mqtt.Client(client_id=self.client_id)
     self.mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
-    
     self.mqttc.on_message = self.on_message
 
     self.lg.debug(f"{__name__} initialized.")
@@ -123,7 +120,7 @@ class MQTTServer(object):
     parser.add_argument("--mqtthost", default="127.0.0.1", help="IP address or hostname of MQTT broker.")
     return parser.parse_args()
 
-  def start_process(self, process, target, args):
+  def start_process(self, target, args):
     """Start a new process to perform an action if no process is running.
 
       Parameters
@@ -134,30 +131,25 @@ class MQTTServer(object):
           Arguments required by the function.
       """
 
-    if process.is_alive() == False:
-      ret_proc = multiprocessing.Process(target=target, args=args)
-      ret_proc.start()
+    if self.process.is_alive() == False:
+      self.process = multiprocessing.Process(target=target, args=args, daemon=True)
+      self.process.start()
       self.mqttc("measurement/status", pickle.dumps("Busy"), qos=2, retain=True)
     else:
-      ret_proc = process
       self.lg.warn("Measurement server busy!")
 
-    return ret_proc
 
-
-  def stop_process(self, process):
+  def stop_process(self):
     """Stop a running process."""
 
-    if process.is_alive() == True:
-      #os.kill(process.pid, signal.SIGINT)
-      process.terminate()
-      process.join()
-      self.lg.debug(f"{process.is_alive()=}")
+    if self.process.is_alive() == True:
+      self.process.terminate()
+      self.process.join()
+      self.lg.debug(f"{self.process.is_alive()=}")
       self.lg.info("Request to stop completed!")
       self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
     else:
       self.lg.warn("Nothing to stop. Measurement server is idle.")
-    return process
 
 
   def _calibrate_eqe(self, request):
@@ -964,13 +956,13 @@ class MQTTServer(object):
 
         # perform a requested action
         if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
-          self.process = self.start_process(self.process, self._run, (request,))
+          self.start_process(self._run, (request,))
         elif action == "stop":
-          self.process = self.stop_process(self.process)
+          self.stop_process()
         elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
-          self.process = self.start_process(self.process, self._calibrate_eqe, (request,))
+          self.start_process(self._calibrate_eqe, (request,))
         elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
-          self.process = self.start_process(self.process, self._calibrate_psu, (request,))
+          self.start_process(self._calibrate_psu, (request,))
 
       except Exception as e:
         self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
@@ -984,7 +976,7 @@ class MQTTServer(object):
       self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
 
   def run(self):
-
+    # connect to the mqtt server
     self.mqttc.connect(self.cli_args.mqtthost)
     self.mqttc.subscribe("measurement/#", qos=2)
     self.mqttc.loop_start()
@@ -992,6 +984,7 @@ class MQTTServer(object):
     # start the out relay thread
     threading.Thread(target=self.out_relay, daemon=True).start()
 
+    # publish that we're ready
     self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
 
     self.lg.debug(f"{self.client_id} connected!")
