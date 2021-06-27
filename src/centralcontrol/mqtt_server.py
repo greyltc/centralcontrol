@@ -7,8 +7,10 @@ import argparse
 import collections
 import multiprocessing
 import threading
+import os
 import pickle
 import queue
+import signal
 import time
 import traceback
 import uuid
@@ -143,7 +145,7 @@ class MQTTServer(object):
     """Stop a running process."""
 
     if self.process.is_alive() == True:
-      self.process.terminate()
+      os.kill(self.process.pid, signal.SIGINT)
       self.process.join()
       self.lg.debug(f"{self.process.is_alive()=}")
       self.lg.info("Request to stop completed!")
