@@ -489,7 +489,8 @@ class MQTTServer(object):
 
     # connect instruments
     measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smu_address=config["smu"]["address"], smu_virt=config["smu"]["virtual"], smu_terminator=config["smu"]["terminator"], smu_baud=config["smu"]["baud"], smu_front_terminals=config["smu"]["front_terminals"], smu_two_wire=config["smu"]["two_wire"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, light_address=light_address, light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"])
-    measurement.le.set_intensity(int(args["light_recipe_int"]))
+    if hasattr(measurement, 'le'):
+      measurement.le.set_intensity(int(args["light_recipe_int"]))
 
     source_delay = args["source_delay"] / 1000  # scale this from ms to s because that's what the SMU wants
     last_label = None
