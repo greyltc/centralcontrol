@@ -80,7 +80,11 @@ class MQTTServer(object):
 
   def __init__(self):
     # setup logging
-    self.lg = logging.getLogger(__name__)
+    logname = __name__
+    if __package__ in __name__:
+      # log at the package level if the imports are all correct
+      logname = __package__
+    self.lg = logging.getLogger(logname)
     self.lg.setLevel(logging.DEBUG)
 
     if not self.lg.hasHandlers():

@@ -52,7 +52,10 @@ class UtilityHandler(object):
     self.mqtt_server_port = mqtt_server_port
 
     # setup logging
-    self.lg = logging.getLogger(__name__)
+    logname = __name__
+    if __package__ in __name__:
+      # log at the package level if the imports are all correct
+      logname = __package__
     self.lg.setLevel(logging.DEBUG)
 
     if not self.lg.hasHandlers():
