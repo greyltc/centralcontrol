@@ -354,7 +354,8 @@ class MQTTServer(object):
         args = request["args"]
 
         measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], light_address=config["solarsim"]["address"], light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"])
-        measurement.le.set_intensity(int(args["light_recipe_int"]))
+        if hasattr(measurement, 'le'):
+          measurement.le.set_intensity(int(args["light_recipe_int"]))
 
         timestamp = time.time()
 
@@ -561,7 +562,7 @@ class MQTTServer(object):
             self.lg.error(f"Mux error: {resp}! Aborting run")
             break
 
-          # init parameters derived from steadystate measurements
+          # init parameters derived from steady state measurements
           ssvoc = None
 
           # get or estimate compliance current
