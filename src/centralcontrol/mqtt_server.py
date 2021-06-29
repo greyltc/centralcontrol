@@ -295,7 +295,7 @@ class MQTTServer(object):
               self.lg.info(f"Operating on substrate {label}, pixel {pix}...")
 
               # add id str to handlers to display on plots
-              idn = f"{label}_pixel{pix}"
+              idn = f"{label}_device_{pix}"
 
               # we have a new substrate
               if last_label != label:
@@ -541,7 +541,7 @@ class MQTTServer(object):
           self.lg.debug(f"Operating on substrate {label}, pixel {pix}...")
 
           # add id str to handlers to display on plots
-          idn = f"{label}_pixel_{pix}"
+          idn = f"{label}_device_{pix}"
 
           # check if we have a new substrate
           if last_label != label:
@@ -838,7 +838,7 @@ class MQTTServer(object):
           pix = pixel["pixel"]
 
           # add id str to handlers to display on plots
-          idn = f"{label}_pixel{pix}"
+          idn = f"{label}_device_{pix}"
 
           self.lg.info(f"Measuring EQE on {idn}")
 
