@@ -443,6 +443,7 @@ class MQTTServer(object):
       pixel_dict['label'] = things['label']
       pixel_dict['layout'] = things['layout']
       pixel_dict['sub_name'] = things['system_label']
+      pixel_dict['user_label'] = things['user_label']
       pixel_dict['pixel'] = things['mux_index']
       loc = things['loc']
       pos = [a + b for a, b in zip(center, loc)]
