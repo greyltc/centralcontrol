@@ -118,26 +118,31 @@ class mppt:
     params = extra_split[1]
     if algo == 'basic':
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked := self.really_dumb_tracker(duration, callback=callback))
+        m.append(self.really_dumb_tracker(duration, start_voltage=self.Vmpp, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 3:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]:[sweep_delay_ms]"))
         params = [float(f) for f in params]
-        m.append(m_tracked := self.really_dumb_tracker(duration, callback=callback, dAngleMax=params[0], dwell_time=params[1], sweep_delay_ms=params[2]))
+        m.append(self.really_dumb_tracker(duration, start_voltage=self.Vmpp, callback=callback, dAngleMax=params[0], dwell_time=params[1], sweep_delay_ms=params[2]))
+    elif algo == 'spo':
+      if len(params) == 0:  #  use defaults
+        m.append(self.spo(duration, start_voltage=self.Vmpp, callback=callback))
+      else:
+        raise (ValueError("MPPT configuration failure, Usage: --mppt-params spo://"))
     elif (algo in ['gd', 'snaith']):
       if algo == 'snaith':
         do_snaith = True
       else:
         do_snaith = False
       if len(params) == 0:  #  use defaults
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, alpha=0.5, min_step=0.001, NPLC=10, callback=callback, delay_ms=500, snaith_mode=do_snaith, max_step=0.1, momentum=0.1, delta_zero=0.01))
+        m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, snaith_mode=do_snaith, callback=callback))
       else:
         params = params.split(':')
         if len(params) != 7:
           raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]"))
         params = [float(f) for f in params]
-        m.append(m_tracked := self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6]))
+        m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6]))
     else:
       print('WARNING: MPPT algorithm {:} not understood, not doing max power point tracking'.format(algo))
 
@@ -145,6 +150,19 @@ class mppt:
     print('Final value seen by the max power point tracker after running for {:.1f} seconds is'.format(run_time))
     print('{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA'.format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
     return (m, ssvocs)
+
+  def spo(self, duration, start_voltage, callback=lambda x: None):
+    self.q = deque()
+    data = self.sm.measureUntil(t_dwell=duration, cb=callback)
+    self.q.extend(data)
+
+    # take whatever the most recent readings were to be the mppt  
+    self.Vmpp = data[0][0]
+    self.Impp = data[0][1]
+    
+    q = self.q
+    del (self.q)
+    return q
 
   def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
     """
@@ -281,7 +299,7 @@ class mppt:
     self.q.append(measurement)
     return (v, i, tx)
 
-  def really_dumb_tracker(self, duration, callback=lambda x: None, dAngleMax=7, dwell_time=10, sweep_delay_ms=30):
+  def really_dumb_tracker(self, duration, start_voltage, callback=lambda x: None, dAngleMax=7, dwell_time=10, sweep_delay_ms=30):
     """
     A super dumb maximum power point tracking algorithm that
     alternates between periods of exploration around the mppt and periods of constant voltage dwells
@@ -298,7 +316,7 @@ class mppt:
     dV = self.Voc / 301
 
     self.q = deque()
-    Vmpp = self.Vmpp
+    Vmpp = start_voltage
 
     if duration <= 10:
       # if the user only wants to mppt for 20 or less seconds, shorten the initial dwell
@@ -306,7 +324,7 @@ class mppt:
     else:
       initial_soak = dwell_time
 
-    print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(self.Vmpp * 1000, initial_soak))
+    print("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp * 1000, initial_soak))
     ssmpps = self.sm.measureUntil(t_dwell=initial_soak, cb=callback)
     self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
     if self.Isc is None:
