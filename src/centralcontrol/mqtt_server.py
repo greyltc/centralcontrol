@@ -312,7 +312,7 @@ class MQTTServer(object):
                 finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%A, %d %B %Y %I:%M%p")
                 human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
                 fraction = n_done/p_total
-                text = f"[{n_done+1}/{p_total}] finishing {finish_str}, {human_str}"
+                text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
                 progress_msg = {"text":text, "fraction": fraction}
                 self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
@@ -583,7 +583,7 @@ class MQTTServer(object):
             finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
             human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
             fraction = n_done/p_total
-            text = f"[{n_done+1}/{p_total}] finishing {finish_str}, {human_str}"
+            text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
             progress_msg = {"text":text, "fraction": fraction}
             self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
@@ -892,7 +892,7 @@ class MQTTServer(object):
             finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%A, %d %B %Y %I:%M%p")
             human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
             fraction = n_done/p_total
-            text = f"[{n_done+1}/{p_total}] finishing {finish_str}, {human_str}"
+            text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
             progress_msg = {"text":text, "fraction": fraction}
             self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
