@@ -140,7 +140,7 @@ class MQTTServer(object):
     if self.process.is_alive() == False:
       self.process = multiprocessing.Process(target=target, args=args, daemon=True)
       self.process.start()
-      self.mqttc("measurement/status", pickle.dumps("Busy"), qos=2, retain=True)
+      self.outq.put("measurement/status", pickle.dumps("Busy"), qos=2, retain=True)
     else:
       self.lg.warn("Measurement server busy!")
 
