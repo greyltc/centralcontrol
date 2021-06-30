@@ -14,6 +14,8 @@ import signal
 import time
 import traceback
 import uuid
+import humanize
+import datetime
 
 import logging
 # for logging directly to systemd journal if we can
@@ -291,15 +293,30 @@ class MQTTServer(object):
                 self.lg.error(f"Experiment relay error: {resp}! Aborting run")
                 return
 
-            last_label = None
-            while len(pixel_queue) > 0:
+            p_total = len(pixel_queue)
+            remaining = p_total
+            n_done = 0
+            t0 = time.time()
+            while remaining > 0:
               pixel = pixel_queue.popleft()
               label = pixel["label"]
               pix = pixel["pixel"]
-              self.lg.info(f"Operating on substrate {label}, pixel {pix}...")
 
               # add id str to handlers to display on plots
               idn = f"{label}_device_{pix}"
+
+              dt = time.time() - t0
+              if n_done > 0:
+                tpp = dt/n_done
+                finishtime = time.time() + tpp*remaining
+                finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%A, %d %B %Y %I:%M%p")
+                human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                fraction = n_done/p_total
+                text = f"[{n_done+1}/{p_total}] finishing {finish_str}, {human_str}"
+                progress_msg = {"text":text, "fraction": fraction}
+                self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+
+              self.lg.info(f"Starting on {label}, number {pix}")
 
               # we have a new substrate
               if last_label != label:
@@ -323,6 +340,12 @@ class MQTTServer(object):
 
                   diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
                   self.outq.put({"topic":"calibration/psu/ch{channel}", "payload":pickle.dumps(diode_dict), "qos":2, "retain":True})
+
+              n_done += 1
+              remaining = len(pixel_queue)
+
+            progress_msg = {"text":"Done!", "fraction": 1}
+            self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
       self.lg.info("LED PSU calibration complete!")
     except KeyboardInterrupt:
@@ -534,19 +557,37 @@ class MQTTServer(object):
             self.lg.error(f"Experiment relay error: {resp}! Aborting run")
             return
 
-        # scan through the pixels and do the requested measurements
-        while len(pixel_queue) > 0:
+        start_q = pixel_queue
+        if args['cycles'] != 0:
+          pixel_queue *= int(args['cycles'])
+          p_total = len(pixel_queue)
+        else:
+          p_total = float('inf')
+        remaining = p_total
+        n_done = 0
+        t0 = time.time()
+        while remaining > 0:
           # instantiate container for all measurement data on pixel
           data = []
-
-          # get pixel info
           pixel = pixel_queue.popleft()
           label = pixel["label"]
           pix = pixel["pixel"]
-          self.lg.debug(f"Operating on substrate {label}, pixel {pix}...")
 
           # add id str to handlers to display on plots
           idn = f"{label}_device_{pix}"
+
+          dt = time.time() - t0
+          if (n_done > 0) and (args['cycles'] != 0):
+            tpp = dt/n_done
+            finishtime = time.time() + tpp*remaining
+            finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+            human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+            fraction = n_done/p_total
+            text = f"[{n_done+1}/{p_total}] finishing {finish_str}, {human_str}"
+            progress_msg = {"text":text, "fraction": fraction}
+            self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+
+          self.lg.info(f"Starting on {label}, number {pix}")
 
           # check if we have a new substrate
           if last_label != label:
@@ -587,7 +628,7 @@ class MQTTServer(object):
 
           # "Voc" if
           if args["i_dwell"] > 0:
-            self.lg.info(f"Measuring voltage output at constant current on {idn}")
+            self.lg.info(f"Measuring voltage output at constant current")
             # Voc needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
@@ -638,10 +679,9 @@ class MQTTServer(object):
             else:
               if hasattr(measurement, "le"):
                 measurement.le.on()
-            
 
             if args["sweep_check"] == True:
-              self.lg.info(f"Performing {sweep} sweep 1 on {idn}.")
+              self.lg.info(f"Performing {sweep} sweep 1")
               self.lg.debug(f'Sweeping voltage from {args["sweep_start"]} V to {args["sweep_end"]} V')
 
               if calibration == False:
@@ -667,7 +707,7 @@ class MQTTServer(object):
               Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
 
             if args["return_switch"] == True:
-              self.lg.info(f"Performing {sweep} sweep 2 on {idn}.")
+              self.lg.info(f"Performing {sweep} sweep 2")
               self.lg.debug(f'Sweeping voltage from {args["sweep_end"]} V to {args["sweep_start"]} V')
 
               if calibration == False:
@@ -692,30 +732,13 @@ class MQTTServer(object):
               Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(iv2, light=(sweep == "light"))
 
           # TODO: read and interpret parameters for smart mode
-          # # determine Vmpp and current compliance for mppt
-          # if (self.args["sweep_check"] == True) & (self.args["return_switch"] == True):
-          #     if abs(Pmax_sweep1) > abs(Pmax_sweep2):
-          #         Vmpp = Vmpp1
-          #         compliance_i = Impp1 * 5
-          #     else:
-          #         Vmpp = Vmpp2
-          #         compliance_i = Impp2 * 5
-          # elif self.args["sweep_check"] == True:
-          #     Vmpp = Vmpp1
-          #     compliance_i = Impp1 * 5
-          # else:
-          #     # no sweeps have been measured so max power tracker will estimate Vmpp
-          #     # based on Voc (or measure it if also no Voc) and will use initial
-          #     # compliance set before any measurements were taken.
-          #     Vmpp = None
-          # self.logic.mppt.Vmpp = Vmpp
 
           # mppt if
           if args["mppt_dwell"] > 0:
             # mppt needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
-            self.lg.info(f"Performing max. power tracking on {idn}.")
+            self.lg.info(f"Performing max. power tracking")
             self.lg.debug(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
             if calibration == False:
@@ -742,7 +765,7 @@ class MQTTServer(object):
             # jsc needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
-            self.lg.info(f"Measuring output current and constant voltage on {idn}.")
+            self.lg.info(f"Measuring output current and constant voltage")
 
             if calibration == False:
               kind = "it_measurement"
@@ -763,6 +786,15 @@ class MQTTServer(object):
               self.outq.put({"topic":"calibration/rtz", "payload":pickle.dumps(diode_dict), "qos":2})
             else:
               self.outq.put({"topic":"calibration/solarsim_diode", "payload":pickle.dumps(diode_dict), "qos":2})
+
+          n_done += 1
+          remaining = len(pixel_queue)
+          if (remaining == 0) and (args['cycles'] == 0):
+            pixel_queue = start_q
+            # refresh the deque to loop forever
+
+        progress_msg = {"text":"Done!", "fraction": 1}
+        self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
     # don't leave the light on!
     if hasattr(measurement, "le"):
@@ -836,8 +868,16 @@ class MQTTServer(object):
           self.lg.error(f"Experiment relay error: {resp}! Aborting run")
           return
 
-        last_label = None
-        while len(pixel_queue) > 0:
+        start_q = pixel_queue
+        if args['cycles'] != 0:
+          pixel_queue *= int(args['cycles'])
+          p_total = len(pixel_queue)
+        else:
+          p_total = float('inf')
+        remaining = p_total
+        n_done = 0
+        t0 = time.time()
+        while remaining > 0:
           pixel = pixel_queue.popleft()
           label = pixel["label"]
           pix = pixel["pixel"]
@@ -845,7 +885,18 @@ class MQTTServer(object):
           # add id str to handlers to display on plots
           idn = f"{label}_device_{pix}"
 
-          self.lg.info(f"Measuring EQE on {idn}")
+          dt = time.time() - t0
+          if n_done > 0:
+            tpp = dt/n_done
+            finishtime = time.time() + tpp*remaining
+            finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%A, %d %B %Y %I:%M%p")
+            human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+            fraction = n_done/p_total
+            text = f"[{n_done+1}/{p_total}] finishing {finish_str}, {human_str}"
+            progress_msg = {"text":text, "fraction": fraction}
+            self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+
+          self.lg.info(f"Starting on {label} number {pix}")
 
           # we have a new substrate
           if last_label != label:
@@ -889,6 +940,15 @@ class MQTTServer(object):
           if calibration == True:
             diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
             self.outq.put({"topic":"calibration/eqe", "payload":pickle.dumps(diode_dict), "qos":2, "retain":True})
+          
+          n_done += 1
+          remaining = len(pixel_queue)
+          if (remaining == 0) and (args['cycles'] == 0):
+            pixel_queue = start_q
+            # refresh the deque to loop forever
+
+        progress_msg = {"text":"Done!", "fraction": 1}
+        self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
 
   def _run(self, request):
