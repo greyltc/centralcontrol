@@ -316,7 +316,7 @@ class MQTTServer(object):
                 progress_msg = {"text":text, "fraction": fraction}
                 self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
 
-              self.lg.info(f"Starting on {label}, number {pix}")
+              self.lg.info(f"####Starting on {label}, number {pix}####")
 
               # we have a new substrate
               if last_label != label:
