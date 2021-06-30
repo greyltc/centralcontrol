@@ -11,19 +11,20 @@ try:
 except ImportError:
   pass
 
+
 class k2400:
   """
   Intertace for Keithley 2400 sourcemeter
   """
   idnContains = 'KEITHLEY'
-  quiet=False
+  quiet = False
   idn = ''
   status = 0
   nplc_user_set = 1.0
   last_sweep_time = 0
   readyForAction = False
   four88point1 = False
-  default_comms_timeout = 50000 # in ms
+  default_comms_timeout = 50000  # in ms
 
   def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
     # setup logging
@@ -78,7 +79,7 @@ class k2400:
     try:
       self.opc()
       self.sm.write(':system:local')
-      time.sleep(0.2) # wait 200ms for this command to execute before closing the interface
+      time.sleep(0.2)  # wait 200ms for this command to execute before closing the interface
       if (not self.four88point1) and (self.sm.interface_type != pyvisa.constants.InterfaceType.asrl):
         # this doesn't work in 488.1 mode
         self.sm.visalib.sessions[self.sm.session].interface.ibloc()
@@ -105,8 +106,7 @@ class k2400:
     except:
       pass
 
-
-  def _getResourceManager(self,visa_lib):
+  def _getResourceManager(self, visa_lib):
     try:
       rm = pyvisa.ResourceManager(visa_lib)
     except:
@@ -133,7 +133,7 @@ class k2400:
     return rm
 
   def _getSourceMeter(self, rm):
-    timeoutMS = self.default_comms_timeout # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
+    timeoutMS = self.default_comms_timeout  # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
     open_params = {}
     open_params['resource_name'] = self.addressString
 
@@ -145,7 +145,7 @@ class k2400:
 
       # this likely does nothing (I think these hardware flow control lines go nowhere useful inside the 2400)
       open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS
-      
+
       # this seems to be very bad. known to lock up usb<-->serial bridge hardware
       #open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_XON_XOFF
 
@@ -157,7 +157,7 @@ class k2400:
       open_params['write_termination'] = "\n"
       open_params['read_termination'] = "\n"
       #open_params['io_protocol'] = pyvisa.constants.VI_HS488
-      
+
       addrParts = self.addressString.split('::')
       controller = addrParts[0]
       board = controller[4:]
@@ -177,7 +177,7 @@ class k2400:
       open_params = {'resource_name': self.addressString}
 
     sm = rm.open_resource(**open_params)
-    
+
     # attempt to make a GPIB interface object and ensure it's enabled for remote control
     try:
       ifc = rm.open_resource(f'{controller}::INTFC')
@@ -211,10 +211,10 @@ class k2400:
     self.check488point1(sm=sm)
     if not self.four88point1:
       try:  # do a bunch of stuff to attempt to get in sync with apossibly misbehaving instrument
-        self.opc(sm=sm) # wait for the instrument to be ready
+        self.opc(sm=sm)  # wait for the instrument to be ready
         sm.write('*CLS')
         self.opc(sm=sm)
-        sm.write(':status:queue:clear') # clears error queue
+        sm.write(':status:queue:clear')  # clears error queue
         self.opc(sm=sm)
         sm.write(':system:preset')
         self.opc(sm=sm)
@@ -245,7 +245,7 @@ class k2400:
       raise ValueError("Got a bad response to *IDN?: {:s}".format(self.idn))
 
     return sm, ifc
-  
+
   # attempt to learn if the machine is in 488.1 mode (fast comms)
   def check488point1(self, sm=None):
     if sm == None:
@@ -278,7 +278,7 @@ class k2400:
       sm.write("format:data {:s}".format('ascii'))
     else:
       sm.write("format:data {:s}".format('sreal'))
-    
+
     sm.write('source:clear:auto off')
     sm.write('source:voltage:protection 20')  # the instrument will never generate over 20v
 
@@ -358,9 +358,9 @@ class k2400:
 
   def setWires(self, twoWire=False):
     if twoWire:
-      self.sm.write(':system:rsense off') # four wire mode off
+      self.sm.write(':system:rsense off')  # four wire mode off
     else:
-      self.sm.write(':system:rsense on') # four wire mode on
+      self.sm.write(':system:rsense on')  # four wire mode on
 
   def setTerminals(self, front=False):
     if front:
@@ -368,15 +368,15 @@ class k2400:
     else:
       self.sm.write(':rout:term rear')
 
-  def updateSweepStart(self,startVal):
+  def updateSweepStart(self, startVal):
     self.sm.write(':source:{:s}:start {:.8f}'.format(self.src, startVal))
 
-  def updateSweepStop(self,stopVal):
+  def updateSweepStop(self, stopVal):
     self.sm.write(':source:{:s}:stop {:.8f}'.format(self.src, stopVal))
 
   # sets the source to some value
   def setSource(self, outVal):
-    self.sm.write(':source:{:s} {:.8f}'.format(self.src,outVal))
+    self.sm.write(':source:{:s} {:.8f}'.format(self.src, outVal))
 
   def write(self, toWrite):
     self.sm.write(toWrite)
@@ -386,7 +386,7 @@ class k2400:
       self.sm.write(':output on')
     else:
       self.sm.write(':output off')
-  
+
   def getNPLC(self):
     return float(self.sm.query(':sense:current:nplcycles?'))
 
@@ -401,7 +401,7 @@ class k2400:
     else:
       self.sm.write(':display:digits 7')
 
-  def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f', auto_ohms = False):
+  def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange='f', auto_ohms=False):
     """setup DC measurement operation
     if senseRange == 'a' the instrument will auto range for both current and voltage measurements
     if senseRange == 'f' then the sense range will follow the compliance setting
@@ -431,12 +431,12 @@ class k2400:
       self.opc()
       sm.write(':source:function {:s}'.format(src))
       sm.write(':source:{:s}:mode fixed'.format(src))
-      sm.write(':source:{:s} {:.8f}'.format(src,setPoint))
+      sm.write(':source:{:s} {:.8f}'.format(src, setPoint))
 
       sm.write(':source:delay:auto on')
 
       sm.write(':sense:function "{:s}"'.format(snc))
-      sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+      sm.write(':sense:{:s}:protection {:.8f}'.format(snc, compliance))
 
       self.opc()
       if senseRange == 'f':
@@ -445,17 +445,17 @@ class k2400:
       elif senseRange == 'a':
         sm.write(':sense:{:s}:range:auto on'.format(snc))
       else:
-        sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
+        sm.write(':sense:{:s}:range {:.8f}'.format(snc, senseRange))
 
       # this again is to make sure the sense range gets updated
-      sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+      sm.write(':sense:{:s}:protection {:.8f}'.format(snc, compliance))
       sm.write(':format:elements voltage,current,time,status')
     self.opc()
     sm.write(':output on')
     sm.write(':trigger:count 1')
 
     sm.write(':system:azero once')
-    self.opc() # ensure the instrument is ready after all this
+    self.opc()  # ensure the instrument is ready after all this
 
   def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=-1, start=0, end=1, senseRange='f'):
     """setup for a sweep operation
@@ -467,7 +467,7 @@ class k2400:
     self.opc()
 
     nplc = self.getNPLC()
-    approx_measure_time = 1000/50*nplc  # [ms] assume 50Hz line freq just because that's safer
+    approx_measure_time = 1000 / 50 * nplc  # [ms] assume 50Hz line freq just because that's safer
 
     if sourceVoltage:
       src = 'voltage'
@@ -477,7 +477,7 @@ class k2400:
       snc = 'voltage'
     self.src = src
     sm.write(':source:function {:s}'.format(src))
-    sm.write(':source:{:s} {:0.6f}'.format(src,start))
+    sm.write(':source:{:s} {:0.6f}'.format(src, start))
 
     # seems to do exactly nothing
     #if snc == 'current':
@@ -486,7 +486,7 @@ class k2400:
     #  sm.write(':sense:current:range:holdoff {:.6f}'.format(holdoff_delay))
     #  self.opc()  # needed to prevent input buffer overrun with serial comms (should be taken care of by flowcontrol!)
 
-    sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+    sm.write(':sense:{:s}:protection {:.8f}'.format(snc, compliance))
 
     if senseRange == 'f':
       sm.write(':sense:{:s}:range:auto off'.format(snc))
@@ -494,11 +494,11 @@ class k2400:
     elif senseRange == 'a':
       sm.write(':sense:{:s}:range:auto on'.format(snc))
     else:
-      sm.write(':sense:{:s}:range {:.8f}'.format(snc,senseRange))
+      sm.write(':sense:{:s}:range {:.8f}'.format(snc, senseRange))
 
     self.opc()
     # this again is to make sure the sense range gets updated
-    sm.write(':sense:{:s}:protection {:.8f}'.format(snc,compliance))
+    sm.write(':sense:{:s}:protection {:.8f}'.format(snc, compliance))
 
     sm.write(':output on')
     sm.write(':source:{:s}:mode sweep'.format(src))
@@ -509,13 +509,13 @@ class k2400:
       approx_point_duration = 5 + approx_measure_time  # used for calculating dynamic sweep timeout [ms]
     else:
       sm.write(':source:delay:auto off')
-      sm.write(f':source:delay {stepDelay:0.6f}') # this value is in seconds!
-      approx_point_duration = stepDelay*1000 + approx_measure_time  # [ms] used for calculating dynamic sweep timeout
+      sm.write(f':source:delay {stepDelay:0.6f}')  # this value is in seconds!
+      approx_point_duration = stepDelay * 1000 + approx_measure_time  # [ms] used for calculating dynamic sweep timeout
     self.opc()
     sm.write(':trigger:count {:d}'.format(nPoints))
     sm.write(':source:sweep:points {:d}'.format(nPoints))
-    sm.write(':source:{:s}:start {:.6f}'.format(src,start))
-    sm.write(':source:{:s}:stop {:.6f}'.format(src,end))
+    sm.write(':source:{:s}:start {:.6f}'.format(src, start))
+    sm.write(':source:{:s}:stop {:.6f}'.format(src, end))
     if sourceVoltage:
       self.dV = abs(float(sm.query(':source:voltage:step?')))
     else:
@@ -525,13 +525,13 @@ class k2400:
     #sm.write(':sense:{:s}:range:auto off'.format(snc))
 
     sm.write(':system:azero once')
-    self.opc() # ensure the instrument is ready after all this
+    self.opc()  # ensure the instrument is ready after all this
 
     # calculate the expected sweep duration with safety margin
     max_sweep_duration = nPoints * approx_point_duration * 1.2  # [ms]
 
     # make sure long sweeps don't result in comms timeouts
-    max_transport_time = 10000 # [ms] let's assume no sweep will ever take longer than 10s to transport
+    max_transport_time = 10000  # [ms] let's assume no sweep will ever take longer than 10s to transport
     sm.timeout = max_sweep_duration + max_transport_time  # [ms]
 
   def opc(self, sm=None):
@@ -547,7 +547,7 @@ class k2400:
       while retries_left > 0:
         cmd = '*WAI'
         bw = sm.write(cmd)
-        if bw == (len(cmd)+1):
+        if bw == (len(cmd) + 1):
           one = "zero"
           try:
             one = sm.query('*OPC?')
@@ -558,7 +558,7 @@ class k2400:
         retries_left = retries_left - 1
       sm.timeout = tout
       if retries_left == 0:
-        raise(ValueError("OPC FAIL"))
+        raise (ValueError("OPC FAIL"))
       # we make sure there are no bytes left in the input buffer
       if opc_timeout == True:
         time.sleep(2.6)  # wait for the opc commands to unqueue
@@ -568,7 +568,7 @@ class k2400:
     if not self.four88point1:
       if sm == None:
         sm = self.sm
-    return(sm.query('*STB?'))
+    return (sm.query('*STB?'))
 
   def _flush_input_buffer(self, sm, delayms=0):
     try:
@@ -580,7 +580,7 @@ class k2400:
       bib = sm.bytes_in_buffer
       while bib > 0:
         sm.read_raw(bib)  # toss the bytes
-        time.sleep(delayms/1000)
+        time.sleep(delayms / 1000)
         bib = sm.bytes_in_buffer
 
   def arm(self):
@@ -625,12 +625,12 @@ class k2400:
     else:
       if self.four88point1 == True:
         # this only works in 488.1 because it can use the read address line to initiate the measurement
-        vals = self.sm.read_binary_values(data_points=nPoints*m_len, is_big_endian=True)
+        vals = self.sm.read_binary_values(data_points=nPoints * m_len, is_big_endian=True)
       else:
-        vals = self.sm.query_binary_values(':read?', data_points=nPoints*m_len)
+        vals = self.sm.query_binary_values(':read?', data_points=nPoints * m_len)
 
     # turn this into a list of tuples because pretty much everything upstream likes that format
-    reshaped = list(zip(*[iter(vals)]*m_len))
+    reshaped = list(zip(*[iter(vals)] * m_len))
 
     # if this was a sweep, compute how long it took
     if len(reshaped) > 1:
@@ -650,12 +650,12 @@ class k2400:
       self.last_sweep_time = t_end - t_start
       self.lg.info(f"Sweep stats: duration|avg. point time|avg. rate-->{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(reshaped)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s")
       self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep
-    
+
     # update the status byte
     self.status = int(reshaped[-1][-1])
     return reshaped
 
-  def measureUntil(self, t_dwell=float('Infinity'), measurements=float('Infinity'), cb=lambda x:None):
+  def measureUntil(self, t_dwell=float('Infinity'), measurements=float('Infinity'), cb=lambda x: None):
     """Makes a series of single dc measurements
     until termination conditions are met
     supports a callback after every measurement
@@ -673,7 +673,7 @@ class k2400:
       q.append(measurement)
       cb(measurement)
     return q
-  
+
   def contact_check(self):
     """
     call set_ccheck_mode(True) before calling this
@@ -690,6 +690,7 @@ class k2400:
       if self.sm.query(':output?') == "1":
         good_contact = True  # if INIT didn't trip the output off, then we're connected
     return (good_contact)
+
 
 # testing code
 if __name__ == "__main__":
@@ -717,14 +718,14 @@ if __name__ == "__main__":
 
   print(f"One auto ohms measurement: {k.measure()}")
 
-  # measure 
+  # measure
   mTime = 10
   k.setNPLC(1)
   dc_m = k.measureUntil(t_dwell=mTime)
 
   # create a custom data type to hold our data
-  measurement_datatype = np.dtype({'names': ['voltage','current','resistance','time','status'], 'formats': ['f', 'f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Resistance [Ohm]', 'Time [s]', 'Status bitmask']})
-  
+  measurement_datatype = np.dtype({'names': ['voltage', 'current', 'resistance', 'time', 'status'], 'formats': ['f', 'f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Resistance [Ohm]', 'Time [s]', 'Status bitmask']})
+
   # convert the data to a numpy array
   dc_ma = np.array(dc_m, dtype=measurement_datatype)
 
@@ -739,14 +740,14 @@ if __name__ == "__main__":
 
   print(f"One V=0 measurement: {k.measure()}")
 
-  # measure 
+  # measure
   mTime = 10
   k.setNPLC(0.01)
   dc_m = k.measureUntil(t_dwell=mTime)
 
   # create a custom data type to hold our data
-  measurement_datatype = np.dtype({'names': ['voltage','current','time','status'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
-  
+  measurement_datatype = np.dtype({'names': ['voltage', 'current', 'time', 'status'], 'formats': ['f', 'f', 'f', 'u4'], 'titles': ['Voltage [V]', 'Current [A]', 'Time [s]', 'Status bitmask']})
+
   # convert the data to a numpy array
   dc_ma = np.array(dc_m, dtype=measurement_datatype)
 
@@ -762,8 +763,8 @@ if __name__ == "__main__":
   k.setupSweep(compliance=0.01, nPoints=numPoints, start=startV, end=endV)  # set the sweep up
   t0 = time.time()
   # TODO: need to understand why the actual sweep here when done in serial mode is so much slower (not the comms)
-  sw_m = k.measure(nPoints = numPoints) # make the measurement
-  tend = time.time()-t0
+  sw_m = k.measure(nPoints=numPoints)  # make the measurement
+  tend = time.time() - t0
 
   # convert the result to a numpy array
   sw_ma = np.array(sw_m, dtype=measurement_datatype)
@@ -776,6 +777,6 @@ if __name__ == "__main__":
   # shut off the output
   k.outOn(False)
 
-  k.__del__() # TODO: switch to context manager for proper cleanup
+  k.__del__()  # TODO: switch to context manager for proper cleanup
 
   print(f"Total Time = {time.time()-start} seconds")

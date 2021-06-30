@@ -156,10 +156,10 @@ class mppt:
     data = self.sm.measureUntil(t_dwell=duration, cb=callback)
     self.q.extend(data)
 
-    # take whatever the most recent readings were to be the mppt  
+    # take whatever the most recent readings were to be the mppt
     self.Vmpp = data[0][0]
     self.Impp = data[0][1]
-    
+
     q = self.q
     del (self.q)
     return q
@@ -236,7 +236,7 @@ class mppt:
     # the mppt loop
     i = 0
     while (not self.abort and (run_time < duration)):
-      i+=1
+      i += 1
       some_sign = random.choice([-1, 1])
       m.appendleft(self.measure(w, delay_ms=delay_ms, callback=callback))  # apply new voltage and record a measurement and store the result in slot 0
       #x.appendleft(w)  # record independant variable
@@ -271,10 +271,10 @@ class mppt:
       spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
       self.q.extend(spos)
 
-    # take whatever the most recent readings were to be the mppt  
+    # take whatever the most recent readings were to be the mppt
     self.Vmpp = m[0][0]
     self.Impp = m[0][1]
-    
+
     q = self.q
     del (self.q)
     return q

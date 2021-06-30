@@ -37,6 +37,7 @@ try:
 except ImportError:
   pass
 
+
 class fabric(object):
   """Experiment control logic."""
 
@@ -77,7 +78,7 @@ class fabric(object):
         logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
         ch.setFormatter(logFormat)
         self.lg.addHandler(ch)
-    
+
     self.lg.debug(f"{__name__} initialized.")
 
   def __enter__(self):

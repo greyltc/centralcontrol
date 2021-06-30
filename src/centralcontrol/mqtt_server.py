@@ -34,6 +34,7 @@ if (__name__ == "__main__") and (__package__ in [None, '']):
 
 from .fabric import fabric
 
+
 class DataHandler(object):
   """Handler for measurement data."""
   def __init__(self, kind="", pixel={}, sweep="", outq=None):
@@ -63,12 +64,9 @@ class DataHandler(object):
         data : array-like
             Measurement data.
         """
-    payload = {
-        "data": data,
-        "pixel": self.pixel,
-        "sweep": self.sweep
-    }
-    self.outq.put({"topic":f"data/raw/{self.kind}", "payload":pickle.dumps(payload), "qos":2})
+    payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
+    self.outq.put({"topic": f"data/raw/{self.kind}", "payload": pickle.dumps(payload), "qos": 2})
+
 
 class MQTTServer(object):
   # for outgoing messages
@@ -108,7 +106,7 @@ class MQTTServer(object):
         logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
         ch.setFormatter(logFormat)
         self.lg.addHandler(ch)
-    
+
     # get command line arguments
     self.cli_args = self.get_args()
 
@@ -146,7 +144,6 @@ class MQTTServer(object):
     else:
       self.lg.warn("Measurement server busy!")
 
-
   def stop_process(self):
     """Stop a running process."""
 
@@ -155,10 +152,9 @@ class MQTTServer(object):
       self.process.join()
       self.lg.debug(f"{self.process.is_alive()=}")
       self.lg.info("Request to stop completed!")
-      self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
+      self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
     else:
       self.lg.warn("Nothing to stop. Measurement server is idle.")
-
 
   def _calibrate_eqe(self, request):
     """Measure the EQE reference photodiode.
@@ -206,8 +202,7 @@ class MQTTServer(object):
       traceback.print_exc()
       self.lg.error("EQE CALIBRATION ABORTED! " + str(e))
 
-      self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
-
+      self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
 
   def _calibrate_psu(self, request):
     """Measure the reference photodiode as a funtcion of LED current.
@@ -253,11 +248,28 @@ class MQTTServer(object):
         motion_pcb_is_fake = config["stage"]["virtual"]
 
         # connect instruments
-        measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smu_address=config["smu"]["address"], smu_virt=config["smu"]["virtual"], smu_terminator=config["smu"]["terminator"], smu_baud=config["smu"]["baud"], smu_front_terminals=config["smu"]["front_terminals"], smu_two_wire=config["smu"]["two_wire"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, psu_address=config["psu"]["address"], psu_virt=config["psu"]["virtual"], psu_terminator=config["psu"]["terminator"], psu_baud=config["psu"]["baud"], psu_ocps=[
-            config["psu"]["ch1_ocp"],
-            config["psu"]["ch2_ocp"],
-            config["psu"]["ch3_ocp"],
-        ],)
+        measurement.connect_instruments(
+            visa_lib=config["visa"]["visa_lib"],
+            smu_address=config["smu"]["address"],
+            smu_virt=config["smu"]["virtual"],
+            smu_terminator=config["smu"]["terminator"],
+            smu_baud=config["smu"]["baud"],
+            smu_front_terminals=config["smu"]["front_terminals"],
+            smu_two_wire=config["smu"]["two_wire"],
+            pcb_address=gp_pcb_address,
+            pcb_virt=gp_pcb_is_fake,
+            motion_address=motion_address,
+            motion_virt=motion_pcb_is_fake,
+            psu_address=config["psu"]["address"],
+            psu_virt=config["psu"]["virtual"],
+            psu_terminator=config["psu"]["terminator"],
+            psu_baud=config["psu"]["baud"],
+            psu_ocps=[
+                config["psu"]["ch1_ocp"],
+                config["psu"]["ch2_ocp"],
+                config["psu"]["ch3_ocp"],
+            ],
+        )
 
         fake_pcb = measurement.fake_pcb
         inner_pcb = measurement.fake_pcb
@@ -307,14 +319,14 @@ class MQTTServer(object):
 
               dt = time.time() - t0
               if n_done > 0:
-                tpp = dt/n_done
-                finishtime = time.time() + tpp*remaining
+                tpp = dt / n_done
+                finishtime = time.time() + tpp * remaining
                 finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%A, %d %B %Y %I:%M%p")
                 human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                fraction = n_done/p_total
+                fraction = n_done / p_total
                 text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                progress_msg = {"text":text, "fraction": fraction}
-                self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+                progress_msg = {"text": text, "fraction": fraction}
+                self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
               self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {label}, device number {pix} ####")
 
@@ -339,13 +351,13 @@ class MQTTServer(object):
                   psu_calibration = measurement.calibrate_psu(channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10, config["psu"][f"ch{channel}_voltage"])
 
                   diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
-                  self.outq.put({"topic":"calibration/psu/ch{channel}", "payload":pickle.dumps(diode_dict), "qos":2, "retain":True})
+                  self.outq.put({"topic": "calibration/psu/ch{channel}", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
 
               n_done += 1
               remaining = len(pixel_queue)
 
-            progress_msg = {"text":"Done!", "fraction": 1}
-            self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+            progress_msg = {"text": "Done!", "fraction": 1}
+            self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
       self.lg.info("LED PSU calibration complete!")
     except KeyboardInterrupt:
@@ -354,8 +366,7 @@ class MQTTServer(object):
       traceback.print_exc()
       self.lg.error("PSU CALIBRATION ABORTED! " + str(e))
 
-    self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
-
+    self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
 
   def _calibrate_spectrum(self, request):
     """Measure the solar simulator spectrum using it's internal spectrometer.
@@ -391,7 +402,7 @@ class MQTTServer(object):
         spectrum_dict = {"data": spectrum, "timestamp": timestamp}
 
         # publish calibration
-        self.outq.put({"topic":"calibration/spectrum", "payload":pickle.dumps(spectrum_dict), "qos":2, "retain":True})
+        self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
 
       self.lg.info("Finished calibrating solar simulator spectrum!")
     except KeyboardInterrupt:
@@ -400,10 +411,9 @@ class MQTTServer(object):
       traceback.print_exc()
       self.lg.error(f"SPECTRUM CALIBRATION ABORTED! " + str(e))
 
-    self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
+    self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
 
     return user_aborted
-
 
   def _build_q(self, request, experiment):
     """Generate a queue of pixels to run through.
@@ -456,7 +466,6 @@ class MQTTServer(object):
       pixel_q.append(pixel_dict)
     return pixel_q
 
-
   def _clear_plot(self, kind):
     """Publish measurement data.
 
@@ -467,14 +476,12 @@ class MQTTServer(object):
       mqttqp : MQTTQueuePublisher
           MQTT queue publisher object that publishes measurement data.
       """
-    self.outq.put({"topic":f"plotter/{kind}/clear", "payload":pickle.dumps(""), "qos":2})
-
+    self.outq.put({"topic": f"plotter/{kind}/clear", "payload": pickle.dumps(""), "qos": 2})
 
   # send up a log message to the status channel
   def send_log_msg(self, record):
     payload = {"level": record.levelno, "msg": record.msg}
-    self.outq.put({"topic":"measurement/log", "payload":pickle.dumps(payload), "qos":2})
-
+    self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
   def _ivt(self, pixel_queue, request, measurement, calibration=False, rtd=False):
     """Run through pixel queue of i-v-t measurements.
@@ -579,14 +586,14 @@ class MQTTServer(object):
 
           dt = time.time() - t0
           if (n_done > 0) and (args['cycles'] != 0):
-            tpp = dt/n_done
-            finishtime = time.time() + tpp*remaining
+            tpp = dt / n_done
+            finishtime = time.time() + tpp * remaining
             finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
             human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-            fraction = n_done/p_total
+            fraction = n_done / p_total
             text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-            progress_msg = {"text":text, "fraction": fraction}
-            self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+            progress_msg = {"text": text, "fraction": fraction}
+            self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
           self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {label}, device number {pix} ####")
 
@@ -620,8 +627,10 @@ class MQTTServer(object):
             dh = DataHandler(pixel=pixel, outq=self.outq)
             handler = dh.handle_data
           else:
+
             class Dummy:
               pass
+
             dh = Dummy()
             handler = lambda x: None
 
@@ -784,9 +793,9 @@ class MQTTServer(object):
             diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
             if rtd == True:
               self.lg.debug("RTD")
-              self.outq.put({"topic":"calibration/rtz", "payload":pickle.dumps(diode_dict), "qos":2})
+              self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
             else:
-              self.outq.put({"topic":"calibration/solarsim_diode", "payload":pickle.dumps(diode_dict), "qos":2})
+              self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
 
           n_done += 1
           remaining = len(pixel_queue)
@@ -794,13 +803,12 @@ class MQTTServer(object):
             pixel_queue = start_q
             # refresh the deque to loop forever
 
-        progress_msg = {"text":"Done!", "fraction": 1}
-        self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+        progress_msg = {"text": "Done!", "fraction": 1}
+        self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
     # don't leave the light on!
     if hasattr(measurement, "le"):
       measurement.le.off()
-
 
   def _eqe(self, pixel_queue, request, measurement, calibration=False):
     """Run through pixel queue of EQE measurements.
@@ -888,14 +896,14 @@ class MQTTServer(object):
 
           dt = time.time() - t0
           if n_done > 0:
-            tpp = dt/n_done
-            finishtime = time.time() + tpp*remaining
+            tpp = dt / n_done
+            finishtime = time.time() + tpp * remaining
             finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%A, %d %B %Y %I:%M%p")
             human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-            fraction = n_done/p_total
+            fraction = n_done / p_total
             text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-            progress_msg = {"text":text, "fraction": fraction}
-            self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
+            progress_msg = {"text": text, "fraction": fraction}
+            self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
           self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {label}, device number {pix} ####")
 
@@ -935,22 +943,39 @@ class MQTTServer(object):
           timestamp = time.time()
 
           # perform measurement
-          eqe = measurement.eqe(psu_ch1_voltage=config["psu"]["ch1_voltage"], psu_ch1_current=args["chan1"], psu_ch2_voltage=config["psu"]["ch2_voltage"], psu_ch2_current=args["chan2"], psu_ch3_voltage=config["psu"]["ch3_voltage"], psu_ch3_current=args["chan3"], smu_voltage=args["eqe_bias"], smu_compliance=compliance_i, start_wl=args["eqe_start"], end_wl=args["eqe_end"], num_points=int(args["eqe_step"]), grating_change_wls=config["monochromator"]["grating_change_wls"], filter_change_wls=config["monochromator"]["filter_change_wls"], time_constant=args["eqe_int"], auto_gain=True, auto_gain_method=auto_gain_method, handler=handler,)
+          eqe = measurement.eqe(
+              psu_ch1_voltage=config["psu"]["ch1_voltage"],
+              psu_ch1_current=args["chan1"],
+              psu_ch2_voltage=config["psu"]["ch2_voltage"],
+              psu_ch2_current=args["chan2"],
+              psu_ch3_voltage=config["psu"]["ch3_voltage"],
+              psu_ch3_current=args["chan3"],
+              smu_voltage=args["eqe_bias"],
+              smu_compliance=compliance_i,
+              start_wl=args["eqe_start"],
+              end_wl=args["eqe_end"],
+              num_points=int(args["eqe_step"]),
+              grating_change_wls=config["monochromator"]["grating_change_wls"],
+              filter_change_wls=config["monochromator"]["filter_change_wls"],
+              time_constant=args["eqe_int"],
+              auto_gain=True,
+              auto_gain_method=auto_gain_method,
+              handler=handler,
+          )
 
           # update eqe diode calibration data in
           if calibration == True:
             diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
-            self.outq.put({"topic":"calibration/eqe", "payload":pickle.dumps(diode_dict), "qos":2, "retain":True})
-          
+            self.outq.put({"topic": "calibration/eqe", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
+
           n_done += 1
           remaining = len(pixel_queue)
           if (remaining == 0) and (args['cycles'] == 0):
             pixel_queue = start_q
             # refresh the deque to loop forever
 
-        progress_msg = {"text":"Done!", "fraction": 1}
-        self.outq.put({"topic":"progress", "payload":pickle.dumps(progress_msg), "qos":2})
-
+        progress_msg = {"text": "Done!", "fraction": 1}
+        self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
   def _run(self, request):
     """Act on command line instructions.
@@ -1000,12 +1025,11 @@ class MQTTServer(object):
         traceback.print_exc()
         self.lg.error(f"RUN ABORTED! " + str(e))
 
-      self.outq.put({"topic":"measurement/status", "payload":pickle.dumps("Ready"), "qos":2, "retain":True})
+      self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
 
   # The callback for when a PUBLISH message is received from the server.
   def on_message(self, client, userdata, msg):
     self.msg_queue.put_nowait(msg)  # pass this off for msg_handler to deal with
-
 
   def msg_handler(self):
     """Handle MQTT messages in the msg queue.
@@ -1025,13 +1049,13 @@ class MQTTServer(object):
 
         # perform a requested action
         if (action == "run") and ((request['args']['enable_eqe'] == True) or (request['args']['enable_iv'] == True)):
-          self.start_process(self._run, (request,))
+          self.start_process(self._run, (request, ))
         elif action == "stop":
           self.stop_process()
         elif (action == "calibrate_eqe") and (request['args']['enable_eqe'] == True):
-          self.start_process(self._calibrate_eqe, (request,))
+          self.start_process(self._calibrate_eqe, (request, ))
         elif (action == "calibrate_psu") and (request['args']['enable_psu'] == True) and (request['args']['enable_smu'] == True):
-          self.start_process(self._calibrate_psu, (request,))
+          self.start_process(self._calibrate_psu, (request, ))
 
       except Exception as e:
         self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
@@ -1061,9 +1085,11 @@ class MQTTServer(object):
     # start the message handler
     self.msg_handler()
 
+
 def main():
   ms = MQTTServer()
   ms.run()
+
 
 # required when using multiprocessing in windows, advised on other platforms
 if __name__ == "__main__":

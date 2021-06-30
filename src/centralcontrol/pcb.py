@@ -4,6 +4,7 @@ from telnetlib import Telnet
 import socket
 import os
 
+
 class pcb(object):
   """
   Interface for talking to the control PCB
@@ -14,7 +15,7 @@ class pcb(object):
   prompt = prompt_string.encode()
   #prompt = read_terminator + prompt_string.encode()
   comms_timeout = 5.0  # telnet blocking operations timeout
-  response_timeout = 6.0 # give the PCB this long to send a long message
+  response_timeout = 6.0  # give the PCB this long to send a long message
   telnet_host = "localhost"
   telnet_port = 23
   firmware_version = 'unknown'
@@ -36,11 +37,11 @@ class pcb(object):
       if not cmd.endswith(pcb.write_terminator.decode()):
         self.write(cmd.encode())
       else:
-        self.write(cmd.encode()+pcb.write_terminator)
+        self.write(cmd.encode() + pcb.write_terminator)
       self.sock.sendall()
 
   def __init__(self, address=None, timeout=comms_timeout):
-    self.comms_timeout = timeout # pcb has this many seconds to respond
+    self.comms_timeout = timeout  # pcb has this many seconds to respond
 
     if address is not None:
       addr_split = address.split(':')
@@ -68,7 +69,7 @@ class pcb(object):
     self.probe_muxes()
     self.probe_axes()
     print(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
-    return(self)
+    return (self)
 
   # figures out what muxes are connected
   def probe_muxes(self):
@@ -79,9 +80,10 @@ class pcb(object):
     start_char = 'A'
     for i, b in enumerate(mux_bin_str_rev):
       if b == '1':
-        self.detected_muxes.append(chr(ord(start_char)+i))
+        self.detected_muxes.append(chr(ord(start_char) + i))
 
 # figures out what axes are connected
+
   def probe_axes(self):
     axes_int = int(self.query('e'))
     axes_bin_str = f"{axes_int:b}"
@@ -90,7 +92,7 @@ class pcb(object):
     start_char = '1'
     for i, b in enumerate(axes_bin_str_rev):
       if b == '1':
-        self.detected_axes.append(chr(ord(start_char)+i))
+        self.detected_axes.append(chr(ord(start_char) + i))
 
   def __exit__(self, type, value, traceback):
     try:
@@ -125,9 +127,9 @@ class pcb(object):
     try:
       answer, ack = self._query(query)
     except Exception:
-      raise(ValueError(f"Firmware comms failure while trying to send '{query}'"))
+      raise (ValueError(f"Firmware comms failure while trying to send '{query}'"))
     if ack == False:
-      raise(ValueError(f"Firmware did not acknowledge '{query}'"))
+      raise (ValueError(f"Firmware did not acknowledge '{query}'"))
     return answer
 
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
@@ -150,7 +152,7 @@ class pcb(object):
     # scraped from /usr/include, not exported by python's socket module
     TCP_KEEPALIVE = 0x10
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, interval_sec)  
+    sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, interval_sec)
 
 
 # testing

@@ -5,14 +5,14 @@ import usb.util
 import time
 import sys
 
+
 class Linak(object):
-  # this is just a stripped down python port of Dawid Urbański's work here: 
+  # this is just a stripped down python port of Dawid Urbański's work here:
   # https://github.com/UrbanskiDawid/usb2lin06-HID-in-linux-for-LINAK-Desk-Control-Cable
   # Thanks Dawid!
 
   usb_idvendor = 0x12d3
   usb_idproduct = 0x0002
-
 
   HID_REPORT_SET = 0x09
   HID_REPORT_GET = 0x01
@@ -60,7 +60,7 @@ class Linak(object):
 
     # get an endpoint instance
     cfg = stage.get_active_configuration()
-    intf = cfg[(0,0)]
+    intf = cfg[(0, 0)]
 
     out_filter = lambda e: usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
 
@@ -82,51 +82,48 @@ class Linak(object):
     # form getStatus cmd
     msg = self.empty_buf
     pos = 0
-    msg[pos:pos+1] = [self.StatusReport_ID]
-    
+    msg[pos:pos + 1] = [self.StatusReport_ID]
+
     status_msg = self.stage.ctrl_transfer(self.RequestType_GetClassInterface, self.HID_REPORT_GET, self.wValue_GetStatus, 0, msg)
 
-    return status_msg[5]*256 + status_msg[4]  # pick out position from status message
-  
+    return status_msg[5] * 256 + status_msg[4]  # pick out position from status message
 
   def setup(self):
     msg = self.empty_buf
 
     pos = 0
-    msg[pos:pos+1] = [self.featureReportID_modeOfOperation]
+    msg[pos:pos + 1] = [self.featureReportID_modeOfOperation]
     pos = 1
-    msg[pos:pos+1] = [self.featureReportID_modeOfOperation_default]
+    msg[pos:pos + 1] = [self.featureReportID_modeOfOperation_default]
     pos = 2
-    msg[pos:pos+1] = [0x00]  # ?
+    msg[pos:pos + 1] = [0x00]  # ?
     pos = 3
-    msg[pos:pos+1] = [0xfb]  # ?
+    msg[pos:pos + 1] = [0xfb]  # ?
 
     self.stage.ctrl_transfer(self.RequestType_SetClassInterface, self.HID_REPORT_SET, self.wValue_Init, 0, msg)
     time.sleep(0.2)
 
-
   def do_move(self, dest):
     if self.ready == False:
-      raise(ValueError('Not ready to move :-('))
+      raise (ValueError('Not ready to move :-('))
 
     msg = self.empty_buf
     msg[0:1] = [self.featureReportID_controlCBC]
     dest_uint16 = (dest).to_bytes(2, byteorder='little', signed=False)
 
     pos = 1
-    msg[pos:pos+2] = dest_uint16
+    msg[pos:pos + 2] = dest_uint16
 
     pos = 3
-    msg[pos:pos+2] = dest_uint16
+    msg[pos:pos + 2] = dest_uint16
 
     pos = 5
-    msg[pos:pos+2] = dest_uint16
+    msg[pos:pos + 2] = dest_uint16
 
     pos = 7
-    msg[pos:pos+2] = dest_uint16
+    msg[pos:pos + 2] = dest_uint16
     self.stage.ctrl_transfer(self.RequestType_SetClassInterface, self.HID_REPORT_SET, self.wValue_Move, 0, msg)
     time.sleep(0.2)
-
 
   def goto(self, step_goal):
     s.get_pos()

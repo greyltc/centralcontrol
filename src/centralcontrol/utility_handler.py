@@ -37,6 +37,7 @@ from .k2400 import k2400 as sm
 from .illumination import illumination
 from .pcb import pcb
 
+
 class UtilityHandler(object):
   # for storing command messages as they arrive
   cmdq = queue.Queue()
@@ -78,7 +79,7 @@ class UtilityHandler(object):
         logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
         ch.setFormatter(logFormat)
         self.lg.addHandler(ch)
-    
+
     self.lg.debug(f"{__name__} initialized.")
 
   # The callback for when the client receives a CONNACK response from the server.
@@ -89,18 +90,16 @@ class UtilityHandler(object):
     # reconnect then subscriptions will be renewed.
     client.subscribe("cmd/#", qos=2)
 
-
   # The callback for when a PUBLISH message is received from the server.
   # this function must be fast and non-blocking to avoid estop service delay
   def handle_message(self, client, userdata, msg):
     self.cmdq.put_nowait(msg)  # pass this off for our worker to deal with
 
-
   # filters out all mqtt messages except
   # properly formatted command messages, unpacks and returns those
   # this function must be fast and non-blocking to avoid estop service delay
   def filter_cmd(self, mqtt_msg):
-    result = {'cmd':''}
+    result = {'cmd': ''}
     try:
       msg = pickle.loads(mqtt_msg.payload)
     except Exception as e:
@@ -108,8 +107,7 @@ class UtilityHandler(object):
     if isinstance(msg, collections.abc.Iterable):
       if 'cmd' in msg:
         result = msg
-    return(result)
-
+    return (result)
 
   # the manager thread decides if the command should be passed on to the worker or rejected.
   # immediagely handles estops itself
@@ -145,7 +143,7 @@ class UtilityHandler(object):
     pos = mo.get_position()
     payload = {'pos': pos}
     payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-    output = {'destination':'response', 'payload': payload}  # post the position to the response channel
+    output = {'destination': 'response', 'payload': payload}  # post the position to the response channel
     self.outputq.put(output)
 
   # work gets done here so that we don't do any processing on the mqtt network thread
@@ -171,7 +169,7 @@ class UtilityHandler(object):
             mo.home()
             self.lg.info('Homing procedure complete.')
             self.send_pos(mo)
-          del(mo)
+          del (mo)
 
         # send the stage some place
         elif task['cmd'] == 'goto':
@@ -180,7 +178,7 @@ class UtilityHandler(object):
             mo.connect()
             mo.goto(task['pos'])
             self.send_pos(mo)
-          del(mo)
+          del (mo)
 
         # handle any generic PCB command that has an empty return on success
         elif task['cmd'] == 'for_pcb':
@@ -200,7 +198,7 @@ class UtilityHandler(object):
             mo = motion(address=task['stage_uri'], pcb_object=p)
             mo.connect()
             self.send_pos(mo)
-          del(mo)
+          del (mo)
 
         # zero the mono
         elif task['cmd'] == 'mono_zero':
@@ -226,20 +224,20 @@ class UtilityHandler(object):
             if int_res == 0:
               response["data"] = le.get_spectrum()
               response["timestamp"] = time.time()
-              output = {'destination':'calibration/spectrum', 'payload': pickle.dumps(response)}
+              output = {'destination': 'calibration/spectrum', 'payload': pickle.dumps(response)}
               self.outputq.put(output)
             else:
               self.lg.info(f'Unable to set light engine intensity.')
           else:
             self.lg.info(f'Unable to connect to light engine.')
-          del(le)
+          del (le)
 
         # device round robin commands
         elif task['cmd'] == 'round_robin':
           if len(task['slots']) > 0:
             with pcb_class(task['pcb'], timeout=1) as p:
-              p.query('iv') # make sure the circuit is in I-V mode (not eqe)
-              p.query('s') # make sure we're starting with nothing selected
+              p.query('iv')  # make sure the circuit is in I-V mode (not eqe)
+              p.query('s')  # make sure we're starting with nothing selected
               if task['smu_virt'] == True:
                 smu = virt.k2400
               else:
@@ -269,7 +267,7 @@ class UtilityHandler(object):
                 elif task['type'] == 'connectivity':
                   if k.contact_check() == False:
                     self.lg.info(f'{slot} -- {dev} appears disconnected.')
-                p.query(f"s{slot}0") # disconnect the slot
+                p.query(f"s{slot}0")  # disconnect the slot
 
               if task['type'] == 'connectivity':
                 k.set_ccheck_mode(False)
@@ -278,20 +276,20 @@ class UtilityHandler(object):
                 self.lg.info('Temperature measurement complete.')
                 k.setupDC(sourceVoltage=False)
               p.query("s")
-              del(k)
+              del (k)
       except Exception as e:
         self.lg.warn(e)
         logging.exception(e)
         try:
-          del(le)  # ensure le is cleaned up
+          del (le)  # ensure le is cleaned up
         except:
           pass
         try:
-          del(mo)  # ensure mo is cleaned up
+          del (mo)  # ensure mo is cleaned up
         except:
           pass
         try:
-          del(k)  # ensure k is cleaned up
+          del (k)  # ensure k is cleaned up
         except:
           pass
 
@@ -334,12 +332,12 @@ class UtilityHandler(object):
             # for sourcemeter
             open_params = {}
             open_params['resource_name'] = task['smu_address']
-            open_params['timeout'] = 300 # ms
+            open_params['timeout'] = 300  # ms
             if 'ASRL' in open_params['resource_name']:  # data bits = 8, parity = none
               open_params['read_termination'] = task['smu_le']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
-              open_params['write_termination'] = "\r" # this is not configuable via the instrument front panel (or in any way I guess)
+              open_params['write_termination'] = "\r"  # this is not configuable via the instrument front panel (or in any way I guess)
               open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
-              open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS # user must choose NONE for flow control on the front panel
+              open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS  # user must choose NONE for flow control on the front panel
             elif 'GPIB' in open_params['resource_name']:
               open_params['write_termination'] = "\n"
               open_params['read_termination'] = "\n"
@@ -411,7 +409,7 @@ class UtilityHandler(object):
             self.lg.info(emsg)
             logging.exception(emsg)
           try:
-            del(le)
+            del (le)
           except:
             pass
 
@@ -419,9 +417,9 @@ class UtilityHandler(object):
 
   # send up a log message to the status channel
   def send_log_msg(self, record):
-    payload = {'log':{'level':record.levelno, 'text':record.msg}}
+    payload = {'log': {'level': record.levelno, 'text': record.msg}}
     payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
-    output = {'destination':'status', 'payload': payload}
+    output = {'destination': 'status', 'payload': payload}
     self.outputq.put(output)
 
   # thread that publishes mqtt messages on behalf of the worker and manager
@@ -444,7 +442,7 @@ class UtilityHandler(object):
     ptxIPTS68 = PTCoefficientStandard(+3.90802e-03, -5.80195e-07, -4.27350e-12)
     ptxITS90 = PTCoefficientStandard(+3.9083E-03, -5.7750E-07, -4.1830E-12)
     standard = ptxITS90  # pick an RTD standard
-    
+
     noCorrection = np.poly1d([])
     pt1000Correction = np.poly1d([1.51892983e-15, -2.85842067e-12, -5.34227299e-09, 1.80282972e-05, -1.61875985e-02, 4.84112370e+00])
     pt100Correction = np.poly1d([1.51892983e-10, -2.85842067e-08, -5.34227299e-06, 1.80282972e-03, -1.61875985e-01, 4.84112370e+00])
@@ -460,7 +458,7 @@ class UtilityHandler(object):
         poly = noCorrection
 
     t = ((-r0 * A + np.sqrt(r0 * r0 * A * A - 4 * r0 * B * (r0 - r))) / (2.0 * r0 * B))
-    
+
     # For subzero-temperature refine the computation by the correction polynomial
     if r < r0:
       t += poly(r)
@@ -483,12 +481,13 @@ class UtilityHandler(object):
     self.client.connect(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
 
     # start the sender (publishes messages from worker and manager)
-    threading.Thread(target=self.sender, args=(self.client,), daemon=True).start()
+    threading.Thread(target=self.sender, args=(self.client, ), daemon=True).start()
 
     # start the mqtt client loop
     threading.Thread(target=self.mqtt_loop).start()
 
     self.loop.run()  # run the glib loop. gets killed only when client.loop_forever dies
+
 
 def main():
   parser = argparse.ArgumentParser(description='Utility handler')
@@ -498,6 +497,7 @@ def main():
 
   u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
   u.run()  # loops forever
+
 
 if __name__ == "__main__":
   main()

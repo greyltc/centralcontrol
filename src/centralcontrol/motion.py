@@ -2,11 +2,11 @@
 
 # this boilerplate is required to allow this module to be run directly as a script
 if __name__ == "__main__" and __package__ in [None, '']:
-    __package__ = "centralcontrol"
-    from pathlib import Path
-    import sys
-    # get the dir that holds __package__ on the front of the search path
-    sys.path.insert(0, str(Path(__file__).parent.parent))
+  __package__ = "centralcontrol"
+  from pathlib import Path
+  import sys
+  # get the dir that holds __package__ on the front of the search path
+  sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from .afms import afms
 from .us import us
@@ -21,6 +21,7 @@ try:
 except ImportError:
   pass
 
+
 class motion:
   """
   generic class for handling substrate movement
@@ -28,18 +29,18 @@ class motion:
   motion_engine = None
   home_procedure = "default"
   home_timeout = 130  # seconds
-  motion_timeout_fraction = 1/2  # fraction of home_timeout for movement timeouts
+  motion_timeout_fraction = 1 / 2  # fraction of home_timeout for movement timeouts
   expected_lengths = [float("inf")]  # list of mm
   actual_lengths = [float("inf")]  # list of mm
-  keepout_zones = [[-2,-2]]  # list of lists of mm
+  keepout_zones = [[-2, -2]]  # list of lists of mm
   axes = [1]  # list of connected axis indicies
-  allowed_length_deviation = 5 # measured length can deviate from expected length by up to this, in mm
+  allowed_length_deviation = 5  # measured length can deviate from expected length by up to this, in mm
   location = "controller"
 
   motor_steps_per_rev = 200  # steps/rev
   micro_stepping = 256  # microsteps/step
   screw_pitch = 8  # mm/rev
-  steps_per_mm = motor_steps_per_rev*micro_stepping/screw_pitch
+  steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
 
   address = "us://controller"
 
@@ -71,7 +72,7 @@ class motion:
       parsed = urlparse(address)
       qparsed = parse_qs(parsed.query)
     except Exception:
-      raise(ValueError("Incorrect motion controller address format: {address}"))
+      raise (ValueError("Incorrect motion controller address format: {address}"))
     self.location = parsed.netloc + parsed.path
     empty_koz = [-2, -2]  # a keepout zone that will never activate
     if "el" in qparsed:
@@ -94,7 +95,7 @@ class motion:
     if "lf" in qparsed:
       self.allowed_length_deviation = float(qparsed['lf'][0])
 
-    if parsed.scheme =='afms':
+    if parsed.scheme == 'afms':
       if pcb_object is not None:
         pass  #TODO: throw warning here if we detect a virtual PCB object because afms does not support this.
       afms_setup = {}
@@ -104,10 +105,10 @@ class motion:
       self.motion_engine = afms(**afms_setup)
     elif parsed.scheme == 'us':
       if self.location != "controller":
-        raise(ValueError(f"Stage connection location unknown: {self.location}"))
+        raise (ValueError(f"Stage connection location unknown: {self.location}"))
       else:
         if pcb_object is None:
-          raise(ValueError(f"us:// protocol requires a pcb_object"))
+          raise (ValueError(f"us:// protocol requires a pcb_object"))
         else:
           us_setup = {}
           us_setup["pcb_object"] = pcb_object
@@ -117,8 +118,8 @@ class motion:
               pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
           self.motion_engine = us(**us_setup)
     else:
-      raise(ValueError(f"Unexpected motion controller protocol {self.scheme} in {address}"))
-    
+      raise (ValueError(f"Unexpected motion controller protocol {self.scheme} in {address}"))
+
     self.lg.debug(f"{__name__} initialized.")
 
   def connect(self):
@@ -137,12 +138,12 @@ class motion:
       nzones = len(self.keepout_zones)
 
       if naxes != nlengths:
-        raise(ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes"))
+        raise (ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes"))
       if naxes != nexpect:
-        raise(ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes"))
+        raise (ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes"))
       if naxes != nzones:
-        raise(ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes"))
-      
+        raise (ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes"))
+
       for i, a in enumerate(self.axes):
         if self.actual_lengths[i] <= 0:
           self.lg.warn(f"Warning: axis {a} is not ready for motion. Homing recommended.")
@@ -162,13 +163,13 @@ class motion:
     """
     self.lg.debug(f'goto({pos=}) called')
     if timeout == None:
-      timeout = self.home_timeout*self.motion_timeout_fraction
+      timeout = self.home_timeout * self.motion_timeout_fraction
     if not hasattr(pos, "__len__"):
       pos = [pos]
     naxes = len(self.axes)
     npos = len(pos)
     if naxes != npos:
-      raise(ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes"))
+      raise (ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes"))
     for i, a in enumerate(self.axes):
       el = self.expected_lengths[i]
       al = self.actual_lengths[i]
@@ -180,13 +181,13 @@ class motion:
       if el < float("inf"):  # length check is enabled
         delta = el - al
         if abs(delta) > self.allowed_length_deviation:
-          raise(ValueError(f"Error: Unexpected axis {a} length. Found {al} [mm] but expected {el} [mm]"))
+          raise (ValueError(f"Error: Unexpected axis {a} length. Found {al} [mm] but expected {el} [mm]"))
       if (goal >= ko_lower) and (goal <= ko_upper):
-        raise(ValueError(f"Error: Axis {a} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]"))
+        raise (ValueError(f"Error: Axis {a} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]"))
       if goal < lower_lim:
-        raise(ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]"))
+        raise (ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]"))
       if goal > upper_lim:
-        raise(ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]"))
+        raise (ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]"))
     goto_result = self.motion_engine.goto(pos, timeout=timeout, debug_prints=debug_prints)
     self.lg.debug(f'goto() complete')
     return goto_result
@@ -225,6 +226,7 @@ class motion:
     self.lg.debug(f'motion get_position() complete with {pos=}')
     return pos
 
+
 # testing
 def main():
   import time
@@ -257,7 +259,7 @@ def main():
 
     print(f'Current Position: {mo.get_position()}')
 
-    mid = [x/2 for x in mo.actual_lengths]
+    mid = [x / 2 for x in mo.actual_lengths]
     print(f'Going to midway: {mid}')
     mo.goto(mid)
     print('Done.')
@@ -273,15 +275,15 @@ def main():
     dance_width_mm = 5
     ndancepoints = 10
 
-    dancemin = 4 + dance_width_mm/2
+    dancemin = 4 + dance_width_mm / 2
     dancemax = mo.actual_lengths[dance_axis] - dancemin
-    dancespace = [dancemin + float(x)/(ndancepoints-1)*(dancemax-dancemin) for x in range(ndancepoints)]
+    dancespace = [dancemin + float(x) / (ndancepoints - 1) * (dancemax - dancemin) for x in range(ndancepoints)]
     dancepoints = []
     for p in dancespace:
-      dancepoints.append(p-dance_width_mm/2)
-      dancepoints.append(p+dance_width_mm/2)
-      dancepoints.append(p-dance_width_mm/2)
-    
+      dancepoints.append(p - dance_width_mm / 2)
+      dancepoints.append(p + dance_width_mm / 2)
+      dancepoints.append(p - dance_width_mm / 2)
+
     dancepoints_rev = dancepoints.copy()
     dancepoints_rev.reverse()
     del dancepoints_rev[0]
@@ -300,7 +302,7 @@ def main():
 
     print(f'Doing emergency stop.')
     mo.estop()
-  
+
   print()
 
 

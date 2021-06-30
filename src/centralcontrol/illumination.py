@@ -10,6 +10,7 @@ try:
 except ImportError:
   pass
 
+
 class illumination(object):
   """
   generic class for handling a light source
@@ -18,7 +19,7 @@ class illumination(object):
   light_engine = None
   protocol = None
 
-  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout = 10):
+  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout=10):
     """
     sets up communication to light source
     """
@@ -40,7 +41,7 @@ class illumination(object):
         ch.setFormatter(logFormat)
         self.lg.addHandler(ch)
 
-    connection_timeout = connection_timeout # s
+    connection_timeout = connection_timeout  # s
 
     addr_split = address.split(sep='://', maxsplit=1)
     protocol = addr_split[0]
@@ -98,7 +99,7 @@ class illumination(object):
     ret = self.light_engine.off()
     self.lg.debug("ill off() complete")
     return ret
-  
+
   def get_spectrum(self):
     """
     fetches a spectrum if the light engine supports it
@@ -168,6 +169,6 @@ class illumination(object):
   def __del__(self):
     self.lg.debug("ill __del__() called")
     if hasattr(self, "light_engine"):
-      del(self.light_engine)
+      del (self.light_engine)
     self.light_engine = None
     self.lg.debug("ill __del__() complete")

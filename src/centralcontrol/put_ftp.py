@@ -7,20 +7,21 @@ import socket
 import ipaddress
 import sys
 
+
 class put_ftp:
   verbose = False
   remote_path = None
-  
+
   # need __enter__ and exit for use with "with"
   def __enter__(self):
     return self
-  
+
   def __exit__(self, *a):
     self.close()
-    
+
   def __init__(self, address, pasv=True):
-    
-     # sanitize address input
+
+    # sanitize address input
     protocol, address = address.split('://')
     host_path_split = address.split('/', 1)
     host = host_path_split[0]
@@ -32,19 +33,19 @@ class put_ftp:
     host = host_split[0]
     port = 21
     if len(host_split) == 1:
-      if protocol == 'ftp':  
+      if protocol == 'ftp':
         port = 21
-      else: # possibility to handle default ports for other protocols here
+      else:  # possibility to handle default ports for other protocols here
         port = 21
     else:
       port = int(host_split[1])
-        
+
     try:
       ip = ipaddress.ip_address(host)
     except:
       server_ip_string = socket.gethostbyname_ex(host)[2][0]
       ip = ipaddress.ip_address(server_ip_string)
-    
+
     self.ftp = ftplib.FTP()
     self.ftp.connect(host=ip.exploded, port=port)
     if pasv == False:
@@ -66,17 +67,18 @@ class put_ftp:
       path_list.append(first_part)
       first_part, second_part = os.path.split(first_part)
     path_list.reverse()
-    for directory in path_list: # actually create the directories now
+    for directory in path_list:  # actually create the directories now
       try:
         self.ftp.mkd(directory)
       except ftplib.error_perm:
-        pass # directory probably already exists
-    self.ftp.storbinary('STOR {:}{:}'.format(remote_path, file_name), file_pointer) #upload the file
+        pass  # directory probably already exists
+    self.ftp.storbinary('STOR {:}{:}'.format(remote_path, file_name), file_pointer)  #upload the file
     if self.verbose:
-      print('Success: uploaded to {:}:{:}{:}{:}'.format(self.ftp.host, self.ftp.port, remote_path, file_name))    
+      print('Success: uploaded to {:}:{:}{:}{:}'.format(self.ftp.host, self.ftp.port, remote_path, file_name))
 
   def close(self):
     self.ftp.quit()
+
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser(description='Upload files to a passwordless FTP server')
