@@ -331,7 +331,9 @@ def _ivt(pixels, request, measurement, mqttc):
     mqttc.append_payload("daq/start", pickle.dumps(""))
 
     # loop over repeats
-    for loop in range(args["loops"]):
+    loop = 0
+    while (loop < args["cycles"]) or (args["cycles"] == 0):
+        loop += 1
         # init parameters derived from steadystate measurements
         ssvocs = None
 
