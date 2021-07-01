@@ -181,8 +181,8 @@ def _build_q(request, experiment):
         raise (ValueError(f"Unknown experiment: {experiment}"))
     center = config["stage"]["experiment_positions"][experiment]
 
-    # build pixel queue
-    pixel_q = collections.deque()
+    # build pixel dictionary
+    pixel_d = {}
     # here we build up the pixel handling queue by iterating
     # through the rows of a pandas dataframe
     # that contains one row for each turned on pixel
@@ -200,8 +200,9 @@ def _build_q(request, experiment):
         else:
             pixel_dict["area"] = things["area"]
         pixel_dict["mux_string"] = things["mux_string"]
-        pixel_q.append(pixel_dict)
-    return pixel_q
+        smu_chan = args['smu']['channel_mapping'].index(things["sort_string"])
+        pixel_d[smu_chan] = pixel_dict
+    return pixel_d
 
 
 class DataHandler:

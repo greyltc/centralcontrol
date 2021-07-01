@@ -148,7 +148,7 @@ class fabric(object):
     def connect_instruments(
         self,
         smu_address=None,
-        smu_port=2101,
+        smu_port=20101,
         smu_terminator="\n",
         smu_plf=50,
         smu_two_wire=True,
