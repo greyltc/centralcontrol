@@ -3,6 +3,13 @@ import time
 import random
 from collections import deque
 
+import sys
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
 
 class mppt:
   """
@@ -23,7 +30,26 @@ class mppt:
 
   def __init__(self, sm, absolute_current_limit):
     self.sm = sm
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+    self.lg.setLevel(logging.DEBUG)
+
+    if not self.lg.hasHandlers():
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+
     self.absolute_current_limit = abs(absolute_current_limit)
+    self.lg.debug(f"{__name__} initialized.")
 
   def reset(self):
     self.Voc = None
@@ -152,6 +178,7 @@ class mppt:
     return (m, ssvocs)
 
   def spo(self, duration, start_voltage, callback=lambda x: None):
+    self.lg.warn("spo:// does not find or track maximum power point")
     self.q = deque()
     data = self.sm.measureUntil(t_dwell=duration, cb=callback)
     self.q.extend(data)
