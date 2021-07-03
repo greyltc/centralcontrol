@@ -108,7 +108,6 @@ class fabric(object):
         """
         self.sm = m1kTCPClient(smu_address, smu_port, smu_terminator, smu_plf)
         self.sm.reset()
-        self.sm_idn = self.sm.get_id()
 
         # set up smu terminals
         self.sm.configure_channel_settings(four_wire=not (smu_two_wire))

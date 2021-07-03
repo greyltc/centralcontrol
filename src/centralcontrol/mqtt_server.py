@@ -126,7 +126,8 @@ def _calibrate_spectrum(request, mqtthost):
                     light_virt=config["solarsim"]["virtual"],
                     light_recipe=args["light_recipe"],
                 )
-                measurement.le.set_intensity(int(args["light_recipe_int"]))
+                if hasattr(measurement, "le"):
+                    measurement.le.set_intensity(int(args["light_recipe_int"]))
 
                 timestamp = time.time()
 
@@ -323,7 +324,8 @@ def _ivt(pixels, request, measurement, mqttc):
         light_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
-    measurement.le.set_intensity(int(args["light_recipe_int"]))
+    if hasattr(measurement, 'le'):
+        measurement.le.set_intensity(int(args["light_recipe_int"]))
 
     # scale smu settling delay
     settling_delay = args["source_delay"] / 1000
