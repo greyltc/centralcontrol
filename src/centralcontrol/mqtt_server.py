@@ -504,7 +504,7 @@ def _ivt(pixels, request, measurement, mqttc):
             _clear_plot(kind, mqttc)
 
             it = measurement.steady_state(
-                t_dwell=args["V_dwell"],
+                t_dwell=args["v_dwell"],
                 nplc=args["nplc"],
                 settling_delay=settling_delay,
                 source_voltage=True,

@@ -215,7 +215,7 @@ class mppt:
             if len(params) == 0:
                 # use defaults
                 m.append(
-                    m_tracked := self.gradient_descent(
+                    self.gradient_descent(
                         duration,
                         start_voltage=self.Vmpp,
                         alpha=0.05,
@@ -242,7 +242,7 @@ class mppt:
                     )
                 params = [float(f) for f in params]
                 m.append(
-                    m_tracked := self.gradient_descent(
+                    self.gradient_descent(
                         duration,
                         start_voltage=self.Vmpp,
                         callback=callback,
@@ -377,21 +377,22 @@ class mppt:
             v0s = {}
             t0s = {}
             for ch, ch_data in sorted(data[0].items()):
-                obj0s[ch] = objective(ch_data)
-                v0s[ch] = ch_data[0]
-                t0s[ch] = ch_data[2]
+                obj0s[ch] = objective(ch_data[0])
+                v0s[ch] = ch_data[0][0]
+                t0s[ch] = ch_data[0][2]
 
             # last measurement
             obj1s = {}
             v1s = {}
             t1s = {}
             for ch, ch_data in sorted(data[1].items()):
-                obj1s[ch] = objective(ch_data)
-                v1s[ch] = ch_data[0]
-                t1s[ch] = ch_data[2]
+                obj1s[ch] = objective(ch_data[0])
+                v1s[ch] = ch_data[0][0]
+                t1s[ch] = ch_data[0][2]
+
 
             gradient = {}
-            for ch in data.keys():
+            for ch in data[0].keys():
                 if v0s[ch] == v1s[ch]:
                     # don't try to divide by zero
                     gradient[ch] = None
@@ -481,9 +482,9 @@ class mppt:
             self.q.extend(spos)
 
         # take whatever the most recent readings were to be the mppt
-        for ch, ch_data in m[0]:
-            self.Vmpp[ch] = ch_data[0]
-            self.Impp[ch] = ch_data[1]
+        for ch, ch_data in m[0].items():
+            self.Vmpp[ch] = ch_data[0][0]
+            self.Impp[ch] = ch_data[0][1]
 
         q = self.q
         del self.q
