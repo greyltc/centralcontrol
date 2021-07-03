@@ -343,7 +343,7 @@ def _ivt(pixels, request, measurement, mqttc):
 
         # get or estimate compliance current
         compliance_i = measurement.compliance_current_guess(
-            area=pixels[0]["area"], jmax=args["jmax"], imax=args["imax"]
+            area = list(pixels.values())[0]["area"], jmax=args["jmax"], imax=args["imax"]
         )
         measurement.mppt.current_compliance = compliance_i
 
@@ -423,7 +423,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     end=args["sweep_end"],
                     points=int(args["iv_steps"]),
                     source_voltage=True,
-                    smart_compliance=config["smart_compliance"],
+                    smart_compliance=config["smu"]["smart_compliance"],
                     pixels=pixels,
                     handler=handler,
                 )
@@ -450,7 +450,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     end=args["sweep_start"],
                     points=int(args["iv_steps"]),
                     source_voltage=True,
-                    smart_compliance=config["smart_compliance"],
+                    smart_compliance=config["smu"]["smart_compliance"],
                     pixels=pixels,
                     handler=handler,
                 )

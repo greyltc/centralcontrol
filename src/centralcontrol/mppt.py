@@ -162,7 +162,7 @@ class mppt:
         for ch, vmp in sorted(self.Vmpp.items()):
             values[ch] = vmp
         self.sm.configure_dc(values, "v")
-        self.sm.enable_outputs(True, channels)
+        self.sm.enable_output(True, channels)
 
         # this locks the smu to the device's power quadrant
         # all devices have to be in the same quadrant so just check first one
@@ -218,7 +218,7 @@ class mppt:
                         max_step=0.1,
                         momentum=0.1,
                         delta_zero=0.01,
-                        pixels={},
+                        pixels=pixels,
                     )
                 )
             else:
@@ -245,7 +245,7 @@ class mppt:
                         max_step=params[4],
                         momentum=params[5],
                         delta_zero=params[6],
-                        pixels={},
+                        pixels=pixels,
                     )
                 )
         else:
