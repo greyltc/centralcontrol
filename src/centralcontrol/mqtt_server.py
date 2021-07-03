@@ -201,7 +201,8 @@ def _build_q(request, experiment):
         else:
             pixel_dict["area"] = things["area"]
         pixel_dict["mux_string"] = things["mux_string"]
-        smu_chan = args['smu']['channel_mapping'].index(things["sort_string"])
+        mapping = [x.lower() for x in config['smu']['channel_mapping']]
+        smu_chan = mapping.index(things["sort_string"].lower())
         pixel_d[smu_chan] = pixel_dict
     return pixel_d
 
