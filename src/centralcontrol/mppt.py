@@ -76,7 +76,16 @@ class mppt:
                     "MPPT IV curve inspector investigating new light curve params: "
                     + f"{(Pmax, Vmpp, Impp, Voc, Isc)}"
                 )
-                if (self.Pmax is {}) or (Pmax > self.Pmax[ch]):
+
+                if ch in self.Pmax:
+                    if Pmax > self.Pmax[ch]:
+                        old_Pmax_exceeded = True
+                    else:
+                        old_Pmax_exceeded = False
+                else:
+                    old_Pmax_exceeded = False
+
+                if (self.Pmax is {}) or (old_Pmax_exceeded == True):
                     if self.Pmax is {}:
                         because = "there was no previous one."
                     else:
