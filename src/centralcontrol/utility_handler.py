@@ -475,7 +475,7 @@ class UtilityHandler(object):
 
 def main():
   parser = argparse.ArgumentParser(description='Utility handler')
-  parser.add_argument('-a', '--address', type=str, default='127.0.0.1', help='ip address/hostname of the mqtt server')
+  parser.add_argument('-a', '--address', type=str, default='127.0.0.1', const="127.0.0.1", nargs='?', help='ip address/hostname of the mqtt server')
   parser.add_argument('-p', '--port', type=int, default=1883, help="MQTT server port")
   args = parser.parse_args()
 

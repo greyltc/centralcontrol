@@ -31,9 +31,7 @@ from .fabric import fabric
 def get_args():
     """Get arguments parsed from the command line."""
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--mqtthost", default="127.0.0.1", help="IP address or hostname of MQTT broker."
-    )
+    parser.add_argument("--mqtthost", default="127.0.0.1", const="127.0.0.1", nargs='?', help="IP address or hostname of MQTT broker.")
     return parser.parse_args()
 
 
