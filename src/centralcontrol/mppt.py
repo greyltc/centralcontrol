@@ -332,7 +332,8 @@ class mppt:
                 time.sleep(delay_ms / 1000)
                 data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
                 self.detect_short_circuits(data, pixels)
-                callback(data)
+                tuple_data = self.tuplify_data(data)
+                callback(tuple_data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
 
@@ -350,7 +351,8 @@ class mppt:
         # register a bootstrap measurement
         data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
         self.detect_short_circuits(data, pixels)
-        callback(data)
+        tuple_data = self.tuplify_data(data)
+        callback(tuple_data)
         m.appendleft(data)
         # x.appendleft(w)
         run_time = time.time() - self.t0
@@ -390,7 +392,6 @@ class mppt:
                 v1s[ch] = ch_data[0][0]
                 t1s[ch] = ch_data[0][2]
 
-
             gradient = {}
             for ch in data[0].keys():
                 if v0s[ch] == v1s[ch]:
@@ -418,7 +419,8 @@ class mppt:
             data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
             self.detect_short_circuits(data, pixels)
             m.appendleft(data)
-            callback(data)
+            tuple_data = self.tuplify_data(data)
+            callback(tuple_data)
             # record independant variable
             # x.appendleft(w)
 
@@ -474,7 +476,8 @@ class mppt:
             while time.time() - t0 < this_soak_t:
                 data = self.sm.measure([ch for ch in pixels.keys()], "dc")
                 self.detect_short_circuits(data, pixels)
-                callback(data)
+                tuple_data = self.tuplify_data(data)
+                callback(tuple_data)
                 for ch, ch_data in sorted(data.items()):
                     spos[ch].extend(ch_data)
                 time.sleep(delay_ms / 1000)
@@ -774,3 +777,26 @@ class mppt:
                         data.pop(ch, None)
             else:
                 pass
+
+    def tuplify_data(self, data):
+        """Convert lists in dictionary data to tuples.
+
+        Parameters
+        ----------
+        data : dictionary
+            Dictionary of data returned from SMU. Keys are channel numbers and values are
+            lists of tuples.
+
+        Returns
+        -------
+        tuple_data : dictionary
+            Dictionary of data where keys are channel numbers and values are tuples.
+        """
+        # only send first element of data list to handler for single-shot
+        # measurements
+        tuple_data = {}
+        for ch, ch_data in data.items():
+            tuple_data[ch] = data[0]
+
+        return tuple_data
+
