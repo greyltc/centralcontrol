@@ -116,6 +116,9 @@ class fabric(object):
         # apply external calibration to all smu channels
         self.sm.use_external_calibration()
 
+        # handle 0V to -5V or 5V to 0V sweep ranges via replugging the connector
+        self.sm.invert_channels(self.args['inverted_conn'])
+
         # instantiate max-power tracker object based on smu
         self.mppt = mppt(self.sm, self.current_limit)
 
