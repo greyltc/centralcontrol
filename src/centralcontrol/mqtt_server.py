@@ -321,11 +321,12 @@ def _ivt(pixels, request, measurement, mqttc):
         smu_terminator=config["smu"]["terminator"],
         smu_plf=config["smu"]["plf"],
         smu_two_wire=config["smu"]["two_wire"],
-        smu_invert_channles=args['inverted_conn'],
+        smu_invert_channels=args['inverted_conn'],
         light_address=light_address,
         light_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
+
     if hasattr(measurement, 'le'):
         measurement.le.set_intensity(int(args["light_recipe_int"]))
 
