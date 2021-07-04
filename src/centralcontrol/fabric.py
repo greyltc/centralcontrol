@@ -333,7 +333,14 @@ class fabric(object):
         t0 = time.time()
         while time.time() - t0 < t_dwell:
             data = self.sm.measure(channels, measurement="dc")
-            handler(data)
+
+            # only send first element of data list to handler for single-shot
+            # measurements
+            tuple_data = {}
+            for ch, ch_data in data.items():
+                tuple_data[ch] = data[0]
+            handler(tuple_data)
+
             for ch, ch_data in sorted(data.items()):
                 ss_data[ch].extend(ch_data)
 
