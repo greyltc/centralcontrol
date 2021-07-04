@@ -338,7 +338,7 @@ class fabric(object):
             # measurements
             tuple_data = {}
             for ch, ch_data in data.items():
-                tuple_data[ch] = data[0]
+                tuple_data[ch] = ch_data[0]
             handler(tuple_data)
 
             for ch, ch_data in sorted(data.items()):

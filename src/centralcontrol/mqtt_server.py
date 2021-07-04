@@ -353,7 +353,7 @@ def _ivt(pixels, request, measurement, mqttc):
 
         # "Voc" if
         if args["i_dwell"] > 0:
-            _log("Measuring steady-state V_oc", 20, mqttc)
+            _log("Measuring steady-state Voc", 20, mqttc)
             # Voc needs light
             if hasattr(measurement, "le"):
                 measurement.le.on()
