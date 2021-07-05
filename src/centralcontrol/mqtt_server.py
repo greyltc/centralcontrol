@@ -646,12 +646,11 @@ def main():
     mqttc.subscribe("measurement/#", qos=2)
     mqttc.loop_start()
 
-    publish.single(
+    mqttc.publish(
         "measurement/status",
         pickle.dumps("Ready"),
         qos=2,
         retain=True,
-        hostname=cli_args.mqtthost,
     ).wait_for_publish()
 
     print(f"{client_id} connected!")
