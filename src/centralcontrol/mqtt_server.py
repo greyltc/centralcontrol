@@ -341,9 +341,7 @@ def _ivt(pixels, request, measurement, mqttc):
     # start daq
     mqttc.append_payload("daq/start", pickle.dumps(""))
 
-    ld = collections.deque(
-        [x[1]["label"] for x in pixels.items()]
-    )  # labels of live devices
+    ld = collections.deque([f"{x[1]['label']} Device {x[1]['pixel']}" for x in pixels.items()])  # labels of live devices
     mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)))
 
     # loop over repeats
