@@ -142,7 +142,7 @@ class mppt:
         if NPLC != -1:
             self.sm.nplc = NPLC
 
-        channels = [ch for ch in pixels.keys()]
+        channels = list(pixels.keys())
 
         if self.Voc == {}:
             # disable output for high impedance mode Voc measurement
@@ -323,14 +323,14 @@ class mppt:
 
             # init container for ss data
             spos = {}
-            for ch, _ in pixels.items():
+            for ch in pixels.keys():
                 spos[ch] = []
 
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
                 time.sleep(delay_ms / 1000)
-                data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+                data = self.sm.measure(list(pixels.keys()), measurement="dc")
                 self.detect_short_circuits(data, pixels)
                 tuple_data = self.tuplify_data(data)
                 callback(tuple_data)
@@ -349,7 +349,7 @@ class mppt:
             return (1, -1)[int(num < 0)]
 
         # register a bootstrap measurement
-        data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+        data = self.sm.measure(list(pixels.keys()), measurement="dc")
         self.detect_short_circuits(data, pixels)
         tuple_data = self.tuplify_data(data)
         callback(tuple_data)
@@ -416,7 +416,7 @@ class mppt:
             # apply new voltage and record a measurement and store the result in slot 0
             self.sm.configure_dc(next_voltages, "v")
             time.sleep(delay_ms / 1000)
-            data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+            data = self.sm.measure(list(pixels.keys()), measurement="dc")
             self.detect_short_circuits(data, pixels)
             m.appendleft(data)
             tuple_data = self.tuplify_data(data)
@@ -474,7 +474,7 @@ class mppt:
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
-                data = self.sm.measure([ch for ch in pixels.keys()], "dc")
+                data = self.sm.measure(list(pixels.keys()), "dc")
                 self.detect_short_circuits(data, pixels)
                 tuple_data = self.tuplify_data(data)
                 callback(tuple_data)
@@ -703,7 +703,7 @@ class mppt:
         pixels : dict
             Pixel information dictionary. Keys are SMU channel numbers.
         """
-        channels = [ch for ch in pixels.keys()]
+        channels = list(pixels.keys())
 
         for ch in channels:
             ch_data = data[ch]
@@ -799,4 +799,3 @@ class mppt:
             tuple_data[ch] = ch_data[0]
 
         return tuple_data
-

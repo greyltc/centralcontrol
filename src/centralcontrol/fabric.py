@@ -321,7 +321,7 @@ class fabric(object):
         else:
             source_mode = "i"
 
-        channels = [ch for ch, _ in pixels.items()]
+        channels = list(pixels.keys())
 
         if (source_mode == "i") and (set_point == 0):
             # measuring at Voc so set smu outputs to high impedance mode
@@ -409,13 +409,13 @@ class fabric(object):
                 values[ch] = [v if v < max_v else max_v for v in rvalues]
         else:
             values = {}
-            for ch, _ in pixels.items():
+            for ch in pixels.keys():
                 values[ch] = rvalues
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
         # get and set initial values then enable outputs
-        channels = [ch for ch, _ in pixels.items()]
+        channels = list(pixels.keys())
         init_values = {}
         for ch, vs in values.items():
             init_values[ch] = vs[0]
