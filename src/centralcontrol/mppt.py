@@ -175,7 +175,7 @@ class mppt:
 
         # this locks the smu to the device's power quadrant
         # all devices have to be in the same quadrant so just check first one
-        if self.Voc[0] >= 0:
+        if list(self.Voc.values())[0] >= 0:
             self.voltage_lock = True  # lock mppt voltage to be >0
         else:
             self.voltage_lock = False  # lock mppt voltage to be <0
