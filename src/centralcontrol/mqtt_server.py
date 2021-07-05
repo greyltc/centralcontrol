@@ -406,7 +406,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     measurement.le.on()
 
             if args["sweep_check"] is True:
-                _log(f"Performing {sweep} sweep 1's.", 20, mqttc)
+                _log(f"Performing first {sweep} sweep.", 20, mqttc)
                 print(
                     f'Sweeping voltage from {args["sweep_start"]} V to '
                     + f'{args["sweep_end"]} V'
@@ -434,7 +434,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 )
 
             if args["return_switch"] is True:
-                _log(f"Performing {sweep} sweep 2's'.", 20, mqttc)
+                _log(f"Performing second {sweep} sweep.", 20, mqttc)
                 print(
                     f'Sweeping voltage from {args["sweep_end"]} V to '
                     + f'{args["sweep_start"]} V'
@@ -496,9 +496,7 @@ def _ivt(pixels, request, measurement, mqttc):
             # jsc needs light
             if hasattr(measurement, "le"):
                 measurement.le.on()
-            _log(
-                f"Measuring output current at constant voltage.", 20, mqttc,
-            )
+            _log(f"Measuring current at constant voltage.", 20, mqttc)
 
             kind = "it_measurement"
             dh.kind = kind
