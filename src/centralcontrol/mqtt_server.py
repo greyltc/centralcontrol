@@ -652,7 +652,7 @@ def main():
         qos=2,
         retain=True,
         hostname=cli_args.mqtthost,
-    )
+    ).wait_for_publish()
 
     print(f"{client_id} connected!")
 
