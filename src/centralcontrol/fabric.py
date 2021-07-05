@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """High level experiment functions."""
 
+import pickle
+
 import numpy as np
 from scipy.constants import k, e
 import unicodedata
@@ -214,6 +216,8 @@ class fabric(object):
                 instr.disconnect()
             except:
                 pass
+        if self._mqttc is not None:
+            self._mqttc.append_payload("daq/stop", pickle.dumps(""))
 
     def measure_spectrum(self, recipe=None):
         """Measure the spectrum of the light source.

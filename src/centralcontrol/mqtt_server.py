@@ -31,7 +31,13 @@ from .fabric import fabric
 def get_args():
     """Get arguments parsed from the command line."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mqtthost", default="127.0.0.1", const="127.0.0.1", nargs='?', help="IP address or hostname of MQTT broker.")
+    parser.add_argument(
+        "--mqtthost",
+        default="127.0.0.1",
+        const="127.0.0.1",
+        nargs="?",
+        help="IP address or hostname of MQTT broker.",
+    )
     return parser.parse_args()
 
 
@@ -199,7 +205,7 @@ def _build_q(request, experiment):
         else:
             pixel_dict["area"] = things["area"]
         pixel_dict["mux_string"] = things["mux_string"]
-        mapping = [x.lower() for x in config['smu']['channel_mapping']]
+        mapping = [x.lower() for x in config["smu"]["channel_mapping"]]
         smu_chan = mapping.index(things["sort_string"].lower())
         pixel_d[smu_chan] = pixel_dict
     return pixel_d
@@ -319,13 +325,14 @@ def _ivt(pixels, request, measurement, mqttc):
         smu_terminator=config["smu"]["terminator"],
         smu_plf=config["smu"]["plf"],
         smu_two_wire=config["smu"]["two_wire"],
-        smu_invert_channels=args['inverted_conn'],
+        smu_invert_channels=args["inverted_conn"],
         light_address=light_address,
         light_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
+    measurement._mqttc = mqttc
 
-    if hasattr(measurement, 'le'):
+    if hasattr(measurement, "le"):
         measurement.le.set_intensity(int(args["light_recipe_int"]))
 
     # scale smu settling delay
@@ -334,7 +341,9 @@ def _ivt(pixels, request, measurement, mqttc):
     # start daq
     mqttc.append_payload("daq/start", pickle.dumps(""))
 
-    ld = collections.deque([x[1]['label'] for x in pixels.items()])  # labels of live devices
+    ld = collections.deque(
+        [x[1]["label"] for x in pixels.items()]
+    )  # labels of live devices
     mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)))
 
     # loop over repeats
@@ -346,7 +355,7 @@ def _ivt(pixels, request, measurement, mqttc):
 
         # get or estimate compliance current
         compliance_i = measurement.compliance_current_guess(
-            area = list(pixels.values())[0]["area"], jmax=args["jmax"], imax=args["imax"]
+            area=list(pixels.values())[0]["area"], jmax=args["jmax"], imax=args["imax"]
         )
         measurement.mppt.current_compliance = compliance_i
 
