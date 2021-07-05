@@ -111,13 +111,18 @@ class wavelabs:
     parser = ET.XMLParser(target=target)
     fed = bytes([])
     while not target.done_parsing:
-      new = self.connection.recv(1024)
-      fed += new 
+      try:
+        new = self.connection.recv(1024)
+      except socketserver.socket.timeout:
+        self.lg.warn(f"Wavelabs comms socket timeout")
+        target.error = -9999
+      fed += new
       parser.feed(new)
     parser.close()
     if target.error != 0:
-      print("Got error number {:} from WaveLabs software: {:}".format(target.error, target.error_message))
-      print(f"Raw message: {fed}")
+      if not (target.error_message == "Recipe still running."):  # ignore still running warnings
+        self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
+        self.lg.warn(f"Raw message: {fed}")
     return target
 
   def startServer(self):
