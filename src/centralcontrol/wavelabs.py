@@ -182,13 +182,13 @@ class wavelabs:
       ret = self.connectToRelay()
     if ret == 0:
       ret = -2
-      old_tout = self.connection.gettimeout()
+      #old_tout = self.connection.gettimeout()
       self.connection.settimeout(self.timeout)
       try:
         ret = self.activateRecipe(self.default_recipe)
-        self.connection.settimeout(old_tout)
+        #self.connection.settimeout(old_tout)
       except Exception as e:
-        self.connection.settimeout(old_tout)
+        #self.connection.settimeout(old_tout)
         raise (ValueError(f'Unable to set solar sim recipe: {self.default_recipe}'))
     return (ret)
 
