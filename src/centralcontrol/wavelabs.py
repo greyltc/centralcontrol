@@ -142,8 +142,11 @@ class wavelabs:
       try:
         new = self.connection.recv(1024)
       except socketserver.socket.timeout:
-        self.lg.warn(f"Wavelabs comms socket timeout")
+        msg = "Wavelabs comms socket timeout"
+        self.lg.warning(msg)
         target.error = -9999
+        target.error_message = msg
+        break
       fed += new
       parser.feed(new)
     parser.close()
