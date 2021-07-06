@@ -140,7 +140,8 @@ class wavelabs:
     fed = bytes([])
     while not target.done_parsing:
       try:
-        new = self.connection.recv(1024)
+        # TODO: consider reading with readline and makefile until '\r\n'
+        new = self.connection.recv(1024)  
       except socketserver.socket.timeout:
         msg = "Wavelabs comms socket timeout"
         self.lg.warning(msg)
