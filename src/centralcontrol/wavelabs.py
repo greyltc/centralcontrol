@@ -113,15 +113,14 @@ class wavelabs:
     while not target.done_parsing:
       try:
         # TODO: consider reading with readline and makefile until '\r\n'
-        new = self.connection.recv(1024)  
+        new = self.connection.recv(1024)
+        fed += new
+        parser.feed(new)
       except socketserver.socket.timeout:
         msg = "Wavelabs comms socket timeout"
-        self.lg.warning(msg)
         target.error = -9999
         target.error_message = msg
         break
-      fed += new
-      parser.feed(new)
     parser.close()
     if target.error != 0:
       if not (target.error_message == "Recipe still running."):  # ignore still running warnings
