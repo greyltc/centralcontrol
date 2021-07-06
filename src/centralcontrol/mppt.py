@@ -124,7 +124,7 @@ class mppt:
         NPLC=-1,
         voc_compliance=3,
         i_limit=0.1,
-        extra="basic://7:10:10",
+        extra="gd://",
         pixels={},
     ):
         """Luanch mppt.
@@ -186,29 +186,6 @@ class mppt:
         extra_split = extra.split(sep="://", maxsplit=1)
         algo = extra_split[0]
         params = extra_split[1]
-        # if algo == "basic":
-        #     if len(params) == 0:  #  use defaults
-        #         m.append(
-        #             m_tracked := self.really_dumb_tracker(duration, callback=callback)
-        #         )
-        #     else:
-        #         params = params.split(":")
-        #         if len(params) != 3:
-        #             raise (
-        #                 ValueError(
-        #                     "MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]:[sweep_delay_ms]"
-        #                 )
-        #             )
-        #         params = [float(f) for f in params]
-        #         m.append(
-        #             m_tracked := self.really_dumb_tracker(
-        #                 duration,
-        #                 callback=callback,
-        #                 dAngleMax=params[0],
-        #                 dwell_time=params[1],
-        #                 sweep_delay_ms=params[2],
-        #             )
-        #         )
         if algo in ["gd", "snaith"]:
             if algo == "snaith":
                 do_snaith = True
@@ -220,15 +197,9 @@ class mppt:
                     self.gradient_descent(
                         duration,
                         start_voltage=self.Vmpp,
-                        alpha=0.05,
-                        min_step=0.001,
-                        NPLC=10,
+                        NPLC=NPLC,
                         callback=callback,
-                        delay_ms=500,
                         snaith_mode=do_snaith,
-                        max_step=0.1,
-                        momentum=0.1,
-                        delta_zero=0.01,
                         pixels=pixels,
                     )
                 )
@@ -272,9 +243,9 @@ class mppt:
         duration,
         start_voltage,
         callback=lambda x: None,
-        alpha=0.05,
+        alpha=0.8,
         min_step=0.001,
-        NPLC=10,
+        NPLC=-1,
         snaith_mode=False,
         delay_ms=500,
         max_step=0.1,
