@@ -172,7 +172,7 @@ class mppt:
             values[ch] = vmp
         self.sm.configure_dc(values, "v")
         print(f"Launch tracker channels: {channels}")
-        #print(f"Launch tracker reset cache: {self.sm._reset_cache}")
+        print(f"Launch tracker reset cache: {self.sm._reset_cache}")
         self.sm.enable_output(True, channels)
 
         # this locks the smu to the device's power quadrant
@@ -419,7 +419,7 @@ class mppt:
             self.sm.configure_dc(next_voltages, "v")
             time.sleep(delay_ms / 1000)
             print(f"MPPT channels: {list(pixels.keys())}")
-            #print(f"MPPT reset cache: {self.sm._reset_cache}")
+            print(f"MPPT reset cache: {self.sm._reset_cache}")
             data = self.sm.measure(list(pixels.keys()), measurement="dc")
             self.detect_short_circuits(data, pixels)
             m.appendleft(data)
