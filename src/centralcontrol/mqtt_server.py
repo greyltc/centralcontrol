@@ -189,7 +189,7 @@ class MQTTServer(object):
             pixel_queue.append(pixel_dict)
         else:
           # if it's empty, assume cal diode is connected externally
-          pixel_dict = {"label": "external", "layout": None, "sub_name": None, "pixel": 0, "pos": None, "area": None, "mux_string": None}
+          pixel_dict = {"label": "external", "device_label": "external", "layout": None, "sub_name": None, "pixel": 0, "pos": None, "area": None, "mux_string": None}
           pixel_queue = collections.deque()
           pixel_queue.append(pixel_dict)
 
@@ -231,7 +231,7 @@ class MQTTServer(object):
           pixel_queue = self._build_q(request, experiment="eqe")
         else:
           # if it's empty, assume cal diode is connected externally
-          pixel_dict = {"label": args["label_tree"][0], "layout": None, "sub_name": None, "pixel": 0, "pos": None, "area": None}
+          pixel_dict = {"label": args["label_tree"][0], "device_label": "external", "layout": None, "sub_name": None, "pixel": 0, "pos": None, "area": None}
           pixel_queue = collections.deque()
           pixel_queue.append(pixel_dict)
 
@@ -311,11 +311,6 @@ class MQTTServer(object):
             t0 = time.time()
             while remaining > 0:
               pixel = pixel_queue.popleft()
-              label = pixel["label"]
-              pix = pixel["pixel"]
-
-              # add id str to handlers to display on plots
-              idn = f"{label}_device_{pix}"
 
               dt = time.time() - t0
               if n_done > 0:
@@ -328,12 +323,12 @@ class MQTTServer(object):
                 progress_msg = {"text": text, "fraction": fraction}
                 self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-              self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {label}, device number {pix} ####")
+              self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
 
               # we have a new substrate
-              if last_label != label:
+              if last_label != pixel['device_label']:
                 self.lg.info(f"New substrate using '{pixel['layout']}' layout!")
-                last_label = label
+                last_label = pixel['device_label']
 
               # move to pixel
               measurement.goto_pixel(pixel, mo)
@@ -350,7 +345,7 @@ class MQTTServer(object):
                 if config["psu"][f"ch{channel}_ocp"] != 0:
                   psu_calibration = measurement.calibrate_psu(channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10, config["psu"][f"ch{channel}_voltage"])
 
-                  diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": idn}
+                  diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
                   self.outq.put({"topic": "calibration/psu/ch{channel}", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
 
               n_done += 1
@@ -453,7 +448,7 @@ class MQTTServer(object):
       pixel_dict['label'] = things['label']
       pixel_dict['layout'] = things['layout']
       pixel_dict['sub_name'] = things['system_label']
-      pixel_dict['user_label'] = things['user_label']
+      pixel_dict['device_label'] = things['device_label']
       pixel_dict['pixel'] = things['mux_index']
       loc = things['loc']
       pos = [a + b for a, b in zip(center, loc)]
@@ -529,7 +524,6 @@ class MQTTServer(object):
       measurement.le.set_intensity(int(args["light_recipe_int"]))
 
     source_delay = args["source_delay"] / 1000  # scale this from ms to s because that's what the SMU wants
-    last_label = None
 
     fake_pcb = measurement.fake_pcb
     inner_pcb = measurement.fake_pcb
@@ -573,16 +567,12 @@ class MQTTServer(object):
           p_total = float('inf')
         remaining = p_total
         n_done = 0
+        last_label = None
         t0 = time.time()
         while remaining > 0:
           # instantiate container for all measurement data on pixel
           data = []
           pixel = pixel_queue.popleft()
-          label = pixel["label"]
-          pix = pixel["pixel"]
-
-          # add id str to handlers to display on plots
-          idn = f"{label}_device_{pix}"
 
           dt = time.time() - t0
           if (n_done > 0) and (args['cycles'] != 0):
@@ -595,12 +585,12 @@ class MQTTServer(object):
             progress_msg = {"text": text, "fraction": fraction}
             self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-          self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {label}, device number {pix} ####")
+          self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
 
           # check if we have a new substrate
-          if last_label != label:
+          if last_label != pixel['device_label']:
             self.lg.debug(f"New substrate using '{pixel['layout']}' layout!")
-            last_label = label
+            last_label = pixel['device_label']
 
           # force light off for motion if configured
           if hasattr(measurement, "le") and ('off_during_motion' in config['solarsim']):
@@ -790,7 +780,7 @@ class MQTTServer(object):
           measurement.sm.outOn(False)
 
           if calibration == True:
-            diode_dict = {"data": data, "timestamp": timestamp, "diode": idn}
+            diode_dict = {"data": data, "timestamp": timestamp, "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
             if rtd == True:
               self.lg.debug("RTD")
               self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
@@ -888,11 +878,6 @@ class MQTTServer(object):
         t0 = time.time()
         while remaining > 0:
           pixel = pixel_queue.popleft()
-          label = pixel["label"]
-          pix = pixel["pixel"]
-
-          # add id str to handlers to display on plots
-          idn = f"{label}_device_{pix}"
 
           dt = time.time() - t0
           if n_done > 0:
@@ -905,12 +890,12 @@ class MQTTServer(object):
             progress_msg = {"text": text, "fraction": fraction}
             self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-          self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {label}, device number {pix} ####")
+          self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
 
           # we have a new substrate
-          if last_label != label:
+          if last_label != pixel['device_label']:
             self.lg.debug(f"New substrate using '{pixel['layout']}' layout!")
-            last_label = label
+            last_label = pixel['device_label']
 
           # move to pixel
           measurement.goto_pixel(pixel, mo)
@@ -965,7 +950,7 @@ class MQTTServer(object):
 
           # update eqe diode calibration data in
           if calibration == True:
-            diode_dict = {"data": eqe, "timestamp": timestamp, "diode": idn}
+            diode_dict = {"data": eqe, "timestamp": timestamp, "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
             self.outq.put({"topic": "calibration/eqe", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
 
           n_done += 1
