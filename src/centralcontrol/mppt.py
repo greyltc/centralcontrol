@@ -77,7 +77,7 @@ class mppt:
                     + f"{(Pmax, Vmpp, Impp, Voc, Isc)}"
                 )
 
-                if ch in self.Pmax:
+                if ch in self.Pmax.keys():
                     if Pmax > self.Pmax[ch]:
                         old_Pmax_exceeded = True
                     else:
