@@ -343,10 +343,9 @@ def _ivt(pixels, request, measurement, mqttc):
     # start daq
     mqttc.append_payload("daq/start", pickle.dumps(""))
 
-    ld = {}  # to keep track of live devices
-    for key,val in pixels.items():
-        ld[val['device_label'].lower()] = val
-    mqttc.append_payload("plotter/live_devices", pickle.dumps(ld), retain=True)
+    # labels of live devices
+    ld = collections.deque([val["device_label"] for key, val in pixels.items()])
+    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
 
     # loop over repeats
     loop = 0
@@ -524,8 +523,8 @@ def _ivt(pixels, request, measurement, mqttc):
             )
 
     # update live devices list
-    ld = {}
-    mqttc.append_payload("plotter/live_devices", pickle.dumps(ld), retain=True)
+    ld.clear()
+    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
 
     # shut off the smu
     measurement.sm.enable_output(False)
