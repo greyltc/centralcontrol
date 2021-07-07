@@ -448,7 +448,8 @@ class fabric(object):
         max_v : float
             Maximum voltage that can be applied safely in V.
         """
-        compliance_j = compliance_i / area
+        # in mA/cm^2
+        compliance_j = compliance_i * 1000 / area
 
         # approximate ideal short circuit for Si
         ideal_j = 50
