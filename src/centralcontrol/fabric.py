@@ -401,7 +401,7 @@ class fabric(object):
             max_vs = {}
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
-                max_v = smart_compliance(ssvoc[0][0], self.current_limit, area)
+                max_v = self.do_smart_compliance(ssvoc[0][0], self.current_limit, area)
                 max_vs[ch] = max_v
 
             values = {}
@@ -428,7 +428,7 @@ class fabric(object):
 
         return data
 
-    def smart_compliance(self, voc, compliance_i, area):
+    def do_smart_compliance(self, voc, compliance_i, area):
         """Calculate compliance voltage given compliance current.
 
         Use the Voc of a solar cell to estimate the maximum voltage that can be safely

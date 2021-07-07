@@ -647,7 +647,7 @@ def main():
     # setup mqtt subscriber client
     mqttc = mqtt.Client(client_id=client_id)
     mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
-    mqttc.will_set("plotter/live_devices", pickle.dumps({}), 2, retain=True)
+    mqttc.will_set("plotter/live_devices", pickle.dumps([]), 2, retain=True)
     mqttc.on_message = lambda mqttc, obj, msg: on_message(mqttc, obj, msg, msg_queue)
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
