@@ -351,7 +351,7 @@ def _ivt(pixels, request, measurement, mqttc):
     loop = 0
     while (loop < args["cycles"]) or (args["cycles"] == 0):
         loop += 1
-        _log(f"\n### Loop {loop} ###", 20, mqttc)
+        _log(f"### Loop {loop} ###", 20, mqttc)
         # init parameters derived from steadystate measurements
         ssvocs = None
 
@@ -522,6 +522,8 @@ def _ivt(pixels, request, measurement, mqttc):
                 pixels=pixels,
                 handler=handler,
             )
+
+        _log("", 20, mqttc)
 
     # update live devices list
     ld.clear()
