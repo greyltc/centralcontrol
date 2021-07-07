@@ -20,6 +20,7 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
 from . import virt
 from .mppt import mppt
 from .illumination import illumination
+from .mqtt_server import _log
 
 from m1kTCPClient import m1kTCPClient
 
@@ -396,7 +397,7 @@ class fabric(object):
                 pixels=pixels,
             )
 
-            print(f"Vocs for smart compliance: {ssvocs} V")
+            _log("Smart compliance enabled! Truncating sweep range!", 20, self._mqttc)
 
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
