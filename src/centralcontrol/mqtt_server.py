@@ -194,9 +194,11 @@ def _build_q(request, experiment):
     for things in stuff.to_dict(orient="records"):
         pixel_dict = {}
         pixel_dict["label"] = things["label"]
+        pixel_dict["device_label"] = things["device_label"]
         pixel_dict["layout"] = things["layout"]
         pixel_dict["sub_name"] = things["system_label"]
         pixel_dict["pixel"] = things["mux_index"]
+        pixel_dict["sort_string"] = things["sort_string"]
         loc = things["loc"]
         pos = [a + b for a, b in zip(center, loc)]
         pixel_dict["pos"] = pos
@@ -341,13 +343,15 @@ def _ivt(pixels, request, measurement, mqttc):
     # start daq
     mqttc.append_payload("daq/start", pickle.dumps(""))
 
-    ld = collections.deque([f"{x[1]['label']} Device {x[1]['pixel']}" for x in pixels.items()])  # labels of live devices
-    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)))
+    # labels of live devices
+    ld = collections.deque([val["device_label"] for key, val in pixels.items()])
+    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
 
     # loop over repeats
     loop = 0
     while (loop < args["cycles"]) or (args["cycles"] == 0):
         loop += 1
+        _log(f"### Loop {loop} ###", 20, mqttc)
         # init parameters derived from steadystate measurements
         ssvocs = None
 
@@ -519,9 +523,11 @@ def _ivt(pixels, request, measurement, mqttc):
                 handler=handler,
             )
 
+        _log("", 20, mqttc)
+
     # update live devices list
     ld.clear()
-    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)))
+    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
 
     # shut off the smu
     measurement.sm.enable_output(False)
@@ -641,18 +647,18 @@ def main():
     # setup mqtt subscriber client
     mqttc = mqtt.Client(client_id=client_id)
     mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
+    mqttc.will_set("plotter/live_devices", pickle.dumps([]), 2, retain=True)
     mqttc.on_message = lambda mqttc, obj, msg: on_message(mqttc, obj, msg, msg_queue)
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
     mqttc.loop_start()
 
-    publish.single(
+    mqttc.publish(
         "measurement/status",
         pickle.dumps("Ready"),
         qos=2,
         retain=True,
-        hostname=cli_args.mqtthost,
-    )
+    ).wait_for_publish()
 
     print(f"{client_id} connected!")
 

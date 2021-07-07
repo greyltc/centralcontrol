@@ -111,13 +111,24 @@ class wavelabs:
     parser = ET.XMLParser(target=target)
     fed = bytes([])
     while not target.done_parsing:
-      new = self.connection.recv(1024)
-      fed += new 
-      parser.feed(new)
-    parser.close()
+      try:
+        # TODO: consider reading with readline and makefile until '\r\n'
+        new = self.connection.recv(1024)
+        fed += new
+        parser.feed(new)
+      except socketserver.socket.timeout:
+        msg = "Wavelabs comms socket timeout"
+        target.error = -9999
+        target.error_message = msg
+        break
+    try:
+      parser.close()
+    except Exception as e:
+      pass
     if target.error != 0:
-      print("Got error number {:} from WaveLabs software: {:}".format(target.error, target.error_message))
-      print(f"Raw message: {fed}")
+      if not (target.error_message == "Recipe still running."):  # ignore still running warnings
+        print(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
+        print(f"Raw message: {fed}")
     return target
 
   def startServer(self):
@@ -152,15 +163,15 @@ class wavelabs:
         self.port = self.def_port_relay
       ret = self.connectToRelay()
     if ret == 0:
-        ret = -2
-        old_tout = self.connection.gettimeout()
-        self.connection.settimeout(self.timeout)
-        try:
-            ret = self.activateRecipe(self.default_recipe)
-            self.connection.settimeout(old_tout)
-        except Exception as e:
-            self.connection.settimeout(old_tout)
-            raise(ValueError(f'Unable to set solar sim recipe: {self.default_recipe}'))
+      ret = -2
+      #old_tout = self.connection.gettimeout()
+      self.connection.settimeout(self.timeout)
+      try:
+        ret = self.activateRecipe(self.default_recipe)
+        #self.connection.settimeout(old_tout)
+      except Exception as e:
+        #self.connection.settimeout(old_tout)
+        raise (ValueError(f'Unable to set solar sim recipe: {self.default_recipe}'))
     return (ret)
 
 

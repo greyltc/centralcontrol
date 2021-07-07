@@ -124,7 +124,7 @@ class mppt:
         NPLC=-1,
         voc_compliance=3,
         i_limit=0.1,
-        extra="basic://7:10:10",
+        extra="gd://",
         pixels={},
     ):
         """Luanch mppt.
@@ -142,7 +142,7 @@ class mppt:
         if NPLC != -1:
             self.sm.nplc = NPLC
 
-        channels = [ch for ch in pixels.keys()]
+        channels = list(pixels.keys())
 
         if self.Voc == {}:
             # disable output for high impedance mode Voc measurement
@@ -171,6 +171,8 @@ class mppt:
         for ch, vmp in sorted(self.Vmpp.items()):
             values[ch] = vmp
         self.sm.configure_dc(values, "v")
+        print(f"Launch tracker channels: {channels}")
+        print(f"Launch tracker reset cache: {self.sm._reset_cache}")
         self.sm.enable_output(True, channels)
 
         # this locks the smu to the device's power quadrant
@@ -184,29 +186,6 @@ class mppt:
         extra_split = extra.split(sep="://", maxsplit=1)
         algo = extra_split[0]
         params = extra_split[1]
-        # if algo == "basic":
-        #     if len(params) == 0:  #  use defaults
-        #         m.append(
-        #             m_tracked := self.really_dumb_tracker(duration, callback=callback)
-        #         )
-        #     else:
-        #         params = params.split(":")
-        #         if len(params) != 3:
-        #             raise (
-        #                 ValueError(
-        #                     "MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]:[sweep_delay_ms]"
-        #                 )
-        #             )
-        #         params = [float(f) for f in params]
-        #         m.append(
-        #             m_tracked := self.really_dumb_tracker(
-        #                 duration,
-        #                 callback=callback,
-        #                 dAngleMax=params[0],
-        #                 dwell_time=params[1],
-        #                 sweep_delay_ms=params[2],
-        #             )
-        #         )
         if algo in ["gd", "snaith"]:
             if algo == "snaith":
                 do_snaith = True
@@ -218,15 +197,9 @@ class mppt:
                     self.gradient_descent(
                         duration,
                         start_voltage=self.Vmpp,
-                        alpha=0.05,
-                        min_step=0.001,
-                        NPLC=10,
+                        NPLC=NPLC,
                         callback=callback,
-                        delay_ms=500,
                         snaith_mode=do_snaith,
-                        max_step=0.1,
-                        momentum=0.1,
-                        delta_zero=0.01,
                         pixels=pixels,
                     )
                 )
@@ -270,9 +243,9 @@ class mppt:
         duration,
         start_voltage,
         callback=lambda x: None,
-        alpha=0.05,
+        alpha=0.8,
         min_step=0.001,
-        NPLC=10,
+        NPLC=-1,
         snaith_mode=False,
         delay_ms=500,
         max_step=0.1,
@@ -323,14 +296,14 @@ class mppt:
 
             # init container for ss data
             spos = {}
-            for ch, _ in pixels.items():
+            for ch in pixels.keys():
                 spos[ch] = []
 
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
                 time.sleep(delay_ms / 1000)
-                data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+                data = self.sm.measure(list(pixels.keys()), measurement="dc")
                 self.detect_short_circuits(data, pixels)
                 tuple_data = self.tuplify_data(data)
                 callback(tuple_data)
@@ -349,7 +322,7 @@ class mppt:
             return (1, -1)[int(num < 0)]
 
         # register a bootstrap measurement
-        data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+        data = self.sm.measure(list(pixels.keys()), measurement="dc")
         self.detect_short_circuits(data, pixels)
         tuple_data = self.tuplify_data(data)
         callback(tuple_data)
@@ -416,7 +389,9 @@ class mppt:
             # apply new voltage and record a measurement and store the result in slot 0
             self.sm.configure_dc(next_voltages, "v")
             time.sleep(delay_ms / 1000)
-            data = self.sm.measure([ch for ch in pixels.keys()], measurement="dc")
+            print(f"MPPT channels: {list(pixels.keys())}")
+            print(f"MPPT reset cache: {self.sm._reset_cache}")
+            data = self.sm.measure(list(pixels.keys()), measurement="dc")
             self.detect_short_circuits(data, pixels)
             m.appendleft(data)
             tuple_data = self.tuplify_data(data)
@@ -474,7 +449,7 @@ class mppt:
             # run steady state measurement
             t0 = time.time()
             while time.time() - t0 < this_soak_t:
-                data = self.sm.measure([ch for ch in pixels.keys()], "dc")
+                data = self.sm.measure(list(pixels.keys()), "dc")
                 self.detect_short_circuits(data, pixels)
                 tuple_data = self.tuplify_data(data)
                 callback(tuple_data)
@@ -703,7 +678,7 @@ class mppt:
         pixels : dict
             Pixel information dictionary. Keys are SMU channel numbers.
         """
-        channels = [ch for ch in pixels.keys()]
+        channels = list(pixels.keys())
 
         for ch in channels:
             ch_data = data[ch]
@@ -799,4 +774,3 @@ class mppt:
             tuple_data[ch] = ch_data[0]
 
         return tuple_data
-

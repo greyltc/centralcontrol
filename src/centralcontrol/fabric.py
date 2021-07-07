@@ -321,7 +321,7 @@ class fabric(object):
         else:
             source_mode = "i"
 
-        channels = [ch for ch, _ in pixels.items()]
+        channels = list(pixels.keys())
 
         if (source_mode == "i") and (set_point == 0):
             # measuring at Voc so set smu outputs to high impedance mode
@@ -401,7 +401,7 @@ class fabric(object):
             max_vs = {}
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
-                max_v = smart_compliance(ssvoc[0][0], self.current_limit, area)
+                max_v = self.do_smart_compliance(ssvoc[0][0], self.current_limit, area)
                 max_vs[ch] = max_v
 
             values = {}
@@ -409,13 +409,13 @@ class fabric(object):
                 values[ch] = [v if v < max_v else max_v for v in rvalues]
         else:
             values = {}
-            for ch, _ in pixels.items():
+            for ch in pixels.keys():
                 values[ch] = rvalues
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
         # get and set initial values then enable outputs
-        channels = [ch for ch, _ in pixels.items()]
+        channels = list(pixels.keys())
         init_values = {}
         for ch, vs in values.items():
             init_values[ch] = vs[0]
@@ -428,7 +428,7 @@ class fabric(object):
 
         return data
 
-    def smart_compliance(self, voc, compliance_i, area):
+    def do_smart_compliance(self, voc, compliance_i, area):
         """Calculate compliance voltage given compliance current.
 
         Use the Voc of a solar cell to estimate the maximum voltage that can be safely
