@@ -406,11 +406,17 @@ class fabric(object):
             values = {}
             for ch in pixels.keys():
                 if max_vs != {}:
-                    _end = max_vs[ch]
+                    if end > start:
+                        _end = max_vs[ch]
+                        _start = start
+                    else:
+                        _end = end
+                        _start = max_vs[ch]
                 else:
                     _end = end
+                    _start = start
 
-                step = (_end - start) / (points - 1)
+                step = (_end - _start) / (points - 1)
                 values[ch] = [x * step + start for x in range(points)]
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
