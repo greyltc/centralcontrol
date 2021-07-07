@@ -121,7 +121,10 @@ class wavelabs:
         target.error = -9999
         target.error_message = msg
         break
-    parser.close()
+    try:
+      parser.close()
+    except Exception as e:
+      pass
     if target.error != 0:
       if not (target.error_message == "Recipe still running."):  # ignore still running warnings
         self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
