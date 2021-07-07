@@ -194,12 +194,11 @@ def _build_q(request, experiment):
     for things in stuff.to_dict(orient="records"):
         pixel_dict = {}
         pixel_dict["label"] = things["label"]
+        pixel_dict["device_label"] = things["device_label"]
         pixel_dict["layout"] = things["layout"]
         pixel_dict["sub_name"] = things["system_label"]
-        pixel_dict["user_label"] = things["user_label"]
         pixel_dict["pixel"] = things["mux_index"]
         pixel_dict["sort_string"] = things["sort_string"]
-        pixel_dict["layout_pixel_index"] = things["layout_pixel_index"]
         loc = things["loc"]
         pos = [a + b for a, b in zip(center, loc)]
         pixel_dict["pos"] = pos
@@ -346,7 +345,7 @@ def _ivt(pixels, request, measurement, mqttc):
 
     ld = {}  # to keep track of live devices
     for key,val in pixels.items():
-        ld[val['sort_string'].lower()] = val
+        ld[val['device_label'].lower()] = val
     mqttc.append_payload("plotter/live_devices", pickle.dumps(ld), retain=True)
 
     # loop over repeats
