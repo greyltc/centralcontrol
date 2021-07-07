@@ -398,6 +398,8 @@ class fabric(object):
                 pixels=pixels,
             )
 
+            print(f"Vocs for smart compliance: {ssvocs} V")
+
             max_vs = {}
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
