@@ -4,6 +4,13 @@ from telnetlib import Telnet
 import socket
 import os
 
+import sys
+import logging
+# for logging directly to systemd journal if we can
+try:
+  import systemd.journal
+except ImportError:
+  pass
 
 class pcb(object):
   """
@@ -43,6 +50,24 @@ class pcb(object):
   def __init__(self, address=None, timeout=comms_timeout):
     self.comms_timeout = timeout  # pcb has this many seconds to respond
 
+    # setup logging
+    self.lg = logging.getLogger(__name__)
+    self.lg.setLevel(logging.DEBUG)
+
+    if not self.lg.hasHandlers():
+      # set up logging to systemd's journal if it's there
+      if 'systemd' in sys.modules:
+        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+        sysdl.setFormatter(sysLogFormat)
+        self.lg.addHandler(sysdl)
+      else:
+        # for logging to stdout & stderr
+        ch = logging.StreamHandler()
+        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+        ch.setFormatter(logFormat)
+        self.lg.addHandler(ch)
+
     if address is not None:
       addr_split = address.split(':')
       if len(addr_split) == 1:
@@ -51,6 +76,8 @@ class pcb(object):
         h, p = address.split(':')
         self.telnet_host = h
         self.telnet_port = int(p)
+
+    self.lg.debug(f"{__name__} initialized.")
 
   def __enter__(self):
     self.tn = self.MyTelnet(self.telnet_host, self.telnet_port, timeout=self.comms_timeout)
@@ -68,7 +95,7 @@ class pcb(object):
     self.firmware_version = self.query('v')
     self.probe_muxes()
     self.probe_axes()
-    print(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
+    self.lg.debug(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
     return (self)
 
   # figures out what muxes are connected
@@ -127,9 +154,9 @@ class pcb(object):
     try:
       answer, ack = self._query(query)
     except Exception:
-      raise (ValueError(f"Firmware comms failure while trying to send '{query}'"))
+      self.lg.warning(f"Firmware comms failure while trying to send '{query}'")
     if ack == False:
-      raise (ValueError(f"Firmware did not acknowledge '{query}'"))
+      self.lg.warning(f"Firmware did not acknowledge '{query}'")
     return answer
 
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
