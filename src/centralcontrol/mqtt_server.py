@@ -25,7 +25,7 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
     # get the dir that holds __package__ on the front of the search path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from .fabric import fabric
+from .fabric import fabric, _log
 
 
 def get_args():
@@ -272,30 +272,6 @@ def _clear_plot(kind, mqttqp):
     """
     payload = ""
     mqttqp.append_payload(f"plotter/{kind}/clear", pickle.dumps(payload))
-
-
-def _log(msg, level, mqttqp):
-    """Publish info for logging.
-
-    Parameters
-    ----------
-    msg : str
-        Log message.
-    level : int
-        Log level used by logging module:
-
-            * 50 : CRITICAL
-            * 40 : ERROR
-            * 30 : WARNING
-            * 20 : INFO
-            * 10 : DEBUG
-            * 0 : NOTSET
-
-    mqttqp : MQTTQueuePublisher
-        MQTT queue publisher object that publishes measurement data.
-    """
-    payload = {"level": level, "msg": msg}
-    mqttqp.append_payload("measurement/log", pickle.dumps(payload))
 
 
 def _ivt(pixels, request, measurement, mqttc):

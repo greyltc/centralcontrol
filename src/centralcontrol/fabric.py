@@ -20,7 +20,6 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
 from . import virt
 from .mppt import mppt
 from .illumination import illumination
-from .mqtt_server import _log
 
 from m1kTCPClient import m1kTCPClient
 
@@ -522,6 +521,30 @@ def round_sf(x, sig_fig):
         Rounded number
     """
     return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
+
+
+def _log(msg, level, mqttqp):
+    """Publish info for logging.
+
+    Parameters
+    ----------
+    msg : str
+        Log message.
+    level : int
+        Log level used by logging module:
+
+            * 50 : CRITICAL
+            * 40 : ERROR
+            * 30 : WARNING
+            * 20 : INFO
+            * 10 : DEBUG
+            * 0 : NOTSET
+
+    mqttqp : MQTTQueuePublisher
+        MQTT queue publisher object that publishes measurement data.
+    """
+    payload = {"level": level, "msg": msg}
+    mqttqp.append_payload("measurement/log", pickle.dumps(payload))
 
 
 # for testing
