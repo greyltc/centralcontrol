@@ -402,22 +402,22 @@ class fabric(object):
                 area = pixels[ch]["area"]
                 max_v = self.do_smart_compliance(ssvoc[0][0], self.current_limit, area)
                 max_vs[ch] = max_v
-        else:
-            values = {}
-            for ch in pixels.keys():
-                if max_vs != {}:
-                    if end > start:
-                        _end = max_vs[ch]
-                        _start = start
-                    else:
-                        _end = end
-                        _start = max_vs[ch]
+
+        values = {}
+        for ch in pixels.keys():
+            if max_vs != {}:
+                if end > start:
+                    _end = max_vs[ch]
+                    _start = start
                 else:
                     _end = end
-                    _start = start
+                    _start = max_vs[ch]
+            else:
+                _end = end
+                _start = start
 
-                step = (_end - _start) / (points - 1)
-                values[ch] = [x * step + start for x in range(points)]
+            step = (_end - _start) / (points - 1)
+            values[ch] = [x * step + start for x in range(points)]
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
