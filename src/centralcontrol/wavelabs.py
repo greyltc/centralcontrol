@@ -138,6 +138,7 @@ class wavelabs:
     target = self.XMLHandler()
     parser = ET.XMLParser(target=target)
     fed = bytes([])
+    parser_is_good = True
     while not target.done_parsing:
       try:
         # TODO: consider reading with readline and makefile until '\r\n'
@@ -148,8 +149,10 @@ class wavelabs:
         msg = "Wavelabs comms socket timeout"
         target.error = -9999
         target.error_message = msg
+        parser_is_good = False
         break
-    parser.close()
+    if parser_is_good == True:
+      parser.close()
     if target.error != 0:
       if not (target.error_message == "Recipe still running."):  # ignore still running warnings
         self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
