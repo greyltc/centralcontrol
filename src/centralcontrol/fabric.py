@@ -384,10 +384,8 @@ class fabric(object):
         else:
             source_mode = "i"
 
-        step = (end - start) / (points - 1)
-        rvalues = [x * step + start for x in range(points)]
-
         # measure voc's of devices to estimate compliance voltage
+        max_vs = {}
         if smart_compliance is True:
             ssvocs = self.steady_state(
                 t_dwell=0.1,
@@ -400,19 +398,20 @@ class fabric(object):
 
             print(f"Vocs for smart compliance: {ssvocs} V")
 
-            max_vs = {}
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
                 max_v = self.do_smart_compliance(ssvoc[0][0], self.current_limit, area)
                 max_vs[ch] = max_v
-
-            values = {}
-            for ch, max_v in max_vs.items():
-                values[ch] = [v if v < max_v else max_v for v in rvalues]
         else:
             values = {}
             for ch in pixels.keys():
-                values[ch] = rvalues
+                if max_vs != {}:
+                    _end = max_vs[ch]
+                else:
+                    _end = end
+
+                step = (_end - start) / (points - 1)
+                values[ch] = [x * step + start for x in range(points)]
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
