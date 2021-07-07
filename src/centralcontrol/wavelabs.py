@@ -127,8 +127,8 @@ class wavelabs:
       pass
     if target.error != 0:
       if not (target.error_message == "Recipe still running."):  # ignore still running warnings
-        self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
-        self.lg.warn(f"Raw message: {fed}")
+        print(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
+        print(f"Raw message: {fed}")
     return target
 
   def startServer(self):
