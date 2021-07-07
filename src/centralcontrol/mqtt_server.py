@@ -347,7 +347,7 @@ def _ivt(pixels, request, measurement, mqttc):
     ld = {}  # to keep track of live devices
     for key,val in pixels.items():
         ld[val['sort_string'].lower()] = val
-    mqttc.append_payload("plotter/live_devices", pickle.dumps(ld))
+    mqttc.append_payload("plotter/live_devices", pickle.dumps(ld), retain=True)
 
     # loop over repeats
     loop = 0
@@ -526,7 +526,7 @@ def _ivt(pixels, request, measurement, mqttc):
 
     # update live devices list
     ld = {}
-    mqttc.append_payload("plotter/live_devices", pickle.dumps(ld))
+    mqttc.append_payload("plotter/live_devices", pickle.dumps(ld), retain=True)
 
     # shut off the smu
     measurement.sm.enable_output(False)
@@ -646,6 +646,7 @@ def main():
     # setup mqtt subscriber client
     mqttc = mqtt.Client(client_id=client_id)
     mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
+    mqttc.will_set("plotter/live_devices", pickle.dumps({}), 2, retain=True)
     mqttc.on_message = lambda mqttc, obj, msg: on_message(mqttc, obj, msg, msg_queue)
     mqttc.connect(cli_args.mqtthost)
     mqttc.subscribe("measurement/#", qos=2)
