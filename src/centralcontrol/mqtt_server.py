@@ -344,7 +344,7 @@ def _ivt(pixels, request, measurement, mqttc):
     mqttc.append_payload("daq/start", pickle.dumps(""))
 
     ld = {}  # to keep track of live devices
-    for key,val in pixels:
+    for key,val in pixels.items():
         ld[val['sort_string'].lower()] = val
     mqttc.append_payload("plotter/live_devices", pickle.dumps(ld))
 
