@@ -71,20 +71,11 @@ class mppt:
             Pmaxs[ch] = Pmax
             Impps[ch] = Impp
             maxIndexs[ch] = maxIndex
-            if light is True:  # this was from a light i-v curve
+            if light == True:  # this was from a light i-v curve
                 print(
                     "MPPT IV curve inspector investigating new light curve params: "
                     + f"{(Pmax, Vmpp, Impp, Voc, Isc)}"
                 )
-
-                # if ch in self.Pmax.keys():
-                #     if Pmax > self.Pmax[ch]:
-                #         old_Pmax_exceeded = True
-                #     else:
-                #         old_Pmax_exceeded = False
-                # else:
-                #     old_Pmax_exceeded = False
-
                 new_pmax = False
                 if ch in self.Pmax:
                     if Pmax > self.Pmax[ch]:
