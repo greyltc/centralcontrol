@@ -417,7 +417,7 @@ class fabric(object):
                 _start = start
 
             step = (_end - _start) / (points - 1)
-            values[ch] = [x * step + start for x in range(points)]
+            values[ch] = [x * step + _start for x in range(points)]
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
