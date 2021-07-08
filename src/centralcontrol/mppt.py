@@ -748,7 +748,11 @@ class mppt:
                 # log warnring
                 if warn is True:
                     payload = {"level": 30, "msg": warn_msg}
-                    self.mqttc.append_payload("measurement/log", pickle.dumps(payload))
+                    if self.mqttc is not None:
+                        self.mqttc.append_payload(
+                            "measurement/log", pickle.dumps(payload)
+                        )
+                    print(warn_msg)
             else:
                 pass
 
