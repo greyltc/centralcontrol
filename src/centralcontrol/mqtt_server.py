@@ -479,9 +479,14 @@ def _ivt(pixels, request, measurement, mqttc):
 
             # alert the gui that the list changed
             if pre_mppt_pix != post_mppt_pix:
-                # labels of live devices
-                ld = collections.deque([val["device_label"] for key, val in pixels.items()])
-                mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
+                if post_mppt_pix == 0:
+                    _log(f"No devices left to measure.", 30, mqttc)
+                    mqttc.append_payload("plotter/live_devices", pickle.dumps([]), retain=True)
+                    break
+                else:
+                    # labels of live devices
+                    ld = collections.deque([val["device_label"] for key, val in pixels.items()])
+                    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
 
             if len(vt) > 0:
                 dh.kind = "vtmppt_measurement"
