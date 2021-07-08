@@ -684,8 +684,8 @@ class mppt:
         for ch in channels:
             warn = False
             warn_msg = (
-                f"Short circuit detected! Device {pixels[ch]['device_label']} will no "
-                + "longer be measured."
+                f"Short circuit detected on '{pixels[ch]['device_label']}'! Channel "
+                + "will be disabled for the rest of the run."
             )
             ch_data = data[ch]
             statuses = [row[3] for row in ch_data]
