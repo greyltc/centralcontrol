@@ -88,6 +88,9 @@ def stop_process(cli_args, process):
             retain=True,
             hostname=cli_args.mqtthost,
         )
+        publish.single(
+            "plotter/live_devices", pickle.dumps([]), qos=2, hostname=cli_args.mqtthost
+        )
     else:
         payload = {"level": 30, "msg": "Nothing to stop. Measurement server is idle."}
         publish.single(
