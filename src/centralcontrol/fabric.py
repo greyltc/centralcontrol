@@ -479,22 +479,33 @@ class fabric(object):
         response : int
             Response code. 0 is good, everything else means fail.
         """
-    ret = -1
-    if pcb is not None:
-      resp = pcb.query("s")  # open all relays
-      if resp == "":
-        resp = pcb.query(mux_string)  # select the correct pixel
+    loops_left = 2
+    while (loops_left > 1):
+      ret = -1
+      if pcb is not None:
+        resp = pcb.query("s")  # open all relays
         if resp == "":
-          ret = 0
+          resp = pcb.query(mux_string)  # select the correct pixel
+          if resp == "":
+            ret = 0
+            break
+          else:
+            self.lg.warning(f"PCB response to {mux_string} was '{resp}'")
+            ret = -3
         else:
-          self.lg.warning(f"PCB response to {mux_string} was '{resp}'")
-          ret = -3
+          self.lg.warning(f"PCB response to opening all relays was '{resp}'")
+          ret = -2
       else:
-        self.lg.warning(f"PCB response to opening all relays was '{resp}'")
-        ret = -2
-    else:
-      # assume a call with None pcb is a pass
-      ret = 0
+        # assume a call with None pcb is a pass
+        ret = 0
+        break
+      loops_left -= 1
+    
+    if loops_left == 0:
+      msg = f"Unable to select device with {mux_string}"
+      self.lg.error(msg)
+      raise(ValueError(msg))
+
     return ret
 
   def set_experiment_relay(self, exp_relay, pcb):

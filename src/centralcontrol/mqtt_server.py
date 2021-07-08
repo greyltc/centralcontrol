@@ -333,10 +333,7 @@ class MQTTServer(object):
               # move to pixel
               measurement.goto_pixel(pixel, mo)
 
-              resp = measurement.select_pixel(pixel["mux_string"], gp_pcb)
-              if resp != 0:
-                self.lg.error(f"Mux error: {resp}! Aborting run!")
-                break
+              measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
               timestamp = time.time()
 
@@ -600,10 +597,7 @@ class MQTTServer(object):
           measurement.goto_pixel(pixel, mo)
 
           # select pixel
-          resp = measurement.select_pixel(pixel['mux_string'], gp_pcb)
-          if resp != 0:
-            self.lg.error(f"Mux error: {resp}! Aborting run")
-            break
+          measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
           # init parameters derived from steady state measurements
           ssvoc = None
@@ -900,10 +894,7 @@ class MQTTServer(object):
           # move to pixel
           measurement.goto_pixel(pixel, mo)
 
-          resp = measurement.select_pixel(pixel['mux_string'], gp_pcb)
-          if resp != 0:
-            self.lg.error(f"Mux error: {resp}! Aborting run!")
-            break
+          measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
           self.lg.info(f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm")
 
