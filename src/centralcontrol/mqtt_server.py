@@ -406,7 +406,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 dh.sweep = sweep
                 _clear_plot("iv_measurement", mqttc)
 
-                iv1 = measurement.sweep(
+                iv1, iv1_vocs = measurement.sweep(
                     nplc=args["nplc"],
                     settling_delay=settling_delay,
                     start=args["sweep_start"],
@@ -416,6 +416,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     smart_compliance=config["smu"]["smart_compliance"],
                     pixels=pixels,
                     handler=handler,
+                    vocs=None,
                 )
 
                 (Pmax_sweep1, Vmpp1, Impp1, maxIx1,) = measurement.mppt.register_curve(
@@ -433,7 +434,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 dh.kind = kind
                 dh.sweep = sweep
 
-                iv2 = measurement.sweep(
+                iv2, iv2_vocs = measurement.sweep(
                     nplc=args["nplc"],
                     settling_delay=settling_delay,
                     start=args["sweep_end"],
@@ -443,6 +444,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     smart_compliance=config["smu"]["smart_compliance"],
                     pixels=pixels,
                     handler=handler,
+                    vocs=iv1_vocs,
                 )
 
                 (Pmax_sweep2, Vmpp2, Impp2, maxIx2,) = measurement.mppt.register_curve(
@@ -481,12 +483,18 @@ def _ivt(pixels, request, measurement, mqttc):
             if pre_mppt_pix != post_mppt_pix:
                 if post_mppt_pix == 0:
                     _log(f"No devices left to measure.", 30, mqttc)
-                    mqttc.append_payload("plotter/live_devices", pickle.dumps([]), retain=True)
+                    mqttc.append_payload(
+                        "plotter/live_devices", pickle.dumps([]), retain=True
+                    )
                     break
                 else:
                     # labels of live devices
-                    ld = collections.deque([val["device_label"] for key, val in pixels.items()])
-                    mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
+                    ld = collections.deque(
+                        [val["device_label"] for key, val in pixels.items()]
+                    )
+                    mqttc.append_payload(
+                        "plotter/live_devices", pickle.dumps(list(ld)), retain=True
+                    )
 
             if len(vt) > 0:
                 dh.kind = "vtmppt_measurement"
