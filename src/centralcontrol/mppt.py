@@ -745,14 +745,14 @@ class mppt:
                         # remove shorted data
                         data.pop(ch, None)
 
-                # log warnring
-                if warn is True:
-                    payload = {"level": 30, "msg": warn_msg}
-                    if self.mqttc is not None:
-                        self.mqttc.append_payload(
-                            "measurement/log", pickle.dumps(payload)
-                        )
-                    print(warn_msg)
+            # log warnring
+            if warn is True:
+                payload = {"level": 30, "msg": warn_msg}
+                if self.mqttc is not None:
+                    self.mqttc.append_payload(
+                        "measurement/log", pickle.dumps(payload)
+                    )
+                print(warn_msg)
             else:
                 pass
 
