@@ -684,7 +684,7 @@ class mppt:
         for ch in channels:
             warn = False
             warn_msg = (
-                f"Short circuit detected! Device {pixels['device_label']} will no "
+                f"Short circuit detected! Device {pixels[ch]['device_label']} will no "
                 + "longer be measured."
             )
             ch_data = data[ch]
