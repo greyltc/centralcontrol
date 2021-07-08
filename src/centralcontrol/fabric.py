@@ -398,10 +398,11 @@ class fabric(object):
                     set_point=0,
                     pixels=pixels,
                 )
+                _log(
+                    "Smart compliance enabled! Truncating sweep range!", 20, self._mqttc
+                )
             else:
                 ssvocs = vocs
-
-            _log("Smart compliance enabled! Truncating sweep range!", 20, self._mqttc)
 
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
