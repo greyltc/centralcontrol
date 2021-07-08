@@ -91,7 +91,7 @@ class mppt:
                 else:
                     because = "there was no previous one."
                     new_pmax = True
-                
+
                 if new_pmax == True:
                     print(
                         f"New refrence IV curve found for MPPT algo because {because}"
@@ -302,7 +302,7 @@ class mppt:
 
             # run steady state measurement
             t0 = time.time()
-            while time.time() - t0 < this_soak_t:
+            while (time.time() - t0 < this_soak_t) and (len(pixels) > 0):
                 time.sleep(delay_ms / 1000)
                 data = self.sm.measure(list(pixels.keys()), measurement="dc")
                 self.detect_short_circuits(data, pixels)
@@ -383,7 +383,7 @@ class mppt:
 
         # the mppt loop
         i = 0
-        while not self.abort and (run_time < duration):
+        while (not self.abort) and (run_time < duration) and (len(pixels) > 0):
             i += 1
             some_sign = random.choice([-1, 1])
 
@@ -449,7 +449,7 @@ class mppt:
 
             # run steady state measurement
             t0 = time.time()
-            while time.time() - t0 < this_soak_t:
+            while (time.time() - t0 < this_soak_t) and (len(pixels) > 0):
                 data = self.sm.measure(list(pixels.keys()), "dc")
                 self.detect_short_circuits(data, pixels)
                 tuple_data = self.tuplify_data(data)
