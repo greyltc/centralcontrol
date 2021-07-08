@@ -91,7 +91,7 @@ class mppt:
                 else:
                     because = "there was no previous one."
                     new_pmax = True
-                
+
                 if new_pmax == True:
                     print(
                         f"New refrence IV curve found for MPPT algo because {because}"
@@ -302,7 +302,7 @@ class mppt:
 
             # run steady state measurement
             t0 = time.time()
-            while time.time() - t0 < this_soak_t:
+            while (time.time() - t0 < this_soak_t) and (len(pixels) > 0):
                 time.sleep(delay_ms / 1000)
                 data = self.sm.measure(list(pixels.keys()), measurement="dc")
                 self.detect_short_circuits(data, pixels)
@@ -383,7 +383,7 @@ class mppt:
 
         # the mppt loop
         i = 0
-        while not self.abort and (run_time < duration):
+        while (not self.abort) and (run_time < duration) and (len(pixels) > 0):
             i += 1
             some_sign = random.choice([-1, 1])
 
@@ -449,7 +449,7 @@ class mppt:
 
             # run steady state measurement
             t0 = time.time()
-            while time.time() - t0 < this_soak_t:
+            while (time.time() - t0 < this_soak_t) and (len(pixels) > 0):
                 data = self.sm.measure(list(pixels.keys()), "dc")
                 self.detect_short_circuits(data, pixels)
                 tuple_data = self.tuplify_data(data)
@@ -684,8 +684,8 @@ class mppt:
         for ch in channels:
             warn = False
             warn_msg = (
-                f"Short circuit detected on channel {ch}! The device connected to "
-                + "this channel will no longer be measured."
+                f"Short circuit detected on '{pixels[ch]['device_label']}'! Channel "
+                + "will be disabled for the rest of the run."
             )
             ch_data = data[ch]
             statuses = [row[3] for row in ch_data]
@@ -745,10 +745,12 @@ class mppt:
                         # remove shorted data
                         data.pop(ch, None)
 
-                # log warnring
-                if warn is True:
-                    payload = {"level": 30, "msg": warn_msg}
+            # log warnring
+            if warn is True:
+                payload = {"level": 30, "msg": warn_msg}
+                if self.mqttc is not None:
                     self.mqttc.append_payload("measurement/log", pickle.dumps(payload))
+                print(warn_msg)
             else:
                 pass
 
