@@ -463,6 +463,7 @@ def _ivt(pixels, request, measurement, mqttc):
                 # tell the mppt what our measured steady state Voc was
                 measurement.mppt.Voc = ssvocs
 
+            pre_mppt_pix = len(pixels)
             (mt, vt) = measurement.track_max_power(
                 args["mppt_dwell"],
                 NPLC=args["nplc"],
@@ -472,6 +473,13 @@ def _ivt(pixels, request, measurement, mqttc):
                 pixels=pixels,
                 handler=handler,
             )
+            post_mppt_pix = len(pixels)
+
+            # alert the gui that the list changed
+            if pre_mppt_pix != post_mppt_pix:
+                # labels of live devices
+                ld = collections.deque([val["device_label"] for key, val in pixels.items()])
+                mqttc.append_payload("plotter/live_devices", pickle.dumps(list(ld)), retain=True)
 
             if len(vt) > 0:
                 dh.kind = "vtmppt_measurement"
