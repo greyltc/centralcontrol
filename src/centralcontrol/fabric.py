@@ -367,6 +367,7 @@ class fabric(object):
         smart_compliance=True,
         pixels={},
         handler=lambda x: None,
+        vocs=None,
     ):
         """Perform I-V measurement sweep.
 
@@ -386,17 +387,22 @@ class fabric(object):
 
         # measure voc's of devices to estimate compliance voltage
         max_vs = {}
+        ssvocs = None
         if smart_compliance is True:
-            ssvocs = self.steady_state(
-                t_dwell=0.1,
-                nplc=-1,
-                settling_delay=-1,
-                source_voltage=False,
-                set_point=0,
-                pixels=pixels,
-            )
-
-            _log("Smart compliance enabled! Truncating sweep range!", 20, self._mqttc)
+            if vocs is None:
+                ssvocs = self.steady_state(
+                    t_dwell=0.1,
+                    nplc=-1,
+                    settling_delay=-1,
+                    source_voltage=False,
+                    set_point=0,
+                    pixels=pixels,
+                )
+                _log(
+                    "Smart compliance enabled! Truncating sweep range!", 20, self._mqttc
+                )
+            else:
+                ssvocs = vocs
 
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
@@ -433,7 +439,7 @@ class fabric(object):
         data = self.sm.measure(channels, measurement="sweep")
         handler(data)
 
-        return data
+        return data, ssvocs
 
     def do_smart_compliance(self, voc, compliance_i, area):
         """Calculate compliance voltage given compliance current.
