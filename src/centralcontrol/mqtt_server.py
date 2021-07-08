@@ -296,6 +296,9 @@ def _ivt(pixels, request, measurement, mqttc):
     else:
         light_address = None
 
+    # register mqttc client, must happen before connecting instruments
+    measurement._mqttc = mqttc
+
     # connect instruments
     measurement.connect_instruments(
         smu_address=config["smu"]["address"],
@@ -308,7 +311,6 @@ def _ivt(pixels, request, measurement, mqttc):
         light_virt=config["solarsim"]["virtual"],
         light_recipe=args["light_recipe"],
     )
-    measurement._mqttc = mqttc
 
     if hasattr(measurement, "le"):
         measurement.le.set_intensity(int(args["light_recipe_int"]))
@@ -630,10 +632,7 @@ def main():
     mqttc.loop_start()
 
     mqttc.publish(
-        "measurement/status",
-        pickle.dumps("Ready"),
-        qos=2,
-        retain=True,
+        "measurement/status", pickle.dumps("Ready"), qos=2, retain=True,
     ).wait_for_publish()
 
     print(f"{client_id} connected!")

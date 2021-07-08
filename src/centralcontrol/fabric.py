@@ -123,7 +123,7 @@ class fabric(object):
         self.sm.invert_channels(smu_invert_channels)
 
         # instantiate max-power tracker object based on smu
-        self.mppt = mppt(self.sm, self.current_limit)
+        self.mppt = mppt(self.sm, self.current_limit, self._mqttc)
 
         self._connected_instruments.append(self.sm)
 

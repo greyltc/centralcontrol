@@ -1,10 +1,13 @@
 """MPPT."""
 
 import numpy
+import pickle
 import time
 import random
 import warnings
 from collections import deque
+
+from centralcontrol import mqtt_server
 
 
 class mppt:
@@ -24,10 +27,11 @@ class mppt:
     currentCompliance = None
     t0 = None  # the time we started the mppt algorithm
 
-    def __init__(self, sm, absolute_current_limit):
+    def __init__(self, sm, absolute_current_limit, mqttc=None):
         """Construct object."""
         self.sm = sm
         self.absolute_current_limit = abs(absolute_current_limit)
+        self.mqttc = mqttc
 
     def reset(self):
         """Reset params."""
@@ -681,6 +685,11 @@ class mppt:
         channels = list(pixels.keys())
 
         for ch in channels:
+            warn = False
+            warn_msg = (
+                f"Short circuit detected on channel {ch}! The device connected to "
+                + "this channel will no longer be measured."
+            )
             ch_data = data[ch]
             statuses = [row[3] for row in ch_data]
             if 1 in statuses:
@@ -688,10 +697,8 @@ class mppt:
                 # measuring it
                 self.sm.enable_output(False, ch)
                 pixels.pop(ch, None)
-                warnings.warn(
-                    f"Short circuit detected on channel {ch}! The device connected to "
-                    + "this channel will no longer be measured."
-                )
+                warn = True
+                warnings.warn(warn_msg)
 
                 # remove shorted data
                 data.pop(ch, None)
@@ -718,10 +725,8 @@ class mppt:
                         # disable and remove other_ch
                         self.sm.enable_output(False, other_ch)
                         pixels.pop(other_ch, None)
-                        warnings.warn(
-                            f"Short circuit detected on channel {other_ch}! The device"
-                            + " connected to this channel will no longer be measured."
-                        )
+                        warn = True
+                        warnings.warn(warn_msg)
                         # remove shorted data
                         data.pop(other_ch, None)
 
@@ -731,25 +736,22 @@ class mppt:
                             # it is shorted so disable and remove it
                             self.sm.enable_output(False, ch)
                             pixels.pop(ch, None)
-                            warnings.warn(
-                                f"Short circuit detected on channel {ch}! The device"
-                                + " connected to this channel will no longer be "
-                                + "measured."
-                            )
-
+                            warn = True
+                            warnings.warn(warn_msg)
                             # remove shorted data
                             data.pop(ch, None)
                     else:
                         # ch is shorted so remove it
                         pixels.pop(ch, None)
-                        warnings.warn(
-                            f"Short circuit detected on channel {ch}! The device"
-                            + " connected to this channel will no longer be "
-                            + "measured."
-                        )
-
+                        warn = True
+                        warnings.warn(warn_msg)
                         # remove shorted data
                         data.pop(ch, None)
+
+                # log warnring
+                if warn is True:
+                    payload = {"level": 30, "msg": warn_msg}
+                    self.mqttc.append_payload("measurement/log", pickle.dumps(payload))
             else:
                 pass
 
