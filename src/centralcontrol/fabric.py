@@ -466,7 +466,7 @@ class fabric(object):
         mo.goto(there)
     return 0
 
-  def select_pixel(self, mux_string, pcb):
+  def select_pixel(self, mux_string=None, pcb=None):
     """Select pixel on the mux.
 
         Parameters
@@ -479,14 +479,21 @@ class fabric(object):
         response : int
             Response code. 0 is good, everything else means fail.
         """
-    ret = None
-    if mux_string is not None:
+    ret = -1
+    if pcb is not None:
       resp = pcb.query("s")  # open all relays
       if resp == "":
         resp = pcb.query(mux_string)  # select the correct pixel
+        if resp == "":
+          ret = 0
+        else:
+          self.lg.warning(f"PCB response to {mux_string} was '{resp}'")
+          ret = -3
+      else:
+        self.lg.warning(f"PCB response to opening all relays was '{resp}'")
+        ret = -2
     else:
-      resp = pcb.query("s")  # open all mux relays
-    if resp == "":
+      # assume a call with None pcb is a pass
       ret = 0
     return ret
 
