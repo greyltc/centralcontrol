@@ -684,8 +684,8 @@ class mppt:
         for ch in channels:
             warn = False
             warn_msg = (
-                f"Short circuit detected on channel {ch}! The device connected to "
-                + "this channel will no longer be measured."
+                f"Short circuit detected! Device {pixels['device_label']} will no "
+                + "longer be measured."
             )
             ch_data = data[ch]
             statuses = [row[3] for row in ch_data]
@@ -749,9 +749,7 @@ class mppt:
             if warn is True:
                 payload = {"level": 30, "msg": warn_msg}
                 if self.mqttc is not None:
-                    self.mqttc.append_payload(
-                        "measurement/log", pickle.dumps(payload)
-                    )
+                    self.mqttc.append_payload("measurement/log", pickle.dumps(payload))
                 print(warn_msg)
             else:
                 pass
