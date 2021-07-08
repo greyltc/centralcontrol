@@ -316,7 +316,7 @@ class mppt:
         # the objective function we'll be trying to find the minimum of here is power
         # produced by the sourcemeter
         def objective(var):
-            return var[0] * var[1]
+            return var[0] * var[1] * -1
 
         def sign(num):
             """Get the sign of a number."""
