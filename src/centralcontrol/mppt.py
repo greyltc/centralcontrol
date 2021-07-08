@@ -245,10 +245,10 @@ class mppt:
         start_voltage,
         callback=lambda x: None,
         alpha=0.8,
-        min_step=0.001,
+        min_step=0.003,
         NPLC=-1,
         snaith_mode=False,
-        delay_ms=500,
+        delay_ms=0,
         max_step=0.1,
         momentum=0.1,
         delta_zero=0.01,
@@ -316,7 +316,7 @@ class mppt:
         # the objective function we'll be trying to find the minimum of here is power
         # produced by the sourcemeter
         def objective(var):
-            return var[0] * var[1] * -1
+            return var[0] * var[1]
 
         def sign(num):
             """Get the sign of a number."""
