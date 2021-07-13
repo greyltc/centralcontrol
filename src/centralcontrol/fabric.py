@@ -151,6 +151,7 @@ class fabric(object):
 
     if len(self.sms) == 1:
       self.sm_idn = sm.idn
+      self.sm = sm
 
       # instantiate max-power tracker object based on smu
       self.mppt = mppt(sm, self.current_limit)  # TODO: this needs to turn into a list of mppts
