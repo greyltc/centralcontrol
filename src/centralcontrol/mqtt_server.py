@@ -1053,9 +1053,6 @@ class MQTTServer(object):
     # start the out relay thread
     threading.Thread(target=self.out_relay, daemon=True).start()
 
-    # publish that we're ready
-    self.mqttc.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True).wait_for_publish()
-
     self.lg.debug(f"{self.client_id} connected!")
 
     # start the message handler
