@@ -1012,6 +1012,7 @@ class MQTTServer(object):
   # when client connects to broker
   def on_connect(self, client, userdata, flags, rc):
     self.lg.debug(f"mqtt_server connected to broker with result code {rc}")
+    client.subscribe("measurement/#", qos=2)
     client.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
 
   # when client disconnects from broker
@@ -1059,7 +1060,6 @@ class MQTTServer(object):
   def mqtt_connector(self, mqttc):
     while True:
       mqttc.connect(self.cli_args.mqtthost)
-      mqttc.subscribe("measurement/#", qos=2)
       mqttc.loop_forever(retry_first_connection=True)
 
   def run(self):
