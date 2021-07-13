@@ -86,9 +86,6 @@ class UtilityHandler(object):
   def on_connect(self, client, userdata, flags, rc):
     self.lg.debug(f"Connected with result code {rc}")
 
-    # publish that we're ready
-    client.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
-
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
     client.subscribe("cmd/#", qos=2)

@@ -117,6 +117,7 @@ class MQTTServer(object):
     self.mqttc = mqtt.Client(client_id=self.client_id)
     self.mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
     self.mqttc.on_message = self.on_message
+    self.mqttc.on_connect = self.on_connect
 
     self.lg.debug(f"{__name__} initialized.")
 
@@ -1006,6 +1007,11 @@ class MQTTServer(object):
   # The callback for when a PUBLISH message is received from the server.
   def on_message(self, client, userdata, msg):
     self.msg_queue.put_nowait(msg)  # pass this off for msg_handler to deal with
+
+  # when client connects to broker
+  def on_connect(self, client, userdata, flags, rc):
+    self.lg.debug(f"Connected with result code {rc}")
+    client.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
 
   def msg_handler(self):
     """Handle MQTT messages in the msg queue.
