@@ -242,7 +242,7 @@ class UtilityHandler(object):
                 smu = virt.k2400
               else:
                 smu = sm
-              k = smu(addressString=task['smu_address'], terminator=task['smu_le'], serialBaud=task['smu_baud'], front=False)
+              k = smu(addressString=task['smu'][0]["adress"], terminator=task['smu'][0]["terminator"], serialBaud=task['smu_baud'][0]["baud"], front=task['smu'][0]["front_terminals"])
 
               # set up sourcemeter for the task
               if task['type'] == 'current':
@@ -324,38 +324,39 @@ class UtilityHandler(object):
               self.lg.warn(emsg)
               logging.exception(emsg)
 
-        if 'smu_address' in task:
-          self.lg.info(f"Checking sourcemeter@{task['smu_address']}...")
-          if task['smu_virt'] == True:
-            self.lg.info(f'Sourcemeter looks virtually great!')
-          else:
-            # for sourcemeter
-            open_params = {}
-            open_params['resource_name'] = task['smu_address']
-            open_params['timeout'] = 300  # ms
-            if 'ASRL' in open_params['resource_name']:  # data bits = 8, parity = none
-              open_params['read_termination'] = task['smu_le']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
-              open_params['write_termination'] = "\r"  # this is not configuable via the instrument front panel (or in any way I guess)
-              open_params['baud_rate'] = task['smu_baud']  # this is set by the user by interacting with the buttons on the instrument front panel
-              open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS  # user must choose NONE for flow control on the front panel
-            elif 'GPIB' in open_params['resource_name']:
-              open_params['write_termination'] = "\n"
-              open_params['read_termination'] = "\n"
-              # GPIB takes care of EOI, so there is no read_termination
-              open_params['io_protocol'] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
-            elif ('TCPIP' in open_params['resource_name']) and ('SOCKET' in open_params['resource_name']):
-              # GPIB <--> Ethernet adapter
-              pass
+        if 'smu' in task:
+          for smup in task['smu']:  # loop through the list of SMUs
+            self.lg.info(f"Checking sourcemeter@{smup['address']}...")
+            if smu['virtual'] == True:
+              self.lg.info(f'Sourcemeter looks virtually great!')
+            else:
+              # for sourcemeter
+              open_params = {}
+              open_params['resource_name'] = smup['address']
+              open_params['timeout'] = 300  # ms
+              if 'ASRL' in open_params['resource_name']:  # data bits = 8, parity = none
+                open_params['read_termination'] = smup['terminator']  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
+                open_params['write_termination'] = "\r"  # this is not configuable via the instrument front panel (or in any way I guess)
+                open_params['baud_rate'] = smup['baud']  # this is set by the user by interacting with the buttons on the instrument front panel
+                open_params['flow_control'] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS  # user must choose NONE for flow control on the front panel
+              elif 'GPIB' in open_params['resource_name']:
+                open_params['write_termination'] = "\n"
+                open_params['read_termination'] = "\n"
+                # GPIB takes care of EOI, so there is no read_termination
+                open_params['io_protocol'] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
+              elif ('TCPIP' in open_params['resource_name']) and ('SOCKET' in open_params['resource_name']):
+                # GPIB <--> Ethernet adapter
+                pass
 
-            try:
-              with rm.open_resource(**open_params) as smu:
-                self.lg.info('Sourcemeter connection initiated')
-                idn = smu.query("*IDN?")
-                self.lg.info(f'Sourcemeter identification string: {idn}')
-            except Exception as e:
-              emsg = f'Could not talk to sourcemeter'
-              self.lg.warn(emsg)
-              logging.exception(emsg)
+              try:
+                with rm.open_resource(**open_params) as smu:
+                  self.lg.info('Sourcemeter connection initiated')
+                  idn = smu.query("*IDN?")
+                  self.lg.info(f'Sourcemeter identification string: {idn}')
+              except Exception as e:
+                emsg = f'Could not talk to sourcemeter'
+                self.lg.warn(emsg)
+                logging.exception(emsg)
 
         if 'lia_address' in task:
           self.lg.info(f"Checking lock-in@{task['lia_address']}...")
