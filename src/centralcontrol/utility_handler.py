@@ -84,7 +84,7 @@ class UtilityHandler(object):
 
   # The callback for when the client receives a CONNACK response from the server.
   def on_connect(self, client, userdata, flags, rc):
-    self.lg.debug(f"Connected with result code {rc}")
+    self.lg.debug(f"Utility handler connected to broker with result code {rc}")
 
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.

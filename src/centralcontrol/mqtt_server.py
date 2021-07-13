@@ -1011,7 +1011,7 @@ class MQTTServer(object):
 
   # when client connects to broker
   def on_connect(self, client, userdata, flags, rc):
-    self.lg.debug(f"Connected to broker with result code {rc}")
+    self.lg.debug(f"mqtt_server connected to broker with result code {rc}")
     client.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
 
   # when client disconnects from broker
@@ -1064,7 +1064,7 @@ class MQTTServer(object):
 
   def run(self):
     # start the mqtt connector thread
-    threading.Thread(target=self.mqtt_connector, args=(self.mqttc), daemon=True).start()
+    threading.Thread(target=self.mqtt_connector, args=(self.mqttc,), daemon=True).start()
 
     # start the out relay thread
     threading.Thread(target=self.out_relay, daemon=True).start()
