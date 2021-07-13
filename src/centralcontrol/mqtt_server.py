@@ -118,6 +118,7 @@ class MQTTServer(object):
     self.mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
     self.mqttc.on_message = self.on_message
     self.mqttc.on_connect = self.on_connect
+    self.mqttc.on_disconnect = self.on_disconnect
 
     self.lg.debug(f"{__name__} initialized.")
 
@@ -1010,8 +1011,12 @@ class MQTTServer(object):
 
   # when client connects to broker
   def on_connect(self, client, userdata, flags, rc):
-    self.lg.debug(f"Connected with result code {rc}")
+    self.lg.debug(f"Connected to broker with result code {rc}")
     client.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
+
+  # when client disconnects from broker
+  def on_disconnect(self, client, userdata, rc):
+    self.lg.debug(f"Disconnected from broker with result code {rc}")
 
   def msg_handler(self):
     """Handle MQTT messages in the msg queue.
@@ -1063,8 +1068,6 @@ class MQTTServer(object):
 
     # start the out relay thread
     threading.Thread(target=self.out_relay, daemon=True).start()
-
-    self.lg.debug(f"{self.client_id} connected!")
 
     # start the message handler
     self.msg_handler()
