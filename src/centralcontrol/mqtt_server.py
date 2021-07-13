@@ -1050,11 +1050,16 @@ class MQTTServer(object):
       to_send = self.outq.get()
       self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
 
+  # starts and maintains mqtt broker connection
+  def mqtt_connector(self, mqttc):
+    while True:
+      mqttc.connect(self.cli_args.mqtthost)
+      mqttc.subscribe("measurement/#", qos=2)
+      mqttc.loop_forever(retry_first_connection=True)
+
   def run(self):
-    # connect to the mqtt server
-    self.mqttc.connect(self.cli_args.mqtthost)
-    self.mqttc.subscribe("measurement/#", qos=2)
-    self.mqttc.loop_start()
+    # start the mqtt connector thread
+    threading.Thread(target=self.mqtt_connector, args=(self.mqttc), daemon=True).start()
 
     # start the out relay thread
     threading.Thread(target=self.out_relay, daemon=True).start()
