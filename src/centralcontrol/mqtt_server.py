@@ -173,7 +173,7 @@ class MQTTServer(object):
 
     try:
       with fabric() as measurement:
-        measurement.current_limit = request["config"]["smu"]["current_limit"]
+        measurement.current_limit = request["config"]["smu"][0]["current_limit"]
         # create temporary mqtt client
         self.lg.info("Calibrating EQE...")
         args = request["args"]
@@ -221,7 +221,7 @@ class MQTTServer(object):
 
     try:
       with fabric() as measurement:
-        measurement.current_limit = request["config"]["smu"]["current_limit"]
+        measurement.current_limit = request["config"]["smu"][0]["current_limit"]
 
         self.lg.info("Calibration LED PSU...")
 
@@ -252,12 +252,7 @@ class MQTTServer(object):
         # connect instruments
         measurement.connect_instruments(
             visa_lib=config["visa"]["visa_lib"],
-            smu_address=config["smu"]["address"],
-            smu_virt=config["smu"]["virtual"],
-            smu_terminator=config["smu"]["terminator"],
-            smu_baud=config["smu"]["baud"],
-            smu_front_terminals=config["smu"]["front_terminals"],
-            smu_two_wire=config["smu"]["two_wire"],
+            smus=config["smu"],
             pcb_address=gp_pcb_address,
             pcb_virt=gp_pcb_is_fake,
             motion_address=motion_address,
@@ -378,14 +373,14 @@ class MQTTServer(object):
     user_aborted = False
     try:
       with fabric() as measurement:
-        measurement.current_limit = request["config"]["smu"]["current_limit"]
+        measurement.current_limit = request["config"]["smu"][0]["current_limit"]
 
         self.lg.info("Calibrating solar simulator spectrum...")
 
         config = request["config"]
         args = request["args"]
 
-        measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], light_address=config["solarsim"]["address"], light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"])
+        measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], light_address=config["solarsim"]["address"], light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"],)
         if hasattr(measurement, 'le'):
           measurement.le.set_intensity(int(args["light_recipe_int"]))
 
@@ -518,7 +513,7 @@ class MQTTServer(object):
     motion_pcb_is_fake = config["stage"]["virtual"]
 
     # connect instruments
-    measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smu_address=config["smu"]["address"], smu_virt=config["smu"]["virtual"], smu_terminator=config["smu"]["terminator"], smu_baud=config["smu"]["baud"], smu_front_terminals=config["smu"]["front_terminals"], smu_two_wire=config["smu"]["two_wire"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, light_address=light_address, light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"])
+    measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smus=config["smu"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, light_address=light_address, light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"],)
     if hasattr(measurement, 'le'):
       measurement.le.set_intensity(int(args["light_recipe_int"]))
 
@@ -830,7 +825,7 @@ class MQTTServer(object):
     motion_pcb_is_fake = config["stage"]["virtual"]
 
     # connect instruments
-    measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smu_address=config["smu"]["address"], smu_virt=config["smu"]["virtual"], smu_terminator=config["smu"]["terminator"], smu_baud=config["smu"]["baud"], smu_front_terminals=config["smu"]["front_terminals"], smu_two_wire=config["smu"]["two_wire"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, lia_address=config["lia"]["address"], lia_virt=config["lia"]["virtual"], lia_terminator=config["lia"]["terminator"], lia_baud=config["lia"]["baud"], lia_output_interface=config["lia"]["output_interface"], mono_address=config["monochromator"]["address"], mono_virt=config["monochromator"]["virtual"], mono_terminator=config["monochromator"]["terminator"], mono_baud=config["monochromator"]["baud"], psu_address=config["psu"]["address"], psu_virt=config["psu"]["virtual"])
+    measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smus=config["smu"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, lia_address=config["lia"]["address"], lia_virt=config["lia"]["virtual"], lia_terminator=config["lia"]["terminator"], lia_baud=config["lia"]["baud"], lia_output_interface=config["lia"]["output_interface"], mono_address=config["monochromator"]["address"], mono_virt=config["monochromator"]["virtual"], mono_terminator=config["monochromator"]["terminator"], mono_baud=config["monochromator"]["baud"], psu_address=config["psu"]["address"], psu_virt=config["psu"]["virtual"],)
 
     fake_pcb = measurement.fake_pcb
     inner_pcb = measurement.fake_pcb
@@ -981,7 +976,7 @@ class MQTTServer(object):
       try:
         with fabric() as measurement:
           self.lg.info("Starting run...")
-          measurement.current_limit = request["config"]["smu"]["current_limit"]
+          measurement.current_limit = request["config"]["smu"][0]["current_limit"]
 
           if 'IV_stuff' in args:
             q = self._build_q(request, experiment="solarsim")

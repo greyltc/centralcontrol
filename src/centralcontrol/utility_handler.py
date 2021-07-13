@@ -238,7 +238,7 @@ class UtilityHandler(object):
             with pcb_class(task['pcb'], timeout=1) as p:
               p.query('iv')  # make sure the circuit is in I-V mode (not eqe)
               p.query('s')  # make sure we're starting with nothing selected
-              if task['smu_virt'] == True:
+              if task['smu'][0]["virtual"] == True:
                 smu = virt.k2400
               else:
                 smu = sm

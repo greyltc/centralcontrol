@@ -56,6 +56,9 @@ class fabric(object):
   # a real pcb object
   real_pcb = pcb
 
+  # thing that can hold a list of smus
+  sms = []
+
   def __init__(self):
     """Get software revision."""
     # self.software_revision = __version__
@@ -139,20 +142,18 @@ class fabric(object):
         """
     t0 = time.time()
     if is_virt == True:
-      self.sm = virt.k2400()
+      sm = virt.k2400()
     else:
-      self.sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud)
-    self.sm_idn = self.sm.idn
-    self.lg.debug(f"SMU connect time = {time.time() - t0} s")
+      sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud, front=smu_front_terminals, twoWire=smu_two_wire)
+    self._connected_instruments.append(sm)
+    self.sms.append(sm)
+    self.lg.debug(f"SMU{len(self.sms)} connect time = {time.time() - t0} s")
 
-    # set up smu terminals
-    self.sm.setTerminals(front=smu_front_terminals)
-    self.sm.setWires(twoWire=smu_two_wire)
+    if len(self.sms) == 1:
+      self.sm_idn = sm.idn
 
-    # instantiate max-power tracker object based on smu
-    self.mppt = mppt(self.sm, self.current_limit)
-
-    self._connected_instruments.append(self.sm)
+      # instantiate max-power tracker object based on smu
+      self.mppt = mppt(sm, self.current_limit)  # TODO: this needs to turn into a list of mppts
 
   def _connect_lia(self, is_virt=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
     """Create lock-in amplifier connection.
@@ -317,7 +318,7 @@ class fabric(object):
     else:
       self.motion_pcb = pcb
 
-  def connect_instruments(self, visa_lib="@py", smu_address=None, smu_virt=False, smu_terminator="\n", smu_baud=57600, smu_front_terminals=False, smu_two_wire=False, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
+  def connect_instruments(self, visa_lib="@py", smus=None, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
     """Connect to instruments.
 
         If any instrument addresses are `None`, virtual (fake) instruments are
@@ -330,18 +331,7 @@ class fabric(object):
             control logic.
         visa_lib : str
             PyVISA backend.
-        smu_address : str
-            VISA resource name for the source-measure unit. If `None` is given a
-            virtual instrument is created.
-        smu_terminator : str
-            Termination character for communication with the source-measure unit.
-        smu_baud : int
-            Baud rate for serial communication with the source-measure unit.
-        smu_front_terminals : bool
-            Flag whether to use the front terminals of the source-measure unit.
-        smu_two_wire : bool
-            Flag whether to measure in two-wire mode. If `False` measure in four-wire
-            mode.
+        smus : list of SMU config dicts
         pcb_address : str
             VISA resource name for the multiplexor and stage pcb. If `None` is
             given a virtual instrument is created.
@@ -360,7 +350,7 @@ class fabric(object):
         lia_output_interface : int
             Communication interface on the lock-in amplifier rear panel used to read
             instrument responses. This does not need to match the VISA resource
-            interface type if, for example, an interface adapter is used between the
+            interface type if, for example, an interface adapter is used between tsmushe
             control computer and the instrument. Valid output communication interfaces:
                 * 0 : RS232
                 * 1 : GPIB
@@ -376,14 +366,15 @@ class fabric(object):
             virtual instrument is created.
         psu_terminator : str
             Termination character for communication with the power supply unit.
-        psu_baud : int
+        psu_baud : intsmus
             Baud rate for serial communication with the power supply unit.
         psu_ocps : list
             List overcurrent protection values in ascending channel order, one value
             per channel.
         """
-    if smu_address is not None:
-      self._connect_smu(is_virt=smu_virt, visa_lib=visa_lib, smu_address=smu_address, smu_terminator=smu_terminator, smu_baud=smu_baud, smu_front_terminals=smu_front_terminals, smu_two_wire=smu_two_wire)
+    if smus is not None:
+      for smu in smus:
+        self._connect_smu(is_virt=smu["virtual"], visa_lib=visa_lib, smu_address=smu["address"], smu_terminator=smu["terminator"], smu_baud=smu["baud"], smu_front_terminals=smu["front_terminals"], smu_two_wire=smu["two_wire"])
 
     if lia_address is not None:
       self._connect_lia(is_virt=lia_virt, visa_lib=visa_lib, lia_address=lia_address, lia_terminator=lia_terminator, lia_baud=lia_baud, lia_output_interface=lia_output_interface)
