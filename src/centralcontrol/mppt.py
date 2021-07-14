@@ -2,6 +2,7 @@ import numpy
 import time
 import random
 from collections import deque
+import threading
 
 import sys
 import logging
@@ -22,15 +23,15 @@ class mppt:
   Vmpp = None  # voltage at max power point
   Impp = None  # current at max power point
   Pmax = None  # power at max power point (for keeping track of voc and isc)
-  abort = False
 
   # under no circumstances should we violate this
   absolute_current_limit = 0.1  # always safe default
 
   t0 = None  # the time we started the mppt algorithm
 
-  def __init__(self, sm, absolute_current_limit):
+  def __init__(self, sm, absolute_current_limit, killer=threading.Event()):
     self.sm = sm
+    self.killer = killer
     # setup logging
     self.lg = logging.getLogger(__name__)
     self.lg.setLevel(logging.DEBUG)
@@ -59,7 +60,6 @@ class mppt:
     self.Vmpp = None  # voltage at max power point
     self.Impp = None  # current at max power point
     self.Pmax = None  # power at max power point
-    self.abort = False
 
     self.t0 = None  # the time we started the mppt algorithm
 
@@ -125,6 +125,10 @@ class mppt:
       print(f"mppt algo had to find V_oc = {self.Voc} [V] because nobody gave us any voltage info...")
     else:
       ssvocs = []
+    
+    if self.killer.is_set():
+      self.lg.debug("Killed by killer.")
+      return (m, ssvocs)
 
     if self.Vmpp is None:
       self.Vmpp = 0.7 * self.Voc  # start at 70% of Voc if nobody told us otherwise
@@ -180,16 +184,14 @@ class mppt:
 
   def spo(self, duration, start_voltage, callback=lambda x: None):
     self.lg.warn("spo:// does not find or track maximum power point")
-    self.q = deque()
+    q = deque()
     data = self.sm.measureUntil(t_dwell=duration, cb=callback)
-    self.q.extend(data)
+    q.extend(data)
 
     # take whatever the most recent readings were to be the mppt
     self.Vmpp = data[0][0]
     self.Impp = data[0][1]
 
-    q = self.q
-    del (self.q)
     return q
 
   def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
@@ -218,7 +220,7 @@ class mppt:
     print(f"Snaith mode = {snaith_mode}")
     print(f"Source-measure delay = {delay_ms} [ms]")
 
-    self.q = deque()
+    q = deque()
     process_q_len = 20
     m = deque(maxlen=process_q_len)  # measurement buffer for the mppt algorithm
     #x = deque(maxlen=process_q_len)  # keeps independant variable setpoints
@@ -228,7 +230,11 @@ class mppt:
       this_soak_t = snaith_pre_soak_t
       print("Snaith Pre Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
       spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
-      self.q.extend(spos)
+      q.extend(spos)
+
+      if self.killer.is_set():
+        self.lg.debug("Killed by killer.")
+        return q
 
     # the objective function we'll be trying to find the minimum of here is power produced by the sourcemeter
     objective = lambda var: var[0] * var[1]
@@ -238,7 +244,7 @@ class mppt:
 
     # register a bootstrap measurement
     w = start_voltage
-    m.appendleft(self.measure(w, delay_ms=delay_ms, callback=callback))
+    m.appendleft(self.measure(w, q, delay_ms=delay_ms, callback=callback))
     #x.appendleft(w)
     run_time = time.time() - self.t0
 
@@ -263,10 +269,10 @@ class mppt:
 
     # the mppt loop
     i = 0
-    while (not self.abort and (run_time < duration)):
+    while ((not self.killer.is_set()) and (run_time < duration)):
       i += 1
       some_sign = random.choice([-1, 1])
-      m.appendleft(self.measure(w, delay_ms=delay_ms, callback=callback))  # apply new voltage and record a measurement and store the result in slot 0
+      m.appendleft(self.measure(w, q, delay_ms=delay_ms, callback=callback))  # apply new voltage and record a measurement and store the result in slot 0
       #x.appendleft(w)  # record independant variable
 
       # compute a gradient value
@@ -297,17 +303,15 @@ class mppt:
       this_soak_t = snaith_post_soak_t
       print("Snaith Post Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
       spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
-      self.q.extend(spos)
+      q.extend(spos)
 
     # take whatever the most recent readings were to be the mppt
     self.Vmpp = m[0][0]
     self.Impp = m[0][1]
 
-    q = self.q
-    del (self.q)
     return q
 
-  def measure(self, v_set, delay_ms=0, callback=lambda x: None):
+  def measure(self, v_set, q, delay_ms=0, callback=lambda x: None):
     """
     sets the voltage and makes a measurement
     """
@@ -324,7 +328,7 @@ class mppt:
 
     v, i, tx, status = measurement
 
-    self.q.append(measurement)
+    q.append(measurement)
     return (v, i, tx)
 
   def really_dumb_tracker(self, duration, start_voltage, callback=lambda x: None, dAngleMax=7, dwell_time=10, sweep_delay_ms=30):
@@ -343,7 +347,7 @@ class mppt:
     # work in voltage steps that are this fraction of Voc
     dV = self.Voc / 301
 
-    self.q = deque()
+    q = deque()
     Vmpp = start_voltage
 
     if duration <= 10:
@@ -358,14 +362,17 @@ class mppt:
     if self.Isc is None:
       # if nobody told us otherwise, just assume Isc is 10% higher than Impp
       self.Isc = self.Impp * 1.1
-    self.q.extend(ssmpps)
+    q.extend(ssmpps)
+    if self.killer.is_set():
+      self.lg.debug("Killed by killer.")
+      return q
 
     Impp = self.Impp
     Voc = self.Voc
     Isc = self.Isc
 
     run_time = time.time() - self.t0
-    while (not self.abort and (run_time < duration)):
+    while ((not self.killer.is_set()) and (run_time < duration)):
       print("Exploring for new Mpp...")
       i_explore = numpy.array(Impp)
       v_explore = numpy.array(Vmpp)
@@ -375,8 +382,8 @@ class mppt:
       v_set = Vmpp
       highEdgeTouched = False
       lowEdgeTouched = False
-      while (not self.abort and not (highEdgeTouched and lowEdgeTouched)):
-        (v, i, t) = self.measure(v_set, delay_ms=sweep_delay_ms, callback=callback)
+      while ((not self.killer.is_set()) and not (highEdgeTouched and lowEdgeTouched)):
+        (v, i, t) = self.measure(v_set, q, delay_ms=sweep_delay_ms, callback=callback)
         run_time = t - self.t0
 
         i_explore = numpy.append(i_explore, i)
@@ -452,12 +459,13 @@ class mppt:
       print("Dwelling @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp * 1000, dwell))
       dq = self.sm.measureUntil(t_dwell=dwell, cb=callback)
       Impp = dq[-1][1]
-      self.q.extend(dq)
+      q.extend(dq)
 
       run_time = time.time() - self.t0
 
-    q = self.q
-    del (self.q)
+    if self.killer.is_set():
+      self.lg.debug("Killed by killer.")
+
     self.Impp = Impp
     self.Vmpp = Vmpp
     return q

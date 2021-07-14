@@ -290,6 +290,11 @@ class k2400(object):
     self.t0 = time.time()
     self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
 
+    if 'killer' in kwargs:
+      self.killer = kwargs['killer']
+    else:
+      self.killer = threading.Event()
+
     # here we make up some numbers for our solar cell model
     self.Rs = 9.28  # [ohm]
     self.Rsh = 1e6  # [ohm]
@@ -474,7 +479,7 @@ class k2400(object):
     i = 0
     t_end = time.time() + t_dwell
     q = []
-    while (i < measurements) and (time.time() < t_end):
+    while (i < measurements) and (time.time() < t_end) and (not self.killer.is_set()):
       i = i + 1
       measurement = self.measure()[0]
       q.append(measurement)

@@ -3,6 +3,7 @@
 import sys
 import time
 import pyvisa
+import threading
 
 import logging
 # for logging directly to systemd journal if we can
@@ -26,7 +27,8 @@ class k2400:
   four88point1 = False
   default_comms_timeout = 50000  # in ms
 
-  def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False):
+  def __init__(self, visa_lib='@py', scan=False, addressString=None, terminator='\r', serialBaud=57600, front=False, twoWire=False, quiet=False, killer=threading.Event()):
+    self.killer = killer
     # setup logging
     self.lg = logging.getLogger(__name__)
     self.lg.setLevel(logging.DEBUG)
@@ -667,11 +669,13 @@ class k2400:
     t_end = time.time() + t_dwell
     q = []
     #self.opc() # before we start reading, ensure the device is ready
-    while (i < measurements) and (time.time() < t_end):
+    while (i < measurements) and (time.time() < t_end) and (not self.killer.is_set()):
       i = i + 1
       measurement = self.measure()[0]
       q.append(measurement)
       cb(measurement)
+    if self.killer.is_set():
+      self.lg.debug("Killed by killer")
     return q
 
   def contact_check(self):

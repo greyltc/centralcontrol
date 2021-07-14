@@ -4,6 +4,7 @@
 import numpy as np
 from scipy.integrate import simps
 import unicodedata
+import threading
 import re
 import time
 import sys
@@ -62,10 +63,11 @@ class fabric(object):
   # thing that can hold a list of mppts (one per smu)
   mppts = []
 
-  def __init__(self):
+  def __init__(self, killer=threading.Event()):
     """Get software revision."""
     # self.software_revision = __version__
     # print("Software revision: {:s}".format(self.software_revision))
+    self.killer = killer
 
     # setup logging
     self.lg = logging.getLogger(__name__)
@@ -147,7 +149,7 @@ class fabric(object):
     if is_virt == True:
       sm = virt.k2400()
     else:
-      sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud, front=smu_front_terminals, twoWire=smu_two_wire)
+      sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud, front=smu_front_terminals, twoWire=smu_two_wire, killer=self.killer,)
     self._connected_instruments.append(sm)
     self.sms.append(sm)
     self.mppts.append(mppt(sm, self.current_limit))
@@ -158,7 +160,7 @@ class fabric(object):
       self.sm = sm
 
       # instantiate max-power tracker object based on smu
-      self.mppt = mppt(sm, self.current_limit)
+      self.mppt = mppt(sm, self.current_limit, killer=self.killer)
 
   def _connect_lia(self, is_virt=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
     """Create lock-in amplifier connection.

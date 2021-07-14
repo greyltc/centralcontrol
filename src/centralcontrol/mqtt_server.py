@@ -79,6 +79,8 @@ class MQTTServer(object):
   # long tasks get their own process
   process = multiprocessing.Process()
 
+  killer = threading.Event()
+
   class Dummy(object):
     pass
 
@@ -154,8 +156,10 @@ class MQTTServer(object):
     """Stop a running process."""
 
     if self.process.is_alive() == True:
+      self.killer.set()
       os.kill(self.process.pid, signal.SIGINT)
       self.process.join()
+      self.killer.clear()
       self.lg.debug(f"{self.process.is_alive()=}")
       self.lg.info("Request to stop completed!")
       self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
@@ -176,7 +180,7 @@ class MQTTServer(object):
       """
 
     try:
-      with fabric() as measurement:
+      with fabric(killer=self.killer) as measurement:
         measurement.current_limit = request["config"]["smu"][0]["current_limit"]
         # create temporary mqtt client
         self.lg.info("Calibrating EQE...")
@@ -782,19 +786,25 @@ class MQTTServer(object):
           # select pixel
           measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
-          # setup data handler
-          if calibration == False:
-            dh = DataHandler(pixel=pixel, outq=self.outq)
-          else:
-            dh = self.Dummy()
-            dh.handle_data = lambda x: None
+          with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
+            self.futures = {}
+            for index, sm in enumerate(measurement.sms):
+              # setup data handler
+              if calibration == False:
+                dh = DataHandler(pixel=pixel, outq=self.outq)
+              else:
+                dh = self.Dummy()
+                dh.handle_data = lambda x: None
 
-          # get or estimate compliance current
-          compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
+              # get or estimate compliance current
+              compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
 
-          with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(self.do_iv, measurement, measurement.sm, measurement.mppt, dh, compliance_i, args, config, calibration, sweeps)
-            data = future.result()
+              # submit for processing
+              self.futures[index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[index], dh, compliance_i, args, config, calibration, sweeps)
+
+            datas = {}
+            for key, val in self.futures.items():
+              datas[key] = val.result()
 
           # it's probably wise to shut off the smu after every pixel
           if len(measurement.sms) > 0:
@@ -805,7 +815,7 @@ class MQTTServer(object):
           measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
           if calibration == True:
-            diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+            diode_dict = {"data": datas[0], "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
             if rtd == True:
               self.lg.debug("RTD cal")
               self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
