@@ -498,6 +498,9 @@ class MQTTServer(object):
 
     # "Voc" if
     if args["i_dwell"] > 0:
+      if self.killer.is_set():
+        self.lg.debug("Killed by killer.")
+        return []
       self.lg.info(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
       # Voc needs light
       if hasattr(measurement, "le"):
@@ -519,7 +522,7 @@ class MQTTServer(object):
       data = vt
 
       # if this was at Voc, use the last measurement as estimate of Voc
-      if args["i_dwell_value"] == 0:
+      if (args["i_dwell_value"] == 0) and (len(vt) > 1):
         ssvoc = vt[-1][0]
       else:
         ssvoc = None
@@ -833,7 +836,7 @@ class MQTTServer(object):
               data = future.result()
               datas[key] = data
               if calibration == True:
-                diode_dict = {"data": datas, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
                 if rtd == True:
                   self.lg.debug("RTD cal")
                   self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
