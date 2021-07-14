@@ -72,6 +72,10 @@ class illumination(object):
       self.lg.debug("Virtual light turned on")
       if (self.votes_needed > 1) and (assume_master == False):
         self.light_master.release()
+
+    if (self.votes_needed > 1) and (assume_master == True):
+      self.on_votes.clear()
+
     return (0)
 
   def off(self, assume_master=False):
@@ -92,6 +96,10 @@ class illumination(object):
       self.lg.debug("Virtual light turned off")
       if (self.votes_needed > 1) and (assume_master == False):
         self.light_master.release()
+
+    if (self.votes_needed > 1) and (assume_master == True):
+      self.on_votes.clear()
+
     return (0)
 
   def get_spectrum(self):
