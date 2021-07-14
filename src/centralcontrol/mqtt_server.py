@@ -683,6 +683,10 @@ class MQTTServer(object):
     config = request["config"]
     args = request["args"]
 
+    if self.killer.is_set():
+      self.lg.debug("Killed by killer.")
+      return
+
     if args['enable_stage'] == True:
       motion_address = config["stage"]["uri"]
     else:
@@ -778,7 +782,7 @@ class MQTTServer(object):
         remaining = p_total
         n_done = 0
         t0 = time.time()
-        while remaining > 0:
+        while (remaining > 0) and (not self.killer.is_set()):
           pixel = pixel_queue.popleft()
 
           dt = time.time() - t0
@@ -808,7 +812,7 @@ class MQTTServer(object):
           measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
-            self.futures = {}
+            futures = {}
             for index, sm in enumerate(measurement.sms):
               # setup data handler
               if calibration == False:
@@ -821,11 +825,20 @@ class MQTTServer(object):
               compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
 
               # submit for processing
-              self.futures[index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[index], dh, compliance_i, args, config, calibration, sweeps)
+              futures[index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[index], dh, compliance_i, args, config, calibration, sweeps)
 
+            # collect the datas!
             datas = {}
-            for key, val in self.futures.items():
-              datas[key] = val.result()
+            for key, future in futures.items():
+              data = future.result()
+              datas[key] = data
+              if calibration == True:
+                diode_dict = {"data": datas, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+                if rtd == True:
+                  self.lg.debug("RTD cal")
+                  self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
+                else:
+                  self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
 
           # it's probably wise to shut off the smu after every pixel
           if len(measurement.sms) > 0:
@@ -834,14 +847,6 @@ class MQTTServer(object):
 
           # deselect all pixels
           measurement.select_pixel(mux_string='s', pcb=gp_pcb)
-
-          if calibration == True:
-            diode_dict = {"data": datas[0], "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
-            if rtd == True:
-              self.lg.debug("RTD cal")
-              self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
-            else:
-              self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
 
           n_done += 1
           remaining = len(pixel_queue)
