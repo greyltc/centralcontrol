@@ -63,7 +63,7 @@ class fabric(object):
   # thing that can hold a list of mppts (one per smu)
   mppts = []
 
-  killer=threading.Event()
+  killer = threading.Event()
 
   def __init__(self, killer=threading.Event()):
     """Get software revision."""

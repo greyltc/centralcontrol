@@ -868,7 +868,7 @@ class MQTTServer(object):
                 pixel = q_item[index]
               else:
                 pixel = q_item
-              
+
               pixels[index] = pixel
 
               # setup data handler
