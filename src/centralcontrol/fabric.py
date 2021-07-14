@@ -63,6 +63,8 @@ class fabric(object):
   # thing that can hold a list of mppts (one per smu)
   mppts = []
 
+  killer=threading.Event()
+
   def __init__(self, killer=threading.Event()):
     """Get software revision."""
     # self.software_revision = __version__
@@ -147,7 +149,7 @@ class fabric(object):
         """
     t0 = time.time()
     if is_virt == True:
-      sm = virt.k2400()
+      sm = virt.k2400(killer=self.killer)
     else:
       sm = k2400(
           visa_lib=visa_lib,
@@ -160,7 +162,7 @@ class fabric(object):
       )
     self._connected_instruments.append(sm)
     self.sms.append(sm)
-    self.mppts.append(mppt(sm, self.current_limit))
+    self.mppts.append(mppt(sm, self.current_limit, killer=self.killer))
     self.lg.debug(f"SMU{len(self.sms)} connect time = {time.time() - t0} s")
 
     if len(self.sms) == 1:

@@ -182,7 +182,8 @@ class MQTTServer(object):
 
     try:
       with fabric() as measurement:
-        measurement.current_limit = request["config"]["smu"][0]["current_limit"]
+        i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+        measurement.current_limit = min(i_limits)
         # create temporary mqtt client
         self.lg.info("Calibrating EQE...")
         args = request["args"]
@@ -230,7 +231,8 @@ class MQTTServer(object):
 
     try:
       with fabric() as measurement:
-        measurement.current_limit = request["config"]["smu"][0]["current_limit"]
+        i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+        measurement.current_limit = min(i_limits)
 
         self.lg.info("Calibration LED PSU...")
 
@@ -378,7 +380,8 @@ class MQTTServer(object):
     user_aborted = False
     try:
       with fabric() as measurement:
-        measurement.current_limit = request["config"]["smu"][0]["current_limit"]
+        i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+        measurement.current_limit = min(i_limits)
 
         self.lg.info("Calibrating solar simulator spectrum...")
 
@@ -1042,7 +1045,8 @@ class MQTTServer(object):
       try:
         with fabric(killer=self.killer) as measurement:
           self.lg.info("Starting run...")
-          measurement.current_limit = request["config"]["smu"][0]["current_limit"]
+          i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+          measurement.current_limit = min(i_limits)
 
           if 'IV_stuff' in args:
             q = self._build_q(request, experiment="solarsim")
