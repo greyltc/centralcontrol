@@ -485,7 +485,6 @@ class MQTTServer(object):
     parallelizable I-V tasks for use in threads
     """
     measurement = mnt
-
     mppt.current_compliance = compliance_i
 
     # "Voc" if
@@ -520,6 +519,9 @@ class MQTTServer(object):
 
     # perform sweeps
     for sweep in sweeps:
+      if self.killer.is_set():
+        self.lg.debug("Killed by killer.")
+        return data
       self.lg.info(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
       # sweeps may or may not need light
       if sweep == "dark":
@@ -580,6 +582,9 @@ class MQTTServer(object):
 
     # mppt if
     if args["mppt_dwell"] > 0:
+      if self.killer.is_set():
+        self.lg.debug("Killed by killer.")
+        return data
       self.lg.info(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
       # mppt needs light
       if hasattr(measurement, "le"):
@@ -618,6 +623,9 @@ class MQTTServer(object):
 
     # "J_sc" if
     if args["v_dwell"] > 0:
+      if self.killer.is_set():
+        self.lg.debug("Killed by killer.")
+        return data
       self.lg.info(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
       # jsc needs light
       if hasattr(measurement, "le"):
