@@ -804,6 +804,17 @@ class MQTTServer(object):
             for sm in measurement.sms:
               sm.setNPLC(args["nplc"])
 
+        # deselect all pixels
+        #measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # TODO: figure out why this is flakey
+        measurement.select_pixel(mux_string='sa0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='sb0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='sc0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='sd0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='se0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='sf0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='sg0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='sh0', pcb=gp_pcb)
+
         start_q = run_queue
         if args['cycles'] != 0:
           run_queue *= int(args['cycles'])  # duplicate the pixel_queue "cycles" times
@@ -904,7 +915,15 @@ class MQTTServer(object):
               sm.outOn(False)
 
           # deselect all pixels
-          measurement.select_pixel(mux_string='s', pcb=gp_pcb)
+          #measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # TODO: figure out why this is flakey
+          measurement.select_pixel(mux_string='sa0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='sb0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='sc0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='sd0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='se0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='sf0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='sg0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='sh0', pcb=gp_pcb)
 
           n_done += 1
           remaining = len(run_queue)
