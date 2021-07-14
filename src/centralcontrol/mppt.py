@@ -11,6 +11,7 @@ try:
 except ImportError:
   pass
 
+
 class mppt:
   """
   Maximum power point tracker class

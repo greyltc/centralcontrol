@@ -380,7 +380,12 @@ class MQTTServer(object):
         config = request["config"]
         args = request["args"]
 
-        measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], light_address=config["solarsim"]["address"], light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"],)
+        measurement.connect_instruments(
+            visa_lib=config["visa"]["visa_lib"],
+            light_address=config["solarsim"]["address"],
+            light_virt=config["solarsim"]["virtual"],
+            light_recipe=args["light_recipe"],
+        )
         if hasattr(measurement, 'le'):
           measurement.le.set_intensity(int(args["light_recipe_int"]))
 
@@ -513,7 +518,17 @@ class MQTTServer(object):
     motion_pcb_is_fake = config["stage"]["virtual"]
 
     # connect instruments
-    measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smus=config["smu"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, light_address=light_address, light_virt=config["solarsim"]["virtual"], light_recipe=args["light_recipe"],)
+    measurement.connect_instruments(
+        visa_lib=config["visa"]["visa_lib"],
+        smus=config["smu"],
+        pcb_address=gp_pcb_address,
+        pcb_virt=gp_pcb_is_fake,
+        motion_address=motion_address,
+        motion_virt=motion_pcb_is_fake,
+        light_address=light_address,
+        light_virt=config["solarsim"]["virtual"],
+        light_recipe=args["light_recipe"],
+    )
     if hasattr(measurement, 'le'):
       measurement.le.set_intensity(int(args["light_recipe_int"]))
 
@@ -825,7 +840,25 @@ class MQTTServer(object):
     motion_pcb_is_fake = config["stage"]["virtual"]
 
     # connect instruments
-    measurement.connect_instruments(visa_lib=config["visa"]["visa_lib"], smus=config["smu"], pcb_address=gp_pcb_address, pcb_virt=gp_pcb_is_fake, motion_address=motion_address, motion_virt=motion_pcb_is_fake, lia_address=config["lia"]["address"], lia_virt=config["lia"]["virtual"], lia_terminator=config["lia"]["terminator"], lia_baud=config["lia"]["baud"], lia_output_interface=config["lia"]["output_interface"], mono_address=config["monochromator"]["address"], mono_virt=config["monochromator"]["virtual"], mono_terminator=config["monochromator"]["terminator"], mono_baud=config["monochromator"]["baud"], psu_address=config["psu"]["address"], psu_virt=config["psu"]["virtual"],)
+    measurement.connect_instruments(
+        visa_lib=config["visa"]["visa_lib"],
+        smus=config["smu"],
+        pcb_address=gp_pcb_address,
+        pcb_virt=gp_pcb_is_fake,
+        motion_address=motion_address,
+        motion_virt=motion_pcb_is_fake,
+        lia_address=config["lia"]["address"],
+        lia_virt=config["lia"]["virtual"],
+        lia_terminator=config["lia"]["terminator"],
+        lia_baud=config["lia"]["baud"],
+        lia_output_interface=config["lia"]["output_interface"],
+        mono_address=config["monochromator"]["address"],
+        mono_virt=config["monochromator"]["virtual"],
+        mono_terminator=config["monochromator"]["terminator"],
+        mono_baud=config["monochromator"]["baud"],
+        psu_address=config["psu"]["address"],
+        psu_virt=config["psu"]["virtual"],
+    )
 
     fake_pcb = measurement.fake_pcb
     inner_pcb = measurement.fake_pcb
@@ -1059,7 +1092,7 @@ class MQTTServer(object):
 
   def run(self):
     # start the mqtt connector thread
-    threading.Thread(target=self.mqtt_connector, args=(self.mqttc,), daemon=True).start()
+    threading.Thread(target=self.mqtt_connector, args=(self.mqttc, ), daemon=True).start()
 
     # start the out relay thread
     threading.Thread(target=self.out_relay, daemon=True).start()

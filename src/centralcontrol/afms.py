@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import serial
 
+
 class afms:
   """interface to an arduino with an adafruit motor shield connected via a USB virtual serial port, custom sketch"""
   steps_per_mm = 10
@@ -20,7 +21,7 @@ class afms:
     self.com_port = location
     self.steps_per_mm = spm
     self.home_procedure = homer
-    
+
   def __del__(self):
     try:
       self.close()
@@ -38,7 +39,7 @@ class afms:
       ret = 0
     else:
       ret = -1
-      raise(ValueError(f"Unable to open port {self.com_port}"))
+      raise (ValueError(f"Unable to open port {self.com_port}"))
     self.axes = [1]
     return ret
 
@@ -54,8 +55,7 @@ class afms:
       print('WARNING: homing failure: {:}'.format(ret))
     self.len_axes = [float('inf')]  # length measurement unsupported here now
     return ret
-    
-      
+
   def move(self, mm, timeout=0):
     """
     moves mm mm, blocks until movement complete, mm can be positive or negative to indicate movement direction
@@ -63,16 +63,16 @@ class afms:
     returns 0 upon sucessful move
     """
     sc = self.connection
-    
-    steps = round(mm*self.steps_per_mm)
-    
+
+    steps = round(mm * self.steps_per_mm)
+
     if steps > 0:
       direction = 'forward'
     elif steps < 0:
       direction = 'backward'
     else:
       direction = None
-    
+
     if direction != None:
       # send movement command
       sc.write('step,{:},{:}'.format(abs(steps), direction).encode())
@@ -84,39 +84,40 @@ class afms:
       else:
         print("WARNING: Expected idle message after movement, insted: {:}".format(idle_message))
         return -2  # failed movement
-        
+
     return 0  # sucessful movement
 
   def goto(self, new_position, timeout=0):
     """
     goes to an absolute mm position, blocking, returns 0 on success
     """
-    return self.move(new_position-self.current_position, timeout=timeout)
-    
+    return self.move(new_position - self.current_position, timeout=timeout)
+
   def close(self):
     self.connection.close()
+
 
 if __name__ == "__main__":
   import time
   # motion test
   com_port = '/dev/ttyACM0'
   this = afms(com_port)
-  
+
   print('Connecting and homing...')
   if this.connect() == 0:
     print('Homing done!')
   time.sleep(1)
-  
+
   print('Moving 4cm forwad via move')
   if (this.move(40) == 0):
     print("Movement done.")
   time.sleep(1)
-  
+
   print('Moving 2cm backward via goto')
-  if (this.goto(this.current_position-20) == 0):
+  if (this.goto(this.current_position - 20) == 0):
     print("Movement done.")
   time.sleep(1)
-    
+
   print('Homing...')
   if this.home() == 0:
     print('Homing done!')

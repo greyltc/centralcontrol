@@ -492,11 +492,11 @@ class fabric(object):
         ret = 0
         break
       loops_left -= 1
-    
+
     if loops_left == 0:
       msg = f"Unable to select device with {mux_string}"
       self.lg.error(msg)
-      raise(ValueError(msg))
+      raise (ValueError(msg))
 
     return ret
 

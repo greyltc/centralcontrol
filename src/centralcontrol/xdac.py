@@ -6,6 +6,7 @@ import pathlib
 import logging
 import numpy as np
 
+
 class xdac(object):
   # zmq comms params
   topicfilter = b""
@@ -45,16 +46,16 @@ class xdac(object):
         try:
           cal_data = json.load(fh)
         except Exception as e:
-          raise(ValueError(f"Error loading {self.cal_file_name} as json"))
+          raise (ValueError(f"Error loading {self.cal_file_name} as json"))
         if type(cal_data) != dict:
-          raise(ValueError(f"{self.cal_file_name} has incorrect json format"))
+          raise (ValueError(f"{self.cal_file_name} has incorrect json format"))
       self.cal_data = cal_data
 
   # setChannel: set voltage of each channel
   # setChannelVoltage(ch, voltage (in V))
   def setChannelVoltage(self, channel, voltageVal):
     if (channel > self.n_chans) or (channel < 1):
-      raise(ValueError('Invalid channel number: {channel}'))
+      raise (ValueError('Invalid channel number: {channel}'))
 
     if voltageVal > self.max_voltage:
       voltageVal = self.max_voltage
@@ -72,7 +73,7 @@ class xdac(object):
   # setChannelCurrent(ch, current (in mA))
   def setChannelCurrent(self, channel, currentVal):
     if (channel > self.n_chans) or (channel < 1):
-      raise(ValueError('Invalid channel number: {channel}'))
+      raise (ValueError('Invalid channel number: {channel}'))
 
     #Set threeshold fo Current and Voltage
     if currentVal > self.max_current:
@@ -91,10 +92,9 @@ class xdac(object):
   # AllVValues = [8, 8, -1, 2, 3, 4, 5, 7]
   # setVoltageAllChannels(AllVValues)
 
-
   def setVoltageAllChannels(self, AllVValues):
     for channel, value in enumerate(AllVValues):
-      channel = channel + 1 #Channel start from 1
+      channel = channel + 1  #Channel start from 1
       self.setChannelVoltage(channel, value)
     return 0
 
@@ -103,7 +103,7 @@ class xdac(object):
   # setCurrentAllChannels(AllCValues)
   def setCurrentAllChannels(self, AllCValues):
     for channel, value in enumerate(AllCValues):
-      channel = channel + 1 #Channel start from 1
+      channel = channel + 1  #Channel start from 1
       self.setChannelCurrent(channel, value)
     return 0
 
@@ -111,7 +111,7 @@ class xdac(object):
   # setOff(1) -> set 0 V, 0 mA, to channel 1.
   def setOff(self, channel):
     if (channel > self.n_chans) or (channel < 1):
-      raise(ValueError('Invalid channel number: {channel}'))
+      raise (ValueError('Invalid channel number: {channel}'))
     #Send Request to XDAC (Server)
     msg = "ZERO:" + ("%d" % channel)
     self.req_socket.send(msg.encode('utf-8'))
@@ -119,14 +119,14 @@ class xdac(object):
     return 0
 
   #Read Current on all channels, return list
-  def readAllChannelCurrent(self,):
+  def readAllChannelCurrent(self, ):
     current = []
-    offsets = [0]*self.n_chans
+    offsets = [0] * self.n_chans
     if self.cal_data is not None:
       if 'current_offsets' in self.cal_data:
         offsets = self.cal_data['current_offsets']
     #Wait for Message V for 10 mS
-    stop= " "
+    stop = " "
     while stop[0] != "C":
       msg = self.sub_socket.recv().decode('utf-8')
       stop = msg[0]
@@ -134,16 +134,16 @@ class xdac(object):
         msg = msg[1:]
         for i in range(self.n_chans):
           current.append(float(msg[0:msg.find(",")]) - offsets[i])
-          msg = msg[msg.find(",")+1:]
-          msg = msg[msg.find(",")+1:]
-    
+          msg = msg[msg.find(",") + 1:]
+          msg = msg[msg.find(",") + 1:]
+
     return current
 
   #Read Current on all voltages, return list
   def readAllChannelVoltage(self):
     voltage = []
     #Wait for Message V for 10 mS
-    stop= " "
+    stop = " "
     while stop[0] != "V":
       msg = self.sub_socket.recv().decode('utf-8')
       stop = msg[0]
@@ -151,8 +151,8 @@ class xdac(object):
         msg = msg[1:]
         for _ in range(8):
           voltage.append(msg[0:msg.find(",")])
-          msg = msg[msg.find(",")+1:]
-          msg = msg[msg.find(",")+1:]
+          msg = msg[msg.find(",") + 1:]
+          msg = msg[msg.find(",") + 1:]
 
     return voltage
 
@@ -162,7 +162,7 @@ class xdac(object):
     self.lg.info('Performing calibration. Please wait...')
 
     for ch in range(self.n_chans):
-      self.setOff(ch+1)
+      self.setOff(ch + 1)
 
     # number of readings to average
     n_readings = 500
@@ -170,8 +170,8 @@ class xdac(object):
     c = np.zeros((n_readings, self.n_chans))
 
     for i in range(n_readings):
-      c[i,:] = x.readAllChannelCurrent()
-    
+      c[i, :] = x.readAllChannelCurrent()
+
     offsets = c.mean(0)
 
     if self.cal_data is None:
@@ -184,6 +184,7 @@ class xdac(object):
 
     self.lg.info('Calibration complete!')
     self.lg.info(f'Current zero-offsets = {offsets} mA')
+
 
 # testing
 if __name__ == "__main__":

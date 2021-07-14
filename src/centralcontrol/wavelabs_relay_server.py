@@ -8,12 +8,14 @@ import socketserver
 # global selector
 sel = socketserver.selectors.DefaultSelector()
 
+
 def accept(sock):
   conn, addr = sock.accept()  # accept the initial connection
   print('Accepted new connection: {:} from ip {:}'.format(conn, addr))
   conn.setblocking(False)
   sel.register(conn, socketserver.selectors.EVENT_READ, get_data)
   return conn
+
 
 def get_data(conn):
   data = conn.recv(1024)  # Should be ready
@@ -24,14 +26,16 @@ def get_data(conn):
     sel.unregister(conn)
     conn.close()
   return (conn, data)
-    
+
+
 def setupServer(listen_ip, listen_port):
-  server = socketserver.TCPServer((listen_ip, listen_port), socketserver.StreamRequestHandler, bind_and_activate = False)
+  server = socketserver.TCPServer((listen_ip, listen_port), socketserver.StreamRequestHandler, bind_and_activate=False)
   server.timeout = None  # never timeout when waiting for the wavelabs software to connect
   server.allow_reuse_address = True
   server.server_bind()
   server.server_activate()
   return server
+
 
 def main():
   wl_port = 3334  # port for connections from the WaveLabs software
@@ -80,6 +84,7 @@ def main():
               wl_conn.sendall(data)
             except:
               print('WARNING: Unable to relay control client data to WaveLabs client')
+
 
 if __name__ == "__main__":
   main()
