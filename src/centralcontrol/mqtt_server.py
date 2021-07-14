@@ -79,6 +79,7 @@ class MQTTServer(object):
   # long tasks get their own process
   process = multiprocessing.Process()
 
+  # signal that tells stuff to die
   killer = threading.Event()
 
   class Dummy(object):
@@ -180,7 +181,7 @@ class MQTTServer(object):
       """
 
     try:
-      with fabric(killer=self.killer) as measurement:
+      with fabric() as measurement:
         measurement.current_limit = request["config"]["smu"][0]["current_limit"]
         # create temporary mqtt client
         self.lg.info("Calibrating EQE...")
@@ -1031,7 +1032,7 @@ class MQTTServer(object):
 
     if user_aborted == False:
       try:
-        with fabric() as measurement:
+        with fabric(killer=self.killer) as measurement:
           self.lg.info("Starting run...")
           measurement.current_limit = request["config"]["smu"][0]["current_limit"]
 
