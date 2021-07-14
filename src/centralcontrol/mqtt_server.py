@@ -161,8 +161,11 @@ class MQTTServer(object):
     if self.process.is_alive() == True:
       self.lg.debug("Setting killer")
       self.killer.set()
-      os.kill(self.process.pid, signal.SIGINT)
-      self.process.join()
+      join_timeout = 5  # give the killer signal this many seconds to do this gracefully
+      self.process.join(join_timeout)
+      if self.process.is_alive():
+        os.kill(self.process.pid, signal.SIGINT)  # go one level up in abrasiveness
+        self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGINT")
       self.killer.clear()
       self.lg.debug(f"{self.process.is_alive()=}")
       self.lg.info("Request to stop completed!")
