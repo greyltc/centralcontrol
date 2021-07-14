@@ -1,8 +1,10 @@
+import collections
 from .wavelabs import wavelabs
 #from .newport import Newport
 import os
-import sys
+import threading
 
+import sys
 import logging
 # for logging directly to systemd journal if we can
 try:
@@ -18,8 +20,11 @@ class illumination(object):
   """
   light_engine = None
   protocol = None
+  votes_needed = 1  # for handling light state voting
+  light_master = threading.Semaphore()
+  connection_timeout = 10
 
-  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout=10):
+  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout=10, votes_needed=1):
     """
     sets up communication to light source
     """
@@ -41,7 +46,11 @@ class illumination(object):
         ch.setFormatter(logFormat)
         self.lg.addHandler(ch)
 
-    connection_timeout = connection_timeout  # s
+    self.connection_timeout = connection_timeout  # s
+
+    self.votes_needed = votes_needed
+    if self.votes_needed > 1:
+      self.on_votes = collections.deque([], maxlen=self.votes_needed)
 
     addr_split = address.split(sep='://', maxsplit=1)
     protocol = addr_split[0]
@@ -66,7 +75,7 @@ class illumination(object):
         relay = True
       else:
         relay = False
-      self.light_engine = wavelabs(host=host, port=port, relay=relay, connection_timeout=connection_timeout, default_recipe=default_recipe)
+      self.light_engine = wavelabs(host=host, port=port, relay=relay, connection_timeout=self.connection_timeout, default_recipe=default_recipe)
     #elif protocol.lower() == ('ftdi'):
     #  self.light_engine = Newport(address=address)
     self.protocol = protocol
@@ -83,20 +92,52 @@ class illumination(object):
     return ret
 
   def on(self):
-    """
-    turns light on
-    """
+    # thread safe light control with unanimous state voting
     self.lg.debug("ill on() called")
-    ret = self.light_engine.on()
+    do_light_action = True
+    if self.votes_needed > 1:
+      self.on_votes.append(True)
+      if self.light_master.acquire(blocking=False):
+        # we're the light master!
+        while self.on_votes.count(True) < self.votes_needed:
+          pass  # wait for everyone to agree
+        self.lg.debug("Light voting complete!")
+      else:
+        self.lg.debug("Light vote submitted")
+        do_light_action = False
+
+    if do_light_action == True:
+      ret = self.light_engine.on()
+      if self.votes_needed > 1:
+        self.light_master.release()
+    else:
+      ret = 0
+
     self.lg.debug("ill on() complete")
     return ret
 
   def off(self):
-    """
-    turns light off
-    """
+    # thread safe light control with unanimous state voting
     self.lg.debug("ill off() called")
-    ret = self.light_engine.off()
+    do_light_action = True
+    if self.votes_needed > 1:
+      self.on_votes.append(False)
+      if self.light_master.acquire(blocking=False):
+        # we're the light master!
+        while self.on_votes.count(False) < self.votes_needed:
+          pass  # wait for everyone to agree
+        self.lg.debug("Light voting complete!")
+      else:
+        self.lg.debug("Light vote submitted")
+        do_light_action = False
+
+    if do_light_action == True:
+      ret = self.light_engine.off()
+      if self.votes_needed > 1:
+        self.light_master.release()
+    else:
+      ret = 0
+
     self.lg.debug("ill off() complete")
     return ret
 
