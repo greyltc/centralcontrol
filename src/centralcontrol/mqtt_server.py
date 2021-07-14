@@ -17,6 +17,7 @@ import traceback
 import uuid
 import humanize
 import datetime
+import numpy as np
 
 import logging
 # for logging directly to systemd journal if we can
@@ -449,28 +450,55 @@ class MQTTServer(object):
       raise (ValueError(f"Unknown experiment: {experiment}"))
     center = config["stage"]["experiment_positions"][experiment]
 
-    # build pixel queue
-    pixel_q = collections.deque()
-    # here we build up the pixel handling queue by iterating
-    # through the rows of a pandas dataframe
-    # that contains one row for each turned on pixel
-    for things in stuff.to_dict(orient='records'):
-      pixel_dict = {}
-      pixel_dict['label'] = things['label']
-      pixel_dict['layout'] = things['layout']
-      pixel_dict['sub_name'] = things['system_label']
-      pixel_dict['device_label'] = things['device_label']
-      pixel_dict['pixel'] = things['mux_index']
-      loc = things['loc']
-      pos = [a + b for a, b in zip(center, loc)]
-      pixel_dict['pos'] = pos
-      if things['area'] == -1:  # handle custom area
-        pixel_dict['area'] = args['a_ovr_spin']
-      else:
-        pixel_dict['area'] = things['area']
-      pixel_dict['mux_string'] = things['mux_string']
-      pixel_q.append(pixel_dict)
-    return pixel_q
+    # build pixel/group queue for the run
+    run_q = collections.deque()
+    if (len(request["config"]["smu"]) > 1) and (experiment == "solarsim"):  # multismu case
+      for group in request["config"]["substrates"]["device_grouping"]:
+        group_dict = {}
+        for i, device in enumerate(group):
+          d = device.upper()
+          if d in stuff.sort_string.values:
+            pixel_dict = {}
+            rsel = stuff['sort_string'] == d
+            pixel_dict['label'] = stuff.loc[rsel]['label'].values[0]
+            pixel_dict['layout'] = stuff.loc[rsel]['layout'].values[0]
+            pixel_dict['sub_name'] = stuff.loc[rsel]['system_label'].values[0]
+            pixel_dict['device_label'] = stuff.loc[rsel]['device_label'].values[0]
+            pixel_dict['pixel'] = stuff.loc[rsel]['mux_index'].values[0]
+            loc = stuff.loc[rsel]['loc'].values[0]
+            pos = [a + b for a, b in zip(center, loc)]
+            pixel_dict['pos'] = pos
+            area = stuff.loc[rsel]['area'].values[0]
+            if area == -1:  # handle custom area
+              pixel_dict['area'] = args['a_ovr_spin']
+            else:
+              pixel_dict['area'] = area
+            pixel_dict['mux_string'] = stuff.loc[rsel]['mux_string'].values[0]
+            group_dict[i] = pixel_dict
+        if len(group_dict) > 0:
+          run_q.append(group_dict)
+    else:  # single smu case
+      # here we build up the pixel handling queue by iterating
+      # through the rows of a pandas dataframe
+      # that contains one row for each turned on pixel
+      for things in stuff.to_dict(orient='records'):
+        pixel_dict = {}
+        pixel_dict['label'] = things['label']
+        pixel_dict['layout'] = things['layout']
+        pixel_dict['sub_name'] = things['system_label']
+        pixel_dict['device_label'] = things['device_label']
+        pixel_dict['pixel'] = things['mux_index']
+        loc = things['loc']
+        pos = [a + b for a, b in zip(center, loc)]
+        pixel_dict['pos'] = pos
+        if things['area'] == -1:  # handle custom area
+          pixel_dict['area'] = args['a_ovr_spin']
+        else:
+          pixel_dict['area'] = things['area']
+        pixel_dict['mux_string'] = things['mux_string']
+        run_q.append(pixel_dict)
+
+    return run_q
 
   def _clear_plot(self, kind):
     """Publish measurement data.
@@ -663,7 +691,7 @@ class MQTTServer(object):
 
       return data
 
-  def _ivt(self, pixel_queue, request, measurement, calibration=False, rtd=False):
+  def _ivt(self, run_queue, request, measurement, calibration=False, rtd=False):
     """Run through pixel queue of i-v-t measurements.
 
       Paramters
@@ -776,17 +804,24 @@ class MQTTServer(object):
             for sm in measurement.sms:
               sm.setNPLC(args["nplc"])
 
-        start_q = pixel_queue
+        start_q = run_queue
         if args['cycles'] != 0:
-          pixel_queue *= int(args['cycles'])  # duplicate the pixel_queue "cycles" times
-          p_total = len(pixel_queue)
+          run_queue *= int(args['cycles'])  # duplicate the pixel_queue "cycles" times
+          p_total = len(run_queue)
         else:
           p_total = float('inf')
         remaining = p_total
         n_done = 0
         t0 = time.time()
+
+        # is this a group run queue?
+        group_q = True
+        if len(run_queue) > 1:
+          if "device_label" in run_queue[0]:
+            group_q = False
+
         while (remaining > 0) and (not self.killer.is_set()):
-          pixel = pixel_queue.popleft()
+          q_item = run_queue.popleft()
 
           dt = time.time() - t0
           if (n_done > 0) and (args['cycles'] != 0):
@@ -799,11 +834,18 @@ class MQTTServer(object):
             progress_msg = {"text": text, "fraction": fraction}
             self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-          self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
+          if group_q == True:
+            print_labels = [val['device_label'] for key, val in q_item.items()]
+            print_label = "+".join(print_labels)
+            theres = np.array([val['pos'] for key, val in q_item.items()])
+            there = tuple(theres.mean(0))  # the average location of the group
+          else:
+            print_label = q_item['device_label']
+            there = q_item["pos"]
+          self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {print_label} ####")
 
           # move stage
           if mo is not None:
-            there = pixel["pos"]
             if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
               # force light off for motion if configured
               if hasattr(measurement, "le") and ('off_during_motion' in config['solarsim']):
@@ -812,11 +854,23 @@ class MQTTServer(object):
               mo.goto(there)
 
           # select pixel
-          measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
+          if group_q == True:
+            for key, pixel in q_item.items():
+              measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
+          else:
+            measurement.select_pixel(mux_string=q_item['mux_string'], pcb=gp_pcb)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
             futures = {}
+            pixels = {}
             for index, sm in enumerate(measurement.sms):
+              if group_q == True:
+                pixel = q_item[index]
+              else:
+                pixel = q_item
+              
+              pixels[index] = pixel
+
               # setup data handler
               if calibration == False:
                 dh = DataHandler(pixel=pixel, outq=self.outq)
@@ -836,7 +890,7 @@ class MQTTServer(object):
               data = future.result()
               datas[key] = data
               if calibration == True:
-                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{pixels[key]['label']}_device_{pixels[key]['pixel']}"}
                 if rtd == True:
                   self.lg.debug("RTD cal")
                   self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
@@ -852,9 +906,9 @@ class MQTTServer(object):
           measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
           n_done += 1
-          remaining = len(pixel_queue)
+          remaining = len(run_queue)
           if (remaining == 0) and (args['cycles'] == 0):
-            pixel_queue = start_q
+            run_queue = start_q
             # refresh the deque to loop forever
 
         progress_msg = {"text": "Done!", "fraction": 1}
