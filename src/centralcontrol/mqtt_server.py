@@ -80,7 +80,9 @@ class MQTTServer(object):
   process = multiprocessing.Process()
 
   # signal that tells stuff to die
-  killer = threading.Event()
+  # can be switched to threading.Event()
+  # if we stop using the multiprocessing module
+  killer = multiprocessing.Event()
 
   class Dummy(object):
     pass
@@ -157,6 +159,7 @@ class MQTTServer(object):
     """Stop a running process."""
 
     if self.process.is_alive() == True:
+      self.lg.debug("Setting killer")
       self.killer.set()
       os.kill(self.process.pid, signal.SIGINT)
       self.process.join()
@@ -558,6 +561,9 @@ class MQTTServer(object):
       Pmax_sweep1, Vmpp1, Impp1, maxIx1 = mppt.register_curve(iv1, light=(sweep == "light"))
 
       if args["return_switch"] == True:
+        if self.killer.is_set():
+          self.lg.debug("Killed by killer.")
+          return data
         self.lg.info(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
 
         if calibration == False:
