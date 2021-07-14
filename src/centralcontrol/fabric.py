@@ -149,7 +149,15 @@ class fabric(object):
     if is_virt == True:
       sm = virt.k2400()
     else:
-      sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud, front=smu_front_terminals, twoWire=smu_two_wire, killer=self.killer,)
+      sm = k2400(
+          visa_lib=visa_lib,
+          terminator=smu_terminator,
+          addressString=smu_address,
+          serialBaud=smu_baud,
+          front=smu_front_terminals,
+          twoWire=smu_two_wire,
+          killer=self.killer,
+      )
     self._connected_instruments.append(sm)
     self.sms.append(sm)
     self.mppts.append(mppt(sm, self.current_limit))

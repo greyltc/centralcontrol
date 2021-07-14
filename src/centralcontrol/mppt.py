@@ -125,7 +125,7 @@ class mppt:
       print(f"mppt algo had to find V_oc = {self.Voc} [V] because nobody gave us any voltage info...")
     else:
       ssvocs = []
-    
+
     if self.killer.is_set():
       self.lg.debug("Killed by killer.")
       return (m, ssvocs)
