@@ -471,6 +471,11 @@ class MQTTServer(object):
     payload = {"level": record.levelno, "msg": record.msg}
     self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
+  def do_iv(self, ):
+    """
+    parallelizable cell I-V tasks for use in 
+    """
+
   def _ivt(self, pixel_queue, request, measurement, calibration=False, rtd=False):
     """Run through pixel queue of i-v-t measurements.
 
@@ -616,11 +621,13 @@ class MQTTServer(object):
               # force light off for motion if configured
               if hasattr(measurement, "le") and ('off_during_motion' in config['solarsim']):
                 if config['solarsim']['off_during_motion'] == True:
-                  measurement.le.off()
+                  measurement.le.off(assume_master=True)
               mo.goto(there)
 
           # select pixel
           measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
+
+          iv_thread = threading.Thread(target=self.do_iv)
 
           # get or estimate compliance current
           compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
@@ -813,7 +820,7 @@ class MQTTServer(object):
 
     # don't leave the light on!
     if hasattr(measurement, "le"):
-      measurement.le.off()
+      measurement.le.off(assume_master=True)
 
   def _eqe(self, pixel_queue, request, measurement, calibration=False):
     """Run through pixel queue of EQE measurements.

@@ -91,11 +91,11 @@ class illumination(object):
     self.lg.debug("ill connect() compelte")
     return ret
 
-  def on(self):
+  def on(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill on() called")
     do_light_action = True
-    if self.votes_needed > 1:
+    if (self.votes_needed > 1) and (assume_master == False):
       self.on_votes.append(True)
       if self.light_master.acquire(blocking=False):
         # we're the light master!
@@ -108,7 +108,7 @@ class illumination(object):
 
     if do_light_action == True:
       ret = self.light_engine.on()
-      if self.votes_needed > 1:
+      if (self.votes_needed > 1) and (assume_master == False):
         self.light_master.release()
     else:
       ret = 0
@@ -116,11 +116,11 @@ class illumination(object):
     self.lg.debug("ill on() complete")
     return ret
 
-  def off(self):
+  def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill off() called")
     do_light_action = True
-    if self.votes_needed > 1:
+    if (self.votes_needed > 1) and (assume_master == False):
       self.on_votes.append(False)
       if self.light_master.acquire(blocking=False):
         # we're the light master!
@@ -133,7 +133,7 @@ class illumination(object):
 
     if do_light_action == True:
       ret = self.light_engine.off()
-      if self.votes_needed > 1:
+      if (self.votes_needed > 1) and (assume_master == False):
         self.light_master.release()
     else:
       ret = 0

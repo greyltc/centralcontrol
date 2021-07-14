@@ -54,10 +54,10 @@ class illumination(object):
     self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe))
     return (0)
 
-  def on(self):
+  def on(self, assume_master=False):
     # thread safe light control with unanimous state voting
     do_light_action = True
-    if self.votes_needed > 1:
+    if (self.votes_needed > 1) and (assume_master == False):
       self.on_votes.append(True)
       if self.light_master.acquire(blocking=False):
         # we're the light master!
@@ -70,14 +70,14 @@ class illumination(object):
 
     if do_light_action == True:
       self.lg.debug("Virtual light turned on")
-      if self.votes_needed > 1:
+      if (self.votes_needed > 1) and (assume_master == False):
         self.light_master.release()
     return (0)
 
-  def off(self):
+  def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
     do_light_action = True
-    if self.votes_needed > 1:
+    if (self.votes_needed > 1) and (assume_master == False):
       self.on_votes.append(False)
       if self.light_master.acquire(blocking=False):
         # we're the light master!
@@ -90,7 +90,7 @@ class illumination(object):
 
     if do_light_action == True:
       self.lg.debug("Virtual light turned off")
-      if self.votes_needed > 1:
+      if (self.votes_needed > 1) and (assume_master == False):
         self.light_master.release()
     return (0)
 
