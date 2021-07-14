@@ -14,6 +14,7 @@ try:
 except ImportError:
   pass
 
+
 class illumination(object):
   runtime = 60000
   intensity = 100
@@ -43,7 +44,7 @@ class illumination(object):
       self.votes_needed = kwargs["votes_needed"]
     if self.votes_needed > 1:
       self.on_votes = collections.deque([], maxlen=self.votes_needed)
-    
+
     self.lg.debug(f"{__name__} virtually initialized.")
 
   def connect(self):
@@ -130,6 +131,7 @@ class illumination(object):
 
   def get_temperatures(self, *args, **kwargs):
     return ([25.3, 17.3])
+
 
 class pcb(object):
   is_virtual = True

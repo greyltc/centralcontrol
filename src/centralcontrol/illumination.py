@@ -140,7 +140,7 @@ class illumination(object):
         self.light_master.release()
     else:
       ret = 0
-    
+
     if (self.votes_needed > 1) and (assume_master == True):
       self.on_votes.clear()
 

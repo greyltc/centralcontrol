@@ -325,7 +325,7 @@ class UtilityHandler(object):
               logging.exception(emsg)
 
         if 'smu' in task:
-          for index,smup in enumerate(task['smu']):  # loop through the list of SMUs
+          for index, smup in enumerate(task['smu']):  # loop through the list of SMUs
             self.lg.info(f"Checking sourcemeter {index} at {smup['address']}...")
             if smup['virtual'] == True:
               self.lg.info(f'Sourcemeter {index} looks virtually great!')

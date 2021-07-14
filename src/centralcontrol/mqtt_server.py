@@ -782,8 +782,10 @@ class MQTTServer(object):
           if calibration == False:
             dh = DataHandler(pixel=pixel, outq=self.outq)
           else:
+
             class Dummy(object):
               pass
+
             dh = Dummy()
             dh.handle_data = lambda x: None
 
