@@ -752,6 +752,10 @@ class MQTTServer(object):
             (mt, vt) = measurement.mppt.launch_tracker(**mppt_args)
             measurement.mppt.reset()
 
+            # reset nplc because the mppt can mess with it
+            if args["nplc"] != -1:
+              measurement.sm.setNPLC(args["nplc"])
+
             if (calibration == False) and (len(vt) > 0):
               dh.kind = "vtmppt_measurement"
               for d in vt:
