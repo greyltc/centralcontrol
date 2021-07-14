@@ -59,6 +59,9 @@ class fabric(object):
   # thing that can hold a list of smus
   sms = []
 
+  # thing that can hold a list of mppts (one per smu)
+  mppts = []
+
   def __init__(self):
     """Get software revision."""
     # self.software_revision = __version__
@@ -147,6 +150,7 @@ class fabric(object):
       sm = k2400(visa_lib=visa_lib, terminator=smu_terminator, addressString=smu_address, serialBaud=smu_baud, front=smu_front_terminals, twoWire=smu_two_wire)
     self._connected_instruments.append(sm)
     self.sms.append(sm)
+    self.mppts.append(mppt(sm, self.current_limit))
     self.lg.debug(f"SMU{len(self.sms)} connect time = {time.time() - t0} s")
 
     if len(self.sms) == 1:
@@ -154,7 +158,7 @@ class fabric(object):
       self.sm = sm
 
       # instantiate max-power tracker object based on smu
-      self.mppt = mppt(sm, self.current_limit)  # TODO: this needs to turn into a list of mppts
+      self.mppt = mppt(sm, self.current_limit)
 
   def _connect_lia(self, is_virt=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
     """Create lock-in amplifier connection.
@@ -472,10 +476,9 @@ class fabric(object):
             Response code. 0 is good, everything else means fail.
         """
     loops_left = 2
-    while (loops_left > 1):
+    while (loops_left > 0):
       ret = -1
       if pcb is not None:
-        resp = pcb.query("s")  # open all relays
         if resp == "":
           resp = pcb.query(mux_string)  # select the correct pixel
           if resp == "":

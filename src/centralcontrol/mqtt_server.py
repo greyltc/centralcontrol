@@ -322,25 +322,21 @@ class MQTTServer(object):
 
               self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
 
-              # we have a new substrate
-              if last_label != pixel['device_label']:
-                self.lg.info(f"New substrate using '{pixel['layout']}' layout!")
-                last_label = pixel['device_label']
-
               # move to pixel
               measurement.goto_pixel(pixel, mo)
 
               measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
-
-              timestamp = time.time()
 
               # perform measurement
               for channel in [1, 2, 3]:
                 if config["psu"][f"ch{channel}_ocp"] != 0:
                   psu_calibration = measurement.calibrate_psu(channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10, config["psu"][f"ch{channel}_voltage"])
 
-                  diode_dict = {"data": psu_calibration, "timestamp": timestamp, "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+                  diode_dict = {"data": psu_calibration, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
                   self.outq.put({"topic": "calibration/psu/ch{channel}", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
+
+              # deselect pixels
+              measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
               n_done += 1
               remaining = len(pixel_queue)
@@ -389,11 +385,9 @@ class MQTTServer(object):
         if hasattr(measurement, 'le'):
           measurement.le.set_intensity(int(args["light_recipe_int"]))
 
-        timestamp = time.time()
-
         spectrum = measurement.measure_spectrum()
 
-        spectrum_dict = {"data": spectrum, "timestamp": timestamp}
+        spectrum_dict = {"data": spectrum, "timestamp": time.time()}
 
         # publish calibration
         self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
@@ -568,15 +562,34 @@ class MQTTServer(object):
             self.lg.error(f"Experiment relay error: {resp}! Aborting run")
             return
 
+        # figure out what the sweeps will be like
+        sweeps = []
+        if args["sweep_check"] == True:
+          # detmine type of sweeps to perform
+          s = args["lit_sweep"]
+          if s == 0:
+            sweeps = ["dark", "light"]
+          elif s == 1:
+            sweeps = ["light", "dark"]
+          elif s == 2:
+            sweeps = ["dark"]
+          elif s == 3:
+            sweeps = ["light"]
+
+        # set NPLC
+        if args["nplc"] != -1:
+          if len(measurement.sms) > 0:
+            for sm in measurement.sms:
+              sm.setNPLC(args["nplc"])
+
         start_q = pixel_queue
         if args['cycles'] != 0:
-          pixel_queue *= int(args['cycles'])
+          pixel_queue *= int(args['cycles'])  # duplicate the pixel_queue "cycles" times
           p_total = len(pixel_queue)
         else:
           p_total = float('inf')
         remaining = p_total
         n_done = 0
-        last_label = None
         t0 = time.time()
         while remaining > 0:
           # instantiate container for all measurement data on pixel
@@ -585,7 +598,7 @@ class MQTTServer(object):
 
           dt = time.time() - t0
           if (n_done > 0) and (args['cycles'] != 0):
-            tpp = dt / n_done
+            tpp = dt / n_done  # recalc time per pixel
             finishtime = time.time() + tpp * remaining
             finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
             human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
@@ -596,23 +609,18 @@ class MQTTServer(object):
 
           self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
 
-          # check if we have a new substrate
-          if last_label != pixel['device_label']:
-            self.lg.debug(f"New substrate using '{pixel['layout']}' layout!")
-            last_label = pixel['device_label']
-
-          # force light off for motion if configured
-          if hasattr(measurement, "le") and ('off_during_motion' in config['solarsim']):
-            if config['solarsim']['off_during_motion'] == True:
-              measurement.le.off()
-          # move to pixel
-          measurement.goto_pixel(pixel, mo)
+          # move stage
+          if mo is not None:
+            there = pixel["pos"]
+            if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
+              # force light off for motion if configured
+              if hasattr(measurement, "le") and ('off_during_motion' in config['solarsim']):
+                if config['solarsim']['off_during_motion'] == True:
+                  measurement.le.off()
+              mo.goto(there)
 
           # select pixel
           measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
-
-          # init parameters derived from steady state measurements
-          ssvoc = None
 
           # get or estimate compliance current
           compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
@@ -623,18 +631,14 @@ class MQTTServer(object):
             dh = DataHandler(pixel=pixel, outq=self.outq)
             handler = dh.handle_data
           else:
-
             class Dummy:
               pass
-
             dh = Dummy()
             handler = lambda x: None
 
-          timestamp = time.time()
-
           # "Voc" if
           if args["i_dwell"] > 0:
-            self.lg.info(f"Measuring voltage output at constant current")
+            self.lg.info(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
             # Voc needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
@@ -644,16 +648,14 @@ class MQTTServer(object):
               dh.kind = kind
               self._clear_plot(kind)
 
-            # constant current dwell step
-            vt = measurement.steady_state(
-                t_dwell=args["i_dwell"],
-                NPLC=args["nplc"],
-                sourceVoltage=False,
-                compliance=config["ccd"]["max_voltage"],
-                senseRange="a",  # NOTE: "a" can possibly cause unknown delays between points
-                setPoint=args["i_dwell_value"],
-                handler=handler)
+            ss_args = {}
+            ss_args["sourceVoltage"] = False
+            ss_args["compliance"] = config["ccd"]["max_voltage"]
+            ss_args["setPoint"] = args["i_dwell_value"]
+            ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
 
+            measurement.sm.setupDC(**ss_args)
+            vt = measurement.sm.measureUntil(t_dwell=args["i_dwell"], cb=handler)
             data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
@@ -661,23 +663,12 @@ class MQTTServer(object):
               ssvoc = vt[-1][0]
             else:
               ssvoc = None
-
-          # if performing sweeps
-          sweeps = []
-          if args["sweep_check"] == True:
-            # detmine type of sweeps to perform
-            s = args["lit_sweep"]
-            if s == 0:
-              sweeps = ["dark", "light"]
-            elif s == 1:
-              sweeps = ["light", "dark"]
-            elif s == 2:
-              sweeps = ["dark"]
-            elif s == 3:
-              sweeps = ["light"]
+          else:
+            ssvoc = None
 
           # perform sweeps
           for sweep in sweeps:
+            self.lg.info(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
             # sweeps may or may not need light
             if sweep == "dark":
               if hasattr(measurement, "le"):
@@ -686,35 +677,31 @@ class MQTTServer(object):
               if hasattr(measurement, "le"):
                 measurement.le.on()
 
-            if args["sweep_check"] == True:
-              self.lg.info(f"Performing {sweep} sweep 1")
-              self.lg.debug(f'Sweeping voltage from {args["sweep_start"]} V to {args["sweep_end"]} V')
+            if calibration == False:
+              kind = "iv_measurement/1"
+              dh.kind = kind
+              dh.sweep = sweep
+              self._clear_plot("iv_measurement")
 
-              if calibration == False:
-                kind = "iv_measurement/1"
-                dh.kind = kind
-                dh.sweep = sweep
-                self._clear_plot("iv_measurement")
+            sweep_args = {}
+            sweep_args['sourceVoltage'] = True
+            sweep_args['senseRange'] = "f"
+            sweep_args['compliance'] = compliance_i
+            sweep_args['nPoints'] = int(args["iv_steps"])
+            sweep_args['stepDelay'] = source_delay
+            sweep_args['start'] = args["sweep_start"]
+            sweep_args['end'] = args["sweep_end"]
 
-              sweep_args = {}
-              sweep_args['sourceVoltage'] = True
-              sweep_args['senseRange'] = "f"
-              sweep_args['compliance'] = compliance_i
-              sweep_args['nPoints'] = int(args["iv_steps"])
-              sweep_args['stepDelay'] = source_delay
-              sweep_args['start'] = args["sweep_start"]
-              sweep_args['end'] = args["sweep_end"]
-              sweep_args['NPLC'] = args["nplc"]
-              sweep_args['handler'] = handler
-              iv1 = measurement.sweep(**sweep_args)
+            measurement.sm.setupSweep(**sweep_args)
+            iv1 = measurement.sm.measure(sweep_args['nPoints'])
+            handler(iv1)
+            data += iv1
 
-              data += iv1
-
-              Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
+            # register this curve with the mppt
+            Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
 
             if args["return_switch"] == True:
-              self.lg.info(f"Performing {sweep} sweep 2")
-              self.lg.debug(f'Sweeping voltage from {args["sweep_end"]} V to {args["sweep_start"]} V')
+              self.lg.info(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
 
               if calibration == False:
                 kind = "iv_measurement/2"
@@ -729,10 +716,10 @@ class MQTTServer(object):
               sweep_args['stepDelay'] = source_delay
               sweep_args['start'] = args["sweep_end"]
               sweep_args['end'] = args["sweep_start"]
-              sweep_args['NPLC'] = args["nplc"]
-              sweep_args['handler'] = handler
-              iv2 = measurement.sweep(**sweep_args)
 
+              measurement.sm.setupSweep(**sweep_args)
+              iv2 = measurement.sm.measure(sweep_args['nPoints'])
+              handler(iv2)
               data += iv2
 
               Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(iv2, light=(sweep == "light"))
@@ -741,11 +728,10 @@ class MQTTServer(object):
 
           # mppt if
           if args["mppt_dwell"] > 0:
+            self.lg.info(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
             # mppt needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
-            self.lg.info(f"Performing max. power tracking")
-            self.lg.debug(f"Tracking maximum power point for {args['mppt_dwell']} seconds.")
 
             if calibration == False:
               kind = "mppt_measurement"
@@ -756,7 +742,15 @@ class MQTTServer(object):
               # tell the mppt what our measured steady state Voc was
               measurement.mppt.Voc = ssvoc
 
-            (mt, vt) = measurement.track_max_power(args["mppt_dwell"], NPLC=args["nplc"], extra=args["mppt_params"], voc_compliance=config["ccd"]["max_voltage"], i_limit=compliance_i, handler=handler)
+            mppt_args = {}
+            mppt_args["duration"] = args["mppt_dwell"]
+            mppt_args["NPLC"] = args["nplc"]
+            mppt_args["extra"] = args["mppt_params"]
+            mppt_args["callback"] = handler
+            mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
+            mppt_args["i_limit"] = compliance_i
+            (mt, vt) = measurement.mppt.launch_tracker(**mppt_args)
+            measurement.mppt.reset()
 
             if (calibration == False) and (len(vt) > 0):
               dh.kind = "vtmppt_measurement"
@@ -768,27 +762,38 @@ class MQTTServer(object):
 
           # "J_sc" if
           if args["v_dwell"] > 0:
+            self.lg.info(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
             # jsc needs light
             if hasattr(measurement, "le"):
               measurement.le.on()
-            self.lg.info(f"Measuring output current and constant voltage")
 
             if calibration == False:
               kind = "it_measurement"
               dh.kind = kind
               self._clear_plot(kind)
 
-            it = measurement.steady_state(t_dwell=args["v_dwell"], NPLC=args["nplc"], sourceVoltage=True, compliance=compliance_i, senseRange="a", setPoint=args["v_dwell_value"], handler=handler)
+            ss_args = {}
+            ss_args["sourceVoltage"] = True
+            ss_args["compliance"] = compliance_i
+            ss_args["setPoint"] = args["v_dwell_value"]
+            ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
 
+            measurement.sm.setupDC(**ss_args)
+            it = measurement.sm.measureUntil(t_dwell=args["v_dwell"], cb=handler)
             data += it
 
           # it's probably wise to shut off the smu after every pixel
-          measurement.sm.outOn(False)
+          if len(measurement.sms) > 0:
+            for sm in measurement.sms:
+              sm.outOn(False)
+
+          # deselect all pixels
+          measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
           if calibration == True:
-            diode_dict = {"data": data, "timestamp": timestamp, "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+            diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
             if rtd == True:
-              self.lg.debug("RTD")
+              self.lg.debug("RTD cal")
               self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
             else:
               self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
@@ -916,11 +921,6 @@ class MQTTServer(object):
 
           self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
 
-          # we have a new substrate
-          if last_label != pixel['device_label']:
-            self.lg.debug(f"New substrate using '{pixel['layout']}' layout!")
-            last_label = pixel['device_label']
-
           # move to pixel
           measurement.goto_pixel(pixel, mo)
 
@@ -945,9 +945,6 @@ class MQTTServer(object):
             handler = dh.handle_data
             self._clear_plot(kind)
 
-          # get human-readable timestamp
-          timestamp = time.time()
-
           # perform measurement
           eqe = measurement.eqe(
               psu_ch1_voltage=config["psu"]["ch1_voltage"],
@@ -969,9 +966,12 @@ class MQTTServer(object):
               handler=handler,
           )
 
+          # deselect pixels
+          measurement.select_pixel(mux_string='s', pcb=gp_pcb)
+
           # update eqe diode calibration data in
           if calibration == True:
-            diode_dict = {"data": eqe, "timestamp": timestamp, "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
+            diode_dict = {"data": eqe, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
             self.outq.put({"topic": "calibration/eqe", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
 
           n_done += 1
