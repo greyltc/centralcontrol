@@ -836,7 +836,8 @@ class MQTTServer(object):
 
           if group_q == True:
             print_labels = [val['device_label'] for key, val in q_item.items()]
-            print_label = "+".join(print_labels)
+            self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(print_labels), "qos": 2, "retain": True})
+            print_label = " + ".join(print_labels)
             theres = np.array([val['pos'] for key, val in q_item.items()])
             there = tuple(theres.mean(0))  # the average location of the group
           else:
@@ -913,6 +914,7 @@ class MQTTServer(object):
 
         progress_msg = {"text": "Done!", "fraction": 1}
         self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+        self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps([]), "qos": 2, "retain": True})
 
     # don't leave the light on!
     if hasattr(measurement, "le"):
