@@ -477,22 +477,18 @@ class fabric(object):
         """
     loops_left = 2
     while (loops_left > 0):
-      ret = -1
+      ret = -1  # not initialized error
       if pcb is not None:
+        resp = pcb.query(mux_string)  # select the correct pixel
         if resp == "":
-          resp = pcb.query(mux_string)  # select the correct pixel
-          if resp == "":
-            ret = 0
-            break
-          else:
-            self.lg.warning(f"PCB response to {mux_string} was '{resp}'")
-            ret = -3
+          ret = 0  # no error
+          break
         else:
-          self.lg.warning(f"PCB response to opening all relays was '{resp}'")
-          ret = -2
+          self.lg.warning(f"PCB response to {mux_string} was '{resp}'")
+          ret = -2  # error from pcb while setting mux
       else:
         # assume a call with None pcb is a pass
-        ret = 0
+        ret = 0  # no error
         break
       loops_left -= 1
 
