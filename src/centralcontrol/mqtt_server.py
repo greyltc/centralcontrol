@@ -6,6 +6,7 @@ import sys
 import argparse
 import collections
 import multiprocessing
+import concurrent.futures
 import threading
 import os
 import pickle
@@ -77,6 +78,9 @@ class MQTTServer(object):
 
   # long tasks get their own process
   process = multiprocessing.Process()
+
+  class Dummy(object):
+    pass
 
   def __init__(self):
     # setup logging
@@ -782,19 +786,15 @@ class MQTTServer(object):
           if calibration == False:
             dh = DataHandler(pixel=pixel, outq=self.outq)
           else:
-
-            class Dummy(object):
-              pass
-
-            dh = Dummy()
+            dh = self.Dummy()
             dh.handle_data = lambda x: None
 
           # get or estimate compliance current
           compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
 
-          iv_thread = threading.Thread(target=self.do_iv, args=(measurement, measurement.sm, measurement.mppt, dh, compliance_i, args, config, calibration, sweeps), daemon=True)
-          iv_thread.start()
-          data = iv_thread.join()
+          with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(self.do_iv, measurement, measurement.sm, measurement.mppt, dh, compliance_i, args, config, calibration, sweeps)
+            data = future.result()
 
           # it's probably wise to shut off the smu after every pixel
           if len(measurement.sms) > 0:
