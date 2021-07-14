@@ -327,7 +327,7 @@ class UtilityHandler(object):
         if 'smu' in task:
           for index,smup in enumerate(task['smu']):  # loop through the list of SMUs
             self.lg.info(f"Checking sourcemeter {index} at {smup['address']}...")
-            if smu['virtual'] == True:
+            if smup['virtual'] == True:
               self.lg.info(f'Sourcemeter {index} looks virtually great!')
             else:
               # for sourcemeter
@@ -351,6 +351,7 @@ class UtilityHandler(object):
               try:
                 with rm.open_resource(**open_params) as smu:
                   self.lg.info('Sourcemeter connection initiated')
+                  smu.timeout = 5000  # in ms
                   idn = smu.query("*IDN?")
                   self.lg.info(f'Sourcemeter identification string: {idn}')
               except Exception as e:
