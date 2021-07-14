@@ -471,10 +471,165 @@ class MQTTServer(object):
     payload = {"level": record.levelno, "msg": record.msg}
     self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
-  def do_iv(self, ):
+  def do_iv(self, mnt, sm, mppt, dh, compliance_i, args, config, calibration, sweeps):
     """
-    parallelizable cell I-V tasks for use in 
+    parallelizable I-V tasks for use in threads
     """
+    measurement = mnt
+
+    mppt.current_compliance = compliance_i
+
+    # "Voc" if
+    if args["i_dwell"] > 0:
+      self.lg.info(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
+      # Voc needs light
+      if hasattr(measurement, "le"):
+        measurement.le.on()
+
+      if calibration == False:
+        kind = "vt_measurement"
+        dh.kind = kind
+        self._clear_plot(kind)
+
+      ss_args = {}
+      ss_args["sourceVoltage"] = False
+      ss_args["compliance"] = config["ccd"]["max_voltage"]
+      ss_args["setPoint"] = args["i_dwell_value"]
+      ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
+
+      sm.setupDC(**ss_args)
+      vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
+      data = vt
+
+      # if this was at Voc, use the last measurement as estimate of Voc
+      if args["i_dwell_value"] == 0:
+        ssvoc = vt[-1][0]
+      else:
+        ssvoc = None
+    else:
+      ssvoc = None
+
+    # perform sweeps
+    for sweep in sweeps:
+      self.lg.info(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
+      # sweeps may or may not need light
+      if sweep == "dark":
+        if hasattr(measurement, "le"):
+          measurement.le.off()
+      else:
+        if hasattr(measurement, "le"):
+          measurement.le.on()
+
+      if calibration == False:
+        kind = "iv_measurement/1"
+        dh.kind = kind
+        dh.sweep = sweep
+        self._clear_plot("iv_measurement")
+
+      sweep_args = {}
+      sweep_args['sourceVoltage'] = True
+      sweep_args['senseRange'] = "f"
+      sweep_args['compliance'] = compliance_i
+      sweep_args['nPoints'] = int(args["iv_steps"])
+      sweep_args['stepDelay'] = args["source_delay"] / 1000
+      sweep_args['start'] = args["sweep_start"]
+      sweep_args['end'] = args["sweep_end"]
+
+      sm.setupSweep(**sweep_args)
+      iv1 = sm.measure(sweep_args['nPoints'])
+      dh.handle_data(iv1)
+      data += iv1
+
+      # register this curve with the mppt
+      Pmax_sweep1, Vmpp1, Impp1, maxIx1 = mppt.register_curve(iv1, light=(sweep == "light"))
+
+      if args["return_switch"] == True:
+        self.lg.info(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
+
+        if calibration == False:
+          kind = "iv_measurement/2"
+          dh.kind = kind
+          dh.sweep = sweep
+
+        sweep_args = {}
+        sweep_args['sourceVoltage'] = True
+        sweep_args['senseRange'] = "f"
+        sweep_args['compliance'] = compliance_i
+        sweep_args['nPoints'] = int(args["iv_steps"])
+        sweep_args['stepDelay'] = args["source_delay"] / 1000
+        sweep_args['start'] = args["sweep_end"]
+        sweep_args['end'] = args["sweep_start"]
+
+        sm.setupSweep(**sweep_args)
+        iv2 = sm.measure(sweep_args['nPoints'])
+        dh.handle_data(iv2)
+        data += iv2
+
+        Pmax_sweep2, Vmpp2, Impp2, maxIx2 = mppt.register_curve(iv2, light=(sweep == "light"))
+
+    # TODO: read and interpret parameters for smart mode
+
+    # mppt if
+    if args["mppt_dwell"] > 0:
+      self.lg.info(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
+      # mppt needs light
+      if hasattr(measurement, "le"):
+        measurement.le.on()
+
+      if calibration == False:
+        kind = "mppt_measurement"
+        dh.kind = kind
+        self._clear_plot(kind)
+
+      if ssvoc is not None:
+        # tell the mppt what our measured steady state Voc was
+        mppt.Voc = ssvoc
+
+      mppt_args = {}
+      mppt_args["duration"] = args["mppt_dwell"]
+      mppt_args["NPLC"] = args["nplc"]
+      mppt_args["extra"] = args["mppt_params"]
+      mppt_args["callback"] = dh.handle_data
+      mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
+      mppt_args["i_limit"] = compliance_i
+      (mt, vt) = mppt.launch_tracker(**mppt_args)
+      mppt.reset()
+
+      # reset nplc because the mppt can mess with it
+      if args["nplc"] != -1:
+        sm.setNPLC(args["nplc"])
+
+      if (calibration == False) and (len(vt) > 0):
+        dh.kind = "vtmppt_measurement"
+        for d in vt:
+          dh.handle_data(d)
+
+      data += vt
+      data += mt
+
+    # "J_sc" if
+    if args["v_dwell"] > 0:
+      self.lg.info(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
+      # jsc needs light
+      if hasattr(measurement, "le"):
+        measurement.le.on()
+
+      if calibration == False:
+        kind = "it_measurement"
+        dh.kind = kind
+        self._clear_plot(kind)
+
+      ss_args = {}
+      ss_args["sourceVoltage"] = True
+      ss_args["compliance"] = compliance_i
+      ss_args["setPoint"] = args["v_dwell_value"]
+      ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
+
+      sm.setupDC(**ss_args)
+      it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
+      data += it
+
+      return data
 
   def _ivt(self, pixel_queue, request, measurement, calibration=False, rtd=False):
     """Run through pixel queue of i-v-t measurements.
@@ -530,8 +685,6 @@ class MQTTServer(object):
     )
     if hasattr(measurement, 'le'):
       measurement.le.set_intensity(int(args["light_recipe_int"]))
-
-    source_delay = args["source_delay"] / 1000  # scale this from ms to s because that's what the SMU wants
 
     fake_pcb = measurement.fake_pcb
     inner_pcb = measurement.fake_pcb
@@ -597,8 +750,6 @@ class MQTTServer(object):
         n_done = 0
         t0 = time.time()
         while remaining > 0:
-          # instantiate container for all measurement data on pixel
-          data = []
           pixel = pixel_queue.popleft()
 
           dt = time.time() - t0
@@ -627,171 +778,21 @@ class MQTTServer(object):
           # select pixel
           measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
-          iv_thread = threading.Thread(target=self.do_iv)
-
-          # get or estimate compliance current
-          compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
-          measurement.mppt.current_compliance = compliance_i
-
           # setup data handler
           if calibration == False:
             dh = DataHandler(pixel=pixel, outq=self.outq)
-            handler = dh.handle_data
           else:
-            class Dummy:
+            class Dummy(object):
               pass
             dh = Dummy()
-            handler = lambda x: None
+            dh.handle_data = lambda x: None
 
-          # "Voc" if
-          if args["i_dwell"] > 0:
-            self.lg.info(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
-            # Voc needs light
-            if hasattr(measurement, "le"):
-              measurement.le.on()
+          # get or estimate compliance current
+          compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
 
-            if calibration == False:
-              kind = "vt_measurement"
-              dh.kind = kind
-              self._clear_plot(kind)
-
-            ss_args = {}
-            ss_args["sourceVoltage"] = False
-            ss_args["compliance"] = config["ccd"]["max_voltage"]
-            ss_args["setPoint"] = args["i_dwell_value"]
-            ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
-
-            measurement.sm.setupDC(**ss_args)
-            vt = measurement.sm.measureUntil(t_dwell=args["i_dwell"], cb=handler)
-            data += vt
-
-            # if this was at Voc, use the last measurement as estimate of Voc
-            if args["i_dwell_value"] == 0:
-              ssvoc = vt[-1][0]
-            else:
-              ssvoc = None
-          else:
-            ssvoc = None
-
-          # perform sweeps
-          for sweep in sweeps:
-            self.lg.info(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
-            # sweeps may or may not need light
-            if sweep == "dark":
-              if hasattr(measurement, "le"):
-                measurement.le.off()
-            else:
-              if hasattr(measurement, "le"):
-                measurement.le.on()
-
-            if calibration == False:
-              kind = "iv_measurement/1"
-              dh.kind = kind
-              dh.sweep = sweep
-              self._clear_plot("iv_measurement")
-
-            sweep_args = {}
-            sweep_args['sourceVoltage'] = True
-            sweep_args['senseRange'] = "f"
-            sweep_args['compliance'] = compliance_i
-            sweep_args['nPoints'] = int(args["iv_steps"])
-            sweep_args['stepDelay'] = source_delay
-            sweep_args['start'] = args["sweep_start"]
-            sweep_args['end'] = args["sweep_end"]
-
-            measurement.sm.setupSweep(**sweep_args)
-            iv1 = measurement.sm.measure(sweep_args['nPoints'])
-            handler(iv1)
-            data += iv1
-
-            # register this curve with the mppt
-            Pmax_sweep1, Vmpp1, Impp1, maxIx1 = measurement.mppt.register_curve(iv1, light=(sweep == "light"))
-
-            if args["return_switch"] == True:
-              self.lg.info(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
-
-              if calibration == False:
-                kind = "iv_measurement/2"
-                dh.kind = kind
-                dh.sweep = sweep
-
-              sweep_args = {}
-              sweep_args['sourceVoltage'] = True
-              sweep_args['senseRange'] = "f"
-              sweep_args['compliance'] = compliance_i
-              sweep_args['nPoints'] = int(args["iv_steps"])
-              sweep_args['stepDelay'] = source_delay
-              sweep_args['start'] = args["sweep_end"]
-              sweep_args['end'] = args["sweep_start"]
-
-              measurement.sm.setupSweep(**sweep_args)
-              iv2 = measurement.sm.measure(sweep_args['nPoints'])
-              handler(iv2)
-              data += iv2
-
-              Pmax_sweep2, Vmpp2, Impp2, maxIx2 = measurement.mppt.register_curve(iv2, light=(sweep == "light"))
-
-          # TODO: read and interpret parameters for smart mode
-
-          # mppt if
-          if args["mppt_dwell"] > 0:
-            self.lg.info(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
-            # mppt needs light
-            if hasattr(measurement, "le"):
-              measurement.le.on()
-
-            if calibration == False:
-              kind = "mppt_measurement"
-              dh.kind = kind
-              self._clear_plot(kind)
-
-            if ssvoc is not None:
-              # tell the mppt what our measured steady state Voc was
-              measurement.mppt.Voc = ssvoc
-
-            mppt_args = {}
-            mppt_args["duration"] = args["mppt_dwell"]
-            mppt_args["NPLC"] = args["nplc"]
-            mppt_args["extra"] = args["mppt_params"]
-            mppt_args["callback"] = handler
-            mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
-            mppt_args["i_limit"] = compliance_i
-            (mt, vt) = measurement.mppt.launch_tracker(**mppt_args)
-            measurement.mppt.reset()
-
-            # reset nplc because the mppt can mess with it
-            if args["nplc"] != -1:
-              measurement.sm.setNPLC(args["nplc"])
-
-            if (calibration == False) and (len(vt) > 0):
-              dh.kind = "vtmppt_measurement"
-              for d in vt:
-                handler(d)
-
-            data += vt
-            data += mt
-
-          # "J_sc" if
-          if args["v_dwell"] > 0:
-            self.lg.info(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
-            # jsc needs light
-            if hasattr(measurement, "le"):
-              measurement.le.on()
-
-            if calibration == False:
-              kind = "it_measurement"
-              dh.kind = kind
-              self._clear_plot(kind)
-
-            ss_args = {}
-            ss_args["sourceVoltage"] = True
-            ss_args["compliance"] = compliance_i
-            ss_args["setPoint"] = args["v_dwell_value"]
-            ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
-
-            measurement.sm.setupDC(**ss_args)
-            it = measurement.sm.measureUntil(t_dwell=args["v_dwell"], cb=handler)
-            data += it
+          iv_thread = threading.Thread(target=self.do_iv, args=(measurement, measurement.sm, measurement.mppt, dh, compliance_i, args, config, calibration, sweeps), daemon=True)
+          iv_thread.start()
+          data = iv_thread.join()
 
           # it's probably wise to shut off the smu after every pixel
           if len(measurement.sms) > 0:
