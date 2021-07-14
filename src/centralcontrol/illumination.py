@@ -94,56 +94,42 @@ class illumination(object):
   def on(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill on() called")
-    do_light_action = True
-    if (self.votes_needed > 1) and (assume_master == False):
+    if (self.votes_needed <= 1) or (assume_master == True):
+      ret = self.light_engine.on()
+      if (self.votes_needed > 1):
+        self.on_votes.clear()
+    else:
       self.on_votes.append(True)
       if self.light_master.acquire(blocking=False):
-        # we're the light master!
         while self.on_votes.count(True) < self.votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
+        ret = self.light_engine.on()
+        self.light_master.release()
       else:
         self.lg.debug("Light vote submitted")
-        do_light_action = False
-
-    if do_light_action == True:
-      ret = self.light_engine.on()
-      if (self.votes_needed > 1) and (assume_master == False):
-        self.light_master.release()
-    else:
-      ret = 0
-
-    if (self.votes_needed > 1) and (assume_master == True):
-      self.on_votes.clear()
-
+        ret = 0
     self.lg.debug("ill on() complete")
     return ret
 
   def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill off() called")
-    do_light_action = True
-    if (self.votes_needed > 1) and (assume_master == False):
+    if (self.votes_needed <= 1) or (assume_master == True):
+      ret = self.light_engine.off()
+      if (self.votes_needed > 1):
+        self.on_votes.clear()
+    else:
       self.on_votes.append(False)
       if self.light_master.acquire(blocking=False):
-        # we're the light master!
         while self.on_votes.count(False) < self.votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
+        ret = self.light_engine.off()
+        self.light_master.release()
       else:
         self.lg.debug("Light vote submitted")
-        do_light_action = False
-
-    if do_light_action == True:
-      ret = self.light_engine.off()
-      if (self.votes_needed > 1) and (assume_master == False):
-        self.light_master.release()
-    else:
-      ret = 0
-
-    if (self.votes_needed > 1) and (assume_master == True):
-      self.on_votes.clear()
-
+        ret = 0
     self.lg.debug("ill off() complete")
     return ret
 

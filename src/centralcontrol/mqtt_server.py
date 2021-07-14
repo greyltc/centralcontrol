@@ -343,6 +343,7 @@ class MQTTServer(object):
               # move to pixel
               measurement.goto_pixel(pixel, mo)
 
+              measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # deselect pixels
               measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
               # perform measurement
@@ -353,8 +354,7 @@ class MQTTServer(object):
                   diode_dict = {"data": psu_calibration, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
                   self.outq.put({"topic": "calibration/psu/ch{channel}", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
 
-              # deselect pixels
-              measurement.select_pixel(mux_string='s', pcb=gp_pcb)
+              measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # deselect pixels
 
               n_done += 1
               remaining = len(pixel_queue)
@@ -805,15 +805,7 @@ class MQTTServer(object):
               sm.setNPLC(args["nplc"])
 
         # deselect all pixels
-        #measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # TODO: figure out why this is flakey
-        measurement.select_pixel(mux_string='sa0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='sb0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='sc0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='sd0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='se0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='sf0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='sg0', pcb=gp_pcb)
-        measurement.select_pixel(mux_string='sh0', pcb=gp_pcb)
+        measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
         start_q = run_queue
         if args['cycles'] != 0:
@@ -915,15 +907,7 @@ class MQTTServer(object):
               sm.outOn(False)
 
           # deselect all pixels
-          #measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # TODO: figure out why this is flakey
-          measurement.select_pixel(mux_string='sa0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='sb0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='sc0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='sd0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='se0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='sf0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='sg0', pcb=gp_pcb)
-          measurement.select_pixel(mux_string='sh0', pcb=gp_pcb)
+          measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
           n_done += 1
           remaining = len(run_queue)
@@ -1052,6 +1036,7 @@ class MQTTServer(object):
           # move to pixel
           measurement.goto_pixel(pixel, mo)
 
+          measurement.select_pixel(mux_string='s', pcb=gp_pcb)  # deselect pixels
           measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
           self.lg.info(f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm")

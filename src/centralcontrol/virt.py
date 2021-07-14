@@ -55,53 +55,51 @@ class illumination(object):
     self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe))
     return (0)
 
-  def on(self, assume_master=False):
+  def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
-    do_light_action = True
-    if (self.votes_needed > 1) and (assume_master == False):
+    self.lg.debug("ill on() called")
+    if (self.votes_needed <= 1) or (assume_master == True):
+      self.lg.debug("Virtual light turned on")
+      ret = 0
+      if (self.votes_needed > 1):
+        self.on_votes.clear()
+    else:
       self.on_votes.append(True)
       if self.light_master.acquire(blocking=False):
-        # we're the light master!
         while self.on_votes.count(True) < self.votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
+        self.lg.debug("Virtual light turned on")
+        ret = 0
+        self.light_master.release()
       else:
         self.lg.debug("Light vote submitted")
-        do_light_action = False
-
-    if do_light_action == True:
-      self.lg.debug("Virtual light turned on")
-      if (self.votes_needed > 1) and (assume_master == False):
-        self.light_master.release()
-
-    if (self.votes_needed > 1) and (assume_master == True):
-      self.on_votes.clear()
-
-    return (0)
+        ret = 0
+    self.lg.debug("ill on() complete")
+    return ret
 
   def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
-    do_light_action = True
-    if (self.votes_needed > 1) and (assume_master == False):
+    self.lg.debug("ill off() called")
+    if (self.votes_needed <= 1) or (assume_master == True):
+      self.lg.debug("Virtual light turned off")
+      ret = 0
+      if (self.votes_needed > 1):
+        self.on_votes.clear()
+    else:
       self.on_votes.append(False)
       if self.light_master.acquire(blocking=False):
-        # we're the light master!
         while self.on_votes.count(False) < self.votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
+        self.lg.debug("Virtual light turned off")
+        ret = 0
+        self.light_master.release()
       else:
         self.lg.debug("Light vote submitted")
-        do_light_action = False
-
-    if do_light_action == True:
-      self.lg.debug("Virtual light turned off")
-      if (self.votes_needed > 1) and (assume_master == False):
-        self.light_master.release()
-
-    if (self.votes_needed > 1) and (assume_master == True):
-      self.on_votes.clear()
-
-    return (0)
+        ret = 0
+    self.lg.debug("ill off() complete")
+    return ret
 
   def get_spectrum(self):
     self.lg.debug("Giving you a virtual spectrum")
