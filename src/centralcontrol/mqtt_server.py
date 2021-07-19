@@ -819,7 +819,7 @@ class MQTTServer(object):
 
         # is this a group run queue?
         group_q = True
-        if len(run_queue) > 1:
+        if len(run_queue) > 0:
           if "device_label" in run_queue[0]:
             group_q = False
 
