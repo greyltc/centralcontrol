@@ -523,6 +523,7 @@ class MQTTServer(object):
     """
     measurement = mnt
     mppt.current_compliance = compliance_i
+    data = []
 
     # "Voc" if
     if args["i_dwell"] > 0:
