@@ -249,7 +249,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: FreeFloat command could not be handled")
+      self.lg.debug("Wavelabs FreeFloat command could not be handled")
     return response.error
 
   def activateRecipe(self, recipe_name=None):
@@ -263,7 +263,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Recipe '{:}' could not be activated, check that it exists".format(recipe_name))
+      self.lg.debug("Wavelabs recipe '{:}' could not be activated, check that it exists".format(recipe_name))
     return response.error
 
   def waitForResultAvailable(self, timeout=10000, run_ID=None):
@@ -278,7 +278,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to wait for result")
+      self.lg.debug("ERROR: Failed to wait for wavelabs result")
     return response.error
 
   def waitForRunFinished(self, timeout=10000, run_ID=None):
@@ -293,7 +293,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to wait for run finish")
+      self.lg.debug("Failed to wait for wavelabs run to finish")
     return response.error
 
   def getRecipeParam(self, recipe_name=None, step=1, device="Light", param="Intensity"):
@@ -307,7 +307,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to get recipe parameter")
+      self.lg.debug("Failed to get wavelabs recipe parameter")
       ret = None
     else:
       ret = response.paramVal
@@ -326,7 +326,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print(f"ERROR: Failed to getResult. Raw Request: {elT.ElementTree.tostring(root, method='xml')}")
+      self.lg.debug(f"Failed to getResult from wavelabs. Raw Request: {elT.ElementTree.tostring(root, method='xml')}")
       ret = None
     else:
       ret = response.paramVal
@@ -345,7 +345,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to getDataSeries")
+      self.lg.debug("Failed to getDataSeries")
     else:
       ret = []
       n_series = len(response.name)  # number of data series we got
@@ -368,7 +368,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Failed to set recipe parameter")
+      self.lg.debug("Failed to set recipe parameter")
     else:
       self.activateRecipe(recipe_name=recipe_name)
     return response.error
@@ -382,7 +382,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print(f"ERROR: Recipe could not be started with error {response.error}")
+      self.lg.debug(f"Unable to start light engine recipe with respoonse code {response.error}")
       runID = None
     else:
       runID = response.run_ID
@@ -397,7 +397,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print(f"WARNING: Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
+      self.lg.debug(f"Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
     return response.error
 
   def exitProgram(self):
@@ -409,7 +409,7 @@ class wavelabs:
     tree.write(self.sock_file)
     response = self.recvXML()
     if response.error != 0:
-      print("ERROR: Could not exit WaveLabs program")
+      self.lg.debug("Could not exit WaveLabs program")
     return response
 
   def get_runtime(self):
@@ -454,7 +454,7 @@ class wavelabs:
     finally:
       if old_duration is not None:
         self.setRecipeParam(param="Duration", value=int(old_duration))
-        print(f"Resetting recipe duration to its previous value: {old_duration} [ms]")
+        self.lg.info(f"Resetting recipe duration to its previous value: {old_duration} [ms]")
     if len(x) == 0:
       raise (ValueError('Unable to fetch spectrum.'))
     return (x, y)
