@@ -121,7 +121,7 @@ def _calibrate_spectrum(request, mqtthost):
 
         try:
             with fabric() as measurement:
-                measurement.current_limit = request["config"]["smu"]["current_limit"]
+                measurement.current_limit = request["config"]["smu"][0]["current_limit"]
 
                 _log("Calibrating solar simulator spectrum...", 20, mqttc)
 
@@ -210,7 +210,7 @@ def _build_q(request, experiment):
         else:
             pixel_dict["area"] = things["area"]
         pixel_dict["mux_string"] = things["mux_string"]
-        mapping = [x.lower() for x in config["smu"]["channel_mapping"]]
+        mapping = [x.lower() for x in config["smu"][0]["channel_mapping"]]
         smu_chan = mapping.index(things["sort_string"].lower())
         pixel_d[smu_chan] = pixel_dict
     return pixel_d
@@ -304,11 +304,11 @@ def _ivt(pixels, request, measurement, mqttc):
 
     # connect instruments
     measurement.connect_instruments(
-        smu_address=config["smu"]["address"],
-        smu_port=config["smu"]["port"],
-        smu_terminator=config["smu"]["terminator"],
-        smu_plf=config["smu"]["plf"],
-        smu_two_wire=config["smu"]["two_wire"],
+        smu_address=config["smu"][0]["address"],
+        smu_port=config["smu"][0]["port"],
+        smu_terminator=config["smu"][0]["terminator"],
+        smu_plf=config["smu"][0]["plf"],
+        smu_two_wire=config["smu"][0]["two_wire"],
         smu_invert_channels=args["inverted_conn"],
         light_address=light_address,
         light_virt=config["solarsim"]["virtual"],
@@ -416,7 +416,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     end=args["sweep_end"],
                     points=int(args["iv_steps"]),
                     source_voltage=True,
-                    smart_compliance=config["smu"]["smart_compliance"],
+                    smart_compliance=config["smu"][0]["smart_compliance"],
                     pixels=pixels,
                     handler=handler,
                     vocs=None,
@@ -444,7 +444,7 @@ def _ivt(pixels, request, measurement, mqttc):
                     end=args["sweep_start"],
                     points=int(args["iv_steps"]),
                     source_voltage=True,
-                    smart_compliance=config["smu"]["smart_compliance"],
+                    smart_compliance=config["smu"][0]["smart_compliance"],
                     pixels=pixels,
                     handler=handler,
                     vocs=iv1_vocs,
@@ -571,9 +571,7 @@ def _run(request, mqtthost):
             try:
                 with fabric() as measurement:
                     _log("Starting run...", 20, mqttc)
-                    measurement.current_limit = request["config"]["smu"][
-                        "current_limit"
-                    ]
+                    measurement.current_limit = request["config"]["smu"][0]["current_limit"]
 
                     if "IV_stuff" in args:
                         q = _build_q(request, experiment="solarsim")
