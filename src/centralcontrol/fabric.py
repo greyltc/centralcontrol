@@ -404,10 +404,14 @@ class fabric(object):
             else:
                 ssvocs = vocs
 
+            print(f"ssvocs: {ssvocs}")
+
             for ch, ssvoc in sorted(ssvocs.items()):
                 area = pixels[ch]["area"]
                 max_v = self.do_smart_compliance(ssvoc[0][0], self.current_limit, area)
                 max_vs[ch] = max_v
+
+            print(f"max vs: {max_vs}")
 
         values = {}
         for ch in pixels.keys():
@@ -424,6 +428,7 @@ class fabric(object):
 
             step = (_end - _start) / (points - 1)
             values[ch] = [x * step + _start for x in range(points)]
+            print(f"ch {ch} step and start: {step} and {_start}")
 
         self.sm.configure_list_sweep(values=values, source_mode=source_mode)
 
