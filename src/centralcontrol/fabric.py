@@ -466,16 +466,21 @@ class fabric(object):
         max_v : float
             Maximum voltage that can be applied safely in V.
         """
-        # in mA/cm^2
-        compliance_j = compliance_i * 1000 / area
+        if voc > 0:
+            # in mA/cm^2
+            compliance_j = compliance_i * 1000 / area
 
-        # approximate ideal short circuit for Si
-        ideal_j = 50
+            # approximate ideal short circuit for Si
+            ideal_j = 50
 
-        # thermal voltage
-        vt = k * self.T / e
+            # thermal voltage
+            vt = k * self.T / e
 
-        return vt * np.log((1 - (-compliance_j) / ideal_j) * (np.exp(voc / vt) - 1) + 1)
+            return vt * np.log(
+                (1 - (-compliance_j) / ideal_j) * (np.exp(voc / vt) - 1) + 1
+            )
+        else:
+            return 0
 
     def track_max_power(
         self,
