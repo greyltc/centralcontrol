@@ -242,7 +242,7 @@ class UtilityHandler(object):
                 smu = virt.k2400
               else:
                 smu = sm
-              k = smu(addressString=task['smu'][0]["adress"], terminator=task['smu'][0]["terminator"], serialBaud=task['smu_baud'][0]["baud"], front=task['smu'][0]["front_terminals"])
+              k = smu(addressString=task['smu'][0]["address"], terminator=task['smu'][0]["terminator"], serialBaud=task['smu'][0]["baud"], front=task['smu'][0]["front_terminals"])
 
               # set up sourcemeter for the task
               if task['type'] == 'current':
