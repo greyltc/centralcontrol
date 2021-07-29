@@ -146,7 +146,7 @@ class motion:
 
       for i, a in enumerate(self.axes):
         if self.actual_lengths[i] <= 0:
-          self.lg.warn(f"Warning: axis {a} is not ready for motion. Homing recommended.")
+          self.lg.warn(f"Warning: axis {a} is not ready for motion. Stage reclibration recommended (use Ctrl + r key combo).")
 
     self.lg.debug(f'motion connected')
     return result
