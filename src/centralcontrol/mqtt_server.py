@@ -455,7 +455,7 @@ class MQTTServer(object):
     if (len(request["config"]["smu"]) > 1) and (experiment == "solarsim"):  # multismu case
       for group in request["config"]["substrates"]["device_grouping"]:
         group_dict = {}
-        for i, device in enumerate(group):
+        for smu_index, device in enumerate(group):
           d = device.upper()
           if d in stuff.sort_string.values:
             pixel_dict = {}
@@ -474,7 +474,7 @@ class MQTTServer(object):
             else:
               pixel_dict['area'] = area
             pixel_dict['mux_string'] = stuff.loc[rsel]['mux_string'].values[0]
-            group_dict[i] = pixel_dict
+            group_dict[smu_index] = pixel_dict
         if len(group_dict) > 0:
           run_q.append(group_dict)
     else:  # single smu case
@@ -818,7 +818,7 @@ class MQTTServer(object):
         n_done = 0
         t0 = time.time()
 
-        # is this a group run queue?
+        # is this a multi-smu-type run queue?
         group_q = True
         if len(run_queue) > 0:
           if "device_label" in run_queue[0]:
@@ -839,15 +839,23 @@ class MQTTServer(object):
             self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
           if group_q == True:
+            n_parallel = len(q_item)  # how many pixels this group holds
             print_labels = [val['device_label'] for key, val in q_item.items()]
             self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(print_labels), "qos": 2, "retain": True})
             print_label = " + ".join(print_labels)
             theres = np.array([val['pos'] for key, val in q_item.items()])
             there = tuple(theres.mean(0))  # the average location of the group
+            this_group = q_item
           else:
+            n_parallel = 1
             print_label = q_item['device_label']
             there = q_item["pos"]
+            this_group = {0: q_item}
           self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {print_label} ####")
+
+          # set up light source voting (if any)
+          if hasattr(measurement, "le"):
+            measurement.le.votes_needed(n_parallel)
 
           # move stage
           if mo is not None:
@@ -859,22 +867,15 @@ class MQTTServer(object):
               mo.goto(there)
 
           # select pixel
-          if group_q == True:
-            for key, pixel in q_item.items():
-              measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
-          else:
-            measurement.select_pixel(mux_string=q_item['mux_string'], pcb=gp_pcb)
+          for smu_index, pixel in q_item.items():
+            measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
             futures = {}
-            pixels = {}
-            for index, sm in enumerate(measurement.sms):
-              if group_q == True:
-                pixel = q_item[index]
-              else:
-                pixel = q_item
 
-              pixels[index] = pixel
+            for smu_index, pixel in this_group.items():
+              #for index, sm in enumerate(measurement.sms):
+              sm = measurement.sms[smu_index]
 
               # setup data handler
               if calibration == False:
@@ -887,28 +888,22 @@ class MQTTServer(object):
               compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args['jmax'], imax=args['imax'])
 
               # submit for processing
-              futures[index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[index], dh, compliance_i, args, config, calibration, sweeps)
+              futures[smu_index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps)
 
             # collect the datas!
             datas = {}
-            for key, future in futures.items():
+            for smu_index, future in futures.items():
               data = future.result()
-              datas[key] = data
+              measurement.sms[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
+              measurement.select_pixel(mux_string=f's{this_group[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
+              datas[smu_index] = data
               if calibration == True:
-                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{pixels[key]['label']}_device_{pixels[key]['pixel']}"}
+                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{this_group[smu_index]['label']}_device_{this_group[smu_index]['pixel']}"}
                 if rtd == True:
                   self.lg.debug("RTD cal")
                   self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
                 else:
                   self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
-
-          # it's probably wise to shut off the smu after every pixel
-          if len(measurement.sms) > 0:
-            for sm in measurement.sms:
-              sm.outOn(False)
-
-          # deselect all pixels
-          measurement.select_pixel(mux_string='s', pcb=gp_pcb)
 
           n_done += 1
           remaining = len(run_queue)

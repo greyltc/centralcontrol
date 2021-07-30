@@ -234,7 +234,7 @@ class fabric(object):
 
     self._connected_instruments.append(self.mono)
 
-  def _connect_solarsim(self, is_virt=False, light_address=None, light_recipe=None, votes_needed=1):
+  def _connect_solarsim(self, is_virt=False, light_address=None, light_recipe=None):
     """Create solar simulator connection.
 
         Parameters
@@ -249,9 +249,9 @@ class fabric(object):
             instrument is created.
         """
     if is_virt == True:
-      self.le = virt.illumination(address=light_address, default_recipe=light_recipe, votes_needed=votes_needed)
+      self.le = virt.illumination(address=light_address, default_recipe=light_recipe)
     else:
-      self.le = illumination(address=light_address, default_recipe=light_recipe, votes_needed=votes_needed)
+      self.le = illumination(address=light_address, default_recipe=light_recipe)
     self.le.connect()
 
     self._connected_instruments.append(self.le)
@@ -400,11 +400,7 @@ class fabric(object):
       self._connect_monochromator(is_virt=mono_virt, visa_lib=visa_lib, mono_address=mono_address, mono_terminator=mono_terminator, mono_baud=mono_baud)
 
     if light_address is not None:
-      if smus is None:
-        votes_needed = 1
-      else:
-        votes_needed = len(smus)
-      self._connect_solarsim(is_virt=light_virt, light_address=light_address, light_recipe=light_recipe, votes_needed=votes_needed)
+      self._connect_solarsim(is_virt=light_virt, light_address=light_address, light_recipe=light_recipe)
 
     if psu_address is not None:
       self._connect_psu(is_virt=psu_virt, visa_lib=visa_lib, psu_address=psu_address, psu_terminator=psu_terminator, psu_baud=psu_baud, psu_ocps=psu_ocps)

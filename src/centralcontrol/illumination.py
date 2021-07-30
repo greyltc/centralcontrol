@@ -20,11 +20,10 @@ class illumination(object):
   """
   light_engine = None
   protocol = None
-  votes_needed = 1  # for handling light state voting
   light_master = threading.Semaphore()
   connection_timeout = 10
 
-  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout=10, votes_needed=1):
+  def __init__(self, address='', default_recipe='am1_5_1_sun', connection_timeout=10):
     """
     sets up communication to light source
     """
@@ -47,10 +46,8 @@ class illumination(object):
         self.lg.addHandler(ch)
 
     self.connection_timeout = connection_timeout  # s
-
-    self.votes_needed = votes_needed
-    if self.votes_needed > 1:
-      self.on_votes = collections.deque([], maxlen=self.votes_needed)
+    self._votes_needed = 1
+    self.on_votes = collections.deque([], maxlen=self._votes_needed)
 
     addr_split = address.split(sep='://', maxsplit=1)
     protocol = addr_split[0]
@@ -82,6 +79,20 @@ class illumination(object):
 
     self.lg.debug(f"{__name__} initialized.")
 
+  @property
+  def votes_needed(self):
+    return self._votes_needed
+
+  @votes_needed.setter
+  def votes_needed(self, value):
+    self._votes_needed = value
+    if value > 1:
+      self.on_votes = collections.deque([], maxlen=value)
+
+  @votes_needed.deleter
+  def votes_needed(self):
+    del self._votes_needed
+
   def connect(self):
     """
     makes connection to light source
@@ -94,14 +105,14 @@ class illumination(object):
   def on(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill on() called")
-    if (self.votes_needed <= 1) or (assume_master == True):
+    if (self._votes_needed <= 1) or (assume_master == True):
       ret = self.light_engine.on()
-      if (self.votes_needed > 1):
+      if (self._votes_needed > 1):
         self.on_votes.clear()
     else:
       self.on_votes.append(True)
       if self.light_master.acquire(blocking=False):
-        while self.on_votes.count(True) < self.votes_needed:
+        while self.on_votes.count(True) < self._votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
         ret = self.light_engine.on()
@@ -115,14 +126,14 @@ class illumination(object):
   def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill off() called")
-    if (self.votes_needed <= 1) or (assume_master == True):
+    if (self._votes_needed <= 1) or (assume_master == True):
       ret = self.light_engine.off()
-      if (self.votes_needed > 1):
+      if (self._votes_needed > 1):
         self.on_votes.clear()
     else:
       self.on_votes.append(False)
       if self.light_master.acquire(blocking=False):
-        while self.on_votes.count(False) < self.votes_needed:
+        while self.on_votes.count(False) < self._votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
         ret = self.light_engine.off()
