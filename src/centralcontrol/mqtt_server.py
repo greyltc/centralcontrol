@@ -855,7 +855,7 @@ class MQTTServer(object):
 
           # set up light source voting (if any)
           if hasattr(measurement, "le"):
-            measurement.le.votes_needed(n_parallel)
+            measurement.le.votes_needed = n_parallel
 
           # move stage
           if mo is not None:
