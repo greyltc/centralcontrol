@@ -40,12 +40,24 @@ class illumination(object):
         ch.setFormatter(logFormat)
         self.lg.addHandler(ch)
 
-    if 'votes_needed' in kwargs:
-      self.votes_needed = kwargs["votes_needed"]
-    if self.votes_needed > 1:
-      self.on_votes = collections.deque([], maxlen=self.votes_needed)
+    self._votes_needed = 1
+    self.on_votes = collections.deque([], maxlen=self._votes_needed)
 
     self.lg.debug(f"{__name__} virtually initialized.")
+
+  @property
+  def votes_needed(self):
+    return self._votes_needed
+
+  @votes_needed.setter
+  def votes_needed(self, value):
+    self._votes_needed = value
+    if value > 1:
+      self.on_votes = collections.deque([], maxlen=value)
+
+  @votes_needed.deleter
+  def votes_needed(self):
+    del self._votes_needed
 
   def connect(self):
     self.lg.debug("Connected to virtual lightsource")
@@ -55,18 +67,18 @@ class illumination(object):
     self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe))
     return (0)
 
-  def off(self, assume_master=False):
+  def on(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill on() called")
-    if (self.votes_needed <= 1) or (assume_master == True):
+    if (self._votes_needed <= 1) or (assume_master == True):
       self.lg.debug("Virtual light turned on")
       ret = 0
-      if (self.votes_needed > 1):
+      if (self._votes_needed > 1):
         self.on_votes.clear()
     else:
       self.on_votes.append(True)
       if self.light_master.acquire(blocking=False):
-        while self.on_votes.count(True) < self.votes_needed:
+        while self.on_votes.count(True) < self._votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
         self.lg.debug("Virtual light turned on")
@@ -81,7 +93,7 @@ class illumination(object):
   def off(self, assume_master=False):
     # thread safe light control with unanimous state voting
     self.lg.debug("ill off() called")
-    if (self.votes_needed <= 1) or (assume_master == True):
+    if (self._votes_needed <= 1) or (assume_master == True):
       self.lg.debug("Virtual light turned off")
       ret = 0
       if (self.votes_needed > 1):
@@ -89,7 +101,7 @@ class illumination(object):
     else:
       self.on_votes.append(False)
       if self.light_master.acquire(blocking=False):
-        while self.on_votes.count(False) < self.votes_needed:
+        while self.on_votes.count(False) < self._votes_needed:
           pass  # wait for everyone to agree
         self.lg.debug("Light voting complete!")
         self.lg.debug("Virtual light turned off")
