@@ -170,7 +170,7 @@ class UtilityHandler(object):
               needs_home = True
             else:
               needs_home = False
-              for ax in ['0', '1', '2']:
+              for ax in ['1', '2', '3']:
                 len_ret = p.query(f'l{ax}')
                 if len_ret == '0':
                   needs_home = True
