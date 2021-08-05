@@ -166,9 +166,21 @@ class UtilityHandler(object):
           with stage_pcb_class(task['pcb'], timeout=1) as p:
             mo = motion(address=task['stage_uri'], pcb_object=p)
             mo.connect()
-            mo.home()
-            self.lg.info('Homing procedure complete.')
-            self.send_pos(mo)
+            if task['force'] == True:
+              needs_home = True
+            else:
+              needs_home = False
+              for ax in ['0', '1', '2']:
+                len_ret = p.query(f'l{ax}')
+                if len_ret == '0':
+                  needs_home = True
+                  break
+            if needs_home == True:
+              mo.home()
+              self.lg.info('Stage calibration procedure complete.')
+              self.send_pos(mo)
+            else:
+              self.lg.info('The stage is already calibrated.')
           del (mo)
 
         # send the stage some place
