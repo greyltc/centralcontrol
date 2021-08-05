@@ -294,6 +294,7 @@ class MQTTServer(object):
             inner_pcb = measurement.real_pcb
             inner_init_args['timeout'] = 1
             inner_init_args['address'] = gp_pcb_address
+            inner_init_args['expected_muxes'] = config['controller']['expected_muxes']
         with fake_pcb() as fake_p:
           with inner_pcb(**inner_init_args) as inner_p:
             if gp_pcb_is_fake == True:
@@ -759,6 +760,7 @@ class MQTTServer(object):
         inner_pcb = measurement.real_pcb
         inner_init_args['timeout'] = 1
         inner_init_args['address'] = gp_pcb_address
+        inner_init_args['expected_muxes'] = config['controller']['expected_muxes']
     with fake_pcb() as fake_p:
       with inner_pcb(**inner_init_args) as inner_p:
         if gp_pcb_is_fake == True:
@@ -981,6 +983,7 @@ class MQTTServer(object):
         inner_pcb = measurement.real_pcb
         inner_init_args['timeout'] = 1
         inner_init_args['address'] = gp_pcb_address
+        inner_init_args['expected_muxes'] = config['controller']['expected_muxes']
     with fake_pcb() as fake_p:
       with inner_pcb(**inner_init_args) as inner_p:
         if gp_pcb_is_fake == True:

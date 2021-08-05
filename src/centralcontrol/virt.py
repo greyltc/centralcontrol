@@ -152,6 +152,8 @@ class pcb(object):
   detected_muxes = ['A']
 
   def __init__(self, *args, **kwargs):
+    if "expected_muxes" in kwargs:
+      self.detected_muxes = kwargs['expected_muxes']
     pass
 
   def prepare_virt_motion(self, spm, el):
