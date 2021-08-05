@@ -475,40 +475,43 @@ class fabric(object):
     return 0
 
   def select_pixel(self, mux_string=None, pcb=None):
-    """Select pixel on the mux.
-
-        Parameters
-        ----------
-        pixel : dict
-            Pixel information dictionary.
+    """closes mux switches
 
         Returns
         -------
         response : int
             Response code. 0 is good, everything else means fail.
         """
-    loops_left = 2
-    while (loops_left > 0):
-      ret = -1  # not initialized error
-      if pcb is not None:
-        resp = pcb.query(mux_string)  # select the correct pixel
+    ret = -1  # not initialized error
+    if pcb is not None:
+      # get this into a list
+      if isinstance(mux_string, str):
+        selection = [mux_string]
+      else:
+        selection = mux_string
+      n_attempts = 2
+      for attempt in range(n_attempts):
+        ret = -1  # not initialized error
+        if pcb is not None:
+          resp = pcb.set_mux(selection)  # program the latches
+          if resp == "":
+            ret = 0  # no error
+            break
+          else:
+            ret = -2  # error from pcb while setting mux
+      else:  # gets called if we never break from the above for loop (failure to set mux)
+        # do some hardware resetting and try one last time
+        got_muxes = pcb.probe_muxes('c')  # run the mux probe code that will reset the hardware and check for individual mux IC comms
+        deselect_response = pcb.query('s')
+        resp = pcb.set_mux(selection)  # program the latches
         if resp == "":
           ret = 0  # no error
-          break
+          self.lg.debug("Sucessful recovery from mux set error")
         else:
-          self.lg.warning(f"PCB response to {mux_string} was '{resp}'")
-          ret = -2  # error from pcb while setting mux
-      else:
-        # assume a call with None pcb is a pass
+          self.lg.error(f"Unable to set MUX. MUX IC presence: '{got_muxes}', expected '{pcb.expected_muxes}'. Deselect response: {deselect_response}. Attempt: {selection}")
+          raise (ValueError("MUX failure"))
+    else:  # assume a call with None pcb is a pass
         ret = 0  # no error
-        break
-      loops_left -= 1
-
-    if loops_left == 0:
-      msg = f"Unable to select device with {mux_string}"
-      self.lg.error(msg)
-      raise (ValueError(msg))
-
     return ret
 
   def set_experiment_relay(self, exp_relay, pcb):

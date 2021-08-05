@@ -866,9 +866,9 @@ class MQTTServer(object):
                   measurement.le.off(assume_master=True)
               mo.goto(there)
 
-          # select pixel
-          for smu_index, pixel in q_item.items():
-            measurement.select_pixel(mux_string=pixel['mux_string'], pcb=gp_pcb)
+          # select pixel(s)
+          pix_selection_strings = [val['mux_string'] for key, val in q_item.items()]
+          measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
             futures = {}

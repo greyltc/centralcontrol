@@ -192,6 +192,9 @@ class pcb(object):
       self.detected_axes = ['1', '2']
     elif len(self.el) == 3:
       self.detected_axes = ['1', '2', '3']
+  
+  def set_mux(self, mux_setting):
+    return ""
 
   def query(self, cmd):
     print(f"Virtual CALL. Class={type(self).__name__}. function={inspect.currentframe().f_code.co_name}. cmd={cmd}")

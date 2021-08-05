@@ -29,6 +29,7 @@ class pcb(object):
   firmware_version = 'unknown'
   detected_muxes = []
   detected_axes = []
+  expected_muxes = []
 
   class MyTelnet(Telnet):
     def read_response(self, timeout=None):
@@ -48,7 +49,7 @@ class pcb(object):
         self.write(cmd.encode() + pcb.write_terminator)
       self.sock.sendall()
 
-  def __init__(self, address=None, timeout=comms_timeout):
+  def __init__(self, address=None, timeout=comms_timeout, expected_muxes=[]):
     self.comms_timeout = timeout  # pcb has this many seconds to respond
 
     # setup logging
@@ -77,6 +78,8 @@ class pcb(object):
         h, p = address.split(':')
         self.telnet_host = h
         self.telnet_port = int(p)
+    
+    self.expected_muxes = expected_muxes
 
     self.lg.debug(f"{__name__} initialized.")
 
@@ -97,6 +100,8 @@ class pcb(object):
     self.probe_muxes()
     self.probe_axes()
     self.lg.debug(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
+    if self.expected_muxes != self.detected_muxes:
+      self.lg.debug(f"Got unexpected mux presence. Wanted: '{self.expected_muxes}' but got '{self.detected_muxes}")
     return (self)
 
   # figures out what muxes are connected
@@ -159,6 +164,15 @@ class pcb(object):
     if ack == False:
       self.lg.warning(f"Firmware did not acknowledge '{query}'")
     return answer
+  
+  # configures the mux
+  def set_mux(self, mux_setting):
+    for mux_string in mux_setting:
+      resp = self.query(mux_string)
+      if resp != "":  # break on error setting mux message
+        self.lg.warning(f"MUX response to {mux_string} was '{resp}'")
+        break
+    return resp
 
   def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
     """Set TCP keepalive on an open socket.
