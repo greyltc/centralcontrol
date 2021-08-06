@@ -869,7 +869,7 @@ class MQTTServer(object):
               mo.goto(there)
 
           # select pixel(s)
-          pix_selection_strings = [val['mux_string'] for key, val in q_item.items()]
+          pix_selection_strings = [val['mux_string'] for key, val in this_group.items()]
           measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
 
           with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
