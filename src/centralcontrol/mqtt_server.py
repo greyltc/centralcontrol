@@ -911,6 +911,7 @@ class MQTTServer(object):
           remaining = len(run_queue)
           if (remaining == 0) and (args['cycles'] == 0):
             run_queue = start_q
+            remaining = len(run_queue)
             # refresh the deque to loop forever
 
         progress_msg = {"text": "Done!", "fraction": 1}
