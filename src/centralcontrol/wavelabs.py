@@ -276,7 +276,10 @@ class wavelabs:
     self.iseq = self.iseq + 1
     tree = ET.ElementTree(root)
     tree.write(self.sock_file)
+    old_tout = self.connection.gettimeout()
+    self.connection.settimeout(timeout/1000)
     response = self.recvXML()
+    self.connection.settimeout(old_tout)
     if response.error != 0:
       self.lg.debug("ERROR: Failed to wait for wavelabs result")
     return response.error
@@ -291,7 +294,10 @@ class wavelabs:
     self.iseq = self.iseq + 1
     tree = ET.ElementTree(root)
     tree.write(self.sock_file)
+    old_tout = self.connection.gettimeout()
+    self.connection.settimeout(timeout/1000)
     response = self.recvXML()
+    self.connection.settimeout(old_tout)
     if response.error != 0:
       self.lg.debug("Failed to wait for wavelabs run to finish")
     return response.error
