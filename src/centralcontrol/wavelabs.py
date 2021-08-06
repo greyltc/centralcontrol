@@ -267,7 +267,10 @@ class wavelabs:
     return response.error
 
   def waitForResultAvailable(self, timeout=10000, run_ID=None):
-    """wait for result from a recipe to be available"""
+    """
+    wait for result from a recipe to be available
+    timeout is in ms
+    """
     root = ET.Element("WLRC")
     if run_ID == None:
       ET.SubElement(root, 'WaitForResultAvailable', iSeq=str(self.iseq), fTimeout=str(timeout))
@@ -285,7 +288,9 @@ class wavelabs:
     return response.error
 
   def waitForRunFinished(self, timeout=10000, run_ID=None):
-    """wait for the current run to finish"""
+    """wait for the current run to finish
+    timeout is in ms
+    """
     root = ET.Element("WLRC")
     if run_ID == None:
       ET.SubElement(root, 'WaitForRunFinished', iSeq=str(self.iseq), fTimeout=str(timeout))
