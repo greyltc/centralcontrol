@@ -508,7 +508,7 @@ class fabric(object):
           ret = 0  # no error
           self.lg.debug("Sucessful recovery from mux set error")
         else:
-          self.lg.error(f"Unable to set MUX. MUX IC presence: '{got_muxes}', expected '{pcb.expected_muxes}'. Deselect response: {deselect_response}. Attempt: {selection}")
+          self.lg.error(f'Unable to set MUX. MUX IC presence: "{got_muxes}", expected "{pcb.expected_muxes}". Deselect response: "{deselect_response}". Attempt: "{selection}"')
           raise (ValueError("MUX failure"))
     else:  # assume a call with None pcb is a pass
         ret = 0  # no error
