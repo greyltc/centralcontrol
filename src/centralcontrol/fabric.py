@@ -501,8 +501,8 @@ class fabric(object):
             ret = -2  # error from pcb while setting mux
       else:  # gets called if we never break from the above for loop (failure to set mux)
         # do some hardware resetting and try one last time
-        got_muxes = pcb.probe_muxes('c')  # run the mux probe code that will reset the hardware and check for individual mux IC comms
-        deselect_response = pcb.query('s')
+        got_muxes = pcb.probe_muxes()  # run the mux probe code that will reset the hardware and check for individual mux IC comms
+        deselect_response = pcb.query('s')  # deselect everything
         resp = pcb.set_mux(selection)  # program the latches
         if resp == "":
           ret = 0  # no error
