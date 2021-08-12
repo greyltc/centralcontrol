@@ -138,6 +138,7 @@ class wavelabs:
     target = self.XMLHandler()
     parser = ET.XMLParser(target=target)
     fed = bytes([])
+    self.lg.debug(f"{self.connection.gettimeout()=}")
     while not target.done_parsing:
       try:
         # TODO: consider reading with readline and makefile until '\r\n'
@@ -199,7 +200,7 @@ class wavelabs:
         #self.connection.settimeout(old_tout)
       except Exception as e:
         #self.connection.settimeout(old_tout)
-        raise (ValueError(f'Unable to set solar sim recipe: {self.default_recipe}'))
+        raise ValueError(f'Unable to set solar sim recipe: {self.default_recipe}')
     return (ret)
 
   #  0 is success
