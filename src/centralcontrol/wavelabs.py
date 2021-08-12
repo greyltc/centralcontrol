@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import socketserver
 import xml.etree.cElementTree as ET
 import time
@@ -15,7 +14,7 @@ except ImportError:
     pass
 
 
-class Wavelabs:
+class Wavelabs(object):
     """interface to the wavelabs LED solar simulator"""
 
     iseq = 0  # sequence number for comms with wavelabs software
@@ -140,27 +139,33 @@ class Wavelabs:
         """reads xml object from socket"""
         target = self.XMLHandler()
         parser = ET.XMLParser(target=target)
-        fed = bytes([])
-        self.lg.debug(f"{self.connection.gettimeout()=}")
-        while not target.done_parsing:
-            try:
-                # TODO: consider reading with readline and makefile until '\r\n'
-                new = self.connection.recv(1024)
-                fed += new
-                parser.feed(new)
-            except socketserver.socket.timeout:
-                msg = "Wavelabs comms socket timeout"
-                target.error = -9999
-                target.error_message = msg
-                break
+        try:
+            msg = self.sock_file.readline()
+            parser.feed(msg)
+        except socketserver.socket.timeout:
+            msg = "Wavelabs comms socket timeout"
+            target.error = -9999
+            target.error_message = msg
+            target.done_parsing = True
+        except Exception as e:
+            target.error = -9998
+            target.error_message = f"General exception: {e}"
+            target.done_parsing = True
+
+        if not target.done_parsing:
+            target.error = -9997
+            target.error_message = "Unable to parse message"
+
+        if target.error != 0:
+            if not (target.error_message == "Recipe still running."):  # ignore still running warnings
+                self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
+                self.lg.warn(f"Raw message: {msg}")
+
         try:
             parser.close()
         except Exception as e:
             pass
-        if target.error != 0:
-            if not (target.error_message == "Recipe still running."):  # ignore still running warnings
-                self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
-                self.lg.warn(f"Raw message: {fed}")
+
         return target
 
     def startServer(self):
