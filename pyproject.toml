@@ -4,3 +4,10 @@ requires = [
   "wheel",
 ]
 build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 999999
+
+# could format like this in case black isn't doing its job: `python -m yapf --recursive --in-place .`
+#[tool.yapf]
+#column_limit = 999999
