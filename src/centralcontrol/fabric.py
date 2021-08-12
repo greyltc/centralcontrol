@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 
 # this boilerplate code allows this module to be run directly as a script
-if (__name__ == "__main__") and (__package__ in [None, '']):
-  __package__ = "centralcontrol"
-  # get the dir that holds __package__ on the front of the search path
-  sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+if (__name__ == "__main__") and (__package__ in [None, ""]):
+    __package__ = "centralcontrol"
+    # get the dir that holds __package__ on the front of the search path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from . import virt
 from .k2400 import k2400
@@ -32,100 +32,101 @@ import virtual_dp800
 import eqe
 
 import logging
+
 # for logging directly to systemd journal if we can
 try:
-  import systemd.journal
+    import systemd.journal
 except ImportError:
-  pass
+    pass
 
 
 class fabric(object):
-  """Experiment control logic."""
+    """Experiment control logic."""
 
-  # expecting mqtt queue publisher object
-  _mqttc = None
+    # expecting mqtt queue publisher object
+    _mqttc = None
 
-  # keep track of connected instruments
-  _connected_instruments = []
+    # keep track of connected instruments
+    _connected_instruments = []
 
-  #current_limit = float("inf")
-  current_limit = 0.1  # always safe default
+    # current_limit = float("inf")
+    current_limit = 0.1  # always safe default
 
-  # a virtual pcb object
-  fake_pcb = virt.pcb
+    # a virtual pcb object
+    fake_pcb = virt.pcb
 
-  # a real pcb object
-  real_pcb = pcb
+    # a real pcb object
+    real_pcb = pcb
 
-  # thing that can hold a list of smus
-  sms = []
+    # thing that can hold a list of smus
+    sms = []
 
-  # thing that can hold a list of mppts (one per smu)
-  mppts = []
+    # thing that can hold a list of mppts (one per smu)
+    mppts = []
 
-  killer = threading.Event()
+    killer = threading.Event()
 
-  def __init__(self, killer=threading.Event()):
-    """Get software revision."""
-    # self.software_revision = __version__
-    # print("Software revision: {:s}".format(self.software_revision))
-    self.killer = killer
+    def __init__(self, killer=threading.Event()):
+        """Get software revision."""
+        # self.software_revision = __version__
+        # print("Software revision: {:s}".format(self.software_revision))
+        self.killer = killer
 
-    # setup logging
-    self.lg = logging.getLogger(__name__)
-    self.lg.setLevel(logging.DEBUG)
+        # setup logging
+        self.lg = logging.getLogger(__name__)
+        self.lg.setLevel(logging.DEBUG)
 
-    if not self.lg.hasHandlers():
-      # set up logging to systemd's journal if it's there
-      if 'systemd' in sys.modules:
-        sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-        sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-        sysdl.setFormatter(sysLogFormat)
-        self.lg.addHandler(sysdl)
-      else:
-        # for logging to stdout & stderr
-        ch = logging.StreamHandler()
-        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-        ch.setFormatter(logFormat)
-        self.lg.addHandler(ch)
+        if not self.lg.hasHandlers():
+            # set up logging to systemd's journal if it's there
+            if "systemd" in sys.modules:
+                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+                sysdl.setFormatter(sysLogFormat)
+                self.lg.addHandler(sysdl)
+            else:
+                # for logging to stdout & stderr
+                ch = logging.StreamHandler()
+                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+                ch.setFormatter(logFormat)
+                self.lg.addHandler(ch)
 
-    self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug(f"{__name__} initialized.")
 
-  def __enter__(self):
-    """Enter the runtime context related to this object."""
-    return self
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
+        return self
 
-  def __exit__(self, exc_type, exc_value, traceback):
-    """Exit the runtime context related to this object.
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context related to this object.
 
         Make sure everything gets cleaned up properly.
         """
-    self.lg.debug("exiting...")
-    self.disconnect_all_instruments()
-    self.lg.debug("cleaned up successfully")
+        self.lg.debug("exiting...")
+        self.disconnect_all_instruments()
+        self.lg.debug("cleaned up successfully")
 
-  def compliance_current_guess(self, area=None, jmax=None, imax=None):
-    """Guess what the compliance current should be for i-v-t measurements.
+    def compliance_current_guess(self, area=None, jmax=None, imax=None):
+        """Guess what the compliance current should be for i-v-t measurements.
         area in cm^2
         jmax in mA/cm^2
         imax in A (overrides jmax/area calc)
         returns value in A (defaults to 0.025A = 0.5cm^2 * 50 mA/cm^2)
         """
-    ret_val = 0.5 * 0.05  # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
-    if imax is not None:
-      ret_val = imax
-    elif (area is not None) and (jmax is not None):
-      ret_val = jmax * area / 1000  #scale mA to A
+        ret_val = 0.5 * 0.05  # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
+        if imax is not None:
+            ret_val = imax
+        elif (area is not None) and (jmax is not None):
+            ret_val = jmax * area / 1000  # scale mA to A
 
-    # enforce the global current limit
-    if ret_val > self.current_limit:
-      self.lg.warn("Detected & denied an attempt to damage equipment through overcurrent")
-      ret_val = self.current_limit
+        # enforce the global current limit
+        if ret_val > self.current_limit:
+            self.lg.warn("Detected & denied an attempt to damage equipment through overcurrent")
+            ret_val = self.current_limit
 
-    return ret_val
+        return ret_val
 
-  def _connect_smu(self, is_virt=False, visa_lib="@py", smu_address=None, smu_terminator="\n", smu_baud=57600, smu_front_terminals=False, smu_two_wire=False):
-    """Create smu connection.
+    def _connect_smu(self, is_virt=False, visa_lib="@py", smu_address=None, smu_terminator="\n", smu_baud=57600, smu_front_terminals=False, smu_two_wire=False):
+        """Create smu connection.
 
         Parameters
         ----------
@@ -147,33 +148,33 @@ class fabric(object):
             Flag whether to measure in two-wire mode. If `False` measure in four-wire
             mode.
         """
-    t0 = time.time()
-    if is_virt == True:
-      sm = virt.k2400(killer=self.killer)
-    else:
-      sm = k2400(
-          visa_lib=visa_lib,
-          terminator=smu_terminator,
-          addressString=smu_address,
-          serialBaud=smu_baud,
-          front=smu_front_terminals,
-          twoWire=smu_two_wire,
-          killer=self.killer,
-      )
-    self._connected_instruments.append(sm)
-    self.sms.append(sm)
-    self.mppts.append(mppt(sm, self.current_limit, killer=self.killer))
-    self.lg.debug(f"SMU{len(self.sms)} connect time = {time.time() - t0} s")
+        t0 = time.time()
+        if is_virt == True:
+            sm = virt.k2400(killer=self.killer)
+        else:
+            sm = k2400(
+                visa_lib=visa_lib,
+                terminator=smu_terminator,
+                addressString=smu_address,
+                serialBaud=smu_baud,
+                front=smu_front_terminals,
+                twoWire=smu_two_wire,
+                killer=self.killer,
+            )
+        self._connected_instruments.append(sm)
+        self.sms.append(sm)
+        self.mppts.append(mppt(sm, self.current_limit, killer=self.killer))
+        self.lg.debug(f"SMU{len(self.sms)} connect time = {time.time() - t0} s")
 
-    if len(self.sms) == 1:
-      self.sm_idn = sm.idn
-      self.sm = sm
+        if len(self.sms) == 1:
+            self.sm_idn = sm.idn
+            self.sm = sm
 
-      # instantiate max-power tracker object based on smu
-      self.mppt = mppt(sm, self.current_limit, killer=self.killer)
+            # instantiate max-power tracker object based on smu
+            self.mppt = mppt(sm, self.current_limit, killer=self.killer)
 
-  def _connect_lia(self, is_virt=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
-    """Create lock-in amplifier connection.
+    def _connect_lia(self, is_virt=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
+        """Create lock-in amplifier connection.
 
         Parameters
         ----------
@@ -197,19 +198,19 @@ class fabric(object):
                 * 0 : RS232
                 * 1 : GPIB
         """
-    if is_virt == True:
-      self.lia = virtual_sr830.sr830(return_int=True)
-    else:
-      self.lia = sr830.sr830()
+        if is_virt == True:
+            self.lia = virtual_sr830.sr830(return_int=True)
+        else:
+            self.lia = sr830.sr830()
 
-    # default lia_output_interface is RS232
-    self.lia.connect(lia_address, output_interface=lia_output_interface, **{"timeout": 90000})
-    self.lg.debug(self.lia.idn)
+        # default lia_output_interface is RS232
+        self.lia.connect(lia_address, output_interface=lia_output_interface, **{"timeout": 90000})
+        self.lg.debug(self.lia.idn)
 
-    self._connected_instruments.append(self.lia)
+        self._connected_instruments.append(self.lia)
 
-  def _connect_monochromator(self, is_virt=False, visa_lib="@py", mono_address=None, mono_terminator="\r", mono_baud=9600):
-    """Create monochromator connection.
+    def _connect_monochromator(self, is_virt=False, visa_lib="@py", mono_address=None, mono_terminator="\r", mono_baud=9600):
+        """Create monochromator connection.
 
         Parameters
         ----------
@@ -226,16 +227,16 @@ class fabric(object):
         mono_baud : int
             Baud rate for serial communication with the monochromator.
         """
-    if is_virt == True:
-      self.mono = virtual_sp2150.sp2150()
-    else:
-      self.mono = sp2150.sp2150()
-    self.mono.connect(resource_name=mono_address, **{"timeout": 10000})
+        if is_virt == True:
+            self.mono = virtual_sp2150.sp2150()
+        else:
+            self.mono = sp2150.sp2150()
+        self.mono.connect(resource_name=mono_address, **{"timeout": 10000})
 
-    self._connected_instruments.append(self.mono)
+        self._connected_instruments.append(self.mono)
 
-  def _connect_solarsim(self, is_virt=False, light_address=None, light_recipe=None):
-    """Create solar simulator connection.
+    def _connect_solarsim(self, is_virt=False, light_address=None, light_recipe=None):
+        """Create solar simulator connection.
 
         Parameters
         ----------
@@ -248,16 +249,16 @@ class fabric(object):
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
         """
-    if is_virt == True:
-      self.le = virt.illumination(address=light_address, default_recipe=light_recipe)
-    else:
-      self.le = illumination(address=light_address, default_recipe=light_recipe)
-    self.le.connect()
+        if is_virt == True:
+            self.le = virt.illumination(address=light_address, default_recipe=light_recipe)
+        else:
+            self.le = illumination(address=light_address, default_recipe=light_recipe)
+        self.le.connect()
 
-    self._connected_instruments.append(self.le)
+        self._connected_instruments.append(self.le)
 
-  def _connect_psu(self, is_virt=False, visa_lib="@py", psu_address=None, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
-    """Create LED PSU connection.
+    def _connect_psu(self, is_virt=False, visa_lib="@py", psu_address=None, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
+        """Create LED PSU connection.
 
         Parameters
         ----------
@@ -277,23 +278,23 @@ class fabric(object):
             List overcurrent protection values in ascending channel order, one value
             per channel.
         """
-    if is_virt == True:
-      self.psu = virtual_dp800.dp800()
-    else:
-      self.psu = dp800.dp800()
+        if is_virt == True:
+            self.psu = virtual_dp800.dp800()
+        else:
+            self.psu = dp800.dp800()
 
-    self.psu.connect(resource_name=psu_address)
-    self.psu_idn = self.psu.get_id()
+        self.psu.connect(resource_name=psu_address)
+        self.psu_idn = self.psu.get_id()
 
-    for i, ocp in enumerate(psu_ocps):
-      self.psu.set_output_enable(False, i + 1)
-      self.psu.set_ocp_value(ocp, i + 1)
-      self.psu.set_ocp_enable(True, i + 1)
+        for i, ocp in enumerate(psu_ocps):
+            self.psu.set_output_enable(False, i + 1)
+            self.psu.set_ocp_value(ocp, i + 1)
+            self.psu.set_ocp_enable(True, i + 1)
 
-    self._connected_instruments.append(self.psu)
+        self._connected_instruments.append(self.psu)
 
-  def _connect_pcb(self, is_virt=False, pcb_address=None):
-    """Add control PCB attributes to class.
+    def _connect_pcb(self, is_virt=False, pcb_address=None):
+        """Add control PCB attributes to class.
 
         PCB commands run in their own context manager so this isn't a real connect
         method. It just enables the PCB methods to function.
@@ -307,14 +308,14 @@ class fabric(object):
         pcb_address : str
             Control PCB address string.
         """
-    self.pcb_address = pcb_address
-    if is_virt == True:
-      self.pcb = virt.pcb
-    else:
-      self.pcb = pcb
+        self.pcb_address = pcb_address
+        if is_virt == True:
+            self.pcb = virt.pcb
+        else:
+            self.pcb = pcb
 
-  def _connect_motion(self, is_virt=False, motion_address=None):
-    """Add motion controller attributes to class.
+    def _connect_motion(self, is_virt=False, motion_address=None):
+        """Add motion controller attributes to class.
 
         Motion commands run in their own context manager so this isn't a real connect
         method. It just enables the motion methods to function.
@@ -328,15 +329,15 @@ class fabric(object):
         motion_address : str
             Control PCB address string.
         """
-    self.motion_address = motion_address
-    self.motion = motion
-    if is_virt == True:
-      self.motion_pcb = virt.pcb
-    else:
-      self.motion_pcb = pcb
+        self.motion_address = motion_address
+        self.motion = motion
+        if is_virt == True:
+            self.motion_pcb = virt.pcb
+        else:
+            self.motion_pcb = pcb
 
-  def connect_instruments(self, visa_lib="@py", smus=None, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
-    """Connect to instruments.
+    def connect_instruments(self, visa_lib="@py", smus=None, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
+        """Connect to instruments.
 
         If any instrument addresses are `None`, virtual (fake) instruments are
         "connected" instead.
@@ -389,41 +390,41 @@ class fabric(object):
             List overcurrent protection values in ascending channel order, one value
             per channel.
         """
-    if smus is not None:
-      for smu in smus:
-        self._connect_smu(is_virt=smu["virtual"], visa_lib=visa_lib, smu_address=smu["address"], smu_terminator=smu["terminator"], smu_baud=smu["baud"], smu_front_terminals=smu["front_terminals"], smu_two_wire=smu["two_wire"])
+        if smus is not None:
+            for smu in smus:
+                self._connect_smu(is_virt=smu["virtual"], visa_lib=visa_lib, smu_address=smu["address"], smu_terminator=smu["terminator"], smu_baud=smu["baud"], smu_front_terminals=smu["front_terminals"], smu_two_wire=smu["two_wire"])
 
-    if lia_address is not None:
-      self._connect_lia(is_virt=lia_virt, visa_lib=visa_lib, lia_address=lia_address, lia_terminator=lia_terminator, lia_baud=lia_baud, lia_output_interface=lia_output_interface)
+        if lia_address is not None:
+            self._connect_lia(is_virt=lia_virt, visa_lib=visa_lib, lia_address=lia_address, lia_terminator=lia_terminator, lia_baud=lia_baud, lia_output_interface=lia_output_interface)
 
-    if mono_address is not None:
-      self._connect_monochromator(is_virt=mono_virt, visa_lib=visa_lib, mono_address=mono_address, mono_terminator=mono_terminator, mono_baud=mono_baud)
+        if mono_address is not None:
+            self._connect_monochromator(is_virt=mono_virt, visa_lib=visa_lib, mono_address=mono_address, mono_terminator=mono_terminator, mono_baud=mono_baud)
 
-    if light_address is not None:
-      self._connect_solarsim(is_virt=light_virt, light_address=light_address, light_recipe=light_recipe)
+        if light_address is not None:
+            self._connect_solarsim(is_virt=light_virt, light_address=light_address, light_recipe=light_recipe)
 
-    if psu_address is not None:
-      self._connect_psu(is_virt=psu_virt, visa_lib=visa_lib, psu_address=psu_address, psu_terminator=psu_terminator, psu_baud=psu_baud, psu_ocps=psu_ocps)
+        if psu_address is not None:
+            self._connect_psu(is_virt=psu_virt, visa_lib=visa_lib, psu_address=psu_address, psu_terminator=psu_terminator, psu_baud=psu_baud, psu_ocps=psu_ocps)
 
-    if pcb_address is not None:
-      self._connect_pcb(pcb_address=pcb_address, is_virt=pcb_virt)
+        if pcb_address is not None:
+            self._connect_pcb(pcb_address=pcb_address, is_virt=pcb_virt)
 
-    if motion_address is not None:
-      self._connect_motion(motion_address=motion_address, is_virt=motion_virt)
+        if motion_address is not None:
+            self._connect_motion(motion_address=motion_address, is_virt=motion_virt)
 
-  def disconnect_all_instruments(self):
-    """Disconnect all instruments."""
-    self.lg.debug("disconnecting instruments...")
-    while len(self._connected_instruments) > 0:
-      instr = self._connected_instruments.pop()
-      self.lg.debug(instr)
-      try:
-        instr.disconnect()
-      except:
-        pass
+    def disconnect_all_instruments(self):
+        """Disconnect all instruments."""
+        self.lg.debug("disconnecting instruments...")
+        while len(self._connected_instruments) > 0:
+            instr = self._connected_instruments.pop()
+            self.lg.debug(instr)
+            try:
+                instr.disconnect()
+            except:
+                pass
 
-  def measure_spectrum(self, recipe=None):
-    """Measure the spectrum of the light source.
+    def measure_spectrum(self, recipe=None):
+        """Measure the spectrum of the light source.
 
         Uses the internal spectrometer.
 
@@ -437,21 +438,21 @@ class fabric(object):
         raw_spectrum : list
             Raw spectrum measurements in arbitrary units.
         """
-    # get spectrum data
-    wls, counts = self.le.get_spectrum()
-    data = [[wl, count] for wl, count in zip(wls, counts)]
+        # get spectrum data
+        wls, counts = self.le.get_spectrum()
+        data = [[wl, count] for wl, count in zip(wls, counts)]
 
-    return data
+        return data
 
-  def run_done(self):
-    """Turn off light engine and smu."""
-    if hasattr(self, "le"):
-      self.le.off()
-    if hasattr(self, "sm"):
-      self.sm.outOn(on=False)
+    def run_done(self):
+        """Turn off light engine and smu."""
+        if hasattr(self, "le"):
+            self.le.off()
+        if hasattr(self, "sm"):
+            self.sm.outOn(on=False)
 
-  def goto_pixel(self, pixel, mo):
-    """Move to a pixel.
+    def goto_pixel(self, pixel, mo):
+        """Move to a pixel.
 
         Parameters
         ----------
@@ -465,72 +466,72 @@ class fabric(object):
         response : int
             Response code. 0 is good, everything else means fail.
         """
-    if hasattr(self, "motion"):
-      # ignore motion to position None and to places infinately far away
-      # inf appears when the user wishes to disable motion for a specific pixel
-      # in the layout configuration file
-      there = pixel["pos"]
-      if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
-        mo.goto(there)
-    return 0
+        if hasattr(self, "motion"):
+            # ignore motion to position None and to places infinately far away
+            # inf appears when the user wishes to disable motion for a specific pixel
+            # in the layout configuration file
+            there = pixel["pos"]
+            if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
+                mo.goto(there)
+        return 0
 
-  def select_pixel(self, mux_string=None, pcb=None):
-    """closes mux switches
+    def select_pixel(self, mux_string=None, pcb=None):
+        """closes mux switches
 
         Returns
         -------
         response : int
             Response code. 0 is good, everything else means fail.
         """
-    ret = -1  # not initialized error
-    if pcb is not None:
-      # get this into a list
-      if isinstance(mux_string, str):
-        selection = [mux_string]
-      else:
-        selection = mux_string
-      n_attempts = 2
-      for attempt in range(n_attempts):
         ret = -1  # not initialized error
         if pcb is not None:
-          resp = pcb.set_mux(selection)  # program the latches
-          if resp == "":
+            # get this into a list
+            if isinstance(mux_string, str):
+                selection = [mux_string]
+            else:
+                selection = mux_string
+            n_attempts = 2
+            for attempt in range(n_attempts):
+                ret = -1  # not initialized error
+                if pcb is not None:
+                    resp = pcb.set_mux(selection)  # program the latches
+                    if resp == "":
+                        ret = 0  # no error
+                        break
+                    else:
+                        ret = -2  # error from pcb while setting mux
+            else:  # gets called if we never break from the above for loop (failure to set mux)
+                # do some hardware resetting and try one last time
+                got_muxes = pcb.probe_muxes()  # run the mux probe code that will reset the hardware and check for individual mux IC comms
+                deselect_response = pcb.query("s")  # deselect everything
+                resp = pcb.set_mux(selection)  # program the latches
+                if resp == "":
+                    ret = 0  # no error
+                    self.lg.debug("Sucessful recovery from mux set error")
+                else:
+                    self.lg.error(f'Unable to set MUX. MUX IC presence: "{got_muxes}", expected "{pcb.expected_muxes}". Deselect response: "{deselect_response}". Attempt: "{selection}"')
+                    raise (ValueError("MUX failure"))
+        else:  # assume a call with None pcb is a pass
             ret = 0  # no error
-            break
-          else:
-            ret = -2  # error from pcb while setting mux
-      else:  # gets called if we never break from the above for loop (failure to set mux)
-        # do some hardware resetting and try one last time
-        got_muxes = pcb.probe_muxes()  # run the mux probe code that will reset the hardware and check for individual mux IC comms
-        deselect_response = pcb.query('s')  # deselect everything
-        resp = pcb.set_mux(selection)  # program the latches
-        if resp == "":
-          ret = 0  # no error
-          self.lg.debug("Sucessful recovery from mux set error")
-        else:
-          self.lg.error(f'Unable to set MUX. MUX IC presence: "{got_muxes}", expected "{pcb.expected_muxes}". Deselect response: "{deselect_response}". Attempt: "{selection}"')
-          raise (ValueError("MUX failure"))
-    else:  # assume a call with None pcb is a pass
-        ret = 0  # no error
-    return ret
+        return ret
 
-  def set_experiment_relay(self, exp_relay, pcb):
-    """Choose EQE or IV connection.
+    def set_experiment_relay(self, exp_relay, pcb):
+        """Choose EQE or IV connection.
 
         Parameters
         ----------
         exp_relay : {"eqe", "iv"}
             Experiment name: either "eqe" or "iv" corresponding to relay.
         """
-    ret = 0
-    if hasattr(self, "pcb"):
-      ret = None
-      if pcb.query(exp_relay) == "":
         ret = 0
-    return ret
+        if hasattr(self, "pcb"):
+            ret = None
+            if pcb.query(exp_relay) == "":
+                ret = 0
+        return ret
 
-  def slugify(self, value, allow_unicode=False):
-    """Convert string to slug.
+    def slugify(self, value, allow_unicode=False):
+        """Convert string to slug.
 
         Convert to ASCII if 'allow_unicode' is False. Convert spaces to hyphens.
         Remove characters that aren't alphanumerics, underscores, or hyphens.
@@ -541,17 +542,17 @@ class fabric(object):
         value : str
             String to slugify.
         """
-    value = str(value)
-    if allow_unicode:
-      value = unicodedata.normalize("NFKC", value)
-    else:
-      value = (unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii"))
-    value = re.sub(r"[^\w\s-]", "", value).strip().lower()
+        value = str(value)
+        if allow_unicode:
+            value = unicodedata.normalize("NFKC", value)
+        else:
+            value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+        value = re.sub(r"[^\w\s-]", "", value).strip().lower()
 
-    return re.sub(r"[-\s]+", "-", value)
+        return re.sub(r"[-\s]+", "-", value)
 
-  def steady_state(self, t_dwell=10, NPLC=10, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", handler=lambda x: None):
-    """Make steady state measurements.
+    def steady_state(self, t_dwell=10, NPLC=10, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", handler=lambda x: None):
+        """Make steady state measurements.
 
         for t_dwell seconds
         set NPLC to -1 to leave it unchanged returns array of measurements.
@@ -577,27 +578,27 @@ class fabric(object):
         handler : handler object
             Handler to process data.
         """
-    if NPLC != -1:
-      self.sm.setNPLC(NPLC)
-    self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint, senseRange=senseRange)
+        if NPLC != -1:
+            self.sm.setNPLC(NPLC)
+        self.sm.setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint, senseRange=senseRange)
 
-    raw = self.sm.measureUntil(t_dwell=t_dwell, cb=handler)
+        raw = self.sm.measureUntil(t_dwell=t_dwell, cb=handler)
 
-    return raw
+        return raw
 
-  def sweep(self, sourceVoltage=True, senseRange="f", compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, handler=lambda x: None):
-    """Perform I-V measurement sweep.
+    def sweep(self, sourceVoltage=True, senseRange="f", compliance=0.04, nPoints=1001, stepDelay=0.005, start=1, end=0, NPLC=1, handler=lambda x: None):
+        """Perform I-V measurement sweep.
 
         Make a series of measurements while sweeping the sourcemeter along linearly
         progressing voltage or current setpoints.
         """
-    self.sm.setNPLC(NPLC)
-    self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, stepDelay=stepDelay, nPoints=nPoints, start=start, end=end, senseRange=senseRange)
-    handler(raw := self.sm.measure(nPoints))
-    return raw
+        self.sm.setNPLC(NPLC)
+        self.sm.setupSweep(sourceVoltage=sourceVoltage, compliance=compliance, stepDelay=stepDelay, nPoints=nPoints, start=start, end=end, senseRange=senseRange)
+        handler(raw := self.sm.measure(nPoints))
+        return raw
 
-  def track_max_power(self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None, voc_compliance=3, i_limit=0.04):
-    """Track maximum power point.
+    def track_max_power(self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None, voc_compliance=3, i_limit=0.04):
+        """Track maximum power point.
 
         Parameters
         ----------
@@ -610,15 +611,15 @@ class fabric(object):
         handler : handler object
             Handler with handle_data method to process data.
         """
-    message = "Tracking maximum power point for {:} seconds".format(duration)
+        message = "Tracking maximum power point for {:} seconds".format(duration)
 
-    raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra, callback=handler, voc_compliance=voc_compliance, i_limit=i_limit)
-    self.mppt.reset()
+        raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra, callback=handler, voc_compliance=voc_compliance, i_limit=i_limit)
+        self.mppt.reset()
 
-    return raw
+        return raw
 
-  def eqe(self, psu_ch1_voltage=0, psu_ch1_current=0, psu_ch2_voltage=0, psu_ch2_current=0, psu_ch3_voltage=0, psu_ch3_current=0, smu_voltage=0, smu_compliance=0.1, start_wl=350, end_wl=1100, num_points=76, grating_change_wls=None, filter_change_wls=None, time_constant=8, auto_gain=True, auto_gain_method="user", handler=lambda x: None):
-    """Run an EQE scan.
+    def eqe(self, psu_ch1_voltage=0, psu_ch1_current=0, psu_ch2_voltage=0, psu_ch2_current=0, psu_ch3_voltage=0, psu_ch3_current=0, smu_voltage=0, smu_compliance=0.1, start_wl=350, end_wl=1100, num_points=76, grating_change_wls=None, filter_change_wls=None, time_constant=8, auto_gain=True, auto_gain_method="user", handler=lambda x: None):
+        """Run an EQE scan.
 
         Paremeters
         ----------
@@ -657,14 +658,14 @@ class fabric(object):
         handler_kwargs : dict, optional
             Dictionary of keyword arguments to pass to the handler.
         """
-    self.sm.setupDC(sourceVoltage=True, compliance=smu_compliance, setPoint=smu_voltage, senseRange="f")
+        self.sm.setupDC(sourceVoltage=True, compliance=smu_compliance, setPoint=smu_voltage, senseRange="f")
 
-    eqe_data = eqe.scan(self.lia, self.mono, self.psu, self.sm, psu_ch1_voltage, psu_ch1_current, psu_ch2_voltage, psu_ch2_current, psu_ch3_voltage, psu_ch3_current, smu_voltage, smu_compliance, start_wl, end_wl, num_points, grating_change_wls, filter_change_wls, time_constant, auto_gain, auto_gain_method, handler)
+        eqe_data = eqe.scan(self.lia, self.mono, self.psu, self.sm, psu_ch1_voltage, psu_ch1_current, psu_ch2_voltage, psu_ch2_current, psu_ch3_voltage, psu_ch3_current, smu_voltage, smu_compliance, start_wl, end_wl, num_points, grating_change_wls, filter_change_wls, time_constant, auto_gain, auto_gain_method, handler)
 
-    return eqe_data
+        return eqe_data
 
-  def calibrate_psu(self, channel=1, max_current=0.5, current_steps=10, max_voltage=1):
-    """Calibrate the LED PSU.
+    def calibrate_psu(self, channel=1, max_current=0.5, current_steps=10, max_voltage=1):
+        """Calibrate the LED PSU.
 
         Measure the short-circuit current of a photodiode generated upon illumination
         with an LED powered by the PSU as function of PSU current.
@@ -678,45 +679,45 @@ class fabric(object):
         current_steps : int
             Number of current steps to measure.
         """
-    # block the monochromator so there's no AC background
-    if hasattr(self, 'mono'):
-      self.mono.filter = 5
-      self.mono.wavelength = 300
+        # block the monochromator so there's no AC background
+        if hasattr(self, "mono"):
+            self.mono.filter = 5
+            self.mono.wavelength = 300
 
-    currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
+        currents = np.linspace(0, max_current, int(current_steps), endpoint=True)
 
-    # set smu to short circuit and enable output
-    self.sm.setupDC(sourceVoltage=True, compliance=self.current_limit, setPoint=0, senseRange="a")
+        # set smu to short circuit and enable output
+        self.sm.setupDC(sourceVoltage=True, compliance=self.current_limit, setPoint=0, senseRange="a")
 
-    # set up PSU
-    self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
-    self.psu.set_output_enable(True, channel)
+        # set up PSU
+        self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
+        self.psu.set_output_enable(True, channel)
 
-    data = []
-    for current in currents:
-      self.psu.set_apply(channel=channel, voltage=max_voltage, current=current)
-      time.sleep(1)
-      psu_data = list(self.sm.measure()[0])
-      psu_data.append(current)
-      data.append(psu_data)
+        data = []
+        for current in currents:
+            self.psu.set_apply(channel=channel, voltage=max_voltage, current=current)
+            time.sleep(1)
+            psu_data = list(self.sm.measure()[0])
+            psu_data.append(current)
+            data.append(psu_data)
 
-    # disable PSU
-    self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
-    self.psu.set_output_enable(False, channel)
+        # disable PSU
+        self.psu.set_apply(channel=channel, voltage=max_voltage, current=0)
+        self.psu.set_output_enable(False, channel)
 
-    # disable smu
-    self.sm.outOn(False)
+        # disable smu
+        self.sm.outOn(False)
 
-    if hasattr(self, 'mono'):
-      # unblock the monochromator
-      self.mono.filter = 1
-      self.mono.wavelength = 0
+        if hasattr(self, "mono"):
+            # unblock the monochromator
+            self.mono.filter = 1
+            self.mono.wavelength = 0
 
-    return data
+        return data
 
 
 def round_sf(x, sig_fig):
-  """Round a number to a given significant figure.
+    """Round a number to a given significant figure.
 
     Paramters
     ---------
@@ -730,14 +731,14 @@ def round_sf(x, sig_fig):
     y : float
         Rounded number
     """
-  return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
+    return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
 
 
 # for testing
 if __name__ == "__main__":
-  with fabric(current_limit=0.1) as f:
-    args = {}
-    args['smu_address'] = "GPIB0::24::INSTR"
-    args['smu_terminator'] = "\r"
-    args['smu_baud'] = 57600
-    f.connect_instruments(**args)
+    with fabric(current_limit=0.1) as f:
+        args = {}
+        args["smu_address"] = "GPIB0::24::INSTR"
+        args["smu_terminator"] = "\r"
+        args["smu_baud"] = 57600
+        f.connect_instruments(**args)

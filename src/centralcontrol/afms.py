@@ -3,124 +3,126 @@ import serial
 
 
 class afms:
-  """interface to an arduino with an adafruit motor shield connected via a USB virtual serial port, custom sketch"""
-  steps_per_mm = 10
-  com_port = "/dev/ttyACM0"
-  current_position = 50 / steps_per_mm  #  in mm
-  home_procedure = "default"
+    """interface to an arduino with an adafruit motor shield connected via a USB virtual serial port, custom sketch"""
 
-  len_axes = [float('inf')]  # list of mm for how long the firmware thinks each axis is
-  axes = [1]  # list of connected axis indicies
+    steps_per_mm = 10
+    com_port = "/dev/ttyACM0"
+    current_position = 50 / steps_per_mm  #  in mm
+    home_procedure = "default"
 
-  end_buffers = 1  # disallow movement to closer than this many mm from an end (prevents home issues)
+    len_axes = [float("inf")]  # list of mm for how long the firmware thinks each axis is
+    axes = [1]  # list of connected axis indicies
 
-  def __init__(self, location=com_port, spm=steps_per_mm, homer=home_procedure):
-    """
-    sets up the afms object
-    """
-    self.com_port = location
-    self.steps_per_mm = spm
-    self.home_procedure = homer
+    end_buffers = 1  # disallow movement to closer than this many mm from an end (prevents home issues)
 
-  def __del__(self):
-    try:
-      self.close()
-    except:
-      pass
+    def __init__(self, location=com_port, spm=steps_per_mm, homer=home_procedure):
+        """
+        sets up the afms object
+        """
+        self.com_port = location
+        self.steps_per_mm = spm
+        self.home_procedure = homer
 
-  def connect(self):
-    """
-    opens connection to the motor controller via its com port and homes
-    returns 0 on success
-    """
-    self.connection = serial.Serial(self.com_port)
-    # might need to purge read buffer here
-    if self.connection.is_open() == True:
-      ret = 0
-    else:
-      ret = -1
-      raise (ValueError(f"Unable to open port {self.com_port}"))
-    self.axes = [1]
-    return ret
+    def __del__(self):
+        try:
+            self.close()
+        except:
+            pass
 
-  def home(self, timeout=0, procedure=home_procedure, expected_lengths=None, allowed_deviation=None):
-    """
-    homes to the negative limit switch
-    """
-    ret = self.move(-10000000)  # home (aka try to move 10 km in reverse, hitting that limit switch)
-    self.current_position = 0
-    if ret == 0:
-      ret = self.move(50 / self.steps_per_mm)  # move away from the edge by 50 steps
-    else:
-      print('WARNING: homing failure: {:}'.format(ret))
-    self.len_axes = [float('inf')]  # length measurement unsupported here now
-    return ret
+    def connect(self):
+        """
+        opens connection to the motor controller via its com port and homes
+        returns 0 on success
+        """
+        self.connection = serial.Serial(self.com_port)
+        # might need to purge read buffer here
+        if self.connection.is_open() == True:
+            ret = 0
+        else:
+            ret = -1
+            raise (ValueError(f"Unable to open port {self.com_port}"))
+        self.axes = [1]
+        return ret
 
-  def move(self, mm, timeout=0):
-    """
-    moves mm mm, blocks until movement complete, mm can be positive or negative to indicate movement direction
-    rejects movements outside limits
-    returns 0 upon sucessful move
-    """
-    sc = self.connection
+    def home(self, timeout=0, procedure=home_procedure, expected_lengths=None, allowed_deviation=None):
+        """
+        homes to the negative limit switch
+        """
+        ret = self.move(-10000000)  # home (aka try to move 10 km in reverse, hitting that limit switch)
+        self.current_position = 0
+        if ret == 0:
+            ret = self.move(50 / self.steps_per_mm)  # move away from the edge by 50 steps
+        else:
+            print("WARNING: homing failure: {:}".format(ret))
+        self.len_axes = [float("inf")]  # length measurement unsupported here now
+        return ret
 
-    steps = round(mm * self.steps_per_mm)
+    def move(self, mm, timeout=0):
+        """
+        moves mm mm, blocks until movement complete, mm can be positive or negative to indicate movement direction
+        rejects movements outside limits
+        returns 0 upon sucessful move
+        """
+        sc = self.connection
 
-    if steps > 0:
-      direction = 'forward'
-    elif steps < 0:
-      direction = 'backward'
-    else:
-      direction = None
+        steps = round(mm * self.steps_per_mm)
 
-    if direction != None:
-      # send movement command
-      sc.write('step,{:},{:}'.format(abs(steps), direction).encode())
-      # read five bytes
-      idle_message = sc.read(1) + sc.read(1) + sc.read(1) + sc.read(1) + sc.read(1)
-      idle_message = idle_message.decode()
-      if idle_message.startswith('idle'):
-        self.current_position = self.current_position + steps * self.steps_per_mm  # store new position on successful movement
-      else:
-        print("WARNING: Expected idle message after movement, insted: {:}".format(idle_message))
-        return -2  # failed movement
+        if steps > 0:
+            direction = "forward"
+        elif steps < 0:
+            direction = "backward"
+        else:
+            direction = None
 
-    return 0  # sucessful movement
+        if direction != None:
+            # send movement command
+            sc.write("step,{:},{:}".format(abs(steps), direction).encode())
+            # read five bytes
+            idle_message = sc.read(1) + sc.read(1) + sc.read(1) + sc.read(1) + sc.read(1)
+            idle_message = idle_message.decode()
+            if idle_message.startswith("idle"):
+                self.current_position = self.current_position + steps * self.steps_per_mm  # store new position on successful movement
+            else:
+                print("WARNING: Expected idle message after movement, insted: {:}".format(idle_message))
+                return -2  # failed movement
 
-  def goto(self, new_position, timeout=0):
-    """
-    goes to an absolute mm position, blocking, returns 0 on success
-    """
-    return self.move(new_position - self.current_position, timeout=timeout)
+        return 0  # sucessful movement
 
-  def close(self):
-    self.connection.close()
+    def goto(self, new_position, timeout=0):
+        """
+        goes to an absolute mm position, blocking, returns 0 on success
+        """
+        return self.move(new_position - self.current_position, timeout=timeout)
+
+    def close(self):
+        self.connection.close()
 
 
 if __name__ == "__main__":
-  import time
-  # motion test
-  com_port = '/dev/ttyACM0'
-  this = afms(com_port)
+    import time
 
-  print('Connecting and homing...')
-  if this.connect() == 0:
-    print('Homing done!')
-  time.sleep(1)
+    # motion test
+    com_port = "/dev/ttyACM0"
+    this = afms(com_port)
 
-  print('Moving 4cm forwad via move')
-  if (this.move(40) == 0):
-    print("Movement done.")
-  time.sleep(1)
+    print("Connecting and homing...")
+    if this.connect() == 0:
+        print("Homing done!")
+    time.sleep(1)
 
-  print('Moving 2cm backward via goto')
-  if (this.goto(this.current_position - 20) == 0):
-    print("Movement done.")
-  time.sleep(1)
+    print("Moving 4cm forwad via move")
+    if this.move(40) == 0:
+        print("Movement done.")
+    time.sleep(1)
 
-  print('Homing...')
-  if this.home() == 0:
-    print('Homing done!')
+    print("Moving 2cm backward via goto")
+    if this.goto(this.current_position - 20) == 0:
+        print("Movement done.")
+    time.sleep(1)
 
-  this.close()
-  print("Test complete.")
+    print("Homing...")
+    if this.home() == 0:
+        print("Homing done!")
+
+    this.close()
+    print("Test complete.")
