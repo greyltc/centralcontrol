@@ -19,7 +19,7 @@ class Wavelabs(object):
 
     iseq = 0  # sequence number for comms with wavelabs software
     spectrum_ms = 1002
-    okay_message_codes = [0, 4001]
+    okay_message_codes = [0, -4001]
 
     class XMLHandler:
         """
@@ -152,17 +152,17 @@ class Wavelabs(object):
             parser.feed(msg)
         except socketserver.socket.timeout:
             msg = "Wavelabs comms socket timeout"
-            target.error = -9999
+            target.error = 9999
             target.error_message = msg
             target.done_parsing = True
         except Exception as e:
             msg = f"General exception: {e}"
-            target.error = -9998
+            target.error = 9998
             target.error_message = msg
             target.done_parsing = True
 
         if not target.done_parsing:
-            target.error = -9997
+            target.error = 9997
             target.error_message = "Unable to parse message"
 
         if target.error not in self.okay_message_codes:
@@ -257,7 +257,7 @@ class Wavelabs(object):
         """perform a wavelabs query"""
 
         # response codes of these code types should result in a retry
-        retry_codes = [-9997, -9998, -9999]
+        retry_codes = [9997, 9998, 9999]
 
         n_tries = 2
         for attempt in range(n_tries):
@@ -416,11 +416,7 @@ class Wavelabs(object):
         ET.SubElement(root, "StartRecipe", iSeq=str(self.iseq), sAutomationID="justtext")
         self.iseq = self.iseq + 1
         response = self.query(root)
-        if response.error != 0:
-            self.lg.debug(f"Unable to start light engine recipe with respoonse code {response.error}")
-            runID = None
-        else:
-            runID = response.run_ID
+        runID = response.run_ID
         return runID
 
     def off(self):
@@ -429,8 +425,6 @@ class Wavelabs(object):
         ET.SubElement(root, "CancelRecipe", iSeq=str(self.iseq))
         self.iseq = self.iseq + 1
         response = self.query(root)
-        if response.error != 0:
-            self.lg.debug(f"Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
         return response.error
 
     def exitProgram(self):
