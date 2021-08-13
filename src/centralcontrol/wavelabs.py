@@ -19,6 +19,7 @@ class Wavelabs(object):
 
     iseq = 0  # sequence number for comms with wavelabs software
     spectrum_ms = 1002
+    okay_message_codes = [0, 4001]
 
     class XMLHandler:
         """
@@ -108,8 +109,28 @@ class Wavelabs(object):
 
         self.lg.debug(f"{__name__} initialized.")
 
+    def disconnect(self):
+        self.lg.debug("Closing wavelabs connection")
+        try:
+            self.connection.settimeout(1)
+        except Exception as e:
+            pass
+        try:
+            self.sock_file.close()
+        except Exception as e:
+            pass
+        try:
+            self.connection.close()
+        except Exception as e:
+            pass
+
+        try:
+            self.server.server_close()
+        except Exception as e:
+            pass
+
     def __del__(self):
-        self.lg.debug("Shutting down connection to wavelabs software")
+        self.lg.debug("Deleting wavelabs connection")
         try:
             self.connection.settimeout(1)
         except Exception as e:
@@ -120,20 +141,7 @@ class Wavelabs(object):
         except Exception as e:
             pass
 
-        try:
-            self.sock_file.close()
-        except Exception as e:
-            pass
-
-        try:
-            self.connection.close()
-        except Exception as e:
-            pass
-
-        try:
-            self.server.server_close()
-        except Exception as e:
-            pass
+        self.disconnect()
 
     def recvXML(self):
         """reads xml object from socket"""
@@ -148,18 +156,17 @@ class Wavelabs(object):
             target.error_message = msg
             target.done_parsing = True
         except Exception as e:
+            msg = f"General exception: {e}"
             target.error = -9998
-            target.error_message = f"General exception: {e}"
+            target.error_message = msg
             target.done_parsing = True
 
         if not target.done_parsing:
             target.error = -9997
             target.error_message = "Unable to parse message"
 
-        if target.error != 0:
-            if not (target.error_message == "Recipe still running."):  # ignore still running warnings
-                self.lg.warn(f"Got error number {target.error} from WaveLabs software: {target.error_message}")
-                self.lg.warn(f"Raw message: {msg}")
+        if target.error not in self.okay_message_codes:
+            self.lg.debug(f"Raw message: {msg}")
 
         try:
             parser.close()
@@ -246,6 +253,32 @@ class Wavelabs(object):
         self.sock_file = self.connection.makefile(mode="rwb")
         return 0
 
+    def query(self, root):
+        """perform a wavelabs query"""
+
+        # response codes of these code types should result in a retry
+        retry_codes = [-9997, -9998, -9999]
+
+        n_tries = 2
+        for attempt in range(n_tries):
+            tree = ET.ElementTree(root)
+            tree.write(self.sock_file)
+            response = self.recvXML()
+
+            if response.error in retry_codes:
+                self.lg.debug(response.error_message)
+                self.lg.debug("Retrying...")
+                self.disconnect()
+                self.connect()
+            else:
+                break
+
+        if response.error not in self.okay_message_codes:
+            self.lg.error(f"Got error number {response.error} from WaveLabs software: {response.error_message}")
+            raise ValueError("Wavelabs comms failure.")
+
+        return response
+
     def startFreeFloat(self, time=0, intensity_relative=100, intensity_sensor=0, channel_nums=["8"], channel_values=[50.0]):
         """starts/modifies/ends a free-float run"""
         root = ET.Element("WLRC")
@@ -254,9 +287,7 @@ class Wavelabs(object):
         num_chans = len(channel_nums)
         for i in range(num_chans):
             ET.SubElement(se, "Channel", iCh=str(channel_nums[i]), fInt=str(channel_values[i]))
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug("Wavelabs FreeFloat command could not be handled")
         return response.error
@@ -268,9 +299,7 @@ class Wavelabs(object):
         root = ET.Element("WLRC")
         ET.SubElement(root, "ActivateRecipe", iSeq=str(self.iseq), sRecipe=recipe_name)
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug("Wavelabs recipe '{:}' could not be activated, check that it exists".format(recipe_name))
         return response.error
@@ -286,11 +315,9 @@ class Wavelabs(object):
         else:
             ET.SubElement(root, "WaitForResultAvailable", iSeq=str(self.iseq), fTimeout=str(timeout), sRunID=run_ID)
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
         old_tout = self.connection.gettimeout()
         self.connection.settimeout(timeout / 1000)
-        response = self.recvXML()
+        response = self.query(root)
         self.connection.settimeout(old_tout)
         if response.error != 0:
             self.lg.debug("ERROR: Failed to wait for wavelabs result")
@@ -306,11 +333,9 @@ class Wavelabs(object):
         else:
             ET.SubElement(root, "WaitForRunFinished", iSeq=str(self.iseq), fTimeout=str(timeout), sRunID=run_ID)
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
         old_tout = self.connection.gettimeout()
         self.connection.settimeout(timeout / 1000)
-        response = self.recvXML()
+        response = self.query(root)
         self.connection.settimeout(old_tout)
         if response.error != 0:
             self.lg.debug("Failed to wait for wavelabs run to finish")
@@ -323,9 +348,7 @@ class Wavelabs(object):
         root = ET.Element("WLRC")
         ET.SubElement(root, "GetRecipeParam", iSeq=str(self.iseq), sRecipe=recipe_name, iStep=str(step), sDevice=device, sParam=param)
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug("Failed to get wavelabs recipe parameter")
             ret = None
@@ -342,9 +365,7 @@ class Wavelabs(object):
         else:
             ET.SubElement(root, reName, iSeq=str(self.iseq), sParam=param, sRunID=run_ID)
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug(f"Failed to getResult from wavelabs. Raw Request: {elT.ElementTree.tostring(root, method='xml')}")
             ret = None
@@ -361,9 +382,7 @@ class Wavelabs(object):
         else:
             ET.SubElement(root, "GetDataSeries", iSeq=str(self.iseq), iStep=str(step), sDevice=device, sCurveName=curve_name, sAttributes=attributes, sRunID=run_ID)
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug("Failed to getDataSeries")
         else:
@@ -384,9 +403,7 @@ class Wavelabs(object):
         root = ET.Element("WLRC")
         ET.SubElement(root, "SetRecipeParam", iSeq=str(self.iseq), sRecipe=recipe_name, iStep=str(step), sDevice=device, sParam=param, sVal=str(value))
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug("Failed to set recipe parameter")
         else:
@@ -398,9 +415,7 @@ class Wavelabs(object):
         root = ET.Element("WLRC")
         ET.SubElement(root, "StartRecipe", iSeq=str(self.iseq), sAutomationID="justtext")
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug(f"Unable to start light engine recipe with respoonse code {response.error}")
             runID = None
@@ -413,9 +428,7 @@ class Wavelabs(object):
         root = ET.Element("WLRC")
         ET.SubElement(root, "CancelRecipe", iSeq=str(self.iseq))
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug(f"Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
         return response.error
@@ -425,9 +438,7 @@ class Wavelabs(object):
         root = ET.Element("WLRC")
         ET.SubElement(root, "ExitProgram", iSeq=str(self.iseq))
         self.iseq = self.iseq + 1
-        tree = ET.ElementTree(root)
-        tree.write(self.sock_file)
-        response = self.recvXML()
+        response = self.query(root)
         if response.error != 0:
             self.lg.debug("Could not exit WaveLabs program")
         return response
