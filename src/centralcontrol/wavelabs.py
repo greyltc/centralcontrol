@@ -147,18 +147,17 @@ class Wavelabs(object):
         """reads xml object from socket"""
         target = self.XMLHandler()
         parser = ET.XMLParser(target=target)
+        raw_msg = None
         try:
-            msg = self.sock_file.readline()
-            parser.feed(msg)
+            raw_msg = self.sock_file.readline()
+            parser.feed(raw_msg)
         except socketserver.socket.timeout:
-            msg = "Wavelabs comms socket timeout"
             target.error = 9999
-            target.error_message = msg
+            target.error_message = "Wavelabs comms socket timeout"
             target.done_parsing = True
         except Exception as e:
-            msg = f"General exception: {e}"
             target.error = 9998
-            target.error_message = msg
+            target.error_message = f"General exception: {e}"
             target.done_parsing = True
 
         if not target.done_parsing:
@@ -166,7 +165,7 @@ class Wavelabs(object):
             target.error_message = "Unable to parse message"
 
         if target.error not in self.okay_message_codes:
-            self.lg.debug(f"Raw message: {msg}")
+            self.lg.debug(f"Raw message: {raw_msg}")
 
         try:
             parser.close()

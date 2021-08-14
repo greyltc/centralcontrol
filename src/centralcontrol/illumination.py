@@ -97,16 +97,14 @@ class illumination(object):
         del self._votes_needed
 
     def connect(self):
-        """
-        makes connection to light source
-        """
+        """forms connection to light source"""
         self.lg.debug("ill connect() called")
         ret = self.light_engine.connect()
         self.lg.debug("ill connect() compelte")
         return ret
 
     def on(self, assume_master=False):
-        # thread safe light control with unanimous state voting
+        """thread safe light state control with unanimous voting"""
         self.lg.debug("ill on() called")
         if (self._votes_needed <= 1) or (assume_master == True):
             ret = self.light_engine.on()
@@ -127,7 +125,7 @@ class illumination(object):
         return ret
 
     def off(self, assume_master=False):
-        # thread safe light control with unanimous state voting
+        """thread safe light state control with unanimous voting"""
         self.lg.debug("ill off() called")
         if (self._votes_needed <= 1) or (assume_master == True):
             ret = self.light_engine.off()
