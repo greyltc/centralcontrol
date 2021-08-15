@@ -258,7 +258,7 @@ if __name__ == "__main__":
     pcb_address = "10.46.0.239"
     steps_per_mm = 6400
     with pcb(pcb_address) as p:
-        me = us(p, spm=steps_per_mm)
+        me = Us(p, spm=steps_per_mm)
 
         print("Connecting")
         result = me.connect()

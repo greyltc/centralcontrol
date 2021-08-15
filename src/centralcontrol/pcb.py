@@ -34,19 +34,19 @@ class Pcb(object):
     class MyTelnet(Telnet):
         def read_response(self, timeout=None):
             found_prompt = False
-            resp = self.read_until(pcb.prompt, timeout=timeout)
-            if resp.endswith(pcb.prompt):
+            resp = self.read_until(Pcb.prompt, timeout=timeout)
+            if resp.endswith(Pcb.prompt):
                 found_prompt = True
-            ret = resp.rstrip(pcb.prompt).decode().strip()
+            ret = resp.rstrip(Pcb.prompt).decode().strip()
             if len(resp) == 0:
                 ret = None  # nothing came back (likely a timeout)
             return ret, found_prompt
 
         def send_cmd(self, cmd):
-            if not cmd.endswith(pcb.write_terminator.decode()):
+            if not cmd.endswith(Pcb.write_terminator.decode()):
                 self.write(cmd.encode())
             else:
-                self.write(cmd.encode() + pcb.write_terminator)
+                self.write(cmd.encode() + Pcb.write_terminator)
             self.sock.sendall()
 
     def __init__(self, address=None, timeout=comms_timeout, expected_muxes=[]):
@@ -89,7 +89,7 @@ class Pcb(object):
         self.tn.sock.settimeout(self.comms_timeout)
 
         if os.name != "nt":
-            pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
+            Pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
 
         welcome_message, win = self.tn.read_response(timeout=self.response_timeout)
 
@@ -200,7 +200,7 @@ class Pcb(object):
 # testing
 if __name__ == "__main__":
     pcb_address = "10.46.0.239"
-    with pcb(pcb_address, timeout=1) as p:
+    with Pcb(pcb_address, timeout=1) as p:
         print("Controller connection initiated")
         print(f"Controller firmware version: {p.firmware_version}")
         print(f"Controller axes: {p.detected_axes}")
