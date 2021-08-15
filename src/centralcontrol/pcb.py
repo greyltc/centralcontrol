@@ -14,10 +14,8 @@ except ImportError:
     pass
 
 
-class pcb(object):
-    """
-    Interface for talking to the control PCB
-    """
+class Pcb(object):
+    """Interface for talking to the control PCB"""
 
     write_terminator = "\r\n"
     # read_terminator = b'\r\n'

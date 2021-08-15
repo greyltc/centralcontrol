@@ -36,7 +36,7 @@ from . import virt
 from .motion import motion
 from .k2400 import k2400 as sm
 from .illumination import illumination
-from .pcb import pcb
+from .pcb import Pcb
 
 
 class UtilityHandler(object):
@@ -121,7 +121,7 @@ class UtilityHandler(object):
                 if cmd_msg["pcb_virt"] == True:
                     tpcb = virt.pcb
                 else:
-                    tpcb = pcb
+                    tpcb = Pcb
                 try:
                     with tpcb(cmd_msg["pcb"], timeout=10) as p:
                         p.query("b")
@@ -154,8 +154,8 @@ class UtilityHandler(object):
             task = self.taskq.get()
             self.lg.debug(f"New task: {task['cmd']} (queue size = {self.taskq.unfinished_tasks})")
             # handle pcb and stage virtualization
-            stage_pcb_class = pcb
-            pcb_class = pcb
+            stage_pcb_class = Pcb
+            pcb_class = Pcb
             if "stage_virt" in task:
                 if task["stage_virt"] == True:
                     stage_pcb_class = virt.pcb

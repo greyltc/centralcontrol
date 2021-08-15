@@ -13,7 +13,7 @@ if __name__ == "__main__" and __package__ in [None, ""]:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-class us(object):
+class Us(object):
     """interface to uStepperS via i2c via ethernet connected pcb"""
 
     # calculate a default steps_per_mm value

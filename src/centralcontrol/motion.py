@@ -10,7 +10,7 @@ if __name__ == "__main__" and __package__ in [None, ""]:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from .afms import afms
-from .us import us
+from .us import Us
 import json
 from urllib.parse import urlparse, parse_qs
 
@@ -75,7 +75,7 @@ class motion:
             parsed = urlparse(address)
             qparsed = parse_qs(parsed.query)
         except Exception:
-            raise (ValueError("Incorrect motion controller address format: {address}"))
+            raise ValueError("Incorrect motion controller address format: {address}")
         self.location = parsed.netloc + parsed.path
         empty_koz = [-2, -2]  # a keepout zone that will never activate
         if "el" in qparsed:
@@ -100,28 +100,26 @@ class motion:
 
         if parsed.scheme == "afms":
             if pcb_object is not None:
-                pass  # TODO: throw warning here if we detect a virtual PCB object because afms does not support this.
+                if hasattr(pcb_object, "is_virtual"):
+                    if pcb_object.is_virtual == True:
+                        self.lg.warning("afms:// scheme does not support virtual PCBs")
             afms_setup = {}
             afms_setup["location"] = self.location
             afms_setup["spm"] = self.steps_per_mm
             afms_setup["homer"] = self.home_procedure
             self.motion_engine = afms(**afms_setup)
         elif parsed.scheme == "us":
-            if self.location != "controller":
-                raise (ValueError(f"Stage connection location unknown: {self.location}"))
-            else:
-                if pcb_object is None:
-                    raise (ValueError(f"us:// protocol requires a pcb_object"))
-                else:
-                    us_setup = {}
-                    us_setup["pcb_object"] = pcb_object
-                    us_setup["spm"] = self.steps_per_mm
-                    if hasattr(pcb_object, "is_virtual"):
-                        if pcb_object.is_virtual == True:
-                            pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
-                    self.motion_engine = us(**us_setup)
+            us_setup = {}
+            us_setup["spm"] = self.steps_per_mm
+            if (self.location != "controller") or (pcb_object is None):
+                raise ValueError(f"us://controller/ requires requires a pre-existing pcb_object")
+            us_setup["pcb_object"] = pcb_object
+            if hasattr(pcb_object, "is_virtual"):
+                if pcb_object.is_virtual == True:
+                    pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
+            self.motion_engine = Us(**us_setup)
         else:
-            raise (ValueError(f"Unexpected motion controller protocol {self.scheme} in {address}"))
+            raise ValueError(f"Unexpected motion controller protocol {parsed.scheme} in {address}")
 
         self.lg.debug(f"{__name__} initialized.")
 
@@ -141,11 +139,11 @@ class motion:
             nzones = len(self.keepout_zones)
 
             if naxes != nlengths:
-                raise (ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes"))
+                raise ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes")
             if naxes != nexpect:
-                raise (ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes"))
+                raise ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes")
             if naxes != nzones:
-                raise (ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes"))
+                raise ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes")
 
             for i, a in enumerate(self.axes):
                 if self.actual_lengths[i] <= 0:

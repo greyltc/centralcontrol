@@ -18,7 +18,7 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
 
 from . import virt
 from .k2400 import k2400
-from .pcb import pcb
+from .pcb import Pcb
 from .motion import motion
 from .mppt import mppt
 from .illumination import illumination
@@ -56,7 +56,7 @@ class fabric(object):
     fake_pcb = virt.pcb
 
     # a real pcb object
-    real_pcb = pcb
+    real_pcb = Pcb
 
     # thing that can hold a list of smus
     sms = []
@@ -312,7 +312,7 @@ class fabric(object):
         if is_virt == True:
             self.pcb = virt.pcb
         else:
-            self.pcb = pcb
+            self.pcb = Pcb
 
     def _connect_motion(self, is_virt=False, motion_address=None):
         """Add motion controller attributes to class.
@@ -334,7 +334,7 @@ class fabric(object):
         if is_virt == True:
             self.motion_pcb = virt.pcb
         else:
-            self.motion_pcb = pcb
+            self.motion_pcb = Pcb
 
     def connect_instruments(self, visa_lib="@py", smus=None, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
         """Connect to instruments.
