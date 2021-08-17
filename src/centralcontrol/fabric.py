@@ -490,6 +490,7 @@ class fabric(object):
                 selection = [mux_string]
             else:
                 selection = mux_string
+
             n_attempts = 2
             for attempt in range(n_attempts):
                 ret = -1  # not initialized error

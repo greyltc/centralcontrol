@@ -18,9 +18,52 @@ class PcbTestCase(unittest.TestCase):
 
     def test_connect(self):
         """conntction to hardware. this fails if there's no PCB and no mux"""
-        with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout, expected_muxes=self.expected_muxes) as p:
             self.assertIsInstance(p.welcome_message, str)
             print("Got welcome message:")
             print(p.welcome_message)
             self.assertIsInstance(p.firmware_version, str)
             self.assertTrue("+" in p.firmware_version)
+
+    def test_mux_once(self):
+        """manipulate the mux"""
+        em = self.expected_muxes
+        # em = []
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout, expected_muxes=em) as p:
+            ret, found_prompt = p._query("s")  # deselect
+            self.assertTrue(found_prompt)
+            self.assertIsInstance(ret, str)
+            self.assertEqual(len(ret), 0)
+
+            ret, found_prompt = p._query("sA515")  # make a typical selection (slot A, device #2)
+            self.assertTrue(found_prompt)
+            self.assertIsInstance(ret, str)
+            self.assertEqual(len(ret), 0)
+
+            ret, found_prompt = p._query("s")  # deselect
+            self.assertTrue(found_prompt)
+            self.assertIsInstance(ret, str)
+            self.assertEqual(len(ret), 0)
+
+    def test_mux_alot(self):
+        """manipulate the mux 'alot'"""
+        em = self.expected_muxes
+        # em = []
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout, expected_muxes=em) as p:
+            ret, found_prompt = p._query("s")  # deselect
+            self.assertTrue(found_prompt)
+            self.assertIsInstance(ret, str)
+            self.assertEqual(len(ret), 0)
+
+            slot = "A"
+            n_bits = 16
+            for b in range(n_bits):
+                ret, found_prompt = p._query(f"s{slot}{1<<b:05d}")  # hit each port expander line once
+                self.assertTrue(found_prompt)
+                self.assertIsInstance(ret, str)
+                self.assertEqual(len(ret), 0)
+
+            ret, found_prompt = p._query("sA0")  # deselect
+            self.assertTrue(found_prompt)
+            self.assertIsInstance(ret, str)
+            self.assertEqual(len(ret), 0)
