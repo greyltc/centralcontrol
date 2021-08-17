@@ -3,6 +3,15 @@
 import time
 from collections import deque
 
+import sys
+import logging
+
+# for logging directly to systemd journal if we can
+try:
+    import systemd.journal
+except ImportError:
+    pass
+
 # this boilerplate is required to allow this module to be run directly as a script
 if __name__ == "__main__" and __package__ in [None, ""]:
     __package__ = "centralcontrol"
@@ -30,19 +39,31 @@ class Us(object):
     end_buffers = 4  # disallow movement to closer than this many mm from an end (prevents home issues)
 
     def __init__(self, pcb_object, spm=steps_per_mm, homer=home_procedure):
-        """
-        sets up the microstepper object
-        needs handle to active PCB class object
-        """
+        """sets up the microstepper object, needs handle to active PCB class object"""
         self.pcb = pcb_object
         self.steps_per_mm = spm
         self.home_procedure = homer
         self.stage_firmwares = {}
 
-    # def __setattr__(self, name, value):
+        # setup logging
+        self.lg = logging.getLogger(__name__)
+        self.lg.setLevel(logging.DEBUG)
 
-    def __del__(self):
-        pass
+        if not self.lg.hasHandlers():
+            # set up logging to systemd's journal if it's there
+            if "systemd" in sys.modules:
+                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+                sysdl.setFormatter(sysLogFormat)
+                self.lg.addHandler(sysdl)
+            else:
+                # for logging to stdout & stderr
+                ch = logging.StreamHandler()
+                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+                ch.setFormatter(logFormat)
+                self.lg.addHandler(ch)
+
+        self.lg.debug(f"{__name__} initialized.")
 
     # wrapper for handling firmware comms that should return ints
     def _pwrapint(self, cmd):
@@ -61,17 +82,13 @@ class Us(object):
         self.len_axes_mm = len_axes_mm
 
     def connect(self):
-        """
-        opens connection to the motor controller
-        and sets self.actual_lengths
-        """
+        """opens connection to the motor controller and sets self.actual_lengths"""
         self.pcb.probe_axes()
         self.axes = self.pcb.detected_axes
         self._update_len_axes_mm()
         for ax in self.axes:
             fw_cmd = f"w{ax}"
             self.stage_firmwares[ax] = self.pcb.query(fw_cmd)
-        print(f"Connected to stage(s) with firmware(s): {self.stage_firmwares}")
         return 0
 
     def home(self, procedure="default", timeout=300, expected_lengths=None, allowed_deviation=None):
@@ -91,11 +108,11 @@ class Us(object):
                 home_cmd = f"h{ax}"
                 answer = self.pcb.query(home_cmd)
                 if answer != "":
-                    raise (ValueError(f"Request to home axis {ax} via '{home_cmd}' failed with {answer}"))
+                    raise ValueError(f"Request to home axis {ax} via '{home_cmd}' failed with {answer}")
                 else:
                     self._wait_for_home_or_jog(ax, timeout=timeout - (time.time() - t0))
                     if self.len_axes_mm[i] == 0:
-                        raise (ValueError(f"Homing of axis {ax} resulted in measured length of zero."))
+                        raise ValueError(f"Homing of axis {ax} resulted in measured length of zero.")
         else:  # special home
             home_commands = procedure.split("!")
             for hcmd in home_commands:
@@ -112,10 +129,10 @@ class Us(object):
                     goal = round(float(hcmd[2::]) * self.steps_per_mm)
                     cmd = f"g{ax}{goal}"
                 else:
-                    raise (ValueError(f"Malformed specialized homing procedure string at {hcmd} in {procedure}"))
+                    raise ValueError(f"Malformed specialized homing procedure string at {hcmd} in {procedure}")
                 answer = self.pcb.query(cmd)
                 if answer != "":
-                    raise (ValueError(f"Error during specialized homing procedure. '{cmd}' rejected with {answer}"))
+                    raise ValueError(f"Error during specialized homing procedure. '{cmd}' rejected with {answer}")
                 else:
                     if action in "hab":
                         self._wait_for_home_or_jog(ax, timeout=timeout - (time.time() - t0))
@@ -123,12 +140,12 @@ class Us(object):
                             ai = self.axes.index(ax)
                             this_len = self.len_axes_mm[ai]
                             if this_len == 0:
-                                raise (ValueError(f"Homing of axis {ax} resulted in measured length of zero."))
+                                raise ValueError(f"Homing of axis {ax} resulted in measured length of zero.")
                             elif (allowed_deviation is not None) and (expected_lengths is not None):
                                 el = expected_lengths[ai]
                                 delta = abs(this_len - el)
                                 if delta > allowed_deviation:
-                                    raise (ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]"))
+                                    raise ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]")
                     elif action == "g":
                         self._wait_for_goto(ax, goal, timeout=timeout - (time.time() - t0), debug_prints=False)
 
@@ -141,27 +158,27 @@ class Us(object):
             answer = self.pcb.query(poll_cmd)
             self.len_axes_mm[ai] = int(answer) / self.steps_per_mm
         except Exception:
-            print(f"Warning: got unexpected home/jog poll result: {answer}")
+            self.lg.debug(f"Warning: got unexpected home/jog poll result: {answer}")
             self.len_axes_mm[ai] = -1 / self.steps_per_mm
         dt = time.time() - t0
         while (self.len_axes_mm[ai] == -1 / self.steps_per_mm) and (dt <= timeout):
             time.sleep(self.poll_delay)
             if debug_prints == True:
-                print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
-                # print(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
+                self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+                # self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
             answer = None
             try:
                 answer = self.pcb.query(poll_cmd)
                 self.len_axes_mm[ai] = int(answer) / self.steps_per_mm
             except Exception:
-                print(f"Warning: got unexpected home/jog poll result: {answer}")
+                self.lg.debug(f"Warning: got unexpected home/jog poll result: {answer}")
                 self.len_axes_mm[ai] = -1 / self.steps_per_mm
             if debug_prints == True:
-                print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
-                # print(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
+                self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+                # self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
             dt = time.time() - t0
         if dt > timeout:
-            raise (ValueError(f"Timeout while waiting for axis {ax} to home/jog. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}"))
+            raise ValueError(f"Timeout while waiting for axis {ax} to home/jog. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}")
 
     def _wait_for_goto(self, ax, goal, timeout=300, debug_prints=False):
         deque_len = 5
@@ -174,8 +191,8 @@ class Us(object):
         while (here != goal) and (dt <= timeout):
             time.sleep(self.poll_delay)
             if debug_prints == True:
-                # print(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
-                print(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
+                # self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
+                self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
             here = self._get_pos(ax)
             loc_deque.append(here)
             if len(loc_deque) == deque_len:  # deque full
@@ -183,8 +200,8 @@ class Us(object):
                 if len(unique) == 1:
                     raise (ValueError(f"Motion seems to have stopped on {ax} at {unique.pop()/self.steps_per_mm} while trying to go from ~{start_mm} to {goal/self.steps_per_mm}. The loc_deque was {loc_deque}"))
             if debug_prints == True:
-                # print(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
-                print(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
+                # self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
+                self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
             dt = time.time() - t0
         if dt > timeout:
             raise (ValueError(f"Timeout while waiting for axis {ax} to go from ~{start_mm} to {goal/self.steps_per_mm}. The duration was {dt} [s] but the limit is {timeout} [s]. The loc_deque was {loc_deque}"))
@@ -195,7 +212,7 @@ class Us(object):
             pcb_ans = self.pcb.query(f"r{ax}")
             rslt_pos = int(pcb_ans)
         except Exception:
-            print(f"Warning: got unexpected _get_pos result: {pcb_ans}")
+            self.lg.debug(f"Warning: got unexpected _get_pos result: {pcb_ans}")
             rslt_pos = -1
         return rslt_pos
 
@@ -213,7 +230,7 @@ class Us(object):
                 if answer == "":
                     break
                 else:
-                    print(f"Warning: got unexpected goto command ({cmd}) result: {answer}")
+                    self.lg.debug(f"Warning: got unexpected goto command ({cmd}) result: {answer}")
             if answer != "":
                 try:
                     len_answer = self.pcb.query(f"l{ax}")

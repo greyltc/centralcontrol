@@ -2,6 +2,7 @@
 
 from telnetlib import Telnet
 import socket
+import time
 import os
 
 import sys
@@ -26,10 +27,11 @@ class Pcb(object):
     response_timeout = 6.0  # give the PCB this long to send a long message
     telnet_host = "localhost"
     telnet_port = 23
-    firmware_version = "unknown"
+    firmware_version = None
     detected_muxes = []
     detected_axes = []
     expected_muxes = []
+    welcome_message = None
 
     class MyTelnet(Telnet):
         def read_response(self, timeout=None):
@@ -84,24 +86,7 @@ class Pcb(object):
         self.lg.debug(f"{__name__} initialized.")
 
     def __enter__(self):
-        self.tn = self.MyTelnet(self.telnet_host, self.telnet_port, timeout=self.comms_timeout)
-        self.sf = self.tn.sock.makefile("rwb", buffering=0)
-        self.tn.sock.settimeout(self.comms_timeout)
-
-        if os.name != "nt":
-            Pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
-
-        welcome_message, win = self.tn.read_response(timeout=self.response_timeout)
-
-        if not win:
-            raise ValueError("Firmware did not present command prompt on connection")
-
-        self.firmware_version = self.query("v")
-        self.probe_muxes()
-        self.probe_axes()
-        self.lg.debug(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
-        if self.expected_muxes != self.detected_muxes:
-            self.lg.debug(f"Got unexpected mux presence. Wanted: '{self.expected_muxes}' but got '{self.detected_muxes}")
+        self.connect()
         return self
 
     # figures out what muxes are connected
@@ -128,8 +113,41 @@ class Pcb(object):
                 self.detected_axes.append(chr(ord(start_char) + i))
 
     def __exit__(self, type, value, traceback):
+        self.disconnect()
+
+    def connect(self):
+        """connects to control PCB"""
+        connection_retries = 2
+        for attempt in range(connection_retries):
+            self.tn = self.MyTelnet(self.telnet_host, self.telnet_port, timeout=self.comms_timeout)
+            self.sf = self.tn.sock.makefile("rwb", buffering=0)
+            self.tn.sock.settimeout(self.comms_timeout)
+
+            if "ix" in os.name:
+                Pcb.set_keepalive_linux(self.tn.sock)  # let's try to keep our connection alive!
+
+            self.welcome_message, win = self.tn.read_response(timeout=self.response_timeout)
+
+            if not win:
+                self.lg.debug("Firmware did not present command prompt on connection")
+            else:
+                self.firmware_version = self.query("v")
+                self.probe_muxes()
+                self.probe_axes()
+                self.lg.debug(f"v={self.firmware_version}|m={self.detected_muxes}|s={self.detected_axes}")
+                if (self.expected_muxes != []) and (self.expected_muxes != self.detected_muxes):
+                    self.lg.debug(f"Got unexpected mux presence. Wanted: '{self.expected_muxes}' but got '{self.detected_muxes}")
+                else:  # connection success
+                    break
+
+            self.disconnect(method="reset")
+        else:
+            raise ValueError(f"Failed to connect to control PCB at {self.telnet_host}:{self.telnet_port}")
+
+    def disconnect(self, method="exit"):
+        """disconnects from control PCB"""
         try:
-            self.write(self, "exit")
+            self.write(self, method)
         except Exception:
             pass
         try:
@@ -140,6 +158,10 @@ class Pcb(object):
             self.tn.close()
         except Exception:
             pass
+
+        if method == "reset":
+            # sleep for a sec to allow the hardware to complete reset
+            time.sleep(1)
 
     def write(self, cmd):
         if not cmd.endswith(self.write_terminator):
