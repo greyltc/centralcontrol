@@ -198,7 +198,16 @@ class Us(object):
             if len(loc_deque) == deque_len:  # deque full
                 unique = set(loc_deque)
                 if len(unique) == 1:
-                    raise (ValueError(f"Motion seems to have stopped on {ax} at {unique.pop()/self.steps_per_mm} while trying to go from ~{start_mm} to {goal/self.steps_per_mm}. The loc_deque was {loc_deque}"))
+                    len_answer = self.pcb.query(f"l{ax}")
+                    msg = f"Motion seems to have stopped on {ax} at {unique.pop()/self.steps_per_mm} while trying to go from ~{start_mm} to {goal/self.steps_per_mm}. Length is now {len_answer}. The loc_deque was {loc_deque}"
+                    self.lg.debug(msg)
+                    try:  # if we didn't stall, reissue the motion command
+                        axl = int(len_answer)
+                        if axl > 0:
+                            loc_deque.clear()
+                            self.pcb.query(f"g{ax}{goal}")
+                    except:
+                        raise ValueError(msg)
             if debug_prints == True:
                 # self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
                 self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
