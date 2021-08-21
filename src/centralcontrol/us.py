@@ -147,73 +147,23 @@ class Us(object):
                                 if delta > allowed_deviation:
                                     raise ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]")
                     elif action == "g":
-                        self._wait_for_goto(ax, goal, timeout=timeout - (time.time() - t0), debug_prints=False)
+                        self.goto({ax:goal}, timeout=timeout - (time.time() - t0), debug_prints=False)
 
     def _wait_for_home_or_jog(self, ax, timeout=300, debug_prints=False):
         t0 = time.time()
         ai = self.axes.index(ax)
         poll_cmd = f"l{ax}"
-        answer = None
-        try:
-            answer = self.pcb.query(poll_cmd)
-            self.len_axes_mm[ai] = int(answer) / self.steps_per_mm
-        except Exception:
-            self.lg.debug(f"Warning: got unexpected home/jog poll result: {answer}")
-            self.len_axes_mm[ai] = -1 / self.steps_per_mm
-        dt = time.time() - t0
-        while (self.len_axes_mm[ai] == -1 / self.steps_per_mm) and (dt <= timeout):
+        self.len_axes_mm[ai] = None
+        while et := time.time() - t0 <= timeout:
+            ax_len = query_i(poll_cmd)
+            if isinstance(ax_len, int) and (ax_len > 0):
+                self.len_axes_mm[ai] = ax_len/self.steps_per_mm
+                break
             time.sleep(self.poll_delay)
             if debug_prints == True:
-                self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
-                # self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
-            answer = None
-            try:
-                answer = self.pcb.query(poll_cmd)
-                self.len_axes_mm[ai] = int(answer) / self.steps_per_mm
-            except Exception:
-                self.lg.debug(f"Warning: got unexpected home/jog poll result: {answer}")
-                self.len_axes_mm[ai] = -1 / self.steps_per_mm
-            if debug_prints == True:
-                self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
-                # self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')   # TSTEP register (0x12=18)  value
-            dt = time.time() - t0
-        if dt > timeout:
-            raise ValueError(f"Timeout while waiting for axis {ax} to home/jog. The duration was {dt} [s] but the limit is {timeout} [s]. The last answer was {answer}")
-
-    def _wait_for_goto(self, ax, goal, timeout=300, debug_prints=False):
-        deque_len = 5
-        t0 = time.time()
-        here = self._get_pos(ax)
-        start_mm = here / self.steps_per_mm
-        loc_deque = deque([], deque_len)
-        loc_deque.append(here)
-        dt = time.time() - t0
-        while (here != goal) and (dt <= timeout):
-            time.sleep(self.poll_delay)
-            if debug_prints == True:
-                # self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')  # driver status byte print for debug
                 self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
-            here = self._get_pos(ax)
-            loc_deque.append(here)
-            if len(loc_deque) == deque_len:  # deque full
-                unique = set(loc_deque)
-                if len(unique) == 1:
-                    len_answer = self.pcb.query(f"l{ax}")
-                    msg = f"Motion seems to have stopped on {ax} at {unique.pop()/self.steps_per_mm} while trying to go from ~{start_mm} to {goal/self.steps_per_mm}. Length is now {len_answer}. The loc_deque was {loc_deque}"
-                    self.lg.debug(msg)
-                    try:  # if we didn't stall, reissue the motion command
-                        axl = int(len_answer)
-                        if axl > 0:
-                            loc_deque.clear()
-                            self.pcb.query(f"g{ax}{goal}")
-                    except:
-                        raise ValueError(msg)
-            if debug_prints == True:
-                # self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"i{ax}")).rjust(8,"0")}')   # driver status byte print for debug
-                self.lg.debug(f'{ax}-l-a-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
-            dt = time.time() - t0
-        if dt > timeout:
-            raise (ValueError(f"Timeout while waiting for axis {ax} to go from ~{start_mm} to {goal/self.steps_per_mm}. The duration was {dt} [s] but the limit is {timeout} [s]. The loc_deque was {loc_deque}"))
+        else:
+            raise ValueError(f"{timeout}s timeout exceeded while homing/jogging axis {ax}. Tried for {et}s.")
 
     # lower level (step based) position request function
     def _get_pos(self, ax):
@@ -225,31 +175,68 @@ class Us(object):
             rslt_pos = -1
         return rslt_pos
 
-    def goto(self, targets_mm, timeout=300, debug_prints=False):
-        retry_max = 5
+    def goto(self, targets_mm, timeout=300, debug_prints=False, blocking=True):
+        """sends the stage some place. targets_mm is a dict with keys for axis numbers and vals for target mms"""
         t0 = time.time()
         targets_step = [round(x * self.steps_per_mm) for x in targets_mm]
-        for i, target_step in enumerate(targets_step):
-            ax = self.axes[i]
-            cmd = f"g{ax}{target_step}"
-            retries = 0
-            while retries <= retry_max:
-                answer = self.pcb.query(cmd)
-                retries = retries + 1
-                if answer == "":
-                    break
+        start_step = {}
+        for ax, target_step in targets_mm.items():
+            start_step[i] = self.send_g(ax, target_step)
+        self.lg.debug(f"Motion to {targets_mm} started from {[val/self.steps_per_mm for key, val in start_step.items()]}")
+        if blocking == True:
+            time.sleep(self.poll_delay)
+            for ax, target_step in targets_mm.items():
+                while et := time.time() - t0 <= timeout
+                    loc = self.send_g(ax, target_step)
+                    if loc == target_step:
+                        break
+                    time.sleep(self.poll_delay)
+                    if debug_prints == True:
+                        self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
                 else:
-                    self.lg.debug(f"Warning: got unexpected goto command ({cmd}) result: {answer}")
-            if answer != "":
+                    if loc is not None:
+                        self.lg.error(f"Motion on axis {ax} timed out while it was at {loc/self.steps_per_mm}")
+                    if start_step[i] is not None:
+                        self.lg.error(f"While going from {start_step[i]/self.steps_per_mm} to {target_step[i]/self.steps_per_mm}")
+                    raise ValueError(f"{timeout}s timeout exceeded while moving axis {ax}. Tried for {et}s.")
+
+    def send_g(self, ax, target_step):
+        """sends g (go to) cmd to axis controller"""
+        pos = self.query_i(f"r{ax}")
+        if target_step != rslt_pos:  # first read pos (might not even need to send cmd)
+            ax_len = self.query_i(f"l{ax}")  # then read len (might not be allowed to move)
+            if (ax_len == 0) or (ax_len == -1):  # length disaster detected
+                if pos is not None:
+                    self.lg.error(f"Axis {ax} was at {pos/self.steps_per_mm}mm while going to {target_step/self.steps_per_mm}mm")
+                    self.lg.error(f"That's {(pos-target_step)/self.steps_per_mm}mm away")
+                if ax_len == 0:
+                    self.lg.error(f"Axis {ax} needs calibration.")
+                if ax_len == -1:
+                    self.lg.error(f"Axis {ax} can not be moved during the homing procedure.")
+                raise ValueError(f"Failure moving axis {ax} to {target_step/self.steps_per_mm}")
+            else:  # no length disaster
+                cmd = f"g{ax}{target_step}"
+                pcb_ans = None
                 try:
-                    len_answer = self.pcb.query(f"l{ax}")
-                    note = f" A subsequent stage length request query returned {len_answer}. -1 indicates the stage is busy and 0 indicates it is in the unhomed state and must be homed before further movement."
-                except Exception:
-                    note = ""
-                raise (ValueError(f"Error asking axis {ax} to go to {targets_mm[i]} with response {answer}.{note}"))
-        for i, target_step in enumerate(targets_step):
-            ax = self.axes[i]
-            self._wait_for_goto(ax, target_step, timeout=timeout - (time.time() - t0), debug_prints=debug_prints)
+                    pcb_ans = self.pcb.query(cmd)
+                except Exception as e:
+                    self.lg.debug(f"STAGE ISSUE: Exception in send_g for {cmd=} --> {pcb_ans=}")
+                if pcb_ans != "":
+                    self.lg.debug(f"STAGE ISSUE: Problem in send_g for {cmd=} --> {pcb_ans=}")
+                if (not isinstance(ax_len, int)) or (ax_len < 0):
+                    self.lg.debug(f"STAGE ISSUE: Problem reading axis length {ax_len=}")
+        return pos
+
+    def query_i(self, cmd):
+        """send a command that we expect an intiger respose to"""
+        pcb_ans = None
+        rslt = None
+        try:
+            pcb_ans = self.pcb.query(cmd)
+            rstl = int(pcb_ans)
+        except Exception as e:
+            self.lg.debug(f"STAGE ISSUE: Problem in query_i for {cmd=} --> {pcb_ans=}")
+        return rslt
 
     # returns the stage's current position (a list matching the axes input)
     # axis is -1 for all available axes or a list of axes
@@ -298,7 +285,9 @@ if __name__ == "__main__":
         me.home()
         print(f"Homed!\nMeasured stage lengths = {me.len_axes_mm}")
 
-        mid_mm = [x / 2 for x in me.len_axes_mm]
+        mid_mm = {}
+        for i, ax in enumerate me.axes:
+            mid_mm[ax] = me.len_axes_mm[i]/2
         print(f"GOingTO the middle of the stage: {mid_mm}")
         me.goto(mid_mm)
         print("Movement done.")

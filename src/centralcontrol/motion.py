@@ -158,7 +158,7 @@ class motion:
     #    """
     #    return self.motion_engine.move(mm)
 
-    def goto(self, pos, timeout=None, debug_prints=False):
+    def goto(self, pos, timeout=300, debug_prints=False):
         """
         goes to an absolute mm position, blocking, reuturns 0 on success
         """
