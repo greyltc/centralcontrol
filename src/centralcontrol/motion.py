@@ -159,9 +159,7 @@ class motion:
     #    return self.motion_engine.move(mm)
 
     def goto(self, pos, timeout=300, debug_prints=False):
-        """
-        goes to an absolute mm position, blocking, reuturns 0 on success
-        """
+        """goes to an absolute mm position, blocking"""
         self.lg.debug(f"goto({pos=}) called")
         if timeout == None:
             timeout = self.home_timeout * self.motion_timeout_fraction
@@ -170,7 +168,8 @@ class motion:
         naxes = len(self.axes)
         npos = len(pos)
         if naxes != npos:
-            raise (ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes"))
+            raise ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes")
+        gti = {}
         for i, a in enumerate(self.axes):
             el = self.expected_lengths[i]
             al = self.actual_lengths[i]
@@ -182,16 +181,16 @@ class motion:
             if el < float("inf"):  # length check is enabled
                 delta = el - al
                 if abs(delta) > self.allowed_length_deviation:
-                    raise (ValueError(f"Error: Unexpected axis {a} length. Found {al} [mm] but expected {el} [mm]"))
+                    raise ValueError(f"Error: Unexpected axis {a} length. Found {al} [mm] but expected {el} [mm]")
             if (goal >= ko_lower) and (goal <= ko_upper):
-                raise (ValueError(f"Error: Axis {a} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]"))
+                raise ValueError(f"Error: Axis {a} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
             if goal < lower_lim:
-                raise (ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]"))
+                raise ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
             if goal > upper_lim:
-                raise (ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]"))
-        goto_result = self.motion_engine.goto(pos, timeout=timeout, debug_prints=debug_prints)
+                raise ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
+            gti[a] = goal
+        self.motion_engine.goto(gti, timeout=timeout, debug_prints=debug_prints)
         self.lg.debug(f"goto() complete")
-        return goto_result
 
     def home(self, timeout=300):
         """
