@@ -193,7 +193,7 @@ class motion:
         self.lg.debug(f"goto() complete")
         return goto_result
 
-    def home(self, timeout=None):
+    def home(self, timeout=300):
         """
         homes to a limit switch, blocking, reuturns 0 on success
         """
