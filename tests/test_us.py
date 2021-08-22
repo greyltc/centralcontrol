@@ -1,5 +1,4 @@
 import unittest
-import time
 
 from centralcontrol.us import Us
 from centralcontrol.pcb import Pcb
@@ -44,3 +43,5 @@ class UsTestCase(unittest.TestCase):
             home_setup["expected_lengths"] = None
             home_setup["allowed_deviation"] = None
             me.home(procedure="default", timeout=300, expected_lengths=None, allowed_deviation=None)
+            for ax_len in me.len_axes_mm:
+                self.assertGreater(ax_len, 0)

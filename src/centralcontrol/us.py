@@ -147,7 +147,7 @@ class Us(object):
                                 if delta > allowed_deviation:
                                     raise ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]")
                     elif action == "g":
-                        self.goto({ax:goal}, timeout=timeout - (time.time() - t0), debug_prints=False)
+                        self.goto({ax: goal}, timeout=timeout - (time.time() - t0), debug_prints=False)
 
     def _wait_for_home_or_jog(self, ax, timeout=300, debug_prints=False):
         t0 = time.time()
@@ -155,9 +155,9 @@ class Us(object):
         poll_cmd = f"l{ax}"
         self.len_axes_mm[ai] = None
         while et := time.time() - t0 <= timeout:
-            ax_len = query_i(poll_cmd)
+            ax_len = self.query_i(poll_cmd)
             if isinstance(ax_len, int) and (ax_len > 0):
-                self.len_axes_mm[ai] = ax_len/self.steps_per_mm
+                self.len_axes_mm[ai] = ax_len / self.steps_per_mm
                 break
             time.sleep(self.poll_delay)
             if debug_prints == True:
@@ -186,7 +186,7 @@ class Us(object):
         if blocking == True:
             time.sleep(self.poll_delay)
             for ax, target_step in targets_mm.items():
-                while et := time.time() - t0 <= timeout
+                while et := time.time() - t0 <= timeout:
                     loc = self.send_g(ax, target_step)
                     if loc == target_step:
                         break
@@ -202,8 +202,7 @@ class Us(object):
 
     def send_g(self, ax, target_step):
         """sends g (go to) cmd to axis controller"""
-        pos = self.query_i(f"r{ax}")
-        if target_step != rslt_pos:  # first read pos (might not even need to send cmd)
+        if pos := self.query_i(f"r{ax}") != target_step:  # first read pos (might not even need to send cmd)
             ax_len = self.query_i(f"l{ax}")  # then read len (might not be allowed to move)
             if (ax_len == 0) or (ax_len == -1):  # length disaster detected
                 if pos is not None:
@@ -233,7 +232,7 @@ class Us(object):
         rslt = None
         try:
             pcb_ans = self.pcb.query(cmd)
-            rstl = int(pcb_ans)
+            rslt = int(pcb_ans)
         except Exception as e:
             self.lg.debug(f"STAGE ISSUE: Problem in query_i for {cmd=} --> {pcb_ans=}")
         return rslt
@@ -286,8 +285,8 @@ if __name__ == "__main__":
         print(f"Homed!\nMeasured stage lengths = {me.len_axes_mm}")
 
         mid_mm = {}
-        for i, ax in enumerate me.axes:
-            mid_mm[ax] = me.len_axes_mm[i]/2
+        for i, ax in enumerate(me.axes):
+            mid_mm[ax] = me.len_axes_mm[i] / 2
         print(f"GOingTO the middle of the stage: {mid_mm}")
         me.goto(mid_mm)
         print("Movement done.")
