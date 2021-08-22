@@ -10,7 +10,7 @@ class UsTestCase(unittest.TestCase):
     motor_steps_per_rev = 200  # steps/rev
     micro_stepping = 256  # microsteps/step
     screw_pitch = 8  # mm/rev
-    steps_per_mm = motor_steps_per_rev * micro_stepping * screw_pitch
+    steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
     home_procedure = "default"
 
     pcb_host = "WIZnet111785"
@@ -32,7 +32,7 @@ class UsTestCase(unittest.TestCase):
                 self.assertIsInstance(fw, str)
 
     def test_home(self):
-        """conntction to hardware. this fails if there's no PCB and no stage"""
+        """test stage homing procedure. this fails if there's no PCB and no stage"""
         with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
             me = Us(p, spm=self.steps_per_mm, homer=self.home_procedure)
             me.connect()
@@ -45,3 +45,18 @@ class UsTestCase(unittest.TestCase):
             me.home(procedure="default", timeout=300, expected_lengths=None, allowed_deviation=None)
             for ax_len in me.len_axes_mm:
                 self.assertGreater(ax_len, 0)
+
+    def test_goto(self):
+        """tests sending the stage to places. this fails if there's no PCB and no stage"""
+        test_positions = [50, 75]  # in mm
+
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
+            me = Us(p, spm=self.steps_per_mm, homer=self.home_procedure)
+            me.connect()
+
+            for ax in me.axes:
+                for target_mm in test_positions:
+                    me.goto({ax: target_mm})
+                    pos_dict = me.get_position()
+                    self.assertIsInstance(pos_dict[ax], float)
+                    self.assertAlmostEqual(pos_dict[ax], target_mm)

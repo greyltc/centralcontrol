@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import division
+
 import time
 from collections import deque
 
@@ -72,7 +74,7 @@ class Us(object):
         try:
             intans = int(answer)
         except ValueError:
-            raise (ValueError(f"Expecting integer response to {cmd}, but got {answer}"))
+            raise ValueError(f"Expecting integer response to {cmd}, but got {answer}")
         return intans
 
     def _update_len_axes_mm(self):
@@ -178,14 +180,19 @@ class Us(object):
     def goto(self, targets_mm, timeout=300, debug_prints=False, blocking=True):
         """sends the stage some place. targets_mm is a dict with keys for axis numbers and vals for target mms"""
         t0 = time.time()
-        targets_step = [round(x * self.steps_per_mm) for x in targets_mm]
+
+        targets_step = {}
+        for ax, target_mm in targets_mm.items():  # convert mm to step values
+            targets_step[ax] = round(target_mm * self.steps_per_mm)
+
         start_step = {}
-        for ax, target_step in targets_mm.items():
-            start_step[i] = self.send_g(ax, target_step)
+        for ax, target_step in targets_step.items():  # initiate parallal motion and find start points
+            start_step[ax] = self.send_g(ax, target_step)
         self.lg.debug(f"Motion to {targets_mm} started from {[val/self.steps_per_mm for key, val in start_step.items()]}")
-        if blocking == True:
+
+        if blocking == True:  # wait for motion to complete
             time.sleep(self.poll_delay)
-            for ax, target_step in targets_mm.items():
+            for ax, target_step in targets_step.items():
                 while et := time.time() - t0 <= timeout:
                     loc = self.send_g(ax, target_step)
                     if loc == target_step:
@@ -196,13 +203,13 @@ class Us(object):
                 else:
                     if loc is not None:
                         self.lg.error(f"Motion on axis {ax} timed out while it was at {loc/self.steps_per_mm}")
-                    if start_step[i] is not None:
-                        self.lg.error(f"While going from {start_step[i]/self.steps_per_mm} to {target_step[i]/self.steps_per_mm}")
+                    if start_step[ax] is not None:
+                        self.lg.error(f"While going from {start_step[ax]/self.steps_per_mm} to {target_step[i]/self.steps_per_mm}")
                     raise ValueError(f"{timeout}s timeout exceeded while moving axis {ax}. Tried for {et}s.")
 
     def send_g(self, ax, target_step):
         """sends g (go to) cmd to axis controller"""
-        if pos := self.query_i(f"r{ax}") != target_step:  # first read pos (might not even need to send cmd)
+        if (pos := self.query_i(f"r{ax}")) != target_step:  # first read pos (might not even need to send cmd)
             ax_len = self.query_i(f"l{ax}")  # then read len (might not be allowed to move)
             if (ax_len == 0) or (ax_len == -1):  # length disaster detected
                 if pos is not None:
@@ -241,11 +248,16 @@ class Us(object):
     # axis is -1 for all available axes or a list of axes
     # returns None values for axes that could not be read
     def get_position(self):
-        result_mm = []
+        """returns a dict with keys axis number, val axis pos in mm"""
+        result_mm = {}
         for ax in self.axes:
             get_cmd = f"r{ax}"
-            answer = self._pwrapint(get_cmd)
-            result_mm.append(answer / self.steps_per_mm)
+            answer = self.query_i(get_cmd)
+            if isinstance(answer, int) and (answer > 0):
+                result_mm[ax] = answer / self.steps_per_mm
+            else:
+                self.lg.debug(f"STAGE ISSUE: Problem in get_position for {get_cmd=} --> {answer=}")
+                result_mm[ax] = None
         return result_mm
 
     def estop(self, axes=-1):
