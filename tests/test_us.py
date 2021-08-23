@@ -89,13 +89,14 @@ class UsTestCase(unittest.TestCase):
             for ax, ax_len in me.len_axes_mm.items():
                 # choose how long the dance should last
                 # goto_dance_duration = float("inf")
-                goto_dance_duration = 60
-                print(f"Now doing goto dance for {goto_dance_duration} seconds...")
+                goto_dance_duration = 120
+                print(f"\nNow doing goto dance for {goto_dance_duration} seconds...")
 
-                dance_width_mm = 5
-                ndancepoints = 10
+                dance_width_mm = 5  # width of the dance motions
+                ndancepoints = 10  # number of dance centerpoints
+                edge_space = 0.5  # start and end are this far from the limits
 
-                dancemin = 4 + dance_width_mm / 2
+                dancemin = edge_space + dance_width_mm / 2
                 dancemax = ax_len - dancemin
                 dancespace = [dancemin + float(x) / (ndancepoints - 1) * (dancemax - dancemin) for x in range(ndancepoints)]
                 dancepoints = []
