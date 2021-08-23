@@ -1,6 +1,7 @@
 import unittest
 import math
 import numpy
+import time
 
 from centralcontrol.us import Us
 from centralcontrol.pcb import Pcb
@@ -79,3 +80,44 @@ class UsTestCase(unittest.TestCase):
                     pos_dict = me.get_position()
                     self.assertIsInstance(pos_dict[ax], float)
                     self.assertAlmostEqual(pos_dict[ax], target_mm, places=3)
+
+    def test_dance(self):
+        """do a motion dance"""
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
+            me = Us(p, spm=self.steps_per_mm, homer=self.home_procedure)
+            me.connect()
+            for ax, ax_len in me.len_axes_mm.items():
+                # choose how long the dance should last
+                # goto_dance_duration = float("inf")
+                goto_dance_duration = 60
+                print(f"Now doing goto dance for {goto_dance_duration} seconds...")
+
+                dance_width_mm = 5
+                ndancepoints = 10
+
+                dancemin = 4 + dance_width_mm / 2
+                dancemax = ax_len - dancemin
+                dancespace = [dancemin + float(x) / (ndancepoints - 1) * (dancemax - dancemin) for x in range(ndancepoints)]
+                dancepoints = []
+                for p in dancespace:
+                    dancepoints.append(p - dance_width_mm / 2)
+                    dancepoints.append(p + dance_width_mm / 2)
+                    dancepoints.append(p - dance_width_mm / 2)
+
+                dancepoints_rev = dancepoints.copy()
+                dancepoints_rev.reverse()
+                del dancepoints_rev[0]
+                del dancepoints_rev[-1]
+                full_dancelist = dancepoints + dancepoints_rev
+
+                t0 = time.time()
+                while (time.time() - t0) < goto_dance_duration:
+                    goal = full_dancelist.pop(0)
+                    target_mm = goal
+                    print(f"New target = {target_mm}")
+                    me.goto({ax: target_mm})
+                    pos_dict = me.get_position()
+                    self.assertIsInstance(pos_dict[ax], float)
+                    self.assertAlmostEqual(pos_dict[ax], target_mm, places=3)
+                    full_dancelist.append(goal)  # allow for wrapping
+                print(f"Dance complete!")
