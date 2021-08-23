@@ -89,7 +89,7 @@ class UsTestCase(unittest.TestCase):
             for ax, ax_len in me.len_axes_mm.items():
                 # choose how long the dance should last
                 # goto_dance_duration = float("inf")
-                goto_dance_duration = 120
+                goto_dance_duration = 60
                 print(f"\nNow doing goto dance for {goto_dance_duration} seconds...")
 
                 dance_width_mm = 5  # width of the dance motions
