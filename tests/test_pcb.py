@@ -48,22 +48,24 @@ class PcbTestCase(unittest.TestCase):
     def test_mux_alot(self):
         """manipulate the mux 'alot'"""
         em = self.expected_muxes
-        # em = []
+        print(f"\nFound muxes = {em}")
+        n_repeats = 10
+        n_bits = 16  # bits in the port expander to hit
         with Pcb(self.pcb_host, timeout=self.pcb_timeout, expected_muxes=em) as p:
-            ret, found_prompt = p._query("s")  # deselect
-            self.assertTrue(found_prompt)
-            self.assertIsInstance(ret, str)
-            self.assertEqual(len(ret), 0)
-
-            slot = "A"
-            n_bits = 16
-            for b in range(n_bits):
-                ret, found_prompt = p._query(f"s{slot}{1<<b:05d}")  # hit each port expander line once
+            for repeat in range(n_repeats):
+                ret, found_prompt = p._query("s")  # deselect
                 self.assertTrue(found_prompt)
                 self.assertIsInstance(ret, str)
                 self.assertEqual(len(ret), 0)
 
-            ret, found_prompt = p._query("sA0")  # deselect
-            self.assertTrue(found_prompt)
-            self.assertIsInstance(ret, str)
-            self.assertEqual(len(ret), 0)
+                for slot in em:
+                    for b in range(n_bits):
+                        ret, found_prompt = p._query(f"s{slot}{1<<b:05d}")  # hit each port expander line once
+                        self.assertTrue(found_prompt)
+                        self.assertIsInstance(ret, str)
+                        self.assertEqual(len(ret), 0)
+
+                    ret, found_prompt = p._query(f"s{slot}0")  # deselect
+                    self.assertTrue(found_prompt)
+                    self.assertIsInstance(ret, str)
+                    self.assertEqual(len(ret), 0)

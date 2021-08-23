@@ -33,10 +33,11 @@ class motion:
     home_procedure = "default"
     home_timeout = 130  # seconds
     motion_timeout_fraction = 1 / 2  # fraction of home_timeout for movement timeouts
-    expected_lengths = [float("inf")]  # list of mm
-    actual_lengths = [float("inf")]  # list of mm
-    keepout_zones = [[-2, -2]]  # list of lists of mm
-    axes = [1]  # list of connected axis indicies
+    expected_lengths = {}  # dict of keys=axis, vals =lengths in mm
+    actual_lengths = {}  # dict of keys=axis, vals =lengths in mm
+    keepout_zones = {}  # dict of keys=axis, vals = list of mm
+    empty_koz = [-2, -2]  # a keepout zone that will never activate
+    axes = []  # list of connected axis strings
     allowed_length_deviation = 5  # measured length can deviate from expected length by up to this, in mm
     location = "controller"
 
@@ -77,20 +78,18 @@ class motion:
         except Exception:
             raise ValueError("Incorrect motion controller address format: {address}")
         self.location = parsed.netloc + parsed.path
-        empty_koz = [-2, -2]  # a keepout zone that will never activate
         if "el" in qparsed:
             splitted = qparsed["el"][0].split(",")
-            self.expected_lengths = [float(y) for y in splitted]
-            self.keepout_zones = []
-            for i, l in enumerate(self.expected_lengths):  # ensure default koz works
-                self.keepout_zones.append(empty_koz)
+            for i, els in enumerate(splitted):
+                self.expected_lengths[str(i + 1)] = float(els)
+                self.keepout_zones[str(i + 1)] = self.empty_koz  # ensure default koz works
         if "spm" in qparsed:
             self.steps_per_mm = int(qparsed["spm"][0])
         if "kz" in qparsed:
-            self.keepout_zones = json.loads(qparsed["kz"][0])
-            for i, z in enumerate(self.keepout_zones):
-                if z == []:
-                    self.keepout_zones[i] = empty_koz
+            for i, zone in enumerate(json.loads(qparsed["kz"][0])):
+                if zone == []:
+                    zone = self.empty_koz
+                self.keepout_zones[str(i + 1)] = zone
         if "hto" in qparsed:
             self.home_timeout = float(qparsed["hto"][0])
         if "homer" in qparsed:
@@ -145,9 +144,9 @@ class motion:
             if naxes != nzones:
                 raise ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes")
 
-            for i, a in enumerate(self.axes):
-                if self.actual_lengths[i] <= 0:
-                    self.lg.warn(f"Warning: axis {a} is not ready for motion. Please press the 'Recalibrate' button (ignore this message if you just did that).")
+            for ax in self.axes:
+                if self.actual_lengths[ax] <= 0:
+                    self.lg.warn(f"Warning: axis {ax} is not ready for motion. Please press the 'Recalibrate' button (ignore this message if you just did that).")
 
         self.lg.debug(f"motion connected")
         return result
@@ -170,25 +169,25 @@ class motion:
         if naxes != npos:
             raise ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes")
         gti = {}
-        for i, a in enumerate(self.axes):
-            el = self.expected_lengths[i]
-            al = self.actual_lengths[i]
-            ko_lower = self.keepout_zones[i][0]
-            ko_upper = self.keepout_zones[i][1]
+        for i, ax in enumerate(self.axes):
+            el = self.expected_lengths[ax]
+            al = self.actual_lengths[ax]
+            ko_lower = self.keepout_zones[ax][0]
+            ko_upper = self.keepout_zones[ax][1]
             lower_lim = 0 + self.motion_engine.end_buffers
             upper_lim = al - self.motion_engine.end_buffers
             goal = pos[i]
             if el < float("inf"):  # length check is enabled
                 delta = el - al
                 if abs(delta) > self.allowed_length_deviation:
-                    raise ValueError(f"Error: Unexpected axis {a} length. Found {al} [mm] but expected {el} [mm]")
+                    raise ValueError(f"Error: Unexpected axis {ax} length. Found {al} [mm] but expected {el} [mm]")
             if (goal >= ko_lower) and (goal <= ko_upper):
-                raise ValueError(f"Error: Axis {a} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
+                raise ValueError(f"Error: Axis {ax} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
             if goal < lower_lim:
-                raise ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
+                raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
             if goal > upper_lim:
-                raise ValueError(f"Error: Attempt to move axis {a} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
-            gti[a] = goal
+                raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
+            gti[ax] = goal
         self.motion_engine.goto(gti, timeout=timeout, debug_prints=debug_prints)
         self.lg.debug(f"goto() complete")
 
@@ -262,7 +261,7 @@ def main():
 
         print(f"Current Position: {mo.get_position()}")
 
-        mid = [x / 2 for x in mo.actual_lengths]
+        mid = [x / 2 for ax, x in mo.actual_lengths.items()]
         print(f"Going to midway: {mid}")
         mo.goto(mid)
         print("Done.")
@@ -272,7 +271,7 @@ def main():
         # choose how long the dance should last
         # goto_dance_duration = float("inf")
         goto_dance_duration = 60
-        dance_axis = 0  # which axis to dance (zero indexed)
+        dance_axis = "1"  # which axis to dance
         print(f"Now doing goto dance for {goto_dance_duration} seconds...")
 
         dance_width_mm = 5
@@ -297,7 +296,7 @@ def main():
         target = here
         while (time.time() - t0) < goto_dance_duration:
             goal = full_dancelist.pop(0)
-            target[dance_axis] = goal
+            target[int(dance_axis) - 1] = goal
             print(f"New target = {target}")
             mo.goto(target, debug_prints=True)
             full_dancelist.append(goal)  # allow for wrapping

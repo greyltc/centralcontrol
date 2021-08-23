@@ -34,7 +34,7 @@ class Us(object):
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
     home_procedure = "default"
     pcb = None
-    len_axes_mm = [float("inf")]  # list of mm for how long the firmware thinks each axis is
+    len_axes_mm = {}  # dict of axis names = keys, lengths = values
     axes = [1]
     poll_delay = 0.25  # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
 
@@ -78,9 +78,9 @@ class Us(object):
         return intans
 
     def _update_len_axes_mm(self):
-        len_axes_mm = []
+        len_axes_mm = {}
         for ax in self.axes:
-            len_axes_mm.append(self._pwrapint(f"l{ax}") / self.steps_per_mm)
+            len_axes_mm[ax] = self._pwrapint(f"l{ax}") / self.steps_per_mm
         self.len_axes_mm = len_axes_mm
 
     def connect(self):
@@ -106,14 +106,14 @@ class Us(object):
             self.pcb.query(f"y{ax}57,678")  # as an example, this puts 678 into the XENC register (57=0x39)
 
         if procedure == "default":
-            for i, ax in enumerate(self.axes):
+            for ax in self.axes:
                 home_cmd = f"h{ax}"
                 answer = self.pcb.query(home_cmd)
                 if answer != "":
                     raise ValueError(f"Request to home axis {ax} via '{home_cmd}' failed with {answer}")
                 else:
                     self._wait_for_home_or_jog(ax, timeout=timeout - (time.time() - t0))
-                    if self.len_axes_mm[i] == 0:
+                    if self.len_axes_mm[ax] == 0:
                         raise ValueError(f"Homing of axis {ax} resulted in measured length of zero.")
         else:  # special home
             home_commands = procedure.split("!")
@@ -139,12 +139,11 @@ class Us(object):
                     if action in "hab":
                         self._wait_for_home_or_jog(ax, timeout=timeout - (time.time() - t0))
                         if action == "h":
-                            ai = self.axes.index(ax)
-                            this_len = self.len_axes_mm[ai]
+                            this_len = self.len_axes_mm[ax]
                             if this_len == 0:
                                 raise ValueError(f"Homing of axis {ax} resulted in measured length of zero.")
                             elif (allowed_deviation is not None) and (expected_lengths is not None):
-                                el = expected_lengths[ai]
+                                el = expected_lengths[ax]
                                 delta = abs(this_len - el)
                                 if delta > allowed_deviation:
                                     raise ValueError(f"Error: Unexpected axis {ax} length. Found {this_len} [mm] but expected {el} [mm]")
@@ -153,13 +152,12 @@ class Us(object):
 
     def _wait_for_home_or_jog(self, ax, timeout=300, debug_prints=False):
         t0 = time.time()
-        ai = self.axes.index(ax)
         poll_cmd = f"l{ax}"
-        self.len_axes_mm[ai] = None
+        self.len_axes_mm[ax] = None
         while et := time.time() - t0 <= timeout:
             ax_len = self.query_i(poll_cmd)
             if isinstance(ax_len, int) and (ax_len > 0):
-                self.len_axes_mm[ai] = ax_len / self.steps_per_mm
+                self.len_axes_mm[ax] = ax_len / self.steps_per_mm
                 break
             time.sleep(self.poll_delay)
             if debug_prints == True:
@@ -297,8 +295,8 @@ if __name__ == "__main__":
         print(f"Homed!\nMeasured stage lengths = {me.len_axes_mm}")
 
         mid_mm = {}
-        for i, ax in enumerate(me.axes):
-            mid_mm[ax] = me.len_axes_mm[i] / 2
+        for ax in me.axes:
+            mid_mm[ax] = me.len_axes_mm[ax] / 2
         print(f"GOingTO the middle of the stage: {mid_mm}")
         me.goto(mid_mm)
         print("Movement done.")

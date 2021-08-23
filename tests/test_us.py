@@ -1,4 +1,6 @@
 import unittest
+import math
+import numpy
 
 from centralcontrol.us import Us
 from centralcontrol.pcb import Pcb
@@ -43,7 +45,7 @@ class UsTestCase(unittest.TestCase):
             home_setup["expected_lengths"] = None
             home_setup["allowed_deviation"] = None
             me.home(procedure="default", timeout=300, expected_lengths=None, allowed_deviation=None)
-            for ax_len in me.len_axes_mm:
+            for ax, ax_len in me.len_axes_mm.items():
                 self.assertGreater(ax_len, 0)
 
     def test_goto(self):
@@ -60,3 +62,20 @@ class UsTestCase(unittest.TestCase):
                     pos_dict = me.get_position()
                     self.assertIsInstance(pos_dict[ax], float)
                     self.assertAlmostEqual(pos_dict[ax], target_mm)
+
+    def test_goto_long(self):
+        """tests sending the stage to a lot of places. this fails if there's no PCB and no stage"""
+        n_pos_per_axis = 20
+
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
+            me = Us(p, spm=self.steps_per_mm, homer=self.home_procedure)
+            me.connect()
+
+            for ax, ax_len in me.len_axes_mm.items():
+                start_pos = 1
+                end_pos = math.floor(ax_len)  # pick the closest whole mm as the endpoint
+                for target_mm in numpy.linspace(start_pos, end_pos, num=n_pos_per_axis):  # go to all the mm locations
+                    me.goto({ax: target_mm})
+                    pos_dict = me.get_position()
+                    self.assertIsInstance(pos_dict[ax], float)
+                    self.assertAlmostEqual(pos_dict[ax], target_mm, places=3)
