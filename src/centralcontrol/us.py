@@ -268,19 +268,21 @@ class Us(object):
         return self.pcb.expect_int(f"x{ax}{reg}")
 
     def reset(self, ax):
-        """send the reset command to an axis controller, ax is a string or int axis number counting up from 1"""
+        """sends the reset command to an axis controller, ax is a string or int axis number counting up from 1"""
         timeout = 5  # seconds to wait for reset to complete
         t0 = time.time()
         success = self.pcb.expect_empty(f"t{ax}")
         if success == True:
             # poll for fwver to check for reset compete
             while (time.time() - t0) < timeout:
-                # "+" not in stage_fw:
                 time.sleep(0.3)
                 stage_fw = self.pcb.query_nocheck(f"w{ax}")[0]
                 if isinstance(stage_fw, str):
                     if "+" in stage_fw:
-                        # self.write_reg(ax, 57, 678)  # as an example, this puts 678 into the XENC register (57=0x39)
+                        self.write_reg(ax, 0x39, 678)  # this puts 678 into the XENC register (57=0x39)
+                        # self.write_reg(ax, 0x15, 300)  # reprogram THIGH
+                        # self.write_reg(ax, 0x14, 500)  # reprogram TCOOLTHRS
+                        # see https://www.trinamic.com/fileadmin/assets/Products/ICs_Documents/TMC5130_datasheet_Rev1.18.pdf
                         break
             else:  # no break
                 success = False
