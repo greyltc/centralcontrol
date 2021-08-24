@@ -171,7 +171,7 @@ class Pcb(object):
         self.sf.flush()
 
     # query with no ack check
-    def _query(self, query):
+    def query_nocheck(self, query):
         self.write(query)
         return self.tn.read_response(timeout=self.comms_timeout)
 
@@ -180,7 +180,7 @@ class Pcb(object):
         answer = None
         ack = False
         try:
-            answer, ack = self._query(query)
+            answer, ack = self.query_nocheck(query)
         except Exception:
             self.lg.warning(f"Firmware comms failure while trying to send '{query}'")
         if ack == False:
@@ -198,24 +198,19 @@ class Pcb(object):
             success = True
         else:
             success = False
-            self.lg.warning(f"Unexpected non-empty response from PCB: {cmd} --> {rslt}")
+            self.lg.warning(f"Unexpected non-empty response from PCB: {cmd=} --> {rslt=}")
         return success
 
     def expect_int(self, cmd):
         """sends a command that we expect an intiger response to"""
+        pcb_ans = None
+        rslt = None
         try:
-            rslt = self.query(cmd)
-        except:
-            rslt = None
-
-        try:
-            rslt_i = int(rslt)
-        except:
-            rslt_i = None
-
-        if not isinstance(rslt_i, int):
-            self.lg.warning(f"Unexpected non-intiger response from PCB: {cmd} --> {rslt}")
-        return rslt_i
+            pcb_ans = self.query(cmd)
+            rslt = int(pcb_ans)
+        except Exception as e:
+            self.lg.debug(f"Unexpected non-int response from PCB: {cmd=} --> {pcb_ans=}")
+        return rslt
 
     # configures the mux
     def set_mux(self, mux_setting):

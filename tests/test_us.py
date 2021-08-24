@@ -49,7 +49,7 @@ class UsTestCase(unittest.TestCase):
             me.connect()
             for ax in me.axes:
                 register = 0x39  # the XENC register (57=0x39)
-                value = 678
+                value = 674
                 me.write_reg(ax, register, value)
                 self.assertEqual(me.read_reg(ax, register), value)
 

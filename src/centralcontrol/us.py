@@ -153,7 +153,7 @@ class Us(object):
         poll_cmd = f"l{ax}"
         self.len_axes_mm[ax] = None
         while et := time.time() - t0 <= timeout:
-            ax_len = self.query_i(poll_cmd)
+            ax_len = self.pcb.expect_int(poll_cmd)
             if isinstance(ax_len, int) and (ax_len > 0):
                 self.len_axes_mm[ax] = ax_len / self.steps_per_mm
                 break
@@ -205,8 +205,8 @@ class Us(object):
 
     def send_g(self, ax, target_step):
         """sends g (go to) cmd to axis controller"""
-        if (pos := self.query_i(f"r{ax}")) != target_step:  # first read pos (might not even need to send cmd)
-            ax_len = self.query_i(f"l{ax}")  # then read len (might not be allowed to move)
+        if (pos := self.pcb.expect_int(f"r{ax}")) != target_step:  # first read pos (might not even need to send cmd)
+            ax_len = self.pcb.expect_int(f"l{ax}")  # then read len (might not be allowed to move)
             if (ax_len == 0) or (ax_len == -1):  # length disaster detected
                 if pos is not None:
                     self.lg.error(f"Axis {ax} was at {pos/self.steps_per_mm}mm while going to {target_step/self.steps_per_mm}mm")
@@ -229,17 +229,6 @@ class Us(object):
                     self.lg.debug(f"STAGE ISSUE: Problem reading axis length {ax_len=}")
         return pos
 
-    def query_i(self, cmd):
-        """send a command that we expect an intiger respose to"""
-        pcb_ans = None
-        rslt = None
-        try:
-            pcb_ans = self.pcb.query(cmd)
-            rslt = int(pcb_ans)
-        except Exception as e:
-            self.lg.debug(f"STAGE ISSUE: Problem in query_i for {cmd=} --> {pcb_ans=}")
-        return rslt
-
     # returns the stage's current position (a list matching the axes input)
     # axis is -1 for all available axes or a list of axes
     # returns None values for axes that could not be read
@@ -248,7 +237,7 @@ class Us(object):
         result_mm = {}
         for ax in self.axes:
             get_cmd = f"r{ax}"
-            answer = self.query_i(get_cmd)
+            answer = self.pcb.expect_int(get_cmd)
             if isinstance(answer, int) and (answer > 0):
                 result_mm[ax] = answer / self.steps_per_mm
             else:
@@ -274,15 +263,28 @@ class Us(object):
         """writes a value to a stepper driver register"""
         return self.pcb.expect_empty(f"y{ax}{reg},{val}")
 
-    def read_reg(self, ax, reg, val):
+    def read_reg(self, ax, reg):
         """reads a value from a stepper driver register"""
         return self.pcb.expect_int(f"x{ax}{reg}")
 
     def reset(self, ax):
         """send the reset command to an axis controller, ax is a string or int axis number counting up from 1"""
+        timeout = 5  # seconds to wait for reset to complete
+        t0 = time.time()
         success = self.pcb.expect_empty(f"t{ax}")
-        time.sleep(1)  # wait a short time for the controller to reset
-        self.write_reg(ax, 57, 678)  # as an example, this puts 678 into the XENC register (57=0x39)
+        if success == True:
+            # poll for fwver to check for reset compete
+            while (time.time() - t0) < timeout:
+                # "+" not in stage_fw:
+                time.sleep(0.3)
+                stage_fw = self.pcb.query_nocheck(f"w{ax}")[0]
+                if isinstance(stage_fw, str):
+                    if "+" in stage_fw:
+                        # self.write_reg(ax, 57, 678)  # as an example, this puts 678 into the XENC register (57=0x39)
+                        break
+            else:  # no break
+                success = False
+                self.lg.warning(f"Stage axis {ax} took too long to complete reset")
         return success
 
 
