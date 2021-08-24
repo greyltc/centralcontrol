@@ -272,6 +272,22 @@ class Us(object):
     def close(self):
         pass
 
+    def reset(self, ax):
+        """send the reset command to an axis controller, ax is a string or int axis number counting up from 1"""
+        cmd = f"t{ax}"
+        try:
+            rslt = self.pcb.query(cmd)
+        except:
+            rslt = None
+
+        if rslt == "":
+            success = True
+        else:
+            success = False
+            self.lg.warning(f"Problem reseting stage {ax} controller: {cmd} --> {rslt}")
+
+        return success
+
 
 if __name__ == "__main__":
     from .pcb import pcb

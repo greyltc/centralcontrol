@@ -34,6 +34,14 @@ class UsTestCase(unittest.TestCase):
             for fw in me.stage_firmwares:
                 self.assertIsInstance(fw, str)
 
+    def test_reset(self):
+        """test stage driver reset. this fails if there's no PCB and no stage"""
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
+            me = Us(p, spm=self.steps_per_mm, homer=self.home_procedure)
+            me.connect()
+            for ax in me.axes:
+                self.assertTrue(me.reset(ax))
+
     def test_home(self):
         """test stage homing procedure. this fails if there's no PCB and no stage"""
         with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
