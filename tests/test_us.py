@@ -42,6 +42,17 @@ class UsTestCase(unittest.TestCase):
             for ax in me.axes:
                 self.assertTrue(me.reset(ax))
 
+    def test_program_register(self):
+        """check if driver register can be programmed"""
+        with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:
+            me = Us(p, spm=self.steps_per_mm, homer=self.home_procedure)
+            me.connect()
+            for ax in me.axes:
+                register = 0x39  # the XENC register (57=0x39)
+                value = 678
+                me.write_reg(ax, register, value)
+                self.assertEqual(me.read_reg(ax, register), value)
+
     def test_home(self):
         """test stage homing procedure. this fails if there's no PCB and no stage"""
         with Pcb(self.pcb_host, timeout=self.pcb_timeout) as p:

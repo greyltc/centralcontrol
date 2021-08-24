@@ -98,12 +98,10 @@ class Us(object):
         self.pcb.probe_axes()
         self.axes = self.pcb.detected_axes
         self._update_len_axes_mm()
-        self.pcb.query("t")  # reset all the stage controllers before we home
-        time.sleep(2)
+
         # wait 2 seconds for them to complete their resets
-        for i, ax in enumerate(self.axes):
-            # now is our chance to reprogram any driver registers we might want to to override the firmware
-            self.pcb.query(f"y{ax}57,678")  # as an example, this puts 678 into the XENC register (57=0x39)
+        for ax in self.axes:
+            self.reset(ax)
 
         if procedure == "default":
             for ax in self.axes:
@@ -202,7 +200,7 @@ class Us(object):
                     if loc is not None:
                         self.lg.error(f"Motion on axis {ax} timed out while it was at {loc/self.steps_per_mm}")
                     if start_step[ax] is not None:
-                        self.lg.error(f"While going from {start_step[ax]/self.steps_per_mm} to {target_step[i]/self.steps_per_mm}")
+                        self.lg.error(f"While going from {start_step[ax]/self.steps_per_mm} to {target_step/self.steps_per_mm}")
                     raise ValueError(f"{timeout}s timeout exceeded while moving axis {ax}. Tried for {et}s.")
 
     def send_g(self, ax, target_step):
@@ -272,20 +270,19 @@ class Us(object):
     def close(self):
         pass
 
+    def write_reg(self, ax, reg, val):
+        """writes a value to a stepper driver register"""
+        return self.pcb.expect_empty(f"y{ax}{reg},{val}")
+
+    def read_reg(self, ax, reg, val):
+        """reads a value from a stepper driver register"""
+        return self.pcb.expect_int(f"x{ax}{reg}")
+
     def reset(self, ax):
         """send the reset command to an axis controller, ax is a string or int axis number counting up from 1"""
-        cmd = f"t{ax}"
-        try:
-            rslt = self.pcb.query(cmd)
-        except:
-            rslt = None
-
-        if rslt == "":
-            success = True
-        else:
-            success = False
-            self.lg.warning(f"Problem reseting stage {ax} controller: {cmd} --> {rslt}")
-
+        success = self.pcb.expect_empty(f"t{ax}")
+        time.sleep(1)  # wait a short time for the controller to reset
+        self.write_reg(ax, 57, 678)  # as an example, this puts 678 into the XENC register (57=0x39)
         return success
 
 

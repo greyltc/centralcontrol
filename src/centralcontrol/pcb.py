@@ -187,6 +187,36 @@ class Pcb(object):
             self.lg.warning(f"Firmware did not acknowledge '{query}'")
         return answer
 
+    def expect_empty(self, cmd):
+        """sends a command that we expect an empty response to"""
+        try:
+            rslt = self.query(cmd)
+        except:
+            rslt = None
+
+        if rslt == "":
+            success = True
+        else:
+            success = False
+            self.lg.warning(f"Unexpected non-empty response from PCB: {cmd} --> {rslt}")
+        return success
+
+    def expect_int(self, cmd):
+        """sends a command that we expect an intiger response to"""
+        try:
+            rslt = self.query(cmd)
+        except:
+            rslt = None
+
+        try:
+            rslt_i = int(rslt)
+        except:
+            rslt_i = None
+
+        if not isinstance(rslt_i, int):
+            self.lg.warning(f"Unexpected non-intiger response from PCB: {cmd} --> {rslt}")
+        return rslt_i
+
     # configures the mux
     def set_mux(self, mux_setting):
         for mux_string in mux_setting:
