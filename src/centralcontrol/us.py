@@ -112,7 +112,9 @@ class Us(object):
                 else:
                     self._wait_for_home_or_jog(ax, timeout=timeout - (time.time() - t0))
                     if self.len_axes_mm[ax] == 0:
-                        raise ValueError(f"Homing of axis {ax} resulted in measured length of zero.")
+                        raise ValueError(f"Calibration of axis {ax} resulted in measured length of zero.")
+                    else:
+                        self.lg.info(f"Calibration complete. Axes lengths are {self.len_axes_mm}")
         else:  # special home
             home_commands = procedure.split("!")
             for hcmd in home_commands:
