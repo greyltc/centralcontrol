@@ -164,7 +164,7 @@ class UtilityHandler(object):
                     pcb_class = virt.pcb
             try:  # attempt to do the task
                 if task["cmd"] == "home":
-                    with stage_pcb_class(task["pcb"], timeout=1) as p:
+                    with stage_pcb_class(task["pcb"], timeout=5) as p:
                         mo = motion(address=task["stage_uri"], pcb_object=p)
                         mo.connect()
                         if task["force"] == True:
@@ -186,7 +186,7 @@ class UtilityHandler(object):
 
                 # send the stage some place
                 elif task["cmd"] == "goto":
-                    with stage_pcb_class(task["pcb"], timeout=1) as p:
+                    with stage_pcb_class(task["pcb"], timeout=5) as p:
                         mo = motion(address=task["stage_uri"], pcb_object=p)
                         mo.connect()
                         mo.goto(task["pos"])
@@ -195,7 +195,7 @@ class UtilityHandler(object):
 
                 # handle any generic PCB command that has an empty return on success
                 elif task["cmd"] == "for_pcb":
-                    with pcb_class(task["pcb"], timeout=1) as p:
+                    with pcb_class(task["pcb"], timeout=5) as p:
                         # special case for pixel selection to avoid parallel connections
                         if task["pcb_cmd"].startswith("s") and ("stream" not in task["pcb_cmd"]) and (len(task["pcb_cmd"]) != 1):
                             p.query("s")  # deselect all before selecting one
@@ -207,7 +207,7 @@ class UtilityHandler(object):
 
                 # get the stage location
                 elif task["cmd"] == "read_stage":
-                    with stage_pcb_class(task["pcb"], timeout=1) as p:
+                    with stage_pcb_class(task["pcb"], timeout=5) as p:
                         mo = motion(address=task["stage_uri"], pcb_object=p)
                         mo.connect()
                         self.send_pos(mo)
@@ -248,7 +248,7 @@ class UtilityHandler(object):
                 # device round robin commands
                 elif task["cmd"] == "round_robin":
                     if len(task["slots"]) > 0:
-                        with pcb_class(task["pcb"], timeout=1) as p:
+                        with pcb_class(task["pcb"], timeout=5) as p:
                             p.query("iv")  # make sure the circuit is in I-V mode (not eqe)
                             p.query("s")  # make sure we're starting with nothing selected
                             if task["smu"][0]["virtual"] == True:
@@ -312,7 +312,7 @@ class UtilityHandler(object):
                 if "pcb" in task:
                     self.lg.info(f"Checking controller@{task['pcb']}...")
                     try:
-                        with pcb_class(task["pcb"], timeout=1) as p:
+                        with pcb_class(task["pcb"], timeout=5) as p:
                             self.lg.info("Controller connection initiated")
                             self.lg.info(f"Controller firmware version: {p.firmware_version}")
                             self.lg.info(f"Controller axes: {p.detected_axes}")
