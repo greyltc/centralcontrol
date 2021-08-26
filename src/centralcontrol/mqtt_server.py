@@ -294,7 +294,7 @@ class MQTTServer(object):
                 if gp_pcb_address is not None:
                     if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
                         inner_pcb = measurement.real_pcb
-                        inner_init_args["timeout"] = 1
+                        inner_init_args["timeout"] = 5
                         inner_init_args["address"] = gp_pcb_address
                         inner_init_args["expected_muxes"] = config["controller"]["expected_muxes"]
                 with fake_pcb() as fake_p:
@@ -760,7 +760,7 @@ class MQTTServer(object):
         if gp_pcb_address is not None:
             if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
                 inner_pcb = measurement.real_pcb
-                inner_init_args["timeout"] = 1
+                inner_init_args["timeout"] = 5
                 inner_init_args["address"] = gp_pcb_address
                 inner_init_args["expected_muxes"] = config["controller"]["expected_muxes"]
         with fake_pcb() as fake_p:
@@ -984,7 +984,7 @@ class MQTTServer(object):
         if gp_pcb_address is not None:
             if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
                 inner_pcb = measurement.real_pcb
-                inner_init_args["timeout"] = 1
+                inner_init_args["timeout"] = 5
                 inner_init_args["address"] = gp_pcb_address
                 inner_init_args["expected_muxes"] = config["controller"]["expected_muxes"]
         with fake_pcb() as fake_p:
