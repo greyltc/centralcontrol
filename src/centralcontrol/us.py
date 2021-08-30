@@ -40,6 +40,69 @@ class Us(object):
 
     end_buffers = 4  # disallow movement to closer than this many mm from an end (prevents home issues)
 
+    # stepper driver IC register locations
+    TMC5130_GCONF = 0x00
+    TMC5130_GSTAT = 0x01
+    TMC5130_IFCNT = 0x02
+    TMC5130_SLAVECONF = 0x03
+    TMC5130_INP_OUT = 0x04
+    # TMC5130_IOIN=0x04
+    TMC5130_X_COMPARE = 0x05
+
+    TMC5130_IHOLD_IRUN = 0x10
+    TMC5130_TPOWERDOWN = 0x11
+    TMC5130_TSTEP = 0x12
+    TMC5130_TPWMTHRS = 0x13
+    TMC5130_TCOOLTHRS = 0x14
+    TMC5130_THIGH = 0x15
+
+    TMC5130_RAMPMODE = 0x20
+    TMC5130_XACTUAL = 0x21
+    TMC5130_VACTUAL = 0x22
+    TMC5130_VSTART = 0x23
+    TMC5130_A1 = 0x24
+    TMC5130_V1 = 0x25
+    TMC5130_AMAX = 0x26
+    TMC5130_VMAX = 0x27
+    TMC5130_DMAX = 0x28
+    TMC5130_D1 = 0x2A
+    TMC5130_VSTOP = 0x2B
+    TMC5130_TZEROWAIT = 0x2C
+    TMC5130_XTARGET = 0x2D
+
+    TMC5130_VDCMIN = 0x33
+    TMC5130_SWMODE = 0x34
+    TMC5130_RAMPSTAT = 0x35
+    TMC5130_XLATCH = 0x36
+
+    TMC5130_ENCMODE = 0x38
+    TMC5130_XENC = 0x39
+    TMC5130_ENC_CONST = 0x3A
+    TMC5130_ENC_STATUS = 0x3B
+    TMC5130_ENC_LATCH = 0x3C
+
+    TMC5130_MSLUT0 = 0x60
+    TMC5130_MSLUT1 = 0x61
+    TMC5130_MSLUT2 = 0x62
+    TMC5130_MSLUT3 = 0x63
+    TMC5130_MSLUT4 = 0x64
+    TMC5130_MSLUT5 = 0x65
+    TMC5130_MSLUT6 = 0x66
+    TMC5130_MSLUT7 = 0x67
+    TMC5130_MSLUTSEL = 0x68
+    TMC5130_MSLUTSTART = 0x69
+    TMC5130_MSCNT = 0x6A
+    TMC5130_MSCURACT = 0x6B
+
+    TMC5130_CHOPCONF = 0x6C
+    TMC5130_COOLCONF = 0x6D
+    TMC5130_DCCTRL = 0x6E
+    TMC5130_DRVSTATUS = 0x6F
+    TMC5130_PWMCONF = 0x70
+    TMC5130_PWMSTATUS = 0x71
+    TMC5130_ENCM_CTRL = 0x72
+    TMC5130_LOST_STEPS = 0x73
+
     def __init__(self, pcb_object, spm=steps_per_mm, homer=home_procedure):
         """sets up the microstepper object, needs handle to active PCB class object"""
         self.pcb = pcb_object
@@ -261,9 +324,17 @@ class Us(object):
     def close(self):
         pass
 
-    def write_reg(self, ax, reg, val):
+    def write_reg(self, ax, reg, val, check=True):
         """writes a value to a stepper driver register"""
-        return self.pcb.expect_empty(f"y{ax}{reg},{val}")
+        result = self.pcb.expect_empty(f"y{ax}{reg},{val}")
+
+        if (check == True) and (result == True):
+            read = self.read_reg(ax, reg)
+            if read != val:
+                result = False
+                self.lg.debug(f"Attempt to program Axis {ax} register 0x{reg:X} with {val} (0x{val:X}, {val:032b}b), but got {read} (0x{read:X}, {read:032b}b)")
+
+        return result
 
     def read_reg(self, ax, reg):
         """reads a value from a stepper driver register"""
@@ -281,7 +352,9 @@ class Us(object):
                 stage_fw = self.pcb.query_nocheck(f"w{ax}")[0]
                 if isinstance(stage_fw, str):
                     if "+" in stage_fw:
-                        self.write_reg(ax, 0x39, 678)  # this puts 678 into the XENC register (57=0x39)
+                        self.write_reg(ax, self.TMC5130_XENC, 678)  # this puts 678 into the XENC register (57=0x39)
+                        self.write_reg(ax, self.TMC5130_DMAX, 500)  # firmware has 1500
+                        self.write_reg(ax, self.TMC5130_D1, 300)  # firmware has 1000
                         # self.write_reg(ax, 0x15, 300)  # reprogram THIGH
                         # self.write_reg(ax, 0x14, 500)  # reprogram TCOOLTHRS
                         # see https://www.trinamic.com/fileadmin/assets/Products/ICs_Documents/TMC5130_datasheet_Rev1.18.pdf
