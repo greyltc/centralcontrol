@@ -352,12 +352,10 @@ class Us(object):
                 stage_fw = self.pcb.query_nocheck(f"w{ax}")[0]
                 if isinstance(stage_fw, str):
                     if "+" in stage_fw:
-                        self.write_reg(ax, self.TMC5130_XENC, 678)  # this puts 678 into the XENC register (57=0x39)
-                        self.write_reg(ax, self.TMC5130_DMAX, 500)  # firmware has 1500
-                        self.write_reg(ax, self.TMC5130_D1, 300)  # firmware has 1000
-                        # self.write_reg(ax, 0x15, 300)  # reprogram THIGH
-                        # self.write_reg(ax, 0x14, 500)  # reprogram TCOOLTHRS
                         # see https://www.trinamic.com/fileadmin/assets/Products/ICs_Documents/TMC5130_datasheet_Rev1.18.pdf
+                        self.write_reg(ax, self.TMC5130_XENC, 677)  # test/verify register programming
+                        self.write_reg(ax, self.TMC5130_V1, 0, check=False)  # disable some ramp generator stages
+                        self.write_reg(ax, self.TMC5130_XENC, 678)  # test/verify register programming
                         break
             else:  # no break
                 success = False
