@@ -354,7 +354,7 @@ class Us(object):
                     if "+" in stage_fw:
                         # see https://www.trinamic.com/fileadmin/assets/Products/ICs_Documents/TMC5130_datasheet_Rev1.18.pdf
                         self.write_reg(ax, self.TMC5130_XENC, 677)  # test/verify register programming
-                        self.write_reg(ax, self.TMC5130_V1, 0, check=False)  # disable some ramp generator stages
+                        # self.write_reg(ax, self.TMC5130_V1, 0, check=False)  # disable some ramp generator stages
                         self.write_reg(ax, self.TMC5130_XENC, 678)  # test/verify register programming
                         break
             else:  # no break
