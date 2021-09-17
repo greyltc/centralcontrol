@@ -26,7 +26,7 @@ class k2400:
     self.addressString = addressString
     self.terminator = terminator
     self.serialBaud = serialBaud
-    self.sm, self.ifc = self._getSourceMeter(self.rm)
+    self.sm = self._getSourceMeter(self.rm)
     self._setupSourcemeter(front=front, twoWire=twoWire)
 
   def __del__(self):
@@ -36,50 +36,13 @@ class k2400:
       pass
 
     try:
-      # send the thing to local mode (serial flavor)
       if self.sm.interface_type == pyvisa.constants.InterfaceType.asrl:
         self.sm.write(':system:local')
     except:
       pass
 
     try:
-      # send the thing to local mode (GPIB flavor)
-      g = self.ifc.visalib.sessions[self.sm.session]
-      g.interface.ibloc()  # seems to only work in GPIB SCPI mode
-    except:
-      pass
-
-    try:
-      self.ifc.send_ifc()
-    except:
-      pass
-
-    try:
       self.sm.close()
-    except:
-      pass
-
-    try:
-      g = self.ifc.visalib.sessions[self.sm.session]
-      g.controller.close()
-    except:
-      pass
-
-    try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.interface.close()
-    except:
-      pass
-
-    try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.controller.close()
-    except:
-      pass
-
-    try:
-      g = self.sm.visalib.sessions[self.sm.session]
-      g.close()
     except:
       pass
 
@@ -133,15 +96,14 @@ class k2400:
 
       smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
     elif 'GPIB' in self.addressString:
-      open_params['write_termination'] = ""
+      open_params['write_termination'] = "\n"
       open_params['read_termination'] = "\n"
-      #open_params['io_protocol'] = pyvisa.constants.VI_HS488
+      #open_params['io_protocol'] = visa.constants.VI_HS488
       
       addrParts = self.addressString.split('::')
-      controller = addrParts[0]
-      board = controller[4:]
+      board = addrParts[0][4:]
       address = addrParts[1]
-      smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}? Is it in SCPI command mode?"
+      smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}?"
     elif ('TCPIP' in self.addressString) and ('SOCKET' in self.addressString):
       open_params['timeout'] = timeoutMS
       open_params['write_termination'] = "\n"
@@ -157,23 +119,9 @@ class k2400:
 
     sm = rm.open_resource(**open_params)
 
-    # figure out if we're in 488.1 mode
-    try:
-      if sm.io_prorocol == pyvisa.constants.VI_HS488:
-        self.four88point1 = True
-      else:
-        self.four88point1 = False
-    except:
-      self.four88point1 = False
-
     if sm.interface_type == pyvisa.constants.InterfaceType.gpib:
-      ifc = rm.open_resource(f'{controller}::INTFC')
-      #if os.name != 'nt':
-      ifc.send_ifc()  # TODO: test this on windows
-      ifc_ses = ifc.visalib.sessions[ifc._session]
-      ifc_ses.controller.remote_enable(1)  # make sure remote comms are enabled
-    else:
-      ifc = None
+      if os.name != 'nt':
+        sm.send_ifc()  # linux-gpib can do this. windows can't?
 
 
     if sm.interface_type == pyvisa.constants.InterfaceType.asrl:
@@ -221,7 +169,7 @@ class k2400:
     else:
       raise ValueError("Got a bad response to *IDN?: {:s}".format(self.idn))
 
-    return sm, ifc
+    return sm
 
   def _setupSourcemeter(self, twoWire, front):
     """ Do initial setup for sourcemeter
@@ -520,11 +468,8 @@ class k2400:
     else:
       m_len = 5
 
-    if self.four88point1 == True:
-      vals = self.sm.read_binary_values(data_points=nPoints*m_len)  # this only works in 488.1
-    elif self.sm.interface_type == pyvisa.constants.InterfaceType.gpib:
-      # GPIB but not 488.1 (SCPI then) (but this also actually works in 488.1 mode)
-      vals = self.sm.query_binary_values(':read?', data_points=nPoints*m_len)
+    if self.sm.interface_type == pyvisa.constants.InterfaceType.gpib:
+      vals = self.sm.read_binary_values(data_points=nPoints*m_len)
     else:
       vals = self.sm.query_ascii_values(':read?')
 
@@ -584,9 +529,9 @@ if __name__ == "__main__":
   import pandas as pd
   import numpy as np
   start = time.time()
-  address = "GPIB0::24::INSTR"
+  #address = "GPIB0::24::INSTR"
   #address = 'ASRL/dev/ttyS0::INSTR'
-  #address = 'ASRL/dev/ttyUSB0::INSTR'
+  address = 'ASRL/dev/ttyUSB0::INSTR'
 
   # connect to our instrument
   # for testing GPIB connections
