@@ -387,7 +387,7 @@ class k2400:
     sm.write(':output on')
     sm.write(':source:{:s}:mode sweep'.format(src))
     sm.write(':source:sweep:spacing linear')
-    if stepDelay == -1:
+    if stepDelay < 0:
       sm.write(':source:delay:auto on') # this just sets delay to 1ms
     else:
       sm.write(':source:delay:auto off')
