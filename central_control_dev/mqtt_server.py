@@ -1048,7 +1048,7 @@ def _ivt(
         _log(f"Experiment relay error: {resp}! Aborting run", 40, mqttc)
         return
 
-    source_delay = args["source_delay"]
+    source_delay = args["source_delay"] / 1000  # smy expects values in seconds
 
     last_label = None
     # scan through the pixels and do the requested measurements
@@ -1118,7 +1118,7 @@ def _ivt(
                 t_dwell=args["i_dwell"],
                 NPLC=args["nplc"],
                 sourceVoltage=False,
-                compliance=3,
+                compliance=20,
                 senseRange="a",
                 setPoint=args["i_dwell_value"],
                 handler=handler,
@@ -1399,7 +1399,7 @@ def _eqe(pixel_queue, request, measurement, mqttc, dummy=False, calibration=Fals
         # if time constant is longer than 1s the instrument aborts its autogain
         # function so need to make sure "user" is used under these conditions
         if ((auto_gain_method := config["lia"]["auto_gain_method"]) == "instr") and (
-            measurement.lia.time_contstants[args["eqe_int"]] > 1
+            measurement.lia.time_constants[args["eqe_int"]] > 1
         ):
             auto_gain_method = "user"
             _log(

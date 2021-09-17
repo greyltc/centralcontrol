@@ -167,6 +167,7 @@ class wavelabs:
         if self.server.verify_request(request, client_address):
           self.sock_file = request.makefile(mode="rwb")
           self.connection = request
+          self.connection.settimeout(timeout)
           requestNotVerified = False
           ret = 0
       except:
@@ -174,7 +175,7 @@ class wavelabs:
       time_left = timeout - (time.time() - t0)
     if time_left <= 0:
       ret = -1
-    self.server.socket.settimeout(old_tout)
+    #self.server.socket.settimeout(old_tout)
     return (ret)
         
   def connectToRelay(self):
@@ -321,29 +322,45 @@ class wavelabs:
 
   def on(self):
     """starts the last activated recipe"""
-    root = ET.Element("WLRC")
-    ET.SubElement(root, 'StartRecipe', iSeq=str(self.iseq), sAutomationID = 'justtext')
-    self.iseq =  self.iseq + 1
-    tree = ET.ElementTree(root)
-    tree.write(self.sock_file)
-    response = self.recvXML()
-    if response.error != 0:
-      print(f"ERROR: Recipe could not be started with error {response.error}")
-      runID = None
+    for attempt in range(5):
+      try:
+        root = ET.Element("WLRC")
+        ET.SubElement(root, 'StartRecipe', iSeq=str(self.iseq), sAutomationID = 'justtext')
+        self.iseq =  self.iseq + 1
+        tree = ET.ElementTree(root)
+        tree.write(self.sock_file)
+        response = self.recvXML()
+        if response.error != 0:
+          print(f"ERROR: Recipe could not be started with error {response.error}")
+          runID = None
+        else:
+          runID = response.run_ID
+      except:
+        pass  # this catches and retries timeouts
+      else:
+        break
     else:
-      runID = response.run_ID
+      raise ValueError("ERROR: light on() retries exhausted")
     return runID
 
   def off(self):
     """cancel a currently running recipe"""
-    root = ET.Element("WLRC")
-    ET.SubElement(root, 'CancelRecipe', iSeq=str(self.iseq))
-    self.iseq =  self.iseq + 1
-    tree = ET.ElementTree(root)
-    tree.write(self.sock_file)
-    response = self.recvXML()
-    if response.error != 0:
-      print(f"WARNING: Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
+    for attempt in range(5):
+      try:
+        root = ET.Element("WLRC")
+        ET.SubElement(root, 'CancelRecipe', iSeq=str(self.iseq))
+        self.iseq =  self.iseq + 1
+        tree = ET.ElementTree(root)
+        tree.write(self.sock_file)
+        response = self.recvXML()
+        if response.error != 0:
+          print(f"WARNING: Unable to cancel wavelabs recipe with {response.error}. Maybe it's just not running?")
+      except:
+        pass  # this catches and retries timeouts
+      else:
+        break
+    else:
+      raise ValueError("ERROR: light off() retries exhausted")
     return response.error
 
   def exitProgram(self):
