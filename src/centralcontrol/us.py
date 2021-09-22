@@ -300,14 +300,17 @@ class Us(object):
     def get_position(self):
         """returns a dict with keys axis number, val axis pos in mm"""
         result_mm = {}
+        retries = 3
         for ax in self.axes:
             get_cmd = f"r{ax}"
-            answer = self.pcb.expect_int(get_cmd)
-            if isinstance(answer, int) and (answer > 0):
-                result_mm[ax] = answer / self.steps_per_mm
-            else:
-                self.lg.debug(f"STAGE ISSUE: Problem in get_position for {get_cmd=} --> {answer=}")
-                result_mm[ax] = None
+            for attempt in range(retries):
+                answer = self.pcb.expect_int(get_cmd)
+                if isinstance(answer, int) and (answer > 0):
+                    result_mm[ax] = answer / self.steps_per_mm
+                    break
+                else:
+                    self.lg.debug(f"STAGE ISSUE: Problem in get_position for {get_cmd=} --> {answer=}")
+                    result_mm[ax] = None
         return result_mm
 
     def estop(self, axes=-1):
