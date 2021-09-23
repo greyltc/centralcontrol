@@ -218,7 +218,7 @@ class Us(object):
         poll_cmd = f"l{ax}"
         self.len_axes_mm[ax] = None
         while et := time.time() - t0 <= timeout:
-            ax_len = self.pcb.expect_int(poll_cmd)
+            ax_len = self.pcb.expect_int(poll_cmd, tries=3)
             if isinstance(ax_len, int) and (ax_len > 0):
                 self.len_axes_mm[ax] = ax_len / self.steps_per_mm
                 break
@@ -270,8 +270,8 @@ class Us(object):
 
     def send_g(self, ax, target_step):
         """sends g (go to) cmd to axis controller"""
-        if (pos := self.pcb.expect_int(f"r{ax}")) != target_step:  # first read pos (might not even need to send cmd)
-            ax_len = self.pcb.expect_int(f"l{ax}")  # then read len (might not be allowed to move)
+        if (pos := self.pcb.expect_int(f"r{ax}", tries=3)) != target_step:  # first read pos (might not even need to send cmd)
+            ax_len = self.pcb.expect_int(f"l{ax}", tries=3)  # then read len (might not be allowed to move)
             if (ax_len == 0) or (ax_len == -1):  # length disaster detected
                 if pos is not None:
                     self.lg.error(f"Axis {ax} was at {pos/self.steps_per_mm}mm while going to {target_step/self.steps_per_mm}mm")
@@ -300,36 +300,30 @@ class Us(object):
     def get_position(self):
         """returns a dict with keys axis number, val axis pos in mm"""
         result_mm = {}
-        retries = 3
         for ax in self.axes:
+            result_mm[ax] = None
             get_cmd = f"r{ax}"
-            for attempt in range(retries):
-                answer = self.pcb.expect_int(get_cmd)
-                if isinstance(answer, int) and (answer > 0):
-                    result_mm[ax] = answer / self.steps_per_mm
-                    break
-                else:
-                    self.lg.debug(f"STAGE ISSUE: Problem in get_position for {get_cmd=} --> {answer=}")
-                    result_mm[ax] = None
+            answer = self.pcb.expect_int(get_cmd, tries=3)
+            if isinstance(answer, int) and (answer > 0):
+                result_mm[ax] = answer / self.steps_per_mm
+            else:
+                self.lg.debug(f"STAGE ISSUE: Problem in get_position for {get_cmd=} --> {answer=}")
         return result_mm
 
-    def estop(self, axes=-1):
-        """
-        Emergency stop of the driver. Unpowers the motor(s)
-        """
-        # do it thrice because it's important
-        for i in range(3):
-            self.pcb.query("b")
-            for ax in self.axes:
-                estop_cmd = f"b{ax}"
-                self.pcb.query(estop_cmd)
+    def estop(self):
+        """Emergency stop of the driver. Unpowers the motor(s)"""
+        # just do it thrice because it's important
+        self.pcb.expect_empty("b", tries=3)
+        for ax in self.axes:
+            estop_cmd = f"b{ax}"
+            self.pcb.expect_empty(estop_cmd, tries=3)
 
     def close(self):
         pass
 
     def write_reg(self, ax, reg, val, check=True):
         """writes a value to a stepper driver register"""
-        result = self.pcb.expect_empty(f"y{ax}{reg},{val}")
+        result = self.pcb.expect_empty(f"y{ax}{reg},{val}", tries=3)
 
         if (check == True) and (result == True):
             read = self.read_reg(ax, reg)
@@ -341,13 +335,13 @@ class Us(object):
 
     def read_reg(self, ax, reg):
         """reads a value from a stepper driver register"""
-        return self.pcb.expect_int(f"x{ax}{reg}")
+        return self.pcb.expect_int(f"x{ax}{reg}", tries=3)
 
     def reset(self, ax):
         """sends the reset command to an axis controller, ax is a string or int axis number counting up from 1"""
         timeout = 5  # seconds to wait for reset to complete
         t0 = time.time()
-        success = self.pcb.expect_empty(f"t{ax}")
+        success = self.pcb.expect_empty(f"t{ax}", tries=3)
         if success == True:
             # poll for fwver to check for reset compete
             while (time.time() - t0) < timeout:

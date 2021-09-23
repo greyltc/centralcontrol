@@ -187,39 +187,66 @@ class Pcb(object):
             self.lg.warning(f"Firmware did not acknowledge '{query}'")
         return answer
 
-    def expect_empty(self, cmd):
-        """sends a command that we expect an empty response to"""
-        try:
-            rslt = self.query(cmd)
-        except:
+    def expect_empty(self, cmd, tries=1):
+        """sends a command that we expect an empty response to. retrurns success bool"""
+        success = False
+        for attempt in range(tries):
             rslt = None
-
-        if rslt == "":
-            success = True
+            try:
+                rslt = self.query(cmd)
+                if rslt == "":
+                    success = True
+                    break
+            except Exception as e:
+                pass
+            self.lg.debug(f"Unexpected non-empty response from PCB during attempt #{attempt}: {cmd=} --> {rslt=}")
         else:
-            success = False
-            self.lg.warning(f"Unexpected non-empty response from PCB: {cmd=} --> {rslt=}")
+            self.lg.warning(f"Failed to get empty response from PCB: {cmd=} --> {rslt=} (after {tries} attempts)")
         return success
 
-    def expect_int(self, cmd):
-        """sends a command that we expect an intiger response to"""
-        pcb_ans = None
+    def expect_int(self, cmd, tries=1):
+        """sends a command that we expect an intiger response to returns int or None"""
         rslt = None
-        try:
-            pcb_ans = self.query(cmd)
-            rslt = int(pcb_ans)
-        except Exception as e:
-            self.lg.debug(f"Unexpected non-int response from PCB: {cmd=} --> {pcb_ans=}")
+        for attempt in range(tries):
+            pcb_ans = None
+            try:
+                pcb_ans = self.query(cmd)
+                rslt = int(pcb_ans)
+                break
+            except Exception as e:
+                pass
+            self.lg.debug(f"Unexpected non-int response from PCB during attempt #{attempt}: {cmd=} --> {pcb_ans=}")
+        else:
+            self.lg.warning(f"Failed to get intiger response from PCB: {cmd=} --> {pcb_ans=} (after {tries} attempts)")
         return rslt
 
-    # configures the mux
     def set_mux(self, mux_setting):
+        """program mux with failure recovery logic. returns nothing but raises a value error on failure"""
+        if not self.set_mux_attempt(mux_setting):
+            self.lg.debug("Trying to recover from mux set error")
+            got_muxes = self.probe_muxes()  # run the mux probe code that will reset the hardware and check for individual mux IC comms
+            if not self.expect_empty("s", tries=3):  # deselect everything
+                err_msg = f'Failure clearing mux during recovery attempt. MUX presence: "{got_muxes}", expected "{self.expected_muxes}"'
+                self.lg.error(err_msg)
+                raise ValueError(err_msg)
+            else:
+                if self.set_mux_attempt(mux_setting):
+                    self.lg.debug("Sucessful recovery from mux set error")
+                else:
+                    self.expect_empty("s", tries=3)
+                    err_msg = f'Unable to set MUX. MUX presence: "{got_muxes}", expected "{self.expected_muxes}". Attempt: "{mux_setting}"'
+                    self.lg.error(err_msg)
+                    raise ValueError(err_msg)
+
+    def set_mux_attempt(self, mux_setting):
+        """attempts to program mux, returns success bool"""
+        success = False
         for mux_string in mux_setting:
-            resp = self.query(mux_string)
-            if resp != "":  # break on error setting mux message
-                self.lg.warning(f"MUX response to {mux_string} was '{resp}'")
-                break
-        return resp
+            if not self.expect_empty(mux_string, tries=3):
+                break  # abort on failure
+        else:
+            success = True
+        return success
 
     def set_keepalive_linux(sock, after_idle_sec=1, interval_sec=3, max_fails=5):
         """Set TCP keepalive on an open socket.
