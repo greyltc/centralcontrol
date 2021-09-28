@@ -69,17 +69,17 @@ class fabric:
         # cell
         max_j = 50
 
-        print(f"compliance area: {area}")
-
         # calculate equivalent current in A for given device area
         # multiply by 5 to allow more data to be taken in forward bias (useful for
         # equivalent circuit fitting)
         # reduce to maximum compliance of keithley 2400 if too high
         if area is None:
             # no area info given so can't make a calcualted guess
+            compliance_i = 0.05
+        elif (compliance_i := max_j * area / 1000) > 1:
             compliance_i = 1
-        elif (compliance_i := 5 * max_j * area / 1000) > 1:
-            compliance_i = 1
+
+        print(f"compliance for pixel with area={area}cm^2 set to {compliance_i/1000}mA")
 
         return compliance_i
 
