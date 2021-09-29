@@ -68,16 +68,18 @@ class fabric:
         # set maximum current density (in mA/cm^2) 
         #max_j = 50  # slightly higher than an ideal Si cell
         max_j = 100  # as per request to mod
+        
+        hard_limit = 0.1 # A
 
         # calculate equivalent current in A for given device area
-        # multiply by 5 to allow more data to be taken in forward bias (useful for
-        # equivalent circuit fitting)
-        # reduce to maximum compliance of keithley 2400 if too high
         if area is None:
-            # no area info given so can't make a calcualted guess
-            compliance_i = 0.05
-        elif (compliance_i := max_j * area / 1000) > 1:
-            compliance_i = 1
+            compliance_i = 0.05  # no area info given so can't make a calcualted guess
+        else:
+            compliance_i = max_j * area / 1000
+        
+        # don't allow even large area devices to go above 100mA
+        if compliance_i > hard_limit:
+            compliance_i = hard_limit
 
         print(f"compliance for pixel with area={area}cm^2 set to {compliance_i/1000}mA")
 
