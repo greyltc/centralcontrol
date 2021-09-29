@@ -65,9 +65,9 @@ class fabric:
         area : float
             Device area in cm^2.
         """
-        # set maximum current density (in mA/cm^2) slightly higher than an ideal Si
-        # cell
-        max_j = 50
+        # set maximum current density (in mA/cm^2) 
+        #max_j = 50  # slightly higher than an ideal Si cell
+        max_j = 100  # as per request to mod
 
         # calculate equivalent current in A for given device area
         # multiply by 5 to allow more data to be taken in forward bias (useful for
