@@ -614,9 +614,9 @@ class us:
   def _goto(self, ax, steps):
     goto_retries_left = 5
     while goto_retries_left > 0:
-      print(f'{ax}-g-b{self.pcb.get(f"i{ax}"):08}')
+      #print(f'{ax}-g-b{self.pcb.get(f"i{ax}"):08}')
       resp = self.pcb.get(f'g{ax}{steps}')
-      print(f'{ax}-g-a{self.pcb.get(f"i{ax}"):08}')
+      #print(f'{ax}-g-a{self.pcb.get(f"i{ax}"):08}')
       if resp == '':
         ret = 0
         break
