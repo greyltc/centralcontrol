@@ -759,7 +759,7 @@ class MQTTServer(object):
                 if "address" in config["solarsim"]:
                     ci_args["light_address"] = config["solarsim"]["address"]
         if "light_recipe" in args:
-            ci_args["light_address"] = args["light_recipe"]
+            ci_args["light_recipe"] = args["light_recipe"]
 
         # check gui overrides
         if ("enable_stage" in args) and (args["enable_stage"] == False):
