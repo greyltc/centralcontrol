@@ -1252,7 +1252,8 @@ def run_cli():
     """Get arguments parsed from the command line."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--mqtthost", default="127.0.0.1", const="127.0.0.1", nargs="?", help="IP address or hostname of MQTT broker.")
-    ms = MQTTServer(mqtthost=parser.mqtthost)
+    args = parser.parse_args()
+    ms = MQTTServer(mqtthost=args.mqtthost)
     ms.run()
 
 
