@@ -9,6 +9,7 @@ import re
 import time
 import sys
 from pathlib import Path
+import inspect
 
 # this boilerplate code allows this module to be run directly as a script
 if (__name__ == "__main__") and (__package__ in [None, ""]):
@@ -40,7 +41,7 @@ except ImportError:
     pass
 
 
-class fabric(object):
+class Fabric(object):
     """Experiment control logic."""
 
     # expecting mqtt queue publisher object
@@ -64,7 +65,8 @@ class fabric(object):
     # thing that can hold a list of mppts (one per smu)
     mppts = []
 
-    killer = threading.Event()
+    # listen to this for kill signals
+    killer = None
 
     def __init__(self, killer=threading.Event()):
         """Get software revision."""
@@ -125,7 +127,7 @@ class fabric(object):
 
         return ret_val
 
-    def _connect_smu(self, is_virt=False, visa_lib="@py", smu_address=None, smu_terminator="\n", smu_baud=57600, smu_front_terminals=False, smu_two_wire=False):
+    def _connect_smu(self, virtual=False, visa_lib="@py", address=None, terminator="\n", baud=57600, front_terminals=False, two_wire=False):
         """Create smu connection.
 
         Parameters
@@ -149,23 +151,25 @@ class fabric(object):
             mode.
         """
         t0 = time.time()
-        if is_virt == True:
+        if virtual == True:
             sm = virt.k2400(killer=self.killer)
         else:
-            sm = k2400(
-                visa_lib=visa_lib,
-                terminator=smu_terminator,
-                addressString=smu_address,
-                serialBaud=smu_baud,
-                front=smu_front_terminals,
-                twoWire=smu_two_wire,
-                killer=self.killer,
-            )
+            sm_setup = {}
+            sm_setup["visa_lib"] = visa_lib
+            sm_setup["terminator"] = terminator
+            sm_setup["addressString"] = address
+            sm_setup["serialBaud"] = baud
+            sm_setup["front"] = front_terminals
+            sm_setup["twoWire"] = two_wire
+            sm_setup["killer"] = self.killer
+
+            sm = k2400(**sm_setup)
         self._connected_instruments.append(sm)
         self.sms.append(sm)
         self.mppts.append(mppt(sm, self.current_limit, killer=self.killer))
         self.lg.debug(f"SMU{len(self.sms)} connect time = {time.time() - t0} s")
 
+        # only do this for the first SMU
         if len(self.sms) == 1:
             self.sm_idn = sm.idn
             self.sm = sm
@@ -173,7 +177,7 @@ class fabric(object):
             # instantiate max-power tracker object based on smu
             self.mppt = mppt(sm, self.current_limit, killer=self.killer)
 
-    def _connect_lia(self, is_virt=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
+    def _connect_lia(self, virtual=False, visa_lib="@py", lia_address=None, lia_terminator="\r", lia_baud=9600, lia_output_interface=0):
         """Create lock-in amplifier connection.
 
         Parameters
@@ -198,18 +202,18 @@ class fabric(object):
                 * 0 : RS232
                 * 1 : GPIB
         """
-        if is_virt == True:
-            self.lia = virtual_sr830.sr830(return_int=True)
+        if virtual == True:
+            self.lia = virtual_sr830.sr830()
         else:
             self.lia = sr830.sr830()
 
         # default lia_output_interface is RS232
         self.lia.connect(lia_address, output_interface=lia_output_interface, **{"timeout": 90000})
-        self.lg.debug(self.lia.idn)
+        self.lg.debug(f"Connection to a {self.lia.idn} complete.")
 
         self._connected_instruments.append(self.lia)
 
-    def _connect_monochromator(self, is_virt=False, visa_lib="@py", mono_address=None, mono_terminator="\r", mono_baud=9600):
+    def _connect_monochromator(self, virtual=False, visa_lib="@py", mono_address=None, mono_terminator="\r", mono_baud=9600):
         """Create monochromator connection.
 
         Parameters
@@ -227,7 +231,7 @@ class fabric(object):
         mono_baud : int
             Baud rate for serial communication with the monochromator.
         """
-        if is_virt == True:
+        if virtual == True:
             self.mono = virtual_sp2150.sp2150()
         else:
             self.mono = sp2150.sp2150()
@@ -235,7 +239,7 @@ class fabric(object):
 
         self._connected_instruments.append(self.mono)
 
-    def _connect_solarsim(self, is_virt=False, light_address=None, light_recipe=None):
+    def _connect_solarsim(self, virtual=False, light_address=None, light_recipe=None):
         """Create solar simulator connection.
 
         Parameters
@@ -249,15 +253,16 @@ class fabric(object):
             VISA resource name for the light engine. If `None` is given a virtual
             instrument is created.
         """
-        if is_virt == True:
-            self.le = virt.illumination(address=light_address, default_recipe=light_recipe)
+        if virtual == True:
+            ill = virt.illumination
         else:
-            self.le = illumination(address=light_address, default_recipe=light_recipe)
+            ill = illumination
+        self.le = ill(address=light_address, default_recipe=light_recipe)
         self.le.connect()
 
         self._connected_instruments.append(self.le)
 
-    def _connect_psu(self, is_virt=False, visa_lib="@py", psu_address=None, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
+    def _connect_psu(self, virtual=False, visa_lib="@py", psu_address=None, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
         """Create LED PSU connection.
 
         Parameters
@@ -278,7 +283,7 @@ class fabric(object):
             List overcurrent protection values in ascending channel order, one value
             per channel.
         """
-        if is_virt == True:
+        if virtual == True:
             self.psu = virtual_dp800.dp800()
         else:
             self.psu = dp800.dp800()
@@ -293,7 +298,7 @@ class fabric(object):
 
         self._connected_instruments.append(self.psu)
 
-    def _connect_pcb(self, is_virt=False, pcb_address=None):
+    def _connect_pcb(self, virtual=False, pcb_address=None):
         """Add control PCB attributes to class.
 
         PCB commands run in their own context manager so this isn't a real connect
@@ -309,12 +314,12 @@ class fabric(object):
             Control PCB address string.
         """
         self.pcb_address = pcb_address
-        if is_virt == True:
+        if virtual == True:
             self.pcb = virt.pcb
         else:
             self.pcb = Pcb
 
-    def _connect_motion(self, is_virt=False, motion_address=None):
+    def _connect_motion(self, virtual=False, motion_address=None):
         """Add motion controller attributes to class.
 
         Motion commands run in their own context manager so this isn't a real connect
@@ -331,7 +336,7 @@ class fabric(object):
         """
         self.motion_address = motion_address
         self.motion = motion
-        if is_virt == True:
+        if virtual == True:
             self.motion_pcb = virt.pcb
         else:
             self.motion_pcb = Pcb
@@ -391,37 +396,43 @@ class fabric(object):
             per channel.
         """
         if smus is not None:
+            # fill in connection arguments when they match connection function arguments
+            all_smu_connect_args = list(inspect.signature(self._connect_smu).parameters.keys())
             for smu in smus:
-                self._connect_smu(is_virt=smu["virtual"], visa_lib=visa_lib, smu_address=smu["address"], smu_terminator=smu["terminator"], smu_baud=smu["baud"], smu_front_terminals=smu["front_terminals"], smu_two_wire=smu["two_wire"])
+                if ("enabled" not in smu) or (not smu["enabled"] == False):
+                    smu_connect_args = {}
+                    for key, val in smu.items():
+                        if key in all_smu_connect_args:
+                            smu_connect_args[key] = val
+                    self._connect_smu(**smu_connect_args)
 
-        if lia_address is not None:
-            self._connect_lia(is_virt=lia_virt, visa_lib=visa_lib, lia_address=lia_address, lia_terminator=lia_terminator, lia_baud=lia_baud, lia_output_interface=lia_output_interface)
+        if (lia_address is not None) or (lia_virt == True):
+            self._connect_lia(virtual=lia_virt, visa_lib=visa_lib, lia_address=lia_address, lia_terminator=lia_terminator, lia_baud=lia_baud, lia_output_interface=lia_output_interface)
 
-        if mono_address is not None:
-            self._connect_monochromator(is_virt=mono_virt, visa_lib=visa_lib, mono_address=mono_address, mono_terminator=mono_terminator, mono_baud=mono_baud)
+        if (mono_address is not None) or (mono_virt == True):
+            self._connect_monochromator(virtual=mono_virt, visa_lib=visa_lib, mono_address=mono_address, mono_terminator=mono_terminator, mono_baud=mono_baud)
 
-        if light_address is not None:
-            self._connect_solarsim(is_virt=light_virt, light_address=light_address, light_recipe=light_recipe)
+        if (light_address is not None) or (light_virt == True):
+            self._connect_solarsim(virtual=light_virt, light_address=light_address, light_recipe=light_recipe)
 
-        if psu_address is not None:
-            self._connect_psu(is_virt=psu_virt, visa_lib=visa_lib, psu_address=psu_address, psu_terminator=psu_terminator, psu_baud=psu_baud, psu_ocps=psu_ocps)
+        if (psu_address is not None) or (psu_virt == True):
+            self._connect_psu(virtual=psu_virt, visa_lib=visa_lib, psu_address=psu_address, psu_terminator=psu_terminator, psu_baud=psu_baud, psu_ocps=psu_ocps)
 
-        if pcb_address is not None:
-            self._connect_pcb(pcb_address=pcb_address, is_virt=pcb_virt)
+        if (pcb_address is not None) or (pcb_virt == True):
+            self._connect_pcb(virtual=pcb_virt, pcb_address=pcb_address)
 
-        if motion_address is not None:
-            self._connect_motion(motion_address=motion_address, is_virt=motion_virt)
+        if (motion_address is not None) or (motion_virt == True):
+            self._connect_motion(virtual=motion_virt, motion_address=motion_address)
 
     def disconnect_all_instruments(self):
         """Disconnect all instruments."""
-        self.lg.debug("disconnecting instruments...")
         while len(self._connected_instruments) > 0:
             instr = self._connected_instruments.pop()
-            self.lg.debug(instr)
+            self.lg.debug(f"Disconnecting {instr.__class__}")
             try:
                 instr.disconnect()
             except:
-                pass
+                self.lg.debug(f"Disconnection was unclean.")
 
     def measure_spectrum(self, recipe=None):
         """Measure the spectrum of the light source.
@@ -706,13 +717,3 @@ def round_sf(x, sig_fig):
         Rounded number
     """
     return round(x, sig_fig - int(np.floor(np.log10(abs(x)))) - 1)
-
-
-# for testing
-if __name__ == "__main__":
-    with fabric(current_limit=0.1) as f:
-        args = {}
-        args["smu_address"] = "GPIB0::24::INSTR"
-        args["smu_terminator"] = "\r"
-        args["smu_baud"] = 57600
-        f.connect_instruments(**args)

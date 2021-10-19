@@ -153,6 +153,29 @@ class pcb(object):
     detected_muxes = ["A"]
 
     def __init__(self, *args, **kwargs):
+        # setup logging
+        self.lg = logging.getLogger(__name__)
+        self.lg.setLevel(logging.DEBUG)
+
+        if not self.lg.hasHandlers():
+            # set up logging to systemd's journal if it's there
+            if "systemd" in sys.modules:
+                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+                sysdl.setFormatter(sysLogFormat)
+                self.lg.addHandler(sysdl)
+            else:
+                # for logging to stdout & stderr
+                ch = logging.StreamHandler()
+                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+                ch.setFormatter(logFormat)
+                self.lg.addHandler(ch)
+
+        self._votes_needed = 1
+        self.on_votes = collections.deque([], maxlen=self._votes_needed)
+
+        self.lg.debug(f"{__name__} virtually initialized.")
+
         if "expected_muxes" in kwargs:
             self.detected_muxes = kwargs["expected_muxes"]
         pass
@@ -161,25 +184,27 @@ class pcb(object):
         self.spm = spm
         self.vs = self.virt_speed * spm  # convert to mm/s
         self.el = el
-        self.ml = []
-        self.homing = []
-        self.jogging = []
-        self.goingto = []
-        self.pos = []
-        self.goal = []
-        self.home_done_time = []
-        self.jog_done_time = []
-        self.goto_done_time = []
-        for i, s in enumerate(el):
-            self.homing.append(False)
-            self.jogging.append(False)
-            self.goingto.append(False)
-            self.ml.append(round(self.el[i] * spm))
-            self.pos.append(round(self.ml[i] / 2))
-            self.goal.append(round(self.ml[i] / 2))
-            self.home_done_time.append(time.time())
-            self.jog_done_time.append(time.time())
-            self.goto_done_time.append(time.time())
+        self.ml = {}
+        self.homing = {}
+        self.jogging = {}
+        self.goingto = {}
+        self.pos = {}
+        self.goal = {}
+        self.home_done_time = {}
+        self.jog_done_time = {}
+        self.goto_done_time = {}
+        self.detected_axes = []
+        for key, val in el.items():
+            self.detected_axes.append(key)
+            self.homing[key] = False
+            self.jogging[key] = False
+            self.goingto[key] = False
+            self.ml[key] = round(self.el[key] * spm)
+            self.pos[key] = round(self.ml[key] / 2)
+            self.goal[key] = round(self.ml[key] / 2)
+            self.home_done_time[key] = time.time()
+            self.jog_done_time[key] = time.time()
+            self.goto_done_time[key] = time.time()
         self.virt_motion_setup = True
 
     def __enter__(self):
@@ -189,46 +214,50 @@ class pcb(object):
         pass
 
     def probe_axes(self):
-        if len(self.el) == 1:
-            self.detected_axes = ["1"]
-        elif len(self.el) == 2:
-            self.detected_axes = ["1", "2"]
-        elif len(self.el) == 3:
-            self.detected_axes = ["1", "2", "3"]
+        pass
+        # if len(self.el) == 1:
+        #    self.detected_axes = ["1"]
+        # elif len(self.el) == 2:
+        #    self.detected_axes = ["1", "2"]
+        # elif len(self.el) == 3:
+        #    self.detected_axes = ["1", "2", "3"]
 
     def set_mux(self, mux_setting):
         return ""
 
+    def expect_int(self, cmd, tries=1):
+        return int(self.query(cmd))
+
     def query(self, cmd):
-        print(f"Virtual CALL. Class={type(self).__name__}. function={inspect.currentframe().f_code.co_name}. cmd={cmd}")
+        self.lg.debug(f"Virtual CALL. Class={type(self).__name__}. function={inspect.currentframe().f_code.co_name}. cmd={cmd}")
         if self.virt_motion_setup == True:
             # now let's do timing related motion calcs
             now = time.time()
-            for i, s in enumerate(self.el):
-                if (now > self.home_done_time[i]) and (self.homing[i] == True):  # homing for this axis is done
-                    self.ml[i] = round(self.el[i] * self.spm)
-                    self.homing[i] = False
-                    self.pos[i] = round(0.95 * self.ml[i])
+            for key, val in self.el.items():
+                if (now > self.home_done_time[key]) and (self.homing[key] == True):  # homing for this axis is done
+                    self.ml[key] = round(self.el[key] * self.spm)
+                    self.homing[key] = False
+                    self.pos[key] = round(0.95 * self.ml[key])
 
-                if self.goingto[i] == True:
-                    if now > self.goto_done_time[i]:
-                        self.pos[i] = round(self.goal[i])
-                        self.goingto[i] = False
+                if self.goingto[key] == True:
+                    if now > self.goto_done_time[key]:
+                        self.pos[key] = round(self.goal[key])
+                        self.goingto[key] = False
                     else:  # axis is in motion from goto, so we must calculate where we are
-                        time_remaining = self.goto_done_time[i] - now
+                        time_remaining = self.goto_done_time[key] - now
                         distance_remaining = time_remaining * self.virt_speed
-                        if self.goal[i] < self.pos[i]:  # moving reverse
-                            self.pos[i] = round(self.goal[i] + distance_remaining)
+                        if self.goal[key] < self.pos[key]:  # moving reverse
+                            self.pos[key] = round(self.goal[key] + distance_remaining)
                         else:
-                            self.pos[i] = round(self.goal[i] - distance_remaining)
+                            self.pos[key] = round(self.goal[key] - distance_remaining)
 
-                if (now > self.jog_done_time[i]) and (self.jogging[i] == True):  # jogging for this axis is done
-                    self.ml[i] = 0
-                    self.jogging[i] = False
+                if (now > self.jog_done_time[key]) and (self.jogging[key] == True):  # jogging for this axis is done
+                    self.ml[key] = 0
+                    self.jogging[key] = False
 
         # now we're ready to parse the command and respond to it
         if (len(cmd) == 2) and (cmd[0] == "l"):  # axis length request
-            axi = self.detected_axes.index(cmd[1])
+            axi = cmd[1]
             return str(self.ml[axi])
         elif (cmd == "iv") or (cmd == "eqe"):  # relay selection (must be before ax driver status byte cmd below)
             return ""
@@ -238,13 +267,13 @@ class pcb(object):
             else:
                 operate_on = self.detected_axes
             for ax in operate_on:
-                axi = self.detected_axes.index(ax)
+                axi = ax
                 self.home_done_time[axi] = time.time() + 2 * self.el[axi] * self.spm / self.vs
                 self.ml[axi] = -1
                 self.homing[axi] = True
             return ""
         elif (len(cmd) == 3) and (cmd[0] == "j"):  # axis jog request
-            axi = self.detected_axes.index(cmd[1])
+            axi = cmd[1]
             direction = cmd[2]
             # 'r' command while jogging gives error 102, so we can just set pos now
             if direction == "a":
@@ -258,13 +287,13 @@ class pcb(object):
         elif (len(cmd) == 2) and (cmd[0] == "i"):  # axis driver status byte
             return "11111111"
         elif cmd[0] == "g":  # goto command
-            axi = self.detected_axes.index(cmd[1])
+            axi = cmd[1]
             self.goingto[axi] = True
             self.goal[axi] = round(float(cmd[2::]))
             self.goto_done_time[axi] = time.time() + abs(self.goal[axi] - self.pos[axi]) / self.vs
             return ""
         elif (len(cmd) == 2) and (cmd[0] == "r"):  # axis position request
-            axi = self.detected_axes.index(cmd[1])
+            axi = cmd[1]
             if (self.homing[axi] == True) or (self.jogging[axi] == True):
                 return "ERROR 102"
             else:
@@ -276,7 +305,7 @@ class pcb(object):
                 else:
                     to_estop = self.detected_axes
                 for ax in to_estop:
-                    axi = self.detected_axes.index(ax)
+                    axi = ax
                     self.ml[axi] = 0
                     self.goto_done_time[axi] = time.time()
                     self.goal[axi] = self.pos[axi]
@@ -290,7 +319,7 @@ class pcb(object):
         elif cmd[0] == "s":  # pixel selection
             return ""
         elif cmd[0] == "w":  # firmware request
-            return "virtual FW version 4"
+            return "virtual FW version 5"
         else:
             return "Command virtually unsupported"
 
@@ -303,6 +332,29 @@ class k2400(object):
     ccheck = False
 
     def __init__(self, *args, **kwargs):
+        # setup logging
+        self.lg = logging.getLogger(__name__)
+        self.lg.setLevel(logging.DEBUG)
+
+        if not self.lg.hasHandlers():
+            # set up logging to systemd's journal if it's there
+            if "systemd" in sys.modules:
+                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+                sysdl.setFormatter(sysLogFormat)
+                self.lg.addHandler(sysdl)
+            else:
+                # for logging to stdout & stderr
+                ch = logging.StreamHandler()
+                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+                ch.setFormatter(logFormat)
+                self.lg.addHandler(ch)
+
+        self._votes_needed = 1
+        self.on_votes = collections.deque([], maxlen=self._votes_needed)
+
+        self.lg.debug(f"{__name__} virtually initialized.")
+
         self.t0 = time.time()
         self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
 
@@ -467,7 +519,7 @@ class k2400(object):
                         measurementLine = list([self.V, self.I, self.V / self.I, time.time() - self.t0, self.status])
                     sweepArray.append(measurementLine)
                 self.last_sweep_time = sweepArray[-1][2] - sweepArray[0][2]
-                print(f"Sweep duration = {self.last_sweep_time} s")
+                self.lg.debug(f"Sweep duration = {self.last_sweep_time} s")
                 return sweepArray
             else:  # non sweep mode
                 time.sleep(self.measurementTime)

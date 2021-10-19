@@ -18,6 +18,7 @@ import uuid
 import humanize
 import datetime
 import numpy as np
+import inspect
 
 import logging
 
@@ -35,7 +36,7 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
     # get the dir that holds __package__ on the front of the search path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from .fabric import fabric
+from .fabric import Fabric
 
 
 class DataHandler(object):
@@ -90,7 +91,7 @@ class MQTTServer(object):
     class Dummy(object):
         pass
 
-    def __init__(self):
+    def __init__(self, mqtthost="127.0.01"):
         # setup logging
         logname = __name__
         if __package__ in __name__:
@@ -119,8 +120,7 @@ class MQTTServer(object):
                 ch.setFormatter(logFormat)
                 self.lg.addHandler(ch)
 
-        # get command line arguments
-        self.cli_args = self.get_args()
+        self.mqtthost = mqtthost
 
         # create mqtt client id
         self.client_id = f"measure-{uuid.uuid4().hex}"
@@ -133,12 +133,6 @@ class MQTTServer(object):
         self.mqttc.on_disconnect = self.on_disconnect
 
         self.lg.debug(f"{__name__} initialized.")
-
-    def get_args(self):
-        """Get arguments parsed from the command line."""
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--mqtthost", default="127.0.0.1", const="127.0.0.1", nargs="?", help="IP address or hostname of MQTT broker.")
-        return parser.parse_args()
 
     def start_process(self, target, args):
         """Start a new process to perform an action if no process is running.
@@ -190,7 +184,7 @@ class MQTTServer(object):
         """
 
         try:
-            with fabric() as measurement:
+            with Fabric() as measurement:
                 i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                 measurement.current_limit = min(i_limits)
                 # create temporary mqtt client
@@ -239,7 +233,7 @@ class MQTTServer(object):
         """
 
         try:
-            with fabric() as measurement:
+            with Fabric() as measurement:
                 i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                 measurement.current_limit = min(i_limits)
 
@@ -389,7 +383,7 @@ class MQTTServer(object):
 
         user_aborted = False
         try:
-            with fabric() as measurement:
+            with Fabric() as measurement:
                 i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                 measurement.current_limit = min(i_limits)
 
@@ -545,7 +539,8 @@ class MQTTServer(object):
 
             ss_args = {}
             ss_args["sourceVoltage"] = False
-            ss_args["compliance"] = config["ccd"]["max_voltage"]
+            if ("ccd" in config) and "max_voltage" in config["ccd"]:
+                ss_args["compliance"] = config["ccd"]["max_voltage"]
             ss_args["setPoint"] = args["i_dwell_value"]
             ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
 
@@ -651,7 +646,8 @@ class MQTTServer(object):
             mppt_args["NPLC"] = args["nplc"]
             mppt_args["extra"] = args["mppt_params"]
             mppt_args["callback"] = dh.handle_data
-            mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
+            if ("ccd" in config) and "max_voltage" in config["ccd"]:
+                mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
             mppt_args["i_limit"] = compliance_i
             (mt, vt) = mppt.launch_tracker(**mppt_args)
             mppt.reset()
@@ -715,43 +711,75 @@ class MQTTServer(object):
         rtd : bool
             RTD flag for type of calibration. Used for reporting.
         """
-        config = request["config"]
-        args = request["args"]
+
+        if "config" in request:
+            config = request["config"]
+        else:
+            config = {}
+
+        if "args" in request:
+            args = request["args"]
+        else:
+            args = {}
 
         if self.killer.is_set():
             self.lg.debug("Killed by killer.")
             return
 
-        if args["enable_stage"] == True:
-            motion_address = config["stage"]["uri"]
-        else:
-            motion_address = None
-
-        if args["enable_solarsim"] == True:
-            light_address = config["solarsim"]["address"]
-        else:
-            light_address = None
-
-        # the general purpose pcb object is to be virtualized
-        gp_pcb_is_fake = config["controller"]["virtual"]
-        gp_pcb_address = config["controller"]["address"]
-
-        # the motion pcb object is to be virtualized
-        motion_pcb_is_fake = config["stage"]["virtual"]
-
         # connect instruments
-        measurement.connect_instruments(
-            visa_lib=config["visa"]["visa_lib"],
-            smus=config["smu"],
-            pcb_address=gp_pcb_address,
-            pcb_virt=gp_pcb_is_fake,
-            motion_address=motion_address,
-            motion_virt=motion_pcb_is_fake,
-            light_address=light_address,
-            light_virt=config["solarsim"]["virtual"],
-            light_recipe=args["light_recipe"],
-        )
-        if hasattr(measurement, "le"):
+        ci_args = {}  # the following construct lets the below connect_instruments call work even when config has missing fields
+        gp_pcb_is_fake = False
+        gp_pcb_address = None
+        motion_pcb_is_fake = False
+        motion_address = None
+        if ("visa" in config) and ("visa_lib" in config["visa"]):
+            ci_args["visa_lib"] = config["visa"]["visa_lib"]
+        if "smu" in config:  # enabled is checked per smu in connect
+            ci_args["smus"] = config["smu"]
+        if "controller" in config:
+            if ("enabled" not in config["controller"]) or (config["controller"]["enabled"] != False):
+                if "virtual" in config["controller"]:
+                    ci_args["pcb_virt"] = config["controller"]["virtual"]
+                    gp_pcb_is_fake = config["controller"]["virtual"]
+                if "address" in config["controller"]:
+                    ci_args["pcb_address"] = config["controller"]["address"]
+                    gp_pcb_address = config["controller"]["address"]
+        if "stage" in config:
+            if ("enabled" not in config["stage"]) or (config["stage"]["enabled"] != False):
+                if "virtual" in config["stage"]:
+                    ci_args["motion_virt"] = config["stage"]["virtual"]
+                    motion_pcb_is_fake = config["stage"]["virtual"]
+                if "uri" in config["stage"]:
+                    ci_args["motion_address"] = config["stage"]["uri"]
+                    motion_address = config["stage"]["uri"]
+        if "solarsim" in config:
+            if ("enabled" not in config["solarsim"]) or (config["solarsim"]["enabled"] != False):
+                if "virtual" in config["solarsim"]:
+                    ci_args["light_virt"] = config["solarsim"]["virtual"]
+                if "address" in config["solarsim"]:
+                    ci_args["light_address"] = config["solarsim"]["address"]
+        if "light_recipe" in args:
+            ci_args["light_address"] = args["light_recipe"]
+
+        # check gui overrides
+        if ("enable_stage" in args) and (args["enable_stage"] == False):
+            motion_address = None
+            motion_pcb_is_fake = False
+            if "motion_address" in ci_args:
+                del ci_args["motion_address"]
+            if "motion_virt" in ci_args:
+                del ci_args["motion_virt"]
+        if ("enable_solarsim" in args) and (args["enable_solarsim"] == False):
+            if "light_virt" in ci_args:
+                del ci_args["light_virt"]
+            if "light_address" in ci_args:
+                del ci_args["light_address"]
+        if ("enable_smu" in args) and (args["enable_smu"] == False):
+            if "smus" in ci_args:
+                del ci_args["smus"]
+
+        measurement.connect_instruments(**ci_args)
+        if hasattr(measurement, "le") and "light_recipe_int" in args:
             measurement.le.set_intensity(int(args["light_recipe_int"]))
 
         fake_pcb = measurement.fake_pcb
@@ -781,7 +809,7 @@ class MQTTServer(object):
                 else:
                     mo = None
 
-                if args["enable_eqe"] == True:  # we don't need to switch the relay if there is no EQE
+                if ("enable_eqe" in args) and (args["enable_eqe"] == True):  # we don't need to switch the relay if there is no EQE
                     # set the master experiment relay
                     resp = measurement.set_experiment_relay("iv", gp_pcb)
 
@@ -1122,7 +1150,7 @@ class MQTTServer(object):
 
         if user_aborted == False:
             try:
-                with fabric(killer=self.killer) as measurement:
+                with Fabric(killer=self.killer) as measurement:
                     self.lg.info("Starting run...")
                     i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                     measurement.current_limit = min(i_limits)
@@ -1188,6 +1216,9 @@ class MQTTServer(object):
                     self.start_process(self._calibrate_eqe, (request,))
                 elif (action == "calibrate_psu") and (request["args"]["enable_psu"] == True) and (request["args"]["enable_smu"] == True):
                     self.start_process(self._calibrate_psu, (request,))
+                elif action == "quit":
+                    self.msg_queue.task_done()
+                    break
 
             except Exception as e:
                 self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
@@ -1203,7 +1234,7 @@ class MQTTServer(object):
     # starts and maintains mqtt broker connection
     def mqtt_connector(self, mqttc):
         while True:
-            mqttc.connect(self.cli_args.mqtthost)
+            mqttc.connect(self.mqtthost)
             mqttc.loop_forever(retry_first_connection=True)
 
     def run(self):
@@ -1217,11 +1248,14 @@ class MQTTServer(object):
         self.msg_handler()
 
 
-def main():
-    ms = MQTTServer()
+def run_cli():
+    """Get arguments parsed from the command line."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mqtthost", default="127.0.0.1", const="127.0.0.1", nargs="?", help="IP address or hostname of MQTT broker.")
+    ms = MQTTServer(mqtthost=parser.mqtthost)
     ms.run()
 
 
 # required when using multiprocessing in windows, advised on other platforms
 if __name__ == "__main__":
-    main()
+    run_cli()
