@@ -89,3 +89,8 @@ class MqttServerTestCase(unittest.TestCase):
             f.disconnect_all_instruments()
 
         self.assertEqual(len(f._connected_instruments), 0)
+
+    def test_full_cli_run(self):
+        """just start a normal CLI run (runs forever)"""
+        m = MQTTServer()
+        m.run()
