@@ -423,7 +423,7 @@ class mppt:
                         highEdgeTouched = True
                         dV = dV * -1  # switch our voltage walking direction
                         v_set = v_set + dV
-                        prself.lg.debugint("WARNING: Reached low voltage edge because we hit 0V")
+                        self.lg.debugint("WARNING: Reached low voltage edge because we hit 0V")
 
                     if (lowEdgeTouched == False) and (dV < 0) and v_set <= 0:
                         lowEdgeTouched = True
