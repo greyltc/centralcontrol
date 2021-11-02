@@ -847,13 +847,13 @@ class MQTTServer(object):
 
                 if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
                     # we'll unwrap the run queue here so that we get ungrouped queue items
-                    new_q = collections.deque()
+                    unwrapped_run_queue = collections.deque()
                     for thing in run_queue:
                         for key, val in thing.items():
-                            new_q.append({key: val})
-                    run_queue = new_q
+                            unwrapped_run_queue.append({key: val})
+                    run_queue = unwrapped_run_queue  # overwrite the run_queue with it's unwrapped version
 
-                start_q = run_queue  # make a copy that we'll use to loop forever
+                start_q = run_queue  # make a copy that we might use later in case we're gonna loop forever
                 if args["cycles"] != 0:
                     run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
                     p_total = len(run_queue)
