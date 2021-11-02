@@ -493,7 +493,7 @@ class MQTTServer(object):
                 else:
                     pixel_dict["area"] = things["area"]
                 pixel_dict["mux_string"] = things["mux_string"]
-                run_q.append(pixel_dict)
+                run_q.append({0: pixel_dict})
 
         return run_q
 
@@ -726,6 +726,11 @@ class MQTTServer(object):
             self.lg.debug("Killed by killer.")
             return
 
+        # turbo (multiSMU) mode
+        turbo_mode = True  # by default use all SMUs available
+        if ("turbo_mode" in args) and (args["turbo_mode"] == False):
+            turbo_mode = False
+
         # connect instruments
         ci_args = {}  # the following construct lets the below connect_instruments call work even when config has missing fields
         gp_pcb_is_fake = False
@@ -840,7 +845,15 @@ class MQTTServer(object):
                 # deselect all pixels
                 measurement.select_pixel(mux_string="s", pcb=gp_pcb)
 
-                start_q = run_queue
+                if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
+                    # we'll unwrap the run queue here so that we get ungrouped queue items
+                    new_q = collections.deque()
+                    for thing in run_queue:
+                        for key, val in thing.items():
+                            new_q.append({key: val})
+                    run_queue = new_q
+
+                start_q = run_queue  # make a copy that we'll use to loop forever
                 if args["cycles"] != 0:
                     run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
                     p_total = len(run_queue)
@@ -849,12 +862,6 @@ class MQTTServer(object):
                 remaining = p_total
                 n_done = 0
                 t0 = time.time()
-
-                # is this a multi-smu-type run queue?
-                group_q = True
-                if len(run_queue) > 0:
-                    if "device_label" in run_queue[0]:
-                        group_q = False
 
                 while (remaining > 0) and (not self.killer.is_set()):
                     q_item = run_queue.popleft()
@@ -870,19 +877,17 @@ class MQTTServer(object):
                         progress_msg = {"text": text, "fraction": fraction}
                         self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-                    if group_q == True:
-                        n_parallel = len(q_item)  # how many pixels this group holds
-                        print_labels = [val["device_label"] for key, val in q_item.items()]
+                    n_parallel = len(q_item)  # how many pixels this group holds
+                    print_labels = [val["device_label"] for key, val in q_item.items()]
+                    theres = np.array([val["pos"] for key, val in q_item.items()])
+                    if n_parallel > 1:
                         self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(print_labels), "qos": 2, "retain": True})
                         print_label = " + ".join(print_labels)
-                        theres = np.array([val["pos"] for key, val in q_item.items()])
                         there = tuple(theres.mean(0))  # the average location of the group
-                        this_group = q_item
                     else:
-                        n_parallel = 1
-                        print_label = q_item["device_label"]
-                        there = q_item["pos"]
-                        this_group = {0: q_item}
+                        print_label = print_labels[0]
+                        there = theres[0]
+
                     self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {print_label} ####")
 
                     # set up light source voting (if any)
@@ -899,14 +904,13 @@ class MQTTServer(object):
                             mo.goto(there)
 
                     # select pixel(s)
-                    pix_selection_strings = [val["mux_string"] for key, val in this_group.items()]
+                    pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
                     measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
 
                     with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
                         futures = {}
 
-                        for smu_index, pixel in this_group.items():
-                            # for index, sm in enumerate(measurement.sms):
+                        for smu_index, pixel in q_item.items():
                             sm = measurement.sms[smu_index]
 
                             # setup data handler
@@ -927,10 +931,10 @@ class MQTTServer(object):
                         for smu_index, future in futures.items():
                             data = future.result()
                             measurement.sms[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
-                            measurement.select_pixel(mux_string=f's{this_group[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
+                            measurement.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
                             datas[smu_index] = data
                             if calibration == True:
-                                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{this_group[smu_index]['label']}_device_{this_group[smu_index]['pixel']}"}
+                                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{q_item[smu_index]['label']}_device_{q_item[smu_index]['pixel']}"}
                                 if rtd == True:
                                     self.lg.debug("RTD cal")
                                     self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
