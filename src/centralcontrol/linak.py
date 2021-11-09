@@ -143,7 +143,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if sys.argv[1] == "home":
-        goal = 2596
+        goal = 2805
     else:
         goal = int(sys.argv[1])
 
