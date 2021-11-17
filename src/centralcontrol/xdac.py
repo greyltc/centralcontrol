@@ -3,11 +3,19 @@
 import zmq
 import json
 import pathlib
-import logging
 import numpy as np
 
+import sys
+import logging
 
-class xdac(object):
+# for logging directly to systemd journal if we can
+try:
+    import systemd.journal
+except ImportError:
+    pass
+
+
+class Xdac(object):
     # zmq comms params
     topicfilter = b""
     req_port = 5555
@@ -27,11 +35,23 @@ class xdac(object):
     cal_data = None
 
     def __init__(self, context, ip="169.254.38.99"):
-        self.lg = logging.getLogger(self.__class__.__name__)
-        ch = logging.StreamHandler()
-        logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-        ch.setFormatter(logFormat)
-        self.lg.addHandler(ch)
+        # setup logging
+        self.lg = logging.getLogger(__name__)
+        self.lg.setLevel(logging.DEBUG)
+
+        if not self.lg.hasHandlers():
+            # set up logging to systemd's journal if it's there
+            if "systemd" in sys.modules:
+                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
+                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
+                sysdl.setFormatter(sysLogFormat)
+                self.lg.addHandler(sysdl)
+            else:
+                # for logging to stdout & stderr
+                ch = logging.StreamHandler()
+                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
+                ch.setFormatter(logFormat)
+                self.lg.addHandler(ch)
 
         self.req_socket = context.socket(zmq.REQ)
         self.req_socket.connect(f"tcp://{ip}:{self.req_port}")
@@ -46,10 +66,12 @@ class xdac(object):
                 try:
                     cal_data = json.load(fh)
                 except Exception as e:
-                    raise (ValueError(f"Error loading {self.cal_file_name} as json"))
+                    raise ValueError(f"Error loading {self.cal_file_name} as json")
                 if type(cal_data) != dict:
-                    raise (ValueError(f"{self.cal_file_name} has incorrect json format"))
+                    raise ValueError(f"{self.cal_file_name} has incorrect json format")
             self.cal_data = cal_data
+
+        self.lg.debug(f"{__name__} initialized.")
 
     # setChannel: set voltage of each channel
     # setChannelVoltage(ch, voltage (in V))
@@ -119,9 +141,7 @@ class xdac(object):
         return 0
 
     # Read Current on all channels, return list
-    def readAllChannelCurrent(
-        self,
-    ):
+    def readAllChannelCurrent(self):
         current = []
         offsets = [0] * self.n_chans
         if self.cal_data is not None:
@@ -152,13 +172,17 @@ class xdac(object):
             if msg[0] == "V":
                 msg = msg[1:]
                 for _ in range(8):
-                    voltage.append(msg[0 : msg.find(",")])
+                    voltage.append(float(msg[0 : msg.find(",")]))
                     msg = msg[msg.find(",") + 1 :]
                     msg = msg[msg.find(",") + 1 :]
 
         return voltage
 
-    def do_current_zero_offset_cal(self):
+    def find_current_zero_offsets(self):
+        """
+        finds current zero offsets for all channels.
+        all channels should be open (disconnected) for this to work correctly
+        """
         self.lg.info("Initiating current zero-offset calibration.")
         self.lg.info("All channels must be disconnected now.")
         self.lg.info("Performing calibration. Please wait...")
@@ -172,10 +196,13 @@ class xdac(object):
         c = np.zeros((n_readings, self.n_chans))
 
         for i in range(n_readings):
-            c[i, :] = x.readAllChannelCurrent()
+            c[i, :] = self.readAllChannelCurrent()
 
-        offsets = c.mean(0)
+        return c.mean(0)
 
+    def do_current_zero_cal(self):
+        """apply current zero offset cal to json cal file"""
+        offsets = self.find_current_zero_offsets()
         if self.cal_data is None:
             self.cal_data = {}
         self.cal_data["current_offsets"] = list(offsets)
@@ -186,21 +213,3 @@ class xdac(object):
 
         self.lg.info("Calibration complete!")
         self.lg.info(f"Current zero-offsets = {offsets} mA")
-
-
-# testing
-if __name__ == "__main__":
-    context = zmq.Context()  # make a zmq context object
-    x = xdac(context, ip="169.254.38.99")
-    x.lg.setLevel(logging.DEBUG)
-
-    # edit me
-    do_cal = False
-
-    if do_cal == True:
-        x.do_current_zero_offset_cal()
-
-    x.setVoltageAllChannels([-10, 3, -4, 5, 9, -1, 7, -4])
-    while True:
-        val_string = str([f"{v:5.2f}" for v in x.readAllChannelCurrent()])
-        x.lg.debug(f"Current = {val_string} mA")

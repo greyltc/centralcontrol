@@ -1,6 +1,5 @@
 import unittest
 import multiprocessing
-import collections
 
 from centralcontrol.fabric import Fabric
 
