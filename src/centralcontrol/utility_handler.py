@@ -12,6 +12,7 @@ import pyvisa
 import collections
 import numpy as np
 import time
+import uuid
 
 # for main loop & multithreading
 import gi
@@ -488,7 +489,10 @@ class UtilityHandler(object):
         # start the worker (does tasks the manger tells it to)
         threading.Thread(target=self.worker, daemon=True).start()
 
-        self.client = mqtt.Client()
+        # create mqtt client id
+        self.client_id = f"utility-{uuid.uuid4().hex}"
+        
+        self.client = mqtt.Client(client_id=self.client_id)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.handle_message
 
