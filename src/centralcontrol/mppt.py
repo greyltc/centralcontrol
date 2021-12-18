@@ -196,7 +196,7 @@ class mppt:
 
         return q
 
-    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=0.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
+    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
         """
         gradient descent MPPT algorithm
         alpha is the "learning rate"
