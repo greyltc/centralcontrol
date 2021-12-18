@@ -1,5 +1,4 @@
 import unittest
-import time
 
 from centralcontrol.pcb import Pcb
 

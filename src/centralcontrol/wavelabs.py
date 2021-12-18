@@ -258,7 +258,7 @@ class Wavelabs(object):
         # response codes of these code types should result in a retry
         retry_codes = [9997, 9998, 9999]
 
-        n_tries = 2
+        n_tries = 3
         for attempt in range(n_tries):
             tree = ET.ElementTree(root)
             tree.write(self.sock_file)
@@ -266,11 +266,13 @@ class Wavelabs(object):
 
             if response.error in retry_codes:
                 self.lg.debug(response.error_message)
-                self.lg.debug("Retrying...")
+                self.lg.debug(f"Retrying {attempt}...")
                 self.disconnect()
                 self.connect()
             else:
                 break
+        else:
+            self.lg.debug("Query retry limit exceeded.")
 
         if response.error not in self.okay_message_codes:
             self.lg.error(f"Got error number {response.error} from WaveLabs software: {response.error_message}")

@@ -63,6 +63,23 @@ class WavelabsTestCase(unittest.TestCase):
             time.sleep(0.25)
         del wl
 
+    def test_relay_spam_comms(self):
+        """
+        needs relay server service running and actual hardware with correct recipe name to pass
+        spams recipe intensity read operation, assumes intensity is set to "100"
+        """
+        default_recipe = "am1_5_1_sun"
+        relay_host = "127.0.0.1"
+        relay_port = 3335
+        use_relay = True
+        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
+        wl.connect()
+        repeats = 1000
+        expected_intensity = "100"
+        for i in range(repeats):
+            self.assertEqual(wl.getRecipeParam(recipe_name=default_recipe, param="Intensity"), expected_intensity)
+        del wl
+
     def test_relay_spectrum_fetch(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
         default_recipe = "am1_5_1_sun"
