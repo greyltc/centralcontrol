@@ -36,7 +36,7 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
 from . import virt
 from .motion import motion
 from .k2400 import k2400 as sm
-from .illumination import illumination
+from .illumination import Illumination
 from .pcb import Pcb
 
 
@@ -228,9 +228,9 @@ class UtilityHandler(object):
 
                 elif task["cmd"] == "spec":
                     if task["le_virt"] == True:
-                        le = virt.illumination(address=task["le_address"], default_recipe=task["le_recipe"])
+                        le = virt.Illumination(address=task["le_address"], default_recipe=task["le_recipe"])
                     else:
-                        le = illumination(address=task["le_address"], default_recipe=task["le_recipe"], connection_timeout=1)
+                        le = Illumination(address=task["le_address"], default_recipe=task["le_recipe"], connection_timeout=1)
                     con_res = le.connect()
                     if con_res == 0:
                         response = {}
@@ -408,9 +408,9 @@ class UtilityHandler(object):
                     self.lg.info(f"Checking light engine@{task['le_address']}...")
                     le = None
                     if task["le_virt"] == True:
-                        ill = virt.illumination
+                        ill = virt.Illumination
                     else:
-                        ill = illumination
+                        ill = Illumination
                     try:
                         le = ill(address=task["le_address"], default_recipe=task["le_recipe"], connection_timeout=1)
                         con_res = le.connect()
@@ -491,7 +491,7 @@ class UtilityHandler(object):
 
         # create mqtt client id
         self.client_id = f"utility-{uuid.uuid4().hex}"
-        
+
         self.client = mqtt.Client(client_id=self.client_id)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.handle_message

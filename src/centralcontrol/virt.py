@@ -16,7 +16,7 @@ except ImportError:
     pass
 
 
-class illumination(object):
+class Illumination(object):
     runtime = 60000
     intensity = 100
     votes_needed = 1

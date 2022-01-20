@@ -22,7 +22,7 @@ from .k2400 import k2400
 from .pcb import Pcb
 from .motion import motion
 from .mppt import mppt
-from .illumination import illumination
+from .illumination import Illumination
 
 import sr830
 import virtual_sr830
@@ -254,9 +254,9 @@ class Fabric(object):
             instrument is created.
         """
         if virtual == True:
-            ill = virt.illumination
+            ill = virt.Illumination
         else:
-            ill = illumination
+            ill = Illumination
         self.le = ill(address=light_address, default_recipe=light_recipe)
         self.le.connect()
 
