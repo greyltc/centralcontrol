@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import socketserver
+import socket
 import xml.etree.cElementTree as ET
 import time
 import xml.etree as elT
@@ -20,6 +20,8 @@ class Wavelabs(object):
     iseq = 0  # sequence number for comms with wavelabs software
     spectrum_ms = 1002
     okay_message_codes = [0, -4001]
+    retry_codes = [9997, 9998, 9999]  # response codes of these code types should result in a comms retry
+    default_recipe = "am1_5_1_sun"
 
     class XMLHandler:
         """
@@ -29,10 +31,12 @@ class Wavelabs(object):
         def __init__(self):
             self.done_parsing = False
             self.error = None
-            self.error_message = None
-            self.run_ID = None
+            self.error_message = ""
+            self.run_ID = ""
+            self.paramVal = ""
+            self.status = ""
             # these are for GetDataSeries[]
-            self.this_series = None
+            self.this_series = ""
             self.type = []
             self.unit = []
             self.name = []
@@ -47,6 +51,8 @@ class Wavelabs(object):
                 self.run_ID = attrib["sRunID"]
             if "sVal" in attrib:
                 self.paramVal = attrib["sVal"]
+            if "sStatus" in attrib:
+                self.status = attrib["sStatus"]
             if "sName" in attrib:
                 self.name.append(attrib["sName"])
             if "sUnit" in attrib:
@@ -73,13 +79,14 @@ class Wavelabs(object):
         def close(self):
             pass
 
-    def __init__(self, host="0.0.0.0", port=3334, relay=False, connection_timeout=10, default_recipe="am1_5_1_sun"):
+    def __init__(self, host="0.0.0.0", port=3334, relay=False, connection_timeout=10, comms_timeout=1):
         """
         sets up the wavelabs object
         address is a string of the format:
         wavelabs://listen_ip:listen_port (should probably be wavelabs://0.0.0.0:3334)
         or
         wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
+        timeouts are in seconds
         """
         # setup logging
         self.lg = logging.getLogger(__name__)
@@ -104,43 +111,52 @@ class Wavelabs(object):
         self.port = port
         self.def_port_non_relay = 3334
         self.def_port_relay = 3335
-        self.timeout = connection_timeout
-        self.default_recipe = default_recipe
+        self.connection_timeout = connection_timeout
+        self.comms_timeout = comms_timeout
+        self.sock_file = None
+        self.client_socket = None
+        self.server_socket = None
 
         self.lg.debug(f"{__name__} initialized.")
 
     def disconnect(self):
+        """do our best to clean up and tear down connection"""
         self.lg.debug("Closing wavelabs connection")
         try:
-            self.connection.settimeout(1)
+            self.server_socket.settimeout(1)
         except Exception as e:
             pass
+
+        try:
+            self.client_socket.settimeout(1)
+        except Exception as e:
+            pass
+
+        try:
+            # craft and issue lower level turn off command with no retries and no ack
+            root = ET.Element("WLRC")
+            ET.SubElement(root, "CancelRecipe", iSeq=str(self.iseq))
+            tree = ET.ElementTree(root)
+            tree.write(self.sock_file)
+        except Exception as e:
+            pass
+
+        try:
+            self.client_socket.close()
+        except Exception as e:
+            pass
+
+        try:
+            self.server_socket.close()
+        except Exception as e:
+            pass
+
         try:
             self.sock_file.close()
         except Exception as e:
             pass
-        try:
-            self.connection.close()
-        except Exception as e:
-            pass
-
-        try:
-            self.server.server_close()
-        except Exception as e:
-            pass
 
     def __del__(self):
-        self.lg.debug("Deleting wavelabs connection")
-        try:
-            self.connection.settimeout(1)
-        except Exception as e:
-            pass
-
-        try:
-            self.off()
-        except Exception as e:
-            pass
-
         self.disconnect()
 
     def recvXML(self):
@@ -151,7 +167,7 @@ class Wavelabs(object):
         try:
             raw_msg = self.sock_file.readline()
             parser.feed(raw_msg)
-        except socketserver.socket.timeout:
+        except socket.timeout:
             target.error = 9999
             target.error_message = "Wavelabs comms socket timeout"
             target.done_parsing = True
@@ -174,89 +190,74 @@ class Wavelabs(object):
 
         return target
 
-    def startServer(self):
-        """define a server which listens for the wevelabs software to connect"""
-        self.iseq = 0
+    def server_connect(self, timeout=10):
+        """setup a server which listens for the wevelabs software to directly"""
+        ret = -3
+        address = (self.host, int(self.port))
+        self.server_socket = None
+        self.client_socket = None
+        try:
+            self.server_socket = socket.create_server(address, backlog=0, reuse_port=True)
+            self.server_socket.settimeout(timeout)
+            (self.client_socket, client_address) = self.server_socket.accept()
+            self.server_socket.close()
+            self.lg.info(f"New direct connection from Wavelabs client software from {client_address}")
+            ret = 0
+        except socket.timeout:
+            ret = -1  # timeout waiting for wavelabs software to connect
+            self.lg.warning("Timeout waiting for Wavelabs to connect")
+        except Exception as e:
+            ret = -2
+            self.lg.warning("Error while waiting for Wavelabs to connect: {e}")
+        return ret
 
-        self.server = socketserver.TCPServer((self.host, self.port), socketserver.StreamRequestHandler, bind_and_activate=False)
-        self.server.timeout = self.timeout / 10  # INNER timeout when waiting for the wavelabs software to connect
-        self.server.allow_reuse_address = True
-        self.server.server_bind()
-        self.server.server_activate()
+    def relay_connect(self, timeout=10):
+        """forms connection to the relay server"""
+        ret = -3
+        address = (self.host, int(self.port))
+        self.client_socket = None
+        try:
+            self.client_socket = socket.create_connection(address, timeout=timeout)
+            self.lg.debug(f"New connection to Wavelabs relay via {address}")
+            ret = 0
+        except socket.timeout:
+            ret = -1  # timeout waiting for wavelabs software to connect
+            self.lg.warning("Timeout connecting to wavelabs relay")
+        except Exception as e:
+            ret = -2
+            self.lg.warning("Error connecting to wavelabs relay: {e}")
+        return ret
 
     #  0 is success
     # -1 is timeout
+    # -2 is general connection error (socket not open after connect)
     # something else is not set recipe error
     # -3 is programming error
-    def connect(self):
-        """
-        generic connect method, does what's appropriate for getting comms up based on self.relay, returns 0 on successful connection
-        (aka successful setting of )
-        """
+    def connect(self, timeout=None, comms_timeout=None):
+        """generic connect method, does what's appropriate for getting comms up, timeouts are in seconds"""
         ret = -3
-        if self.relay == False:
+        if timeout is None:
+            timeout = self.connection_timeout
+        if comms_timeout is None:
+            comms_timeout = self.comms_timeout
+        self.iseq = 0
+        if self.relay == False:  # for starting a server for a direct connection from Wavelabs software
             if self.port is None:
                 self.port = self.def_port_non_relay
-            self.startServer()
-            ret = self.awaitConnection()
-            if ret == 0:
-                ret = self.activateRecipe(self.default_recipe)
-        else:  # relay
+            ret = self.server_connect(timeout=timeout)
+        else:  # relay case
             if self.port is None:
                 self.port = self.def_port_relay
-            ret = self.connectToRelay()
+            ret = self.relay_connect(timeout=timeout)
         if ret == 0:
-            ret = -2
-            # old_tout = self.connection.gettimeout()
-            self.connection.settimeout(self.timeout)
-            try:
-                ret = self.activateRecipe(self.default_recipe)
-                # self.connection.settimeout(old_tout)
-            except Exception as e:
-                # self.connection.settimeout(old_tout)
-                raise ValueError(f"Unable to set solar sim recipe: {self.default_recipe}")
+            self.client_socket.settimeout(comms_timeout)
+            self.sock_file = self.client_socket.makefile(mode="rwb")
+        else:
+            self.disconnect()
         return ret
-
-    #  0 is success
-    # -1 is timeout
-    # -3 is programming error
-    def awaitConnection(self):
-        """returns once the wavelabs program has connected"""
-        t0 = time.time()
-        timeout = self.timeout
-        ret = -3
-        requestNotVerified = True
-        time_left = timeout - (time.time() - t0)
-        old_tout = self.server.socket.gettimeout()
-        self.server.socket.settimeout(self.timeout / 10)
-        while requestNotVerified and (time_left > 0):
-            try:
-                request, client_address = self.server.get_request()
-                if self.server.verify_request(request, client_address):
-                    self.sock_file = request.makefile(mode="rwb")
-                    self.connection = request
-                    requestNotVerified = False
-                    ret = 0
-            except:
-                pass
-            time_left = timeout - (time.time() - t0)
-        if time_left <= 0:
-            ret = -1
-        self.server.socket.settimeout(old_tout)
-        return ret
-
-    def connectToRelay(self):
-        """forms connection to the relay server"""
-        self.connection = socketserver.socket.socket(socketserver.socket.AF_INET, socketserver.socket.SOCK_STREAM)
-        self.connection.connect((self.host, int(self.port)))
-        self.sock_file = self.connection.makefile(mode="rwb")
-        return 0
 
     def query(self, root):
         """perform a wavelabs query"""
-
-        # response codes of these code types should result in a retry
-        retry_codes = [9997, 9998, 9999]
 
         n_tries = 3
         for attempt in range(n_tries):
@@ -264,15 +265,15 @@ class Wavelabs(object):
             tree.write(self.sock_file)
             response = self.recvXML()
 
-            if response.error in retry_codes:
+            if response.error in self.retry_codes:
                 self.lg.debug(response.error_message)
                 self.lg.debug(f"Retrying {attempt}...")
                 self.disconnect()
-                self.connect()
+                self.connect(timeout=1)
             else:
                 break
         else:
-            self.lg.debug("Query retry limit exceeded.")
+            self.lg.warning("Wavelabs comms retry limit exceeded.")
 
         if response.error not in self.okay_message_codes:
             self.lg.error(f"Got error number {response.error} from WaveLabs software: {response.error_message}")
@@ -293,7 +294,7 @@ class Wavelabs(object):
             self.lg.debug("Wavelabs FreeFloat command could not be handled")
         return response.error
 
-    def activateRecipe(self, recipe_name=None):
+    def activate_recipe(self, recipe_name=None):
         """activate a solar sim recipe by name"""
         if recipe_name is None:
             recipe_name = self.default_recipe
@@ -305,39 +306,68 @@ class Wavelabs(object):
             self.lg.debug("Wavelabs recipe '{:}' could not be activated, check that it exists".format(recipe_name))
         return response.error
 
-    def waitForResultAvailable(self, timeout=10000, run_ID=None):
+    def get_run_status(self):
+        """get run status"""
+        root = ET.Element("WLRC")
+        element_name = "GetRunStatus"
+        ET.SubElement(root, element_name, iSeq=str(self.iseq))
+        self.iseq = self.iseq + 1
+        response = self.query(root)
+        if response.error != 0:
+            self.lg.debug(f"Trouble with Wavelabs comms with {element_name}")
+            ret = None
+        else:
+            ret = response.status
+        return ret
+
+    #    def get_info(self):
+    #        """get setup info, cmd not documented/implemented by wavelabs"""
+    #        root = ET.Element("WLRC")
+    #        element_name = "GetInfo"
+    #        ET.SubElement(root, element_name, iSeq=str(self.iseq))
+    #        self.iseq = self.iseq + 1
+    #        response = self.query(root)
+    #        if response.error != 0:
+    #            self.lg.debug(f"Trouble with Wavelabs comms with {element_name}")
+    #            ret = None
+    #        else:
+    #            ret = response.status
+    #        return ret
+
+    def waitForResultAvailable(self, timeout_ms=10000, run_ID=None):
         """
         wait for result from a recipe to be available
-        timeout is in ms
+        timeout_ms is in ms and should be just longer than you expect the recipe to run for
         """
         root = ET.Element("WLRC")
         if run_ID == None:
-            ET.SubElement(root, "WaitForResultAvailable", iSeq=str(self.iseq), fTimeout=str(timeout))
+            ET.SubElement(root, "WaitForResultAvailable", iSeq=str(self.iseq), fTimeout=str(timeout_ms))
         else:
-            ET.SubElement(root, "WaitForResultAvailable", iSeq=str(self.iseq), fTimeout=str(timeout), sRunID=run_ID)
+            ET.SubElement(root, "WaitForResultAvailable", iSeq=str(self.iseq), fTimeout=str(timeout_ms), sRunID=run_ID)
         self.iseq = self.iseq + 1
-        old_tout = self.connection.gettimeout()
-        self.connection.settimeout(timeout / 1000)
+        old_tout = self.client_socket.gettimeout()
+        self.client_socket.settimeout(timeout_ms / 1000 + 1000)
         response = self.query(root)
-        self.connection.settimeout(old_tout)
+        self.client_socket.settimeout(old_tout)
         if response.error != 0:
             self.lg.debug("ERROR: Failed to wait for wavelabs result")
         return response.error
 
-    def waitForRunFinished(self, timeout=10000, run_ID=None):
-        """wait for the current run to finish
-        timeout is in ms
+    def waitForRunFinished(self, timeout_ms=10000, run_ID=None):
+        """
+        wait for the current run to finish
+        timeout_ms is in ms
         """
         root = ET.Element("WLRC")
         if run_ID == None:
-            ET.SubElement(root, "WaitForRunFinished", iSeq=str(self.iseq), fTimeout=str(timeout))
+            ET.SubElement(root, "WaitForRunFinished", iSeq=str(self.iseq), fTimeout=str(timeout_ms))
         else:
-            ET.SubElement(root, "WaitForRunFinished", iSeq=str(self.iseq), fTimeout=str(timeout), sRunID=run_ID)
+            ET.SubElement(root, "WaitForRunFinished", iSeq=str(self.iseq), fTimeout=str(timeout_ms), sRunID=run_ID)
         self.iseq = self.iseq + 1
-        old_tout = self.connection.gettimeout()
-        self.connection.settimeout(timeout / 1000)
+        old_tout = self.client_socket.gettimeout()
+        self.client_socket.settimeout(timeout_ms / 1000 + 1000)
         response = self.query(root)
-        self.connection.settimeout(old_tout)
+        self.client_socket.settimeout(old_tout)
         if response.error != 0:
             self.lg.debug("Failed to wait for wavelabs run to finish")
         return response.error
@@ -494,6 +524,8 @@ if __name__ == "__main__":
     # wl = Wavelabs(host='127.0.0.1', port=3335, relay=True, default_recipe='am1_5_1_sun')  #  for comms via relay
     print("Connecting to light engine...")
     wl.connect()
+    status = wl.get_run_status()
+    print(f"Light engine status: {status}")
     old_intensity = wl.getRecipeParam(param="Intensity")
     old_duration = wl.getRecipeParam(param="Duration")
     new_intensity = 100.0

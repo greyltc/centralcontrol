@@ -8,33 +8,39 @@ from centralcontrol.wavelabs import Wavelabs
 class WavelabsTestCase(unittest.TestCase):
     """testing for wavelabs solar sim control code"""
 
-    def test_relay_init(self):
-        default_recipe = "am1_5_1_sun"
-        relay_host = "127.0.0.1"
-        relay_port = 3335
-        use_relay = True
-        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
+    host = "127.0.0.1"
+    port = 3335
+    use_relay = True
+    recipe = "am1_5_1_sun"
+
+    def test_init(self):
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
         self.assertIsInstance(wl, Wavelabs)
 
-    def test_relay_connect(self):
-        """needs relay server service running and actual hardware with correct recipe name to pass"""
-        default_recipe = "am1_5_1_sun"
-        relay_host = "127.0.0.1"
-        relay_port = 3335
-        use_relay = True
-        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
-        wl.connect()
-        self.assertIsInstance(wl.connection, socket.socket)
-        del wl
+    def test_connect(self):
+        """needs relay server service running and actual hardware"""
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        ret_val = wl.connect()
+        self.assertEqual(0, ret_val)
+        wl.disconnect()
 
-    def test_relay_on_off(self):
+    def test_set_recipe(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
-        default_recipe = "am1_5_1_sun"
-        relay_host = "127.0.0.1"
-        relay_port = 3335
-        use_relay = True
-        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
-        wl.connect()
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        ret_val = wl.connect()
+        self.assertEqual(0, ret_val)
+        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        self.assertEqual(0, ret_val2)
+        wl.disconnect()
+
+    def test_on_off(self):
+        """needs relay server service running and actual hardware with correct recipe name to pass"""
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        ret_val = wl.connect()
+        self.assertEqual(0, ret_val)
+        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        self.assertEqual(0, ret_val2)
+        self.assertEqual(0, ret_val2)
         runID = wl.on()
         self.assertIsInstance(runID, str)
         self.assertTrue(runID.startswith("sn"))
@@ -45,14 +51,13 @@ class WavelabsTestCase(unittest.TestCase):
         self.assertEqual(wl.off(), 0)
         del wl
 
-    def test_relay_on_off_repeat(self):
+    def test_on_off_repeat(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
-        default_recipe = "am1_5_1_sun"
-        relay_host = "127.0.0.1"
-        relay_port = 3335
-        use_relay = True
-        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
-        wl.connect()
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        ret_val = wl.connect()
+        self.assertEqual(0, ret_val)
+        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        self.assertEqual(0, ret_val2)
         repeats = 100
         for i in range(repeats):
             runID = wl.on()
@@ -63,31 +68,31 @@ class WavelabsTestCase(unittest.TestCase):
             time.sleep(0.25)
         del wl
 
-    def test_relay_spam_comms(self):
+    def test_spam_comms(self):
         """
         needs relay server service running and actual hardware with correct recipe name to pass
         spams recipe intensity read operation, assumes intensity is set to "100"
         """
-        default_recipe = "am1_5_1_sun"
-        relay_host = "127.0.0.1"
-        relay_port = 3335
-        use_relay = True
-        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
-        wl.connect()
+
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        ret_val = wl.connect()
+        self.assertEqual(0, ret_val)
+        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        self.assertEqual(0, ret_val2)
         repeats = 1000
         expected_intensity = "100"
         for i in range(repeats):
             self.assertEqual(wl.getRecipeParam(recipe_name=default_recipe, param="Intensity"), expected_intensity)
         del wl
 
-    def test_relay_spectrum_fetch(self):
+    def test_spectrum_fetch(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
-        default_recipe = "am1_5_1_sun"
-        relay_host = "127.0.0.1"
-        relay_port = 3335
-        use_relay = True
-        wl = Wavelabs(host=relay_host, port=relay_port, relay=use_relay, default_recipe=default_recipe)
-        wl.connect()
+
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        ret_val = wl.connect()
+        self.assertEqual(0, ret_val)
+        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        self.assertEqual(0, ret_val2)
         spectral_data = wl.get_spectrum()
         self.assertEqual(len(spectral_data), 2)
         self.assertIsInstance(spectral_data[0], list)

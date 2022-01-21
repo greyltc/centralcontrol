@@ -25,8 +25,10 @@ class Illumination(object):
     protocol = None
     light_master = threading.Semaphore()
     connection_timeout = 10
+    comms_timeout = 1
+    _votes_needed = 1
 
-    def __init__(self, address="", default_recipe="am1_5_1_sun", connection_timeout=10):
+    def __init__(self, address="", connection_timeout=10, comms_timeout=1):
         """
         sets up communication to light source
         """
@@ -49,6 +51,7 @@ class Illumination(object):
                 self.lg.addHandler(ch)
 
         self.connection_timeout = connection_timeout  # s
+        self.comms_timeout = comms_timeout  # s
         self._votes_needed = 1
         self.on_votes = collections.deque([], maxlen=self._votes_needed)
 
@@ -75,7 +78,7 @@ class Illumination(object):
                 relay = True
             else:
                 relay = False
-            self.light_engine = Wavelabs(host=host, port=port, relay=relay, connection_timeout=self.connection_timeout, default_recipe=default_recipe)
+            self.light_engine = Wavelabs(host=host, port=port, relay=relay, connection_timeout=self.connection_timeout)
         # elif protocol.lower() == ('ftdi'):
         #  self.light_engine = Newport(address=address)
         self.protocol = protocol
@@ -160,8 +163,19 @@ class Illumination(object):
         clean up connection to light
         """
         self.lg.debug("ill disconnect() called")
-        self.__del__()
+        if hasattr(self, "light_engine"):
+            self.light_engine.disconnect()
+        self.light_engine = None
         self.lg.debug("ill disconnect() complete")
+
+    def set_recipe(self, recipe_name=None):
+        """
+        sets the active recipe, None will use the default recipe
+        """
+        self.lg.debug(f"ill set_recipe({recipe_name=}) called")
+        ret = self.light_engine.activate_recipe(recipe_name)
+        self.lg.debug("ill set_recipe() complete")
+        return ret
 
     def set_runtime(self, ms):
         """
@@ -199,6 +213,15 @@ class Illumination(object):
         self.lg.debug(f"ill get_intensity() complete with {intensity=}")
         return intensity
 
+    def get_run_status(self):
+        """
+        gets the light engine's run status, expected to return either "running" or "finished"
+        """
+        self.lg.debug("ill get_run_status() called")
+        status = self.light_engine.get_run_status().replace("'", "")
+        self.lg.debug(f"ill get_run_status() complete with {status=}")
+        return status
+
     def get_temperatures(self):
         """
         returns a list of light engine temperature measurements
@@ -213,7 +236,5 @@ class Illumination(object):
 
     def __del__(self):
         self.lg.debug("ill __del__() called")
-        if hasattr(self, "light_engine"):
-            del self.light_engine
-        self.light_engine = None
+        self.disconnect()
         self.lg.debug("ill __del__() complete")

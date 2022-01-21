@@ -412,17 +412,21 @@ class UtilityHandler(object):
                     else:
                         ill = Illumination
                     try:
-                        le = ill(address=task["le_address"], default_recipe=task["le_recipe"], connection_timeout=1)
+                        le = ill(address=task["le_address"], connection_timeout=1)
                         con_res = le.connect()
                         if con_res == 0:
-                            self.lg.info("Light engine connection successful")
+                            status = le.get_run_status()
+                            if status is None:
+                                self.lg.warning("Unable to complete light engine query")
+                            else:
+                                self.lg.info(f"Light engine connection successful. Run Status = {status}")
                         elif con_res == -1:
                             self.lg.warn("Timeout waiting for wavelabs to connect")
                         else:
                             self.lg.warn(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}")
                     except Exception as e:
                         emsg = f"Light engine connection check failed: {e}"
-                        self.lg.info(emsg)
+                        self.lg.warning(emsg)
                         logging.exception(emsg)
                     try:
                         del le
