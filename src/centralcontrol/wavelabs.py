@@ -156,9 +156,6 @@ class Wavelabs(object):
         except Exception as e:
             pass
 
-    def __del__(self):
-        self.disconnect()
-
     def recvXML(self):
         """reads xml object from socket"""
         target = self.XMLHandler()
@@ -269,7 +266,7 @@ class Wavelabs(object):
                 self.lg.debug(response.error_message)
                 self.lg.debug(f"Retrying {attempt}...")
                 self.disconnect()
-                self.connect(timeout=1)
+                self.connect(timeout=self.comms_timeout)
             else:
                 break
         else:
@@ -611,5 +608,5 @@ if __name__ == "__main__":
             wl.startFreeFloat(time=disco_time, channel_nums=chan_names, channel_values=chan_values)
             time.sleep(disco_sleep / 1000)
         wl.startFreeFloat()  # stop freefloat
-    del wl
+    wl.disconnect()
     print("Done!")

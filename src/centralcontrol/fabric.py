@@ -459,7 +459,7 @@ class Fabric(object):
     def run_done(self):
         """Turn off light engine and smu."""
         if hasattr(self, "le"):
-            self.le.off()
+            self.le.set_state(force_state=False)
         if hasattr(self, "sm"):
             self.sm.outOn(on=False)
 

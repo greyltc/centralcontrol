@@ -530,7 +530,7 @@ class MQTTServer(object):
             self.lg.info(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
             # Voc needs light
             if hasattr(measurement, "le"):
-                measurement.le.on()
+                measurement.le.on = True
 
             if calibration == False:
                 kind = "vt_measurement"
@@ -565,10 +565,10 @@ class MQTTServer(object):
             # sweeps may or may not need light
             if sweep == "dark":
                 if hasattr(measurement, "le"):
-                    measurement.le.off()
+                    measurement.le.on = False
             else:
                 if hasattr(measurement, "le"):
-                    measurement.le.on()
+                    measurement.le.on = True
 
             if calibration == False:
                 kind = "iv_measurement/1"
@@ -630,7 +630,7 @@ class MQTTServer(object):
             self.lg.info(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
             # mppt needs light
             if hasattr(measurement, "le"):
-                measurement.le.on()
+                measurement.le.on = True
 
             if calibration == False:
                 kind = "mppt_measurement"
@@ -672,7 +672,7 @@ class MQTTServer(object):
             self.lg.info(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
             # jsc needs light
             if hasattr(measurement, "le"):
-                measurement.le.on()
+                measurement.le.on = True
 
             if calibration == False:
                 kind = "it_measurement"
@@ -890,9 +890,9 @@ class MQTTServer(object):
 
                     self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {print_label} ####")
 
-                    # set up light source voting (if any)
+                    # set up light source voting/synchronization (if any)
                     if hasattr(measurement, "le"):
-                        measurement.le.votes_needed = n_parallel
+                        measurement.le.n_sync = n_parallel
 
                     # move stage
                     if mo is not None:
@@ -900,7 +900,7 @@ class MQTTServer(object):
                             # force light off for motion if configured
                             if hasattr(measurement, "le") and ("off_during_motion" in config["solarsim"]):
                                 if config["solarsim"]["off_during_motion"] == True:
-                                    measurement.le.off(assume_master=True)
+                                    measurement.le.set_state(force_state=False)
                             mo.goto(there)
 
                     # select pixel(s)
@@ -954,7 +954,7 @@ class MQTTServer(object):
 
         # don't leave the light on!
         if hasattr(measurement, "le"):
-            measurement.le.off(assume_master=True)
+            measurement.le.set_state(force_state=False)
 
     def _eqe(self, pixel_queue, request, measurement, calibration=False):
         """Run through pixel queue of EQE measurements.
@@ -1148,9 +1148,17 @@ class MQTTServer(object):
 
         args = request["args"]
 
+        bool_take_spectrum = True
+
         # calibrate spectrum if required
-        if ("IV_stuff" in args) and (args["enable_solarsim"] == True):
-            user_aborted = self._calibrate_spectrum(request)
+        if ("IV_stuff" in args) and (args["enable_solarsim"] is True):
+            bool_do_solarsim = True
+            if bool_take_spectrum:
+                # do spectrum colelction while checking if
+                # user pushed the stop button during that
+                user_aborted = self._calibrate_spectrum(request)
+        else:
+            bool_do_solarsim = False
 
         if user_aborted == False:
             try:
@@ -1161,6 +1169,8 @@ class MQTTServer(object):
 
                     if "IV_stuff" in args:
                         q = self._build_q(request, experiment="solarsim")
+                        if bool_do_solarsim:
+                            measurement.le.get_run_status()  # check & update the light state
                         self._ivt(q, request, measurement)
                         measurement.disconnect_all_instruments()
 

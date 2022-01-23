@@ -49,7 +49,7 @@ class WavelabsTestCase(unittest.TestCase):
         time.sleep(1)
         self.assertEqual(wl.off(), 0)
         self.assertEqual(wl.off(), 0)
-        del wl
+        wl.disconnect()
 
     def test_on_off_repeat(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
@@ -66,7 +66,7 @@ class WavelabsTestCase(unittest.TestCase):
             time.sleep(0.25)
             self.assertEqual(wl.off(), 0)
             time.sleep(0.25)
-        del wl
+        wl.disconnect()
 
     def test_spam_comms(self):
         """
@@ -82,8 +82,8 @@ class WavelabsTestCase(unittest.TestCase):
         repeats = 1000
         expected_intensity = "100"
         for i in range(repeats):
-            self.assertEqual(wl.getRecipeParam(recipe_name=default_recipe, param="Intensity"), expected_intensity)
-        del wl
+            self.assertEqual(wl.getRecipeParam(recipe_name=self.recipe, param="Intensity"), expected_intensity)
+        wl.disconnect()
 
     def test_spectrum_fetch(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
@@ -94,6 +94,7 @@ class WavelabsTestCase(unittest.TestCase):
         ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
         self.assertEqual(0, ret_val2)
         spectral_data = wl.get_spectrum()
+        wl.disconnect()
         self.assertEqual(len(spectral_data), 2)
         self.assertIsInstance(spectral_data[0], list)
         self.assertIsInstance(spectral_data[1], list)

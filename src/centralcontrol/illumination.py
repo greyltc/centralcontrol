@@ -1,4 +1,3 @@
-import collections
 from .wavelabs import Wavelabs
 
 # from .newport import Newport
@@ -23,15 +22,14 @@ class Illumination(object):
 
     light_engine = None
     protocol = None
-    light_master = threading.Semaphore()
-    connection_timeout = 10
-    comms_timeout = 1
-    _votes_needed = 1
+    connection_timeout = 10  # s. wait this long for wavelabs comms connection to form
+    comms_timeout = 1  # s. wait this long for an ack from wavelabs for any communication
+    barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
+    _current_state = False  # True if we believe the light is on, False if we believe it's off
+    requested_state = False  # keeps track of what state we'd like the light to be in
 
     def __init__(self, address="", connection_timeout=10, comms_timeout=1):
-        """
-        sets up communication to light source
-        """
+        """sets up communication to light source"""
         # setup logging
         self.lg = logging.getLogger(__name__)
         self.lg.setLevel(logging.DEBUG)
@@ -52,8 +50,9 @@ class Illumination(object):
 
         self.connection_timeout = connection_timeout  # s
         self.comms_timeout = comms_timeout  # s
-        self._votes_needed = 1
-        self.on_votes = collections.deque([], maxlen=self._votes_needed)
+        self.request_on = False
+        self.requested_state = False
+        self.barrier = threading.Barrier(1, action=self.set_state, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
 
         addr_split = address.split(sep="://", maxsplit=1)
         protocol = addr_split[0]
@@ -86,18 +85,51 @@ class Illumination(object):
         self.lg.debug(f"{__name__} initialized.")
 
     @property
-    def votes_needed(self):
-        return self._votes_needed
+    def n_sync(self):
+        """how many threads we need to wait for to synchronize"""
+        return self.barrier.parties
 
-    @votes_needed.setter
-    def votes_needed(self, value):
-        self._votes_needed = value
-        if value > 1:
-            self.on_votes = collections.deque([], maxlen=value)
+    @n_sync.setter
+    def n_sync(self, value):
+        """
+        update the number of threads we need to wait for to consider ourselves *NSYNC
+        setting this while waiting for synchronization will raise a barrier broken error
+        """
 
-    @votes_needed.deleter
-    def votes_needed(self):
-        del self._votes_needed
+        self.barrier.abort()
+
+        # the thing that blocks threads until they're in sync for a light state change
+        self.barrier = threading.Barrier(value, action=self.set_state, timeout=self.barrier_timeout)
+
+    @property
+    def on(self):
+        """
+        query the light's current state
+        (might differe than requested state)
+        """
+        return self._current_state
+
+    @on.setter
+    def on(self, value):
+        """set true when you wish the light to be on and false if you want it to be off"""
+        if isinstance(value, bool):
+            if value != self._current_state:
+                self.lg.debug(f"Request to change light state to {value}. Waiting for synchronization...")
+                self.requested_state = value
+                try:
+                    draw = self.barrier.wait()
+                    if draw == 0:  # we're the lucky winner!
+                        self.lg.debug(f"Light state synchronization complete!")
+                except threading.BrokenBarrierError as e:
+                    # most likely a timeout
+                    # could also be if the barrier was reset or aborted during the wait
+                    # or if the call to change the light state errored
+                    raise ValueError(f"The light synchronization barrier was broken! {e}")
+            else:
+                # requested state matches actual state
+                self.lg.debug("Light output is already {vale}")
+        else:
+            self.lg.debug(f"Don't understand new light state request: {value=}")
 
     def connect(self):
         """forms connection to light source"""
@@ -106,46 +138,27 @@ class Illumination(object):
         self.lg.debug("ill connect() compelte")
         return ret
 
-    def on(self, assume_master=False):
-        """thread safe light state control with unanimous voting"""
-        self.lg.debug("ill on() called")
-        if (self._votes_needed <= 1) or (assume_master == True):
-            ret = self.light_engine.on()
-            if self._votes_needed > 1:
-                self.on_votes.clear()
+    def set_state(self, force_state=None):
+        """
+        set illumination state based on self.requested_state
+        should not be called directly (instead use the barrier-enabled on parameter)
+        unless you call it with force_state True or False to bypass the barrier-based thread sync interface
+        """
+        call_state = None  # the state we'll be setting the light to
+        ret = None
+        if force_state is None:
+            call_state = self.requested_state
+            self.lg.debug(f"set_state {self.requested_state} called")
+        elif isinstance(force_state, bool):
+            call_state = force_state
         else:
-            self.on_votes.append(True)
-            if self.light_master.acquire(blocking=False):
-                while self.on_votes.count(True) < self._votes_needed:
-                    pass  # wait for everyone to agree
-                self.lg.debug("Light voting complete!")
-                ret = self.light_engine.on()
-                self.light_master.release()
-            else:
-                self.lg.debug("Light vote submitted")
-                ret = 0
-        self.lg.debug("ill on() complete")
-        return ret
+            raise ValueError(f"New light state setting invalid: {call_state=}")
 
-    def off(self, assume_master=False):
-        """thread safe light state control with unanimous voting"""
-        self.lg.debug("ill off() called")
-        if (self._votes_needed <= 1) or (assume_master == True):
-            ret = self.light_engine.off()
-            if self._votes_needed > 1:
-                self.on_votes.clear()
+        if call_state:
+            ret = self.light_engine.on()
         else:
-            self.on_votes.append(False)
-            if self.light_master.acquire(blocking=False):
-                while self.on_votes.count(False) < self._votes_needed:
-                    pass  # wait for everyone to agree
-                self.lg.debug("Light voting complete!")
-                ret = self.light_engine.off()
-                self.light_master.release()
-            else:
-                self.lg.debug("Light vote submitted")
-                ret = 0
-        self.lg.debug("ill off() complete")
+            ret = self.light_engine.off()
+
         return ret
 
     def get_spectrum(self):
@@ -160,12 +173,13 @@ class Illumination(object):
 
     def disconnect(self):
         """
-        clean up connection to light
+        clean up connection to light.
+        this is called by it be called by __del__ so it might not need to be called in addition
         """
         self.lg.debug("ill disconnect() called")
         if hasattr(self, "light_engine"):
             self.light_engine.disconnect()
-        self.light_engine = None
+            del self.light_engine  # prevents disconnect from being called more than once
         self.lg.debug("ill disconnect() complete")
 
     def set_recipe(self, recipe_name=None):
@@ -216,9 +230,14 @@ class Illumination(object):
     def get_run_status(self):
         """
         gets the light engine's run status, expected to return either "running" or "finished"
+        also updates on parmater via _current_state
         """
         self.lg.debug("ill get_run_status() called")
-        status = self.light_engine.get_run_status().replace("'", "")
+        status = self.light_engine.get_run_status()
+        if status == "running":
+            self._current_state = True
+        else:
+            self._current_state = False
         self.lg.debug(f"ill get_run_status() complete with {status=}")
         return status
 
@@ -235,6 +254,10 @@ class Illumination(object):
         return temp
 
     def __del__(self):
+        """
+        clean up connection to light engine
+        put this in __del__ to esure it gets called
+        """
         self.lg.debug("ill __del__() called")
         self.disconnect()
         self.lg.debug("ill __del__() complete")
