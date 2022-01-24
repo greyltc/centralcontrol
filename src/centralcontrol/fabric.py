@@ -435,27 +435,6 @@ class Fabric(object):
             except:
                 self.lg.debug(f"Disconnection was unclean.")
 
-    def measure_spectrum(self, recipe=None):
-        """Measure the spectrum of the light source.
-
-        Uses the internal spectrometer.
-
-        Parameters
-        ----------
-        recipe : str
-            Name of the spectrum recipe for the light source to load.
-
-        Returns
-        -------
-        raw_spectrum : list
-            Raw spectrum measurements in arbitrary units.
-        """
-        # get spectrum data
-        wls, counts = self.le.get_spectrum()
-        data = [[wl, count] for wl, count in zip(wls, counts)]
-
-        return data
-
     def run_done(self):
         """Turn off light engine and smu."""
         if hasattr(self, "le"):

@@ -368,57 +368,6 @@ class MQTTServer(object):
 
         self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
 
-    def _calibrate_spectrum(self, request):
-        """Measure the solar simulator spectrum using it's internal spectrometer.
-
-        Parameters
-        ----------
-        request : dict
-            Request dictionary sent to the server.
-        mqtthost : str
-            MQTT broker IP address or hostname.
-        dummy : bool
-            Flag for dummy mode using virtual instruments.
-        """
-
-        user_aborted = False
-        try:
-            with Fabric() as measurement:
-                i_limits = [x["current_limit"] for x in request["config"]["smu"]]
-                measurement.current_limit = min(i_limits)
-
-                self.lg.info("Calibrating solar simulator spectrum...")
-
-                config = request["config"]
-                args = request["args"]
-
-                measurement.connect_instruments(
-                    visa_lib=config["visa"]["visa_lib"],
-                    light_address=config["solarsim"]["address"],
-                    light_virt=config["solarsim"]["virtual"],
-                    light_recipe=args["light_recipe"],
-                )
-                if hasattr(measurement, "le"):
-                    measurement.le.set_intensity(int(args["light_recipe_int"]))
-
-                spectrum = measurement.measure_spectrum()
-
-                spectrum_dict = {"data": spectrum, "timestamp": time.time()}
-
-                # publish calibration
-                self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
-
-            self.lg.info("Finished calibrating solar simulator spectrum!")
-        except KeyboardInterrupt:
-            user_aborted = True
-        except Exception as e:
-            traceback.print_exc()
-            self.lg.error(f"SPECTRUM CALIBRATION ABORTED! " + str(e))
-
-        self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
-
-        return user_aborted
-
     def _build_q(self, request, experiment):
         """Generate a queue of pixels to run through.
 
@@ -784,8 +733,25 @@ class MQTTServer(object):
                 del ci_args["smus"]
 
         measurement.connect_instruments(**ci_args)
-        if hasattr(measurement, "le") and "light_recipe_int" in args:
-            measurement.le.set_intensity(int(args["light_recipe_int"]))
+
+        def send_spectrum(intensity):
+            if hasattr(measurement.le, "get_spectrum"):
+                wls, counts = measurement.le.get_spectrum()
+                data = [[wl, count] for wl, count in zip(wls, counts)]
+                spectrum_dict = {"data": data, "intensity": intensity, "timestamp": time.time()}
+                self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
+
+        # take baseline spectrum if we should and we can
+        if hasattr(measurement, "le"):
+            intensity = 100
+            measurement.le.set_intensity(intensity)
+            send_spectrum(intensity)
+
+            if "light_recipe_int" in args:
+                run_intensity = int(args["light_recipe_int"])
+                if run_intensity != 100:  # check for non-standard intensity
+                    measurement.le.set_intensity(run_intensity)
+                    send_spectrum(run_intensity)  # do another sepctrum measurement at this new intensity
 
         fake_pcb = measurement.fake_pcb
         inner_pcb = measurement.fake_pcb
@@ -1148,18 +1114,6 @@ class MQTTServer(object):
 
         args = request["args"]
 
-        bool_take_spectrum = True
-
-        # calibrate spectrum if required
-        if ("IV_stuff" in args) and (args["enable_solarsim"] is True):
-            bool_do_solarsim = True
-            if bool_take_spectrum:
-                # do spectrum colelction while checking if
-                # user pushed the stop button during that
-                user_aborted = self._calibrate_spectrum(request)
-        else:
-            bool_do_solarsim = False
-
         if user_aborted == False:
             try:
                 with Fabric(killer=self.killer) as measurement:
@@ -1169,8 +1123,6 @@ class MQTTServer(object):
 
                     if "IV_stuff" in args:
                         q = self._build_q(request, experiment="solarsim")
-                        if bool_do_solarsim:
-                            measurement.le.get_run_status()  # check & update the light state
                         self._ivt(q, request, measurement)
                         measurement.disconnect_all_instruments()
 
