@@ -65,7 +65,7 @@ class Illumination(object):
         return 0
 
     def set_recipe(self, recipe_name=None):
-        self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe))
+        self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe_name))
         return 0
 
     def on(self, assume_master=False):
