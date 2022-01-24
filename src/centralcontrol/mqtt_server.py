@@ -753,6 +753,9 @@ class MQTTServer(object):
                     measurement.le.set_intensity(run_intensity)
                     send_spectrum(run_intensity)  # do another sepctrum measurement at this new intensity
 
+            # check & update the light state
+            measurement.le.get_run_status()
+
         fake_pcb = measurement.fake_pcb
         inner_pcb = measurement.fake_pcb
         inner_init_args = {}
