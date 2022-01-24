@@ -131,13 +131,6 @@ class Illumination(object):
         else:
             self.lg.debug(f"Don't understand new light state request: {value=}")
 
-    def connect(self):
-        """forms connection to light source"""
-        self.lg.debug("ill connect() called")
-        ret = self.light_engine.connect()
-        self.lg.debug("ill connect() compelte")
-        return ret
-
     def set_state(self, force_state=None):
         """
         set illumination state based on self.requested_state
@@ -159,6 +152,13 @@ class Illumination(object):
         else:
             ret = self.light_engine.off()
 
+        return ret
+
+    def connect(self):
+        """forms connection to light source"""
+        self.lg.debug("ill connect() called")
+        ret = self.light_engine.connect()
+        self.lg.debug("ill connect() compelte")
         return ret
 
     def get_spectrum(self):

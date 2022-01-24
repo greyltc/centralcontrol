@@ -19,8 +19,9 @@ except ImportError:
 class Illumination(object):
     runtime = 60000
     intensity = 100
-    votes_needed = 1
-    light_master = threading.Semaphore()
+    barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
+    _current_state = False  # True if we believe the light is on, False if we believe it's off
+    requested_state = False  # keeps track of what state we'd like the light to be in
 
     def __init__(self, *args, **kwargs):
         # setup logging
@@ -41,24 +42,81 @@ class Illumination(object):
                 ch.setFormatter(logFormat)
                 self.lg.addHandler(ch)
 
-        self._votes_needed = 1
-        self.on_votes = collections.deque([], maxlen=self._votes_needed)
+        self.request_on = False
+        self.requested_state = False
+        self.barrier = threading.Barrier(1, action=self.set_state, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
 
         self.lg.debug(f"{__name__} virtually initialized.")
 
     @property
-    def votes_needed(self):
-        return self._votes_needed
+    def n_sync(self):
+        """how many threads we need to wait for to synchronize"""
+        return self.barrier.parties
 
-    @votes_needed.setter
-    def votes_needed(self, value):
-        self._votes_needed = value
-        if value > 1:
-            self.on_votes = collections.deque([], maxlen=value)
+    @n_sync.setter
+    def n_sync(self, value):
+        """
+        update the number of threads we need to wait for to consider ourselves *NSYNC
+        setting this while waiting for synchronization will raise a barrier broken error
+        """
 
-    @votes_needed.deleter
-    def votes_needed(self):
-        del self._votes_needed
+        self.barrier.abort()
+
+        # the thing that blocks threads until they're in sync for a light state change
+        self.barrier = threading.Barrier(value, action=self.set_state, timeout=self.barrier_timeout)
+
+    @property
+    def on(self):
+        """
+        query the light's current state
+        (might differe than requested state)
+        """
+        return self._current_state
+
+    @on.setter
+    def on(self, value):
+        """set true when you wish the light to be on and false if you want it to be off"""
+        if isinstance(value, bool):
+            if value != self._current_state:
+                self.lg.debug(f"Request to change light state to {value}. Waiting for synchronization...")
+                self.requested_state = value
+                try:
+                    draw = self.barrier.wait()
+                    if draw == 0:  # we're the lucky winner!
+                        self.lg.debug(f"Light state synchronization complete!")
+                except threading.BrokenBarrierError as e:
+                    # most likely a timeout
+                    # could also be if the barrier was reset or aborted during the wait
+                    # or if "action" (the call to change the light state) errored
+                    raise ValueError(f"The light synchronization barrier was broken! {e}")
+            else:
+                # requested state matches actual state
+                self.lg.debug("Light output is already {vale}")
+        else:
+            self.lg.debug(f"Don't understand new light state request: {value=}")
+
+    def set_state(self, force_state=None):
+        """
+        set illumination state based on self.requested_state
+        should not be called directly (instead use the barrier-enabled on parameter)
+        unless you call it with force_state True or False to bypass the barrier-based thread sync interface
+        """
+        call_state = None  # the state we'll be setting the light to
+        ret = None
+        if force_state is None:
+            call_state = self.requested_state
+            self.lg.debug(f"set_state {self.requested_state} called")
+        elif isinstance(force_state, bool):
+            call_state = force_state
+        else:
+            raise ValueError(f"New light state setting invalid: {call_state=}")
+
+        if call_state:
+            self.lg.debug("Virtual light turned on")
+        else:
+            self.lg.debug("Virtual light turned off")
+
+        return ret
 
     def connect(self):
         self.lg.debug("Connected to virtual lightsource")
@@ -68,52 +126,6 @@ class Illumination(object):
         self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe_name))
         return 0
 
-    def on(self, assume_master=False):
-        # thread safe light control with unanimous state voting
-        self.lg.debug("ill on() called")
-        if (self._votes_needed <= 1) or (assume_master == True):
-            self.lg.debug("Virtual light turned on")
-            ret = 0
-            if self._votes_needed > 1:
-                self.on_votes.clear()
-        else:
-            self.on_votes.append(True)
-            if self.light_master.acquire(blocking=False):
-                while self.on_votes.count(True) < self._votes_needed:
-                    pass  # wait for everyone to agree
-                self.lg.debug("Light voting complete!")
-                self.lg.debug("Virtual light turned on")
-                ret = 0
-                self.light_master.release()
-            else:
-                self.lg.debug("Light vote submitted")
-                ret = 0
-        self.lg.debug("ill on() complete")
-        return ret
-
-    def off(self, assume_master=False):
-        # thread safe light control with unanimous state voting
-        self.lg.debug("ill off() called")
-        if (self._votes_needed <= 1) or (assume_master == True):
-            self.lg.debug("Virtual light turned off")
-            ret = 0
-            if self.votes_needed > 1:
-                self.on_votes.clear()
-        else:
-            self.on_votes.append(False)
-            if self.light_master.acquire(blocking=False):
-                while self.on_votes.count(False) < self._votes_needed:
-                    pass  # wait for everyone to agree
-                self.lg.debug("Light voting complete!")
-                self.lg.debug("Virtual light turned off")
-                ret = 0
-                self.light_master.release()
-            else:
-                self.lg.debug("Light vote submitted")
-                ret = 0
-        self.lg.debug("ill off() complete")
-        return ret
-
     def get_spectrum(self):
         self.lg.debug("Giving you a virtual spectrum")
         # dummy spectrum data to return (actual data from wavelabs)
@@ -122,6 +134,13 @@ class Illumination(object):
         counts = spec[1]
         scaled_counts = [count * self.intensity / 100 for count in counts]
         return (wls, scaled_counts)
+
+    def get_run_status(self):
+        if self._bool_state_on:
+            ret = "running"
+        else:
+            ret = "finished"
+        return ret
 
     def disconnect(self, *args, **kwargs):
         pass
