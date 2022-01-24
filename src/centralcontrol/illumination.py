@@ -127,7 +127,7 @@ class Illumination(object):
                     raise ValueError(f"The light synchronization barrier was broken! {e}")
             else:
                 # requested state matches actual state
-                self.lg.debug("Light output is already {vale}")
+                self.lg.debug(f"Light output is already {value}")
         else:
             self.lg.debug(f"Don't understand new light state request: {value=}")
 

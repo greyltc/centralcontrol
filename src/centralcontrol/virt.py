@@ -9,6 +9,8 @@ import threading
 import sys
 import logging
 
+from sqlalchemy import true
+
 # for logging directly to systemd journal if we can
 try:
     import systemd.journal
@@ -91,7 +93,7 @@ class Illumination(object):
                     raise ValueError(f"The light synchronization barrier was broken! {e}")
             else:
                 # requested state matches actual state
-                self.lg.debug("Light output is already {vale}")
+                self.lg.debug(f"Light output is already {value}")
         else:
             self.lg.debug(f"Don't understand new light state request: {value=}")
 
@@ -136,7 +138,7 @@ class Illumination(object):
         return (wls, scaled_counts)
 
     def get_run_status(self):
-        if self._bool_state_on:
+        if self._current_state is True:
             ret = "running"
         else:
             ret = "finished"
