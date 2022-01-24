@@ -64,7 +64,7 @@ class Illumination(object):
         self.lg.debug("Connected to virtual lightsource")
         return 0
 
-    def set_recipe(self, recipe):
+    def set_recipe(self, recipe_name=None):
         self.lg.debug("Light engine recipe '{:}' virtually activated.".format(recipe))
         return 0
 

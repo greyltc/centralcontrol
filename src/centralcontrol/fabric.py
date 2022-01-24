@@ -259,7 +259,7 @@ class Fabric(object):
             ill = Illumination
         self.le = ill(address=light_address)
         self.le.connect()
-        self.le.set_recipe(recipe_name=light_recipe)
+        self.le.set_recipe(light_recipe)
 
         self._connected_instruments.append(self.le)
 
