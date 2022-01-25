@@ -435,7 +435,7 @@ class Wavelabs(object):
         if response.error != 0:
             self.lg.debug("Failed to set recipe parameter")
         else:
-            self.activateRecipe(recipe_name=recipe_name)
+            self.activate_recipe(recipe_name=recipe_name)
         return response.error
 
     def on(self):
@@ -572,7 +572,7 @@ if __name__ == "__main__":
     print(f"Success! Data length = {len(y)}")
 
     wl.off()
-    wl.activateRecipe()
+    wl.activate_recipe()
     wl.setRecipeParam(param="Intensity", value=old_intensity)
     wl.setRecipeParam(param="Duration", value=old_duration)
 

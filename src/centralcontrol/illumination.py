@@ -141,16 +141,21 @@ class Illumination(object):
         ret = None
         if force_state is None:
             call_state = self.requested_state
-            self.lg.debug(f"set_state {self.requested_state} called")
         elif isinstance(force_state, bool):
             call_state = force_state
         else:
             raise ValueError(f"New light state setting invalid: {call_state=}")
 
+        self.lg.debug(f"set_state {self.requested_state} called")
         if call_state:
             ret = self.light_engine.on()
         else:
             ret = self.light_engine.off()
+
+        if (ret == 0) or (isinstance(ret, str) and ret.startswith("sn")):
+            self._current_state = call_state
+        else:
+            self.lg.debug(f"failure to set the light's state")
 
         return ret
 

@@ -9,8 +9,8 @@ class IlluminationTestCase(unittest.TestCase):
     """testing for high level Illumination object"""
 
     protocol = "wavelabs-relay"
-    # host = "127.0.0.1"
-    host = "10.56.0.4"
+    host = "127.0.0.1"
+    # host = "10.56.0.4"
     port = 3335
     connection_timeout = 10
     comms_timeout = 1
@@ -88,7 +88,7 @@ class IlluminationTestCase(unittest.TestCase):
         self.assertEqual(ill.on, light_on)
         self.assertEqual(status, "finished")
 
-    def test_state_change(self):
+    def test_state_change_single(self):
         """test light state change with sync barrier height = 1"""
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
@@ -124,7 +124,7 @@ class IlluminationTestCase(unittest.TestCase):
         self.assertEqual(ill.on, light_on)
         self.assertEqual(status, "finished")
 
-    def test_state_change(self):
+    def test_state_change_multi(self):
         """test light state change with thread sync barrier height = n"""
         sync_barrier_height = 2  # must be int, 2 or more
 
@@ -251,7 +251,7 @@ class IlluminationTestCase(unittest.TestCase):
             self.assertEqual(ill.on, light_on)
             status = ill.get_run_status()
             self.assertEqual(ill.on, light_on)
-            self.assertEqual(status, "finised")
+            self.assertEqual(status, "finished")
 
     def test_get_temperatures(self):
         """temperature fetching test (this is only expected to work after spectrum fetch)"""

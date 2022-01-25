@@ -29,7 +29,7 @@ class WavelabsTestCase(unittest.TestCase):
         wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
-        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        ret_val2 = wl.activate_recipe(self.recipe)
         self.assertEqual(0, ret_val2)
         wl.disconnect()
 
@@ -38,7 +38,7 @@ class WavelabsTestCase(unittest.TestCase):
         wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
-        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        ret_val2 = wl.activate_recipe(self.recipe)
         self.assertEqual(0, ret_val2)
         self.assertEqual(0, ret_val2)
         runID = wl.on()
@@ -56,7 +56,7 @@ class WavelabsTestCase(unittest.TestCase):
         wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
-        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        ret_val2 = wl.activate_recipe(self.recipe)
         self.assertEqual(0, ret_val2)
         repeats = 100
         for i in range(repeats):
@@ -77,7 +77,7 @@ class WavelabsTestCase(unittest.TestCase):
         wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
-        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        ret_val2 = wl.activate_recipe(self.recipe)
         self.assertEqual(0, ret_val2)
         repeats = 1000
         expected_intensity = "100"
@@ -91,7 +91,7 @@ class WavelabsTestCase(unittest.TestCase):
         wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
-        ret_val2 = wl.activateRecipe(recipe_name=self.recipe)
+        ret_val2 = wl.activate_recipe(self.recipe)
         self.assertEqual(0, ret_val2)
         spectral_data = wl.get_spectrum()
         wl.disconnect()
