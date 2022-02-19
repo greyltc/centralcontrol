@@ -6,13 +6,14 @@ from centralcontrol.pcb import Pcb
 class PcbTestCase(unittest.TestCase):
     """tests for the pcb and controller"""
 
-    pcb_host = "WIZnet111785"
+    pcb_host = "WIZnet111785.lan"
     pcb_timeout = 1
+    # expected_muxes = ["A"]
     expected_muxes = ["A", "B", "C", "D", "E", "F", "G", "H"]
 
     def test_init(self):
         """class init"""
-        p = Pcb(addess=self.pcb_host, timeout=self.pcb_timeout, expected_muxes=self.expected_muxes)
+        p = Pcb(address=self.pcb_host, timeout=self.pcb_timeout, expected_muxes=self.expected_muxes)
         self.assertIsInstance(p, Pcb)
 
     def test_connect(self):
@@ -22,7 +23,7 @@ class PcbTestCase(unittest.TestCase):
             print("Got welcome message:")
             print(p.welcome_message)
             self.assertIsInstance(p.firmware_version, str)
-            self.assertTrue("+" in p.firmware_version)
+            self.assertTrue(any(pattern in p.firmware_version for pattern in [".0.", ".1."]))
 
     def test_mux_once(self):
         """manipulate the mux"""
