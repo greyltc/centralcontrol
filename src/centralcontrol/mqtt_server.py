@@ -847,14 +847,13 @@ class MQTTServer(object):
                         self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
                     n_parallel = len(q_item)  # how many pixels this group holds
-                    print_labels = [val["device_label"] for key, val in q_item.items()]
+                    dev_labels = [val["device_label"] for key, val in q_item.items()]
+                    print_label = " + ".join(dev_labels)
                     theres = np.array([val["pos"] for key, val in q_item.items()])
+                    self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(dev_labels), "qos": 2, "retain": True})
                     if n_parallel > 1:
-                        self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(print_labels), "qos": 2, "retain": True})
-                        print_label = " + ".join(print_labels)
                         there = tuple(theres.mean(0))  # the average location of the group
                     else:
-                        print_label = print_labels[0]
                         there = theres[0]
 
                     self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {print_label} ####")
