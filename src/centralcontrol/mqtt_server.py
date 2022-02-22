@@ -1121,8 +1121,12 @@ class MQTTServer(object):
             try:
                 with Fabric(killer=self.killer) as measurement:
                     self.lg.info("Starting run...")
-                    i_limits = [x["current_limit"] for x in request["config"]["smu"]]
-                    measurement.current_limit = min(i_limits)
+                    try:
+                        i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+                        i_limit = min(i_limits)
+                    except Exception as e:
+                        i_limit = 0.1  # use this default if we can't work out a limit from the configuration
+                    measurement.current_limit = min(i_limit)
 
                     if "IV_stuff" in args:
                         q = self._build_q(request, experiment="solarsim")
