@@ -1126,7 +1126,7 @@ class MQTTServer(object):
                         i_limit = min(i_limits)
                     except Exception as e:
                         i_limit = 0.1  # use this default if we can't work out a limit from the configuration
-                    measurement.current_limit = min(i_limit)
+                    measurement.current_limit = i_limit
 
                     if "IV_stuff" in args:
                         q = self._build_q(request, experiment="solarsim")
