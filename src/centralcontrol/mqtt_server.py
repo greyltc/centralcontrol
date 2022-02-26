@@ -335,7 +335,7 @@ class MQTTServer(object):
                                 progress_msg = {"text": text, "fraction": fraction}
                                 self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-                            self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
+                            self.lg.info(f"[{n_done+1}/{p_total}] Starting on {pixel['device_label']}")
 
                             # move to pixel
                             measurement.goto_pixel(pixel, mo)
@@ -476,7 +476,7 @@ class MQTTServer(object):
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
                 return []
-            self.lg.info(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
+            self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
             # Voc needs light
             if hasattr(measurement, "le"):
                 measurement.le.on = True
@@ -510,7 +510,7 @@ class MQTTServer(object):
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
                 return data
-            self.lg.info(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
+            self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
             # sweeps may or may not need light
             if sweep == "dark":
                 if hasattr(measurement, "le"):
@@ -546,7 +546,7 @@ class MQTTServer(object):
                 if self.killer.is_set():
                     self.lg.debug("Killed by killer.")
                     return data
-                self.lg.info(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
+                self.lg.debug(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
 
                 if calibration == False:
                     kind = "iv_measurement/2"
@@ -576,7 +576,7 @@ class MQTTServer(object):
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
                 return data
-            self.lg.info(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
+            self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
             # mppt needs light
             if hasattr(measurement, "le"):
                 measurement.le.on = True
@@ -618,7 +618,7 @@ class MQTTServer(object):
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
                 return data
-            self.lg.info(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
+            self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
             # jsc needs light
             if hasattr(measurement, "le"):
                 measurement.le.on = True
@@ -856,7 +856,7 @@ class MQTTServer(object):
                     else:
                         there = theres[0]
 
-                    self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {print_label} ####")
+                    self.lg.info(f"[{n_done+1}/{p_total}] Starting on {print_label}")
 
                     # set up light source voting/synchronization (if any)
                     if hasattr(measurement, "le"):
@@ -1033,7 +1033,7 @@ class MQTTServer(object):
                         progress_msg = {"text": text, "fraction": fraction}
                         self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-                    self.lg.info(f"#### [{n_done+1}/{p_total}] Starting on {pixel['device_label']} ####")
+                    self.lg.info(f"[{n_done+1}/{p_total}] Starting on {pixel['device_label']}")
 
                     # move to pixel
                     measurement.goto_pixel(pixel, mo)
