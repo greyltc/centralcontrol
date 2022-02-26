@@ -28,7 +28,7 @@ class k2400:
     readyForAction = False
     four88point1 = False
     default_comms_timeout = 50000  # in ms
-    sweep_stats_log_info = True  # false uses debug logging level, true logs sweep stats at info level
+    sweep_stats_log_info = False  # false uses debug logging level, true logs sweep stats at info level
 
     def __init__(self, visa_lib="@py", scan=False, addressString=None, terminator="\r", serialBaud=57600, front=False, twoWire=False, quiet=False, killer=threading.Event()):
         self.killer = killer

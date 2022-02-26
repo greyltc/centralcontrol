@@ -127,7 +127,7 @@ class Fabric(object):
 
         return ret_val
 
-    def _connect_smu(self, virtual=False, visa_lib="@py", address=None, terminator="\n", baud=57600, front_terminals=False, two_wire=False):
+    def _connect_smu(self, virtual=False, visa_lib="@py", address=None, terminator="\n", baud=57600, front_terminals=False, two_wire=False, **kwargs):
         """Create smu connection.
 
         Parameters
@@ -164,6 +164,8 @@ class Fabric(object):
             sm_setup["killer"] = self.killer
 
             sm = k2400(**sm_setup)
+            if "sweep_stats_log_info" in kwargs:
+                sm.sweep_stats_log_info = kwargs["sweep_stats_log_info"]
         self._connected_instruments.append(sm)
         self.sms.append(sm)
         self.mppts.append(mppt(sm, self.current_limit, killer=self.killer))
@@ -342,7 +344,7 @@ class Fabric(object):
         else:
             self.motion_pcb = Pcb
 
-    def connect_instruments(self, visa_lib="@py", smus=None, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
+    def connect_instruments(self, visa_lib="@py", smus=None, pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5], **kwargs):
         """Connect to instruments.
 
         If any instrument addresses are `None`, virtual (fake) instruments are
@@ -399,9 +401,14 @@ class Fabric(object):
         if smus is not None:
             # fill in connection arguments when they match connection function arguments
             all_smu_connect_args = list(inspect.signature(self._connect_smu).parameters.keys())
+            if ("print_sweep_deets" in kwargs) and (kwargs["print_sweep_deets"] == True):
+                sweep_stats_log_info = True
+            else:
+                sweep_stats_log_info = False
             for smu in smus:
                 if ("enabled" not in smu) or (not smu["enabled"] == False):
                     smu_connect_args = {}
+                    smu_connect_args["sweep_stats_log_info"] = sweep_stats_log_info
                     for key, val in smu.items():
                         if key in all_smu_connect_args:
                             smu_connect_args[key] = val

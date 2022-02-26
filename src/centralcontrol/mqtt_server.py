@@ -690,6 +690,11 @@ class MQTTServer(object):
             ci_args["visa_lib"] = config["visa"]["visa_lib"]
         if "smu" in config:  # enabled is checked per smu in connect
             ci_args["smus"] = config["smu"]
+            if ("sweep_deets_btn" in args) and (args["sweep_deets_btn"] == True):
+                ci_args["print_sweep_deets"] = True
+            else:
+                ci_args["print_sweep_deets"] = False
+            ci_args["sweep_stats"] = config["smu"]
         if "controller" in config:
             if ("enabled" not in config["controller"]) or (config["controller"]["enabled"] != False):
                 if "virtual" in config["controller"]:
