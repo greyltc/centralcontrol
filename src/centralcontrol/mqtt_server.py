@@ -335,7 +335,7 @@ class MQTTServer(object):
                                 progress_msg = {"text": text, "fraction": fraction}
                                 self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-                            self.lg.info(f"[{n_done+1}/{p_total}] Starting on {pixel['device_label']}")
+                            self.lg.info(f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
 
                             # move to pixel
                             measurement.goto_pixel(pixel, mo)
@@ -861,7 +861,7 @@ class MQTTServer(object):
                     else:
                         there = theres[0]
 
-                    self.lg.info(f"[{n_done+1}/{p_total}] Starting on {print_label}")
+                    self.lg.info(f"[{n_done+1}/{p_total}] Operating on {print_label}")
 
                     # set up light source voting/synchronization (if any)
                     if hasattr(measurement, "le"):
@@ -1038,7 +1038,7 @@ class MQTTServer(object):
                         progress_msg = {"text": text, "fraction": fraction}
                         self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-                    self.lg.info(f"[{n_done+1}/{p_total}] Starting on {pixel['device_label']}")
+                    self.lg.info(f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
 
                     # move to pixel
                     measurement.goto_pixel(pixel, mo)
