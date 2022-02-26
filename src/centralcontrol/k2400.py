@@ -28,6 +28,7 @@ class k2400:
     readyForAction = False
     four88point1 = False
     default_comms_timeout = 50000  # in ms
+    sweep_stats_log_info = True  # false uses debug logging level, true logs sweep stats at info level
 
     def __init__(self, visa_lib="@py", scan=False, addressString=None, terminator="\r", serialBaud=57600, front=False, twoWire=False, quiet=False, killer=threading.Event()):
         self.killer = killer
@@ -648,7 +649,11 @@ class k2400:
             v_start = first_element[0]
             v_end = last_element[0]
             self.last_sweep_time = t_end - t_start
-            self.lg.info(f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/len(reshaped)*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(reshaped)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s")
+            stats_string = f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/len(reshaped)*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(reshaped)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
+            if self.sweep_stats_log_info == True:
+                self.lg.info(stats_string)
+            else:
+                self.lg.debug(stats_string)
             self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep
 
         # update the status byte
