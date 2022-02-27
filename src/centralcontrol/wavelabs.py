@@ -18,6 +18,8 @@ class Wavelabs(object):
     """interface to the wavelabs LED solar simulator"""
 
     iseq = 0  # sequence number for comms with wavelabs software
+    def_relay_port = 3335
+    def_direct_port = 3334
     spectrum_ms = 1002
     okay_message_codes = [0, -4001]
     retry_codes = [9997, 9998, 9999]  # response codes of these code types should result in a comms retry
@@ -79,7 +81,7 @@ class Wavelabs(object):
         def close(self):
             pass
 
-    def __init__(self, host="0.0.0.0", port=3334, relay=False, connection_timeout=10, comms_timeout=1):
+    def __init__(self, host="0.0.0.0", port=None, relay=False, connection_timeout=10, comms_timeout=1):
         """
         sets up the wavelabs object
         address is a string of the format:
@@ -108,9 +110,13 @@ class Wavelabs(object):
 
         self.relay = relay
         self.host = host
-        self.port = port
-        self.def_port_non_relay = 3334
-        self.def_port_relay = 3335
+        if port is None:
+            if relay == False:
+                self.port = self.def_direct_port
+            else:
+                self.port = self.def_relay_port
+        else:
+            self.port = port
         self.connection_timeout = connection_timeout
         self.comms_timeout = comms_timeout
         self.sock_file = None
@@ -239,12 +245,8 @@ class Wavelabs(object):
             comms_timeout = self.comms_timeout
         self.iseq = 0
         if self.relay == False:  # for starting a server for a direct connection from Wavelabs software
-            if self.port is None:
-                self.port = self.def_port_non_relay
             ret = self.server_connect(timeout=timeout)
         else:  # relay case
-            if self.port is None:
-                self.port = self.def_port_relay
             ret = self.relay_connect(timeout=timeout)
         if ret == 0:
             self.client_socket.settimeout(comms_timeout)
@@ -484,6 +486,7 @@ class Wavelabs(object):
         return self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID)
 
     def get_spectrum(self):
+        """ "assumes a recipe has been set"""
         x = []
         y = []
         old_duration = None

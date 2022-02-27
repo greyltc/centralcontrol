@@ -77,7 +77,7 @@ class Illumination(object):
                 relay = True
             else:
                 relay = False
-            self.light_engine = Wavelabs(host=host, port=port, relay=relay, connection_timeout=self.connection_timeout)
+            self.light_engine = Wavelabs(host=host, port=port, relay=relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         # elif protocol.lower() == ('ftdi'):
         #  self.light_engine = Newport(address=address)
         self.protocol = protocol
@@ -168,7 +168,7 @@ class Illumination(object):
 
     def get_spectrum(self):
         """
-        fetches a spectrum if the light engine supports it
+        fetches a spectrum if the light engine supports it, assumes a recipe has been set
         """
         self.lg.debug("ill get_spectrum() called")
         spec = self.light_engine.get_spectrum()

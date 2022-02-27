@@ -8,25 +8,33 @@ from centralcontrol.wavelabs import Wavelabs
 class WavelabsTestCase(unittest.TestCase):
     """testing for wavelabs solar sim control code"""
 
-    host = "127.0.0.1"
-    port = 3335
-    use_relay = True
+    # use_relay = True
+    # host = "127.0.0.1"
+    # port = 3335
+
+    use_relay = False
+    host = "0.0.0.0"
+    port = 3334
+
+    connection_timeout = 10
+    comms_timeout = 1
+
     recipe = "am1_5_1_sun"
 
     def test_init(self):
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         self.assertIsInstance(wl, Wavelabs)
 
     def test_connect(self):
         """needs relay server service running and actual hardware"""
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
         wl.disconnect()
 
     def test_set_recipe(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
         ret_val2 = wl.activate_recipe(self.recipe)
@@ -35,7 +43,7 @@ class WavelabsTestCase(unittest.TestCase):
 
     def test_on_off(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
         ret_val2 = wl.activate_recipe(self.recipe)
@@ -53,7 +61,7 @@ class WavelabsTestCase(unittest.TestCase):
 
     def test_on_off_repeat(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
         ret_val2 = wl.activate_recipe(self.recipe)
@@ -74,7 +82,7 @@ class WavelabsTestCase(unittest.TestCase):
         spams recipe intensity read operation, assumes intensity is set to "100"
         """
 
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
         ret_val2 = wl.activate_recipe(self.recipe)
@@ -88,7 +96,7 @@ class WavelabsTestCase(unittest.TestCase):
     def test_spectrum_fetch(self):
         """needs relay server service running and actual hardware with correct recipe name to pass"""
 
-        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay)
+        wl = Wavelabs(host=self.host, port=self.port, relay=self.use_relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         ret_val = wl.connect()
         self.assertEqual(0, ret_val)
         ret_val2 = wl.activate_recipe(self.recipe)

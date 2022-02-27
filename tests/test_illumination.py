@@ -8,10 +8,14 @@ from centralcontrol.illumination import Illumination
 class IlluminationTestCase(unittest.TestCase):
     """testing for high level Illumination object"""
 
-    protocol = "wavelabs-relay"
-    host = "127.0.0.1"
-    # host = "10.56.0.4"
-    port = 3335
+    protocol = "wavelabs"
+    host = "0.0.0.0"
+    port = 3334
+
+    # protocol = "wavelabs-relay"
+    # host = "127.0.0.1"
+    # port = 3335
+
     connection_timeout = 10
     comms_timeout = 1
     recipe = "am1_5_1_sun"
@@ -21,11 +25,13 @@ class IlluminationTestCase(unittest.TestCase):
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
         self.assertIsInstance(ill, Illumination)
+        del ill
 
     def test_connect(self):
         """class connection test"""
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
+        self.assertIsInstance(ill, Illumination)
         return_code = ill.connect()
         del ill
         self.assertEqual(return_code, 0)
@@ -34,6 +40,7 @@ class IlluminationTestCase(unittest.TestCase):
         """class connection test"""
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
+        self.assertIsInstance(ill, Illumination)
         return_code = ill.connect()
         self.assertEqual(return_code, 0)
         return_code = ill.set_recipe(recipe_name=self.recipe)
@@ -44,11 +51,11 @@ class IlluminationTestCase(unittest.TestCase):
         """status read test"""
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
+        self.assertIsInstance(ill, Illumination)
         return_code = ill.connect()
         self.assertEqual(return_code, 0)
         status = ill.get_run_status()
         del ill
-        self.assertIsInstance(status, str)
         self.assertIn(status, ("running", "finished"))
         print(f"ill get_run_status() complete with {status=}")
 
@@ -56,9 +63,13 @@ class IlluminationTestCase(unittest.TestCase):
         """test forced light state change"""
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
-        ill.connect()
-        ill.get_run_status()
-        ill.set_recipe(recipe_name=self.recipe)
+        self.assertIsInstance(ill, Illumination)
+        return_code = ill.connect()
+        self.assertEqual(return_code, 0)
+        status = ill.get_run_status()
+        self.assertIn(status, ("running", "finished"))
+        return_code = ill.set_recipe(recipe_name=self.recipe)
+        self.assertEqual(return_code, 0)
 
         light_on = True
         ill.set_state(force_state=light_on)
@@ -87,14 +98,20 @@ class IlluminationTestCase(unittest.TestCase):
         status = ill.get_run_status()
         self.assertEqual(ill.on, light_on)
         self.assertEqual(status, "finished")
+
+        del ill
 
     def test_state_change_single(self):
         """test light state change with sync barrier height = 1"""
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
-        ill.connect()
-        ill.get_run_status()
-        ill.set_recipe(recipe_name=self.recipe)
+        self.assertIsInstance(ill, Illumination)
+        return_code = ill.connect()
+        self.assertEqual(return_code, 0)
+        status = ill.get_run_status()
+        self.assertIn(status, ("running", "finished"))
+        return_code = ill.set_recipe(recipe_name=self.recipe)
+        self.assertEqual(return_code, 0)
 
         light_on = True
         ill.on = light_on
@@ -123,6 +140,8 @@ class IlluminationTestCase(unittest.TestCase):
         status = ill.get_run_status()
         self.assertEqual(ill.on, light_on)
         self.assertEqual(status, "finished")
+
+        del ill
 
     def test_state_change_multi(self):
         """test light state change with thread sync barrier height = n"""
@@ -130,9 +149,14 @@ class IlluminationTestCase(unittest.TestCase):
 
         address = f"{self.protocol}://{self.host}:{self.port}"
         ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
-        ill.connect()
-        ill.get_run_status()
-        ill.set_recipe(recipe_name=self.recipe)
+        self.assertIsInstance(ill, Illumination)
+        return_code = ill.connect()
+        self.assertEqual(return_code, 0)
+        status = ill.get_run_status()
+        self.assertIn(status, ("running", "finished"))
+        return_code = ill.set_recipe(recipe_name=self.recipe)
+        self.assertEqual(return_code, 0)
+
         ill.n_sync = sync_barrier_height
 
         # make a function for each thread to call
@@ -252,6 +276,29 @@ class IlluminationTestCase(unittest.TestCase):
             status = ill.get_run_status()
             self.assertEqual(ill.on, light_on)
             self.assertEqual(status, "finished")
+        del ill
+
+    def test_spectrum_fetch(self):
+        """tests spectrum fetching. needs hardware to pass"""
+        address = f"{self.protocol}://{self.host}:{self.port}"
+        ill = Illumination(address=address, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
+        self.assertIsInstance(ill, Illumination)
+        return_code = ill.connect()
+        self.assertEqual(return_code, 0)
+        status = ill.get_run_status()
+        self.assertIn(status, ("running", "finished"))
+        return_code = ill.set_recipe(recipe_name=self.recipe)
+        self.assertEqual(return_code, 0)
+
+        spectral_data = ill.get_spectrum()
+        del ill
+        self.assertEqual(len(spectral_data), 2)
+        self.assertIsInstance(spectral_data[0], list)
+        self.assertIsInstance(spectral_data[1], list)
+        self.assertGreater(len(spectral_data[0]), 0)
+        self.assertGreater(len(spectral_data[1]), 0)
+        self.assertIsInstance(spectral_data[0][0], float)
+        self.assertIsInstance(spectral_data[1][0], float)
 
     def test_get_temperatures(self):
         """temperature fetching test (this is only expected to work after spectrum fetch)"""
