@@ -480,10 +480,12 @@ class Wavelabs(object):
         return self.setRecipeParam(param="Intensity", value=int(intensity))
 
     def get_ir_led_temp(self, run_ID=None):
-        return self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID)
+        str_tmp = self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID)
+        return float(str_tmp)
 
     def get_vis_led_temp(self, run_ID=None):
-        return self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID)
+        str_tmp = self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID)
+        return float(str_tmp)
 
     def get_spectrum(self):
         """ "assumes a recipe has been set"""
