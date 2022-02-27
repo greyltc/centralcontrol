@@ -250,6 +250,7 @@ class UtilityHandler(object):
                                             response = {}
                                             response["data"] = le.get_spectrum()
                                             temp = le.get_temperatures()
+                                            le.disconnect()
                                             response["timestamp"] = time.time()
                                             output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
                                             self.outputq.put(output)
@@ -268,7 +269,7 @@ class UtilityHandler(object):
                             self.lg.warning(emsg)
                             logging.exception(emsg)
                         finally:
-                            del ill
+                            le.disconnect()
                     else:
                         self.lg.info(f"No light engine configured.")
 
@@ -446,6 +447,7 @@ class UtilityHandler(object):
                             else:
                                 self.lg.info(f"Light engine connection successful. Run Status = {status}")
                                 return_code = le.set_recipe(recipe_name=task["le_recipe"])
+                                le.disconnect()
                                 if return_code == 0:
                                     self.lg.info(f"{task['le_recipe']} recipe set sucessfully!")
                                 else:
@@ -459,7 +461,7 @@ class UtilityHandler(object):
                         self.lg.warning(emsg)
                         logging.exception(emsg)
                     finally:
-                        del le
+                        le.disconnect()
 
             self.taskq.task_done()
 
