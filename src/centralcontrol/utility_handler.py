@@ -250,7 +250,7 @@ class UtilityHandler(object):
                                         if int_res == 0:
                                             response = {}
                                             response["data"] = le.get_spectrum()
-                                            temp = ill.get_temperatures()
+                                            temp = le.get_temperatures()
                                             response["timestamp"] = time.time()
                                             output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
                                             self.outputq.put(output)
