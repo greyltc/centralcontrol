@@ -227,24 +227,42 @@ class UtilityHandler(object):
                             self.lg.info(mono.readline.strip())
 
                 elif task["cmd"] == "spec":
-                    if task["le_virt"] == True:
-                        le = virt.Illumination(address=task["le_address"], default_recipe=task["le_recipe"])
-                    else:
-                        le = Illumination(address=task["le_address"], default_recipe=task["le_recipe"], connection_timeout=1)
-                    con_res = le.connect()
-                    if con_res == 0:
-                        response = {}
-                        int_res = le.set_intensity(task["le_recipe_int"])
-                        if int_res == 0:
-                            response["data"] = le.get_spectrum()
-                            response["timestamp"] = time.time()
-                            output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
-                            self.outputq.put(output)
+                    if "le_address" in task:
+                        le = None
+                        if task["le_virt"] == True:
+                            ill = virt.Illumination
                         else:
-                            self.lg.info(f"Unable to set light engine intensity.")
-                    else:
-                        self.lg.info(f"Unable to connect to light engine.")
-                    del le
+                            ill = Illumination
+                        try:
+                            le = ill(address=task["le_address"], connection_timeout=1)
+                            con_res = le.connect()
+                            if con_res == 0:
+                                status = le.get_run_status()
+                                if status is None:
+                                    self.lg.warning("Unable to complete light engine query")
+                                else:
+                                    le.set_recipe(self, recipe_name=task['le_recipe'])
+                                    response = {}
+                                    int_res = le.set_intensity(task["le_recipe_int"])
+                                    if int_res == 0:
+                                        response["data"] = le.get_spectrum()
+                                        response["timestamp"] = time.time()
+                                        output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
+                                        self.outputq.put(output)
+                                    else:
+                                        self.lg.info(f"Unable to set light engine intensity.")
+                            elif con_res == -1:
+                                self.lg.warn("Timeout waiting for wavelabs to connect")
+                            else:
+                                self.lg.warn(f"Unable to connect to light engine with error {con_res}")
+                        except Exception as e:
+                            emsg = f"Light engine spectrum fetch check failed: {e}"
+                            self.lg.warning(emsg)
+                            logging.exception(emsg)
+                        try:
+                            del le
+                        except:
+                            pass
 
                 # device round robin commands
                 elif task["cmd"] == "round_robin":
