@@ -228,6 +228,7 @@ class UtilityHandler(object):
 
                 elif task["cmd"] == "spec":
                     if "le_address" in task:
+                        self.lg.info(f"Checking light engine@{task['le_address']}...")
                         le = None
                         if task["le_virt"] == True:
                             ill = virt.Illumination
@@ -241,28 +242,38 @@ class UtilityHandler(object):
                                 if status is None:
                                     self.lg.warning("Unable to complete light engine query")
                                 else:
-                                    le.set_recipe(self, recipe_name=task['le_recipe'])
-                                    response = {}
-                                    int_res = le.set_intensity(task["le_recipe_int"])
-                                    if int_res == 0:
-                                        response["data"] = le.get_spectrum()
-                                        response["timestamp"] = time.time()
-                                        output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
-                                        self.outputq.put(output)
+                                    self.lg.info(f"Light engine connection successful. Run Status = {status}")
+                                    return_code = le.set_recipe(recipe_name=task["le_recipe"])
+                                    if return_code == 0:
+                                        self.lg.info(f"{task['le_recipe']} recipe set sucessfully!")
+                                        int_res = le.set_intensity(task["le_recipe_int"])
+                                        if int_res == 0:
+                                            response = {}
+                                            response["data"] = le.get_spectrum()
+                                            temp = ill.get_temperatures()
+                                            response["timestamp"] = time.time()
+                                            output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
+                                            self.outputq.put(output)
+                                            self.lg.info("Spectrum fetched sucessfully!")
+                                            self.lg.info(f"Found light source temperatures: {temp}")
+                                        else:
+                                            self.lg.warn(f"Unable to set intensity to {task['le_recipe_int']} with error {int_res}")
                                     else:
-                                        self.lg.info(f"Unable to set light engine intensity.")
+                                        self.lg.warn(f"Unable to set recipe {task['le_recipe']} with error {return_code}")
                             elif con_res == -1:
                                 self.lg.warn("Timeout waiting for wavelabs to connect")
                             else:
                                 self.lg.warn(f"Unable to connect to light engine with error {con_res}")
                         except Exception as e:
-                            emsg = f"Light engine spectrum fetch check failed: {e}"
+                            emsg = f"Light engine connection check failed: {e}"
                             self.lg.warning(emsg)
                             logging.exception(emsg)
                         try:
                             del le
                         except:
                             pass
+                    else:
+                        self.lg.info(f"No light engine configured.")
 
                 # device round robin commands
                 elif task["cmd"] == "round_robin":
@@ -438,10 +449,15 @@ class UtilityHandler(object):
                                 self.lg.warning("Unable to complete light engine query")
                             else:
                                 self.lg.info(f"Light engine connection successful. Run Status = {status}")
+                                return_code = le.set_recipe(recipe_name=task["le_recipe"])
+                                if return_code == 0:
+                                    self.lg.info(f"{task['le_recipe']} recipe set sucessfully!")
+                                else:
+                                    self.lg.warn(f"Unable to set recipe {task['le_recipe']} with error {return_code}")
                         elif con_res == -1:
                             self.lg.warn("Timeout waiting for wavelabs to connect")
                         else:
-                            self.lg.warn(f"Unable to connect to light engine and activate {task['le_recipe']} with error {con_res}")
+                            self.lg.warn(f"Unable to connect to light engine with error {con_res}")
                     except Exception as e:
                         emsg = f"Light engine connection check failed: {e}"
                         self.lg.warning(emsg)
