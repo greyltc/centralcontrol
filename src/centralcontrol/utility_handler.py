@@ -229,12 +229,11 @@ class UtilityHandler(object):
                 elif task["cmd"] == "spec":
                     if "le_address" in task:
                         self.lg.info(f"Checking light engine@{task['le_address']}...")
-                        le = None
-                        if task["le_virt"] == True:
-                            ill = virt.Illumination
-                        else:
-                            ill = Illumination
                         try:
+                            if task["le_virt"] == True:
+                                ill = virt.Illumination
+                            else:
+                                ill = Illumination
                             le = ill(address=task["le_address"], connection_timeout=1)
                             con_res = le.connect()
                             if con_res == 0:
@@ -268,10 +267,8 @@ class UtilityHandler(object):
                             emsg = f"Light engine connection check failed: {e}"
                             self.lg.warning(emsg)
                             logging.exception(emsg)
-                        try:
-                            del le
-                        except:
-                            pass
+                        finally:
+                            del ill
                     else:
                         self.lg.info(f"No light engine configured.")
 
@@ -435,12 +432,11 @@ class UtilityHandler(object):
 
                 if "le_address" in task:
                     self.lg.info(f"Checking light engine@{task['le_address']}...")
-                    le = None
-                    if task["le_virt"] == True:
-                        ill = virt.Illumination
-                    else:
-                        ill = Illumination
                     try:
+                        if task["le_virt"] == True:
+                            ill = virt.Illumination
+                        else:
+                            ill = Illumination
                         le = ill(address=task["le_address"], connection_timeout=1)
                         con_res = le.connect()
                         if con_res == 0:
@@ -462,10 +458,8 @@ class UtilityHandler(object):
                         emsg = f"Light engine connection check failed: {e}"
                         self.lg.warning(emsg)
                         logging.exception(emsg)
-                    try:
+                    finally:
                         del le
-                    except:
-                        pass
 
             self.taskq.task_done()
 
