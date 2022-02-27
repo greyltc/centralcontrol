@@ -53,7 +53,7 @@ class WavelabsTestCase(unittest.TestCase):
         self.assertIsInstance(runID, str)
         self.assertTrue(runID.startswith("sn"))
         runID = wl.on()
-        self.assertIsNone(runID)
+        self.assertEqual("", runID)
         time.sleep(1)
         self.assertEqual(wl.off(), 0)
         self.assertEqual(wl.off(), 0)
