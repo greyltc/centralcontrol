@@ -27,6 +27,7 @@ class Illumination(object):
     barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
     _current_state = False  # True if we believe the light is on, False if we believe it's off
     requested_state = False  # keeps track of what state we'd like the light to be in
+    last_temps = None
 
     def __init__(self, address="", connection_timeout=10, comms_timeout=1):
         """sets up communication to light source"""
@@ -255,6 +256,7 @@ class Illumination(object):
         if "wavelabs" in self.protocol:
             temp.append(self.light_engine.get_vis_led_temp())
             temp.append(self.light_engine.get_ir_led_temp())
+            self.last_temps = temp
         self.lg.debug(f"ill get_temperatures() complete with {temp=}")
         return temp
 

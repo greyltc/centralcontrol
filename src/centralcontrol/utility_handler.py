@@ -229,6 +229,7 @@ class UtilityHandler(object):
                 elif task["cmd"] == "spec":
                     if "le_address" in task:
                         self.lg.info(f"Checking light engine@{task['le_address']}...")
+                        le = None
                         try:
                             if task["le_virt"] == True:
                                 ill = virt.Illumination
@@ -249,13 +250,11 @@ class UtilityHandler(object):
                                         if int_res == 0:
                                             response = {}
                                             response["data"] = le.get_spectrum()
-                                            temp = le.get_temperatures()
-                                            le.disconnect()
                                             response["timestamp"] = time.time()
                                             output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
                                             self.outputq.put(output)
                                             self.lg.info("Spectrum fetched sucessfully!")
-                                            self.lg.info(f"Found light source temperatures: {temp}")
+                                            self.lg.info(f"Found light source temperatures: {le.last_temps}")
                                         else:
                                             self.lg.warn(f"Unable to set intensity to {task['le_recipe_int']} with error {int_res}")
                                     else:
@@ -269,7 +268,8 @@ class UtilityHandler(object):
                             self.lg.warning(emsg)
                             logging.exception(emsg)
                         finally:
-                            le.disconnect()
+                            if hasattr(le, "disconnect"):
+                                le.disconnect()
                     else:
                         self.lg.info(f"No light engine configured.")
 
@@ -321,10 +321,6 @@ class UtilityHandler(object):
             except Exception as e:
                 self.lg.warn(e)
                 logging.exception(e)
-                try:
-                    del le  # ensure le is cleaned up
-                except:
-                    pass
                 try:
                     del mo  # ensure mo is cleaned up
                 except:
@@ -433,6 +429,7 @@ class UtilityHandler(object):
 
                 if "le_address" in task:
                     self.lg.info(f"Checking light engine@{task['le_address']}...")
+                    le = None
                     try:
                         if task["le_virt"] == True:
                             ill = virt.Illumination
@@ -447,7 +444,6 @@ class UtilityHandler(object):
                             else:
                                 self.lg.info(f"Light engine connection successful. Run Status = {status}")
                                 return_code = le.set_recipe(recipe_name=task["le_recipe"])
-                                le.disconnect()
                                 if return_code == 0:
                                     self.lg.info(f"{task['le_recipe']} recipe set sucessfully!")
                                 else:
@@ -461,7 +457,8 @@ class UtilityHandler(object):
                         self.lg.warning(emsg)
                         logging.exception(emsg)
                     finally:
-                        le.disconnect()
+                        if hasattr(le, "disconnect"):
+                            le.disconnect()
 
             self.taskq.task_done()
 
