@@ -161,18 +161,21 @@ class Wavelabs(object):
             self.sock_file.close()
         except Exception as e:
             pass
+        self.lg.debug("Wavelabs connection closed.")
 
     def recvXML(self):
         """reads xml object from socket"""
         target = self.XMLHandler()
         parser = ET.XMLParser(target=target)
         raw_msg = None
+        sto = -99
         try:
             raw_msg = self.sock_file.readline()
+            sto = self.client_socket.gettimeout()
             parser.feed(raw_msg)
-        except socket.timeout:
+        except socket.timeout as to:
             target.error = 9999
-            target.error_message = "Wavelabs comms socket timeout"
+            target.error_message = f"Wavelabs comms socket timeout ({sto}s): {to}"
             target.done_parsing = True
         except Exception as e:
             target.error = 9998
@@ -193,39 +196,47 @@ class Wavelabs(object):
 
         return target
 
-    def server_connect(self, timeout=10):
+    def server_connect(self, timeout=-1):
         """setup a server which listens for the wevelabs software to directly"""
         ret = -3
         address = (self.host, int(self.port))
         self.server_socket = None
         self.client_socket = None
+        sto = -99
+        if timeout == -1:
+            timeout = self.connection_timeout
         try:
             self.server_socket = socket.create_server(address, backlog=0, reuse_port=True)
-            self.server_socket.settimeout(timeout)
+            self.server_socket.settimeout(timeout)  # set the connection timeout
+            sto = self.server_socket.gettimeout()
             (self.client_socket, client_address) = self.server_socket.accept()
             self.server_socket.close()
             self.lg.info(f"New direct connection from Wavelabs client software from {client_address}")
             ret = 0
-        except socket.timeout:
+        except socket.timeout as to:
             ret = -1  # timeout waiting for wavelabs software to connect
-            self.lg.warning("Timeout waiting for Wavelabs to connect")
+            self.lg.warning(f"Timeout ({sto}s) waiting for Wavelabs to connect: {to}")
         except Exception as e:
             ret = -2
             self.lg.warning("Error while waiting for Wavelabs to connect: {e}")
         return ret
 
-    def relay_connect(self, timeout=10):
+    def relay_connect(self, timeout=-1):
         """forms connection to the relay server"""
         ret = -3
         address = (self.host, int(self.port))
         self.client_socket = None
+        sto = -99
+        if timeout == -1:
+            timeout = self.connection_timeout
         try:
             self.client_socket = socket.create_connection(address, timeout=timeout)
+            sto = self.client_socket.gettimeout()
             self.lg.debug(f"New connection to Wavelabs relay via {address}")
             ret = 0
-        except socket.timeout:
+        except socket.timeout as to:
             ret = -1  # timeout waiting for wavelabs software to connect
-            self.lg.warning("Timeout connecting to wavelabs relay")
+            self.lg.warning(f"Timeout ({sto}s) connecting to wavelabs relay: {to}")
         except Exception as e:
             ret = -2
             self.lg.warning("Error connecting to wavelabs relay: {e}")
@@ -236,12 +247,12 @@ class Wavelabs(object):
     # -2 is general connection error (socket not open after connect)
     # something else is not set recipe error
     # -3 is programming error
-    def connect(self, timeout=None, comms_timeout=None):
+    def connect(self, timeout=-1, comms_timeout=-1):
         """generic connect method, does what's appropriate for getting comms up, timeouts are in seconds"""
         ret = -3
-        if timeout is None:
+        if timeout == -1:
             timeout = self.connection_timeout
-        if comms_timeout is None:
+        if comms_timeout == -1:
             comms_timeout = self.comms_timeout
         self.iseq = 0
         if self.relay == False:  # for starting a server for a direct connection from Wavelabs software
@@ -252,6 +263,7 @@ class Wavelabs(object):
             self.client_socket.settimeout(comms_timeout)
             self.sock_file = self.client_socket.makefile(mode="rwb")
         else:
+            self.lg.debug(f"Wavelabs.connect() failed, cleaning up.")
             self.disconnect()
         return ret
 
@@ -266,7 +278,7 @@ class Wavelabs(object):
 
             if response.error in self.retry_codes:
                 self.lg.debug(response.error_message)
-                self.lg.debug(f"Retrying {attempt}...")
+                self.lg.debug(f"doing query() retry number {attempt}...")
                 self.disconnect()
                 self.connect(timeout=self.comms_timeout)
             else:

@@ -259,7 +259,7 @@ class Fabric(object):
             ill = virt.Illumination
         else:
             ill = Illumination
-        self.le = ill(address=light_address)
+        self.le = ill(address=light_address, connection_timeout=10, comms_timeout=1)
         self.le.connect()
         self.le.set_recipe(light_recipe)
 
