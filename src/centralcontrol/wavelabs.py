@@ -168,14 +168,13 @@ class Wavelabs(object):
         target = self.XMLHandler()
         parser = ET.XMLParser(target=target)
         raw_msg = None
-        sto = -99
         try:
             raw_msg = self.sock_file.readline()
-            sto = self.client_socket.gettimeout()
             parser.feed(raw_msg)
         except socket.timeout as to:
             target.error = 9999
-            target.error_message = f"Wavelabs comms socket timeout ({sto}s): {to}"
+            sto = self.client_socket.gettimeout()
+            target.error_message = f"Wavelabs comms socket timeout ({sto}s) in recvXML: {to}"
             target.done_parsing = True
         except Exception as e:
             target.error = 9998
@@ -273,14 +272,17 @@ class Wavelabs(object):
         n_tries = 3
         for attempt in range(n_tries):
             tree = ET.ElementTree(root)
-            tree.write(self.sock_file)
+            try:
+                tree.write(self.sock_file)
+            except Exception as e:
+                self.lg.debug(f"Couldn't write to socket: {e}")
             response = self.recvXML()
 
             if response.error in self.retry_codes:
                 self.lg.debug(response.error_message)
                 self.lg.debug(f"doing query() retry number {attempt}...")
                 self.disconnect()
-                self.connect(timeout=self.comms_timeout)
+                self.connect()
             else:
                 break
         else:
