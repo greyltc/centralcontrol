@@ -389,7 +389,8 @@ class k2400(object):
         self.Rsh = 1e6  # [ohm]
         self.n = 3.58
         self.I0 = 260.4e-9  # [A]
-        self.Iph = 6.293e-3  # [A]
+        self.area = 0.25  # cm^2
+        self.Iphd = 23  # photocurrent density, in mA/cm^2
         self.cellTemp = 29  # degC
         self.T = 273.15 + self.cellTemp  # cell temp in K
         self.K = 1.3806488e-23  # boltzman constant
@@ -481,7 +482,7 @@ class k2400(object):
         Rsh = self.Rsh
         n = self.n
         I0 = self.I0
-        Iph = self.Iph
+        Iph = self.Iphd * self.area / 1000
         Vth = self.Vth
         Voc = I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
         self.V = float(numpy.real_if_close(numpy.complex(Voc)))
@@ -492,7 +493,7 @@ class k2400(object):
         Rsh = self.Rsh
         n = self.n
         I0 = self.I0
-        Iph = self.Iph
+        Iph = self.Iphd * self.area / 1000
         Vth = self.Vth
         V = self.V
         I = (Rs * (I0 * Rsh + Iph * Rsh - V) - Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
