@@ -384,12 +384,17 @@ class k2400(object):
         else:
             self.killer = threading.Event()
 
-        # here we make up some numbers for our solar cell model
-        self.Rs = 9.28  # [ohm]
-        self.Rsh = 1e6  # [ohm]
-        self.n = 3.58
-        self.I0 = 260.4e-9  # [A]
         self.area = 0.25  # cm^2
+        self.compliance = 1  # A
+
+        # if we're in the dark, do computations with Iph = 0
+        self.dark = False
+
+        # here we make up some numbers for our solar cell model
+        self.Rs = 7.1  # [ohm]
+        self.Rsh = 1e6  # [ohm]
+        self.n = 1.5
+        self.I0 = 260.4e-17  # [A]
         self.Iphd = 23  # photocurrent density, in mA/cm^2
         self.cellTemp = 29  # degC
         self.T = 273.15 + self.cellTemp  # cell temp in K
@@ -435,6 +440,7 @@ class k2400(object):
         self.sweepEnd = stopVal
 
     def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", auto_ohms=False):
+        self.compliance = compliance
         if auto_ohms == True:
             self.auto_ohms = True
         else:
@@ -452,6 +458,7 @@ class k2400(object):
 
     def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=-1, start=0, end=1, senseRange="f"):
         """setup for a sweep operation"""
+        self.compliance = compliance
         # sm = self.sm
         if sourceVoltage:
             src = "voltage"
@@ -482,10 +489,14 @@ class k2400(object):
         Rsh = self.Rsh
         n = self.n
         I0 = self.I0
-        Iph = self.Iphd * self.area / 1000
+        if self.dark == True:
+            Iph = 0
+        else:
+            Iph = self.Iphd * self.area / 1000
         Vth = self.Vth
         Voc = I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
-        self.V = float(numpy.real_if_close(numpy.complex(Voc)))
+        self.V = float(mpmath.fabs(Voc)) * float(mpmath.sign(mpmath.re(Voc)))
+        self.I = 0
 
     # recompute device current
     def updateCurrent(self):
@@ -493,11 +504,23 @@ class k2400(object):
         Rsh = self.Rsh
         n = self.n
         I0 = self.I0
-        Iph = self.Iphd * self.area / 1000
+        if self.dark == True:
+            Iph = 0
+        else:
+            Iph = self.Iphd * self.area / 1000
         Vth = self.Vth
         V = self.V
         I = (Rs * (I0 * Rsh + Iph * Rsh - V) - Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
-        self.I = float(-1 * numpy.real_if_close(numpy.complex(I)))
+        self.I = float(mpmath.fabs(I)) * float(mpmath.sign(mpmath.re(I)))
+        # simulate the SMU hitting compliance
+        if abs(self.I) > abs(self.compliance):
+            if self.I >= 0:
+                self.I = abs(self.compliance)
+            else:
+                self.I = -1 * abs(self.compliance)
+            peggedV = -self.I * Rs - self.I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-self.I + I0 + Iph) / (Vth * n)) / (Vth * n))
+            self.V = float(mpmath.fabs(peggedV)) * float(mpmath.sign(mpmath.re(peggedV)))
+        self.I = self.I * -1  # change from cell's POV to SMU's POV
 
     def write(self, command):
         if ":source:current " in command:

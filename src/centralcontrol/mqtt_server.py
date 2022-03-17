@@ -515,9 +515,13 @@ class MQTTServer(object):
             if sweep == "dark":
                 if hasattr(measurement, "le"):
                     measurement.le.on = False
+                if "Virtual" in sm.idn:
+                    sm.dark = True
             else:
                 if hasattr(measurement, "le"):
                     measurement.le.on = True
+                if "Virtual" in sm.idn:
+                    sm.dark = False
 
             if calibration == False:
                 kind = "iv_measurement/1"
@@ -895,6 +899,10 @@ class MQTTServer(object):
 
                             # get or estimate compliance current
                             compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
+
+                            if "Virtual" in sm.idn:
+                                # set virtual smu scaling
+                                sm.area = pixel["area"]
 
                             # submit for processing
                             futures[smu_index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps)
