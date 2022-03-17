@@ -162,7 +162,7 @@ class mppt:
             if len(params) == 0:  #  use defaults
                 m.append(self.spo(duration, start_voltage=self.Vmpp, callback=callback))
             else:
-                raise (ValueError("MPPT configuration failure, Usage: --mppt-params spo://"))
+                raise (ValueError("MPPT configuration failure, Usage: spo://"))
         elif algo in ["gd", "snaith"]:
             if algo == "snaith":
                 do_snaith = True
@@ -172,10 +172,10 @@ class mppt:
                 m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, snaith_mode=do_snaith, callback=callback))
             else:
                 params = params.split(":")
-                if len(params) != 7:
-                    raise (ValueError("MPPT configuration failure, Usage: --mppt-params gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]"))
+                if len(params) != 9:
+                    raise (ValueError("MPPT configuration failure, Usage: gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]:[jump_percent]:[jump_period]"))
                 params = [float(f) for f in params]
-                m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6]))
+                m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6], jump_percent=[7], jump_period=[8]))
         else:
             self.lg.debug(f"WARNING: MPPT algorithm {algo} not understood, not doing max power point tracking")
 
@@ -196,7 +196,7 @@ class mppt:
 
         return q
 
-    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01):
+    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01, jump_percent=10, jump_period=0):
         """
         gradient descent MPPT algorithm
         alpha is the "learning rate"
@@ -216,6 +216,8 @@ class mppt:
         self.lg.debug(f"V_initial = {start_voltage} [V]")
         self.lg.debug(f"delta_zero = {delta_zero} [V]")  # first step
         self.lg.debug(f"momentum = {momentum}")
+        self.lg.debug(f"jump percentage of Voc = {jump_percent}%")
+        self.lg.debug(f"jump period = {jump_period} [s]")
         self.lg.debug(f"Smallest step (min_step) = {min_step*1000} [mV]")
         self.lg.debug(f"Largest step (max_step) = {max_step*1000} [mV]")
         self.lg.debug(f"NPLC = {self.sm.getNPLC()}")
@@ -271,6 +273,8 @@ class mppt:
 
         # the mppt loop
         i = 0
+        jump_sign = 1
+        last_jump_time = 0
         while (not self.killer.is_set()) and (run_time < duration):
             i += 1
             some_sign = random.choice([-1, 1])
@@ -295,11 +299,17 @@ class mppt:
             elif (abs(delta) > max_step) and (max_step < float("inf")):  # enforce maximum step size if we're doing that
                 delta = sign(delta) * max_step
 
-            # apply voltage step, calculate new voltage
-            w += delta
-
             # update runtime
             run_time = time.time() - self.t0
+
+            if (run_time > jump_period) and (jump_period > 0) and (jump_percent != 0) and ((run_time - last_jump_time) > jump_period):
+                # force a perturbation
+                delta = jump_sign * self.Voc * jump_percent / 100
+                jump_sign = jump_sign * -1
+                last_jump_time = run_time
+
+            # apply voltage step, calculate new voltage
+            w += delta
 
         if snaith_mode == True:
             this_soak_t = snaith_post_soak_t
