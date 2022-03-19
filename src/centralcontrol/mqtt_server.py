@@ -463,7 +463,7 @@ class MQTTServer(object):
         payload = {"level": record.levelno, "msg": record.msg}
         self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
-    def do_iv(self, mnt, sm, mppt, dh, compliance_i, args, config, calibration, sweeps):
+    def do_iv(self, mnt, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
         """
         parallelizable I-V tasks for use in threads
         """
@@ -602,6 +602,7 @@ class MQTTServer(object):
             if ("ccd" in config) and "max_voltage" in config["ccd"]:
                 mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
             mppt_args["i_limit"] = compliance_i
+            mppt_args["area"] = area
             (mt, vt) = mppt.launch_tracker(**mppt_args)
             mppt.reset()
 
@@ -905,7 +906,7 @@ class MQTTServer(object):
                                 sm.area = pixel["area"]
 
                             # submit for processing
-                            futures[smu_index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps)
+                            futures[smu_index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
 
                         # collect the datas!
                         datas = {}

@@ -25,6 +25,7 @@ class mppt:
     Vmpp = None  # voltage at max power point
     Impp = None  # current at max power point
     Pmax = None  # power at max power point (for keeping track of voc and isc)
+    area = None
 
     # under no circumstances should we violate this
     absolute_current_limit = 0.1  # always safe default
@@ -56,6 +57,7 @@ class mppt:
         self.lg.debug(f"{__name__} initialized.")
 
     def reset(self):
+        self.area = None
         self.Voc = None
         self.Isc = None
         self.Mmpp = None  # measurement from max power point
@@ -106,13 +108,14 @@ class mppt:
         # returns maximum power[W], Vmpp, Impp and the index
         return (Pmax, Vmpp, Impp, maxIndex)
 
-    def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:10"):
+    def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:10", area=1):
         """
         general function to call begin a max power point tracking algorithm
         duration given in seconds, optionally calling callback function on each measurement point
         """
         m = []  # list holding mppt measurements
         self.t0 = time.time()  # start the mppt timer
+        self.area = area
 
         if abs(i_limit) > abs(self.absolute_current_limit):
             i_limit = abs(self.absolute_current_limit)
@@ -196,7 +199,7 @@ class mppt:
 
         return q
 
-    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01, jump_percent=10, jump_period=0):
+    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01, jump_percent=10, jump_period=0, time_scale=True):
         """
         gradient descent MPPT algorithm
         alpha is the "learning rate"
@@ -213,6 +216,7 @@ class mppt:
 
         self.lg.debug("===Starting up gradient descent maximum power point tracking algorithm===")
         self.lg.debug(f"Learning rate (alpha) = {alpha}")
+        self.lg.debug(f"Using time scaling = {time_scale}")
         self.lg.debug(f"V_initial = {start_voltage} [V]")
         self.lg.debug(f"delta_zero = {delta_zero} [V]")  # first step
         self.lg.debug(f"momentum = {momentum}")
@@ -240,10 +244,10 @@ class mppt:
                 self.lg.debug("Killed by killer.")
                 return q
 
-        # the objective function we'll be trying to find the minimum of here is power produced by the sourcemeter
-        objective = lambda var: var[0] * var[1]
+        # the objective function we'll be trying to find the minimum of here is power (density) produced by the sourcemeter
+        objective = lambda var: var[0] * var[1] / self.area
 
-        # get the sign of a number
+        # function to get the sign of a number
         sign = lambda num: (1, -1)[int(num < 0)]
 
         # register a bootstrap measurement
@@ -257,32 +261,40 @@ class mppt:
         delta = delta_zero
         w += delta
 
-        def compute_grad(input):
+        def compute_grad(input, scale_time=True):
             obj0 = objective(input[0])  # this objective
             obj1 = objective(input[1])  # last objective
             v0 = input[0][0]  # this voltage
             v1 = input[1][0]  # last voltage
-            time0 = input[0][2]  # this timestamp
-            time1 = input[1][2]  # last timestamp
+
+            # gradient in voltage
             if v0 == v1:
-                ret = None  # don't try to divide by zero
+                grad = None  # don't try to divide by zero
             else:
-                # find the gradient
-                ret = (obj0 - obj1) / (v0 - v1) / (time0 - time1)
-            return ret
+                grad = (obj0 - obj1) / (v0 - v1)
+
+            # gradient in time and voltage
+            if scale_time and (grad is not None):
+                time0 = input[0][2]  # this timestamp
+                time1 = input[1][2]  # last timestamp
+                if time0 == time1:
+                    grad = None  # don't try to divide by zero
+                else:
+                    grad = grad / (time0 - time1)
+            return grad
 
         # the mppt loop
         i = 0
         jump_sign = 1
         last_jump_time = 0
-        while (not self.killer.is_set()) and (run_time < duration):
+        while (not self.killer.is_set()) and (run_time < duration):  # exit via killer or timeout
             i += 1
             some_sign = random.choice([-1, 1])
             m.appendleft(self.measure(w, q, delay_ms=delay_ms, callback=callback))  # apply new voltage and record a measurement and store the result in slot 0
             # x.appendleft(w)  # record independant variable
 
             # compute a gradient value
-            gradient = compute_grad(m)
+            gradient = compute_grad(m, scale_time=time_scale)
 
             if gradient is not None:
                 # use gradient descent with momentum algo to compute our next voltage step

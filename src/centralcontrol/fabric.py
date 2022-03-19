@@ -569,27 +569,6 @@ class Fabric(object):
         handler(raw := self.sm.measure(nPoints))
         return raw
 
-    def track_max_power(self, duration=30, NPLC=-1, extra="basic://7:10", handler=lambda x: None, voc_compliance=3, i_limit=0.04):
-        """Track maximum power point.
-
-        Parameters
-        ----------
-        duration : float or int
-            Length of time to track max power for in seconds.
-        NPLC : float or int
-            Number of power line cycles. If -1, keep using previous setting.
-        extra : str
-            Extra protocol settings to pass to mppt.
-        handler : handler object
-            Handler with handle_data method to process data.
-        """
-        message = "Tracking maximum power point for {:} seconds".format(duration)
-
-        raw = self.mppt.launch_tracker(duration=duration, NPLC=NPLC, extra=extra, callback=handler, voc_compliance=voc_compliance, i_limit=i_limit)
-        self.mppt.reset()
-
-        return raw
-
     def eqe(self, psu_ch1_voltage=0, psu_ch1_current=0, psu_ch2_voltage=0, psu_ch2_current=0, psu_ch3_voltage=0, psu_ch3_current=0, smu_voltage=0, smu_compliance=0.1, start_wl=350, end_wl=1100, num_points=76, grating_change_wls=None, filter_change_wls=None, time_constant=8, auto_gain=True, auto_gain_method="user", handler=lambda x: None):
         """Run an EQE scan.
 

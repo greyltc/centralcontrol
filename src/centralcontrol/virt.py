@@ -384,18 +384,19 @@ class k2400(object):
         else:
             self.killer = threading.Event()
 
-        self.area = 0.25  # cm^2
+        # these will get updated externally as needed
+        self.area = 1  # cm^2
+        # TODO: add dark area
         self.compliance = 1  # A
+        self.dark = False  # if we're in the dark, do computations with Iph = 0
 
-        # if we're in the dark, do computations with Iph = 0
-        self.dark = False
+        # here we choose some numbers for our simulated solar cell model
+        self.Iphd = 23  # photocurrent density, in mA/cm^2 (where cm^2 is for illuminated area)
+        self.I0d = 1e-12  # dark current density in mA/cm^2 (where cm^2 is for physical device area)
+        self.n = 1.3  # diode ideality factor
+        self.Rsa = 1.8  # arial series resistance [ohm*cm^2] (where cm^2 is for physical device area)
+        self.Rsha = 8e2  # arial shunt resistance [ohm*cm^2] (where cm^2 is for physical device area)
 
-        # here we make up some numbers for our solar cell model
-        self.Rs = 7.1  # [ohm]
-        self.Rsh = 1e6  # [ohm]
-        self.n = 1.5
-        self.I0 = 260.4e-17  # [A]
-        self.Iphd = 23  # photocurrent density, in mA/cm^2
         self.cellTemp = 29  # degC
         self.T = 273.15 + self.cellTemp  # cell temp in K
         self.K = 1.3806488e-23  # boltzman constant
@@ -485,42 +486,62 @@ class k2400(object):
     # the device is open circuit
     def openCircuitEvent(self):
         self.I = 0
-        Rs = self.Rs
-        Rsh = self.Rsh
+        Rsh = self.Rsha / self.area
         n = self.n
-        I0 = self.I0
+        I0 = self.I0d * self.area / 1000
         if self.dark == True:
             Iph = 0
         else:
             Iph = self.Iphd * self.area / 1000
         Vth = self.Vth
-        Voc = I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
+        if Rsh < float("inf"):
+            Voc = Rsh * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
+        else:
+            Voc = Vth * n * mpmath.log((I0 + Iph) / I0)
         self.V = float(mpmath.fabs(Voc)) * float(mpmath.sign(mpmath.re(Voc)))
         self.I = 0
 
     # recompute device current
     def updateCurrent(self):
-        Rs = self.Rs
-        Rsh = self.Rsh
+        Rs = self.Rsa / self.area
+        Rsh = self.Rsha / self.area
         n = self.n
-        I0 = self.I0
+        I0 = self.I0d * self.area / 1000
         if self.dark == True:
             Iph = 0
         else:
             Iph = self.Iphd * self.area / 1000
         Vth = self.Vth
         V = self.V
-        I = (Rs * (I0 * Rsh + Iph * Rsh - V) - Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
+        if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
+            I = (Rs * (I0 * Rsh + Iph * Rsh - V) - Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
+        elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
+            I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph - V / Rsh
+        elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
+            I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp((Rs * (I0 + Iph) + V) / (Vth * n)) / (Vth * n))) / Rs
+        else:  # no resistive losses
+            I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph
         self.I = float(mpmath.fabs(I)) * float(mpmath.sign(mpmath.re(I)))
         # simulate the SMU hitting compliance
-        if abs(self.I) > abs(self.compliance):
+        if abs(self.I) > abs(self.compliance):  # check if we're over the current limit
+            # set I to correct compliance limit
             if self.I >= 0:
                 self.I = abs(self.compliance)
             else:
                 self.I = -1 * abs(self.compliance)
-            peggedV = -self.I * Rs - self.I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-self.I + I0 + Iph) / (Vth * n)) / (Vth * n))
+            # then figure out what V should be there
+            if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
+                peggedV = -self.I * Rs - self.I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-self.I + I0 + Iph) / (Vth * n)) / (Vth * n))
+            elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
+                peggedV = Rsh * (-self.I + I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-self.I + I0 + Iph) / (Vth * n)) / (Vth * n))
+            elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
+                peggedV = Vth * n * mpmath.log((-self.I + I0 + Iph) * mpmath.exp(-self.I * Rs / (Vth * n)) / I0)
+            else:  # no resistive losses
+                peggedV = Vth * n * mpmath.log((-self.I + I0 + Iph) / I0)
             self.V = float(mpmath.fabs(peggedV)) * float(mpmath.sign(mpmath.re(peggedV)))
-        self.I = self.I * -1  # change from cell's POV to SMU's POV
+
+        # change from cell's POV to SMU's POV
+        self.I = self.I * -1
 
     def write(self, command):
         if ":source:current " in command:
