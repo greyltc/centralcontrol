@@ -175,10 +175,10 @@ class mppt:
                 m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, snaith_mode=do_snaith, callback=callback))
             else:
                 params = params.split(":")
-                if len(params) != 9:
-                    raise (ValueError("MPPT configuration failure, Usage: gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]:[jump_percent]:[jump_period]"))
+                if len(params) != 10:
+                    raise (ValueError("MPPT configuration failure, Usage: gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]:[jump_percent]:[jump_period]:[time_scale]"))
                 params = [float(f) for f in params]
-                m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6], jump_percent=params[7], jump_period=params[8]))
+                m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6], jump_percent=params[7], jump_period=params[8], time_scale=(params[9] == 1)))
         else:
             self.lg.debug(f"WARNING: MPPT algorithm {algo} not understood, not doing max power point tracking")
 
