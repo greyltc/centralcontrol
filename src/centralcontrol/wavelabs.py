@@ -209,7 +209,7 @@ class Wavelabs(object):
             self.server_socket.settimeout(timeout)  # set the connection timeout
             sto = self.server_socket.gettimeout()
             (self.client_socket, client_address) = self.server_socket.accept()
-            self.server_socket.close()
+            self.server_socket.close()  # there won't be another client
             self.lg.info(f"New direct connection from Wavelabs client software from {client_address}")
             ret = 0
         except socket.timeout as to:
@@ -217,7 +217,7 @@ class Wavelabs(object):
             self.lg.warning(f"Timeout ({sto}s) waiting for Wavelabs to connect: {to}")
         except Exception as e:
             ret = -2
-            self.lg.warning("Error while waiting for Wavelabs to connect: {e}")
+            self.lg.warning(f"Error while waiting for Wavelabs to connect: {e}")
         return ret
 
     def relay_connect(self, timeout=-1):
@@ -238,7 +238,7 @@ class Wavelabs(object):
             self.lg.warning(f"Timeout ({sto}s) connecting to wavelabs relay: {to}")
         except Exception as e:
             ret = -2
-            self.lg.warning("Error connecting to wavelabs relay: {e}")
+            self.lg.warning(f"Error connecting to wavelabs relay: {e}")
         return ret
 
     #  0 is success
@@ -316,7 +316,7 @@ class Wavelabs(object):
         self.iseq = self.iseq + 1
         response = self.query(root)
         if response.error != 0:
-            self.lg.debug("Wavelabs recipe '{:}' could not be activated, check that it exists".format(recipe_name))
+            self.lg.debug(f"Wavelabs recipe {recipe_name} could not be activated, check that it exists")
         return response.error
 
     def get_run_status(self):
