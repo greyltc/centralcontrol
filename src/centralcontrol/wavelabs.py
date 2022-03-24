@@ -241,13 +241,14 @@ class Wavelabs(object):
             self.lg.warning(f"Error connecting to wavelabs relay: {e}")
         return ret
 
-    #  0 is success
-    # -1 is timeout
-    # -2 is general connection error (socket not open after connect)
-    # something else is not set recipe error
-    # -3 is programming error
     def connect(self, timeout=-1, comms_timeout=-1):
-        """generic connect method, does what's appropriate for getting comms up, timeouts are in seconds"""
+        """
+        generic connect method, does what's appropriate for getting comms up, timeouts are in seconds
+        0 is success
+        -1 is timeout
+        -2 is general connection error (socket not open after connect)
+        -3 is programming/logic error
+        """
         ret = -3
         if timeout == -1:
             timeout = self.connection_timeout
@@ -262,7 +263,7 @@ class Wavelabs(object):
             self.client_socket.settimeout(comms_timeout)
             self.sock_file = self.client_socket.makefile(mode="rwb")
         else:
-            self.lg.debug(f"Wavelabs.connect() failed, cleaning up.")
+            self.lg.debug("Wavelabs.connect() failed, cleaning up.")
             self.disconnect()
         return ret
 
