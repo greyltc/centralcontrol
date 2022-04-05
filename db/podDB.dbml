@@ -1,0 +1,158 @@
+Project project_name {
+  database_type: 'PostgreSQL'
+  Note: 'POD research group database design'
+}
+
+enum device_type {
+  "solar cell"
+  LED
+}
+
+enum shape {
+  circle
+  rectangle
+}
+
+enum source {
+  voltage
+  current
+}
+
+enum user_type {
+  superuser
+  group_member
+  visitor
+}
+
+enum tco_type {
+  ITO
+  FTO
+  AZO
+}
+
+Table tbl_users as U {
+  id int [pk, increment] // auto-increment
+  name varchar
+  created_at timestamp
+  type user_type
+  Note: 'One row per user'
+}
+
+Table tbl_iv_run as R {
+  id int [pk, increment] // auto-increment
+  user_id int [ref: > U.id]
+  start_date datetime
+  UUID uint128
+  name varchar
+  suns float
+  recipe varchar
+  duration int
+  placeholder float [note: "TODO: many cols to add here"]
+  Note: 'One row per time Start button pressed on setup'
+}
+
+Table tbl_substrates as S {
+  id int [pk, increment] // auto-increment
+  substrate_type_id int [ref: > STYP.id]
+  label varchar [unique]
+  label_creation timestamp
+  Note: 'One row per substrate labeled'
+}
+
+Table tbl_substrate_types as STYP {
+  id int [pk, increment] // auto-increment
+  mfg varchar
+  batch varchar
+  tco_pattern_name varchar
+  tco_type tco_type
+  sheet_resistance float  [note: "ohm/sq"]
+  t550 float [note: "percent transmission at 550nm"]
+  Note: 'One per substrate type'
+}
+
+Table tbl_layouts as L {
+  id int [pk, increment] // auto-increment
+  name varchar
+  version varchar
+  Note: 'One row per unique layout design'
+}
+
+Table tbl_layout_pixel as P {
+  id int [pk, increment] // auto-increment
+  layout_id int [ref: > L.id]
+  pixel int [note: "pixel number"]
+  area float [note: "cm^2"]
+  shape shape
+  x_dim float [note: "null for square or circle shape, >0 for rectangle"]
+  x float
+  y float
+  Note: 'One row per pixel on a layout design'
+}
+
+Table tbl_devices as D {
+  id int [pk, increment] // auto-increment
+  substrate_id int  [ref: > S.id]
+  layout_pixel_id int [ref: > P.id]
+  type device_type
+  Note: 'One row per individual device fabricated, that is generally 6 per substrate'
+}
+
+Table tbl_setups as SUP {
+  id int [pk, increment] // auto-increment
+  name varchar
+  location varchar
+  Note: 'One row per measurement setup'
+}
+
+Table tbl_measurement_slot as SLOT {
+  id int [pk, increment] // auto-increment
+  setup_id int  [ref: > SUP.id]
+  designator varchar
+  Note: 'One per measurement slot in a setup'
+}
+
+Table tbl_iv_event as IE {
+  id serial [pk, increment] // auto-increment
+  device_id int [ref: > D.id]
+  run_id int [ref: > R.id]
+  start_sample_id bigint [ref: > SMUDAT.id]
+  n_points int
+  forward bool
+  rate float
+  source source [note: "TODO: check if this is redundant, redundant with status byte"]
+  metadata_placeholder float [note: "TODO: many cols to add here"]
+  Note: 'One row per JV scan executed'
+}
+
+Table tbl_raw_smu_data as SMUDAT {
+  id bigint [pk, increment] // auto-increment
+  smu_id int [ref: > SMUS.id]
+  hardware_timestamp float
+  voltage float
+  current float
+  status uint32
+  Note: 'One row per data point collected by any SMU (this will be huge)'
+}
+
+Table tbl_smus as SMUS {
+  id int [pk, increment] // auto-increment
+  name varchar
+  idn varchar
+  Note: 'One row per smu'
+}
+
+Table tbl_slot_substrate_mapping as SUBMAP {
+  id int [pk, increment] // auto-increment
+  slot_id int [ref: > SLOT.id]
+  substrate_id int [ref: > S.id]
+  run_id int [ref: > R.id]
+  Note: 'N rows per run where N is the number of slots loaded in that run'
+}
+
+Table tbl_slot_smu_slot_mapping as SMUMAP {
+    id int [pk, increment] // auto-increment
+    smu_id int [ref: > SMUS.id]
+    run_id int [ref: > R.id]
+    slot_id int [ref: > SLOT.id]
+    Note: 'N rows per run where N is the number of slots loaded in that run'
+}
