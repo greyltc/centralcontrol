@@ -27,115 +27,161 @@ CREATE TYPE "tco_type" AS ENUM (
 
 CREATE TABLE "tbl_users" (
   "id" SERIAL PRIMARY KEY,
-  "name" varchar,
-  "created_at" timestamp,
+  "name" text,
+  "created_at" timestampz,
   "type" user_type
 );
 
 CREATE TABLE "tbl_iv_run" (
   "id" SERIAL PRIMARY KEY,
-  "user_id" int,
-  "start_date" datetime,
-  "UUID" uint128,
-  "name" varchar,
-  "suns" float,
-  "recipe" varchar,
-  "duration" int,
-  "placeholder" float
+  "user_id" integer,
+  "start_date" timestampz,
+  "UUID" uuid,
+  "name" text,
+  "suns" real,
+  "recipe" text,
+  "duration" interval,
+  "placeholder" integer
 );
 
 CREATE TABLE "tbl_substrates" (
   "id" SERIAL PRIMARY KEY,
-  "substrate_type_id" int,
-  "label" varchar UNIQUE,
+  "substrate_type_id" integer,
+  "label" text UNIQUE,
   "label_creation" timestamp
 );
 
 CREATE TABLE "tbl_substrate_types" (
   "id" SERIAL PRIMARY KEY,
-  "mfg" varchar,
-  "batch" varchar,
-  "tco_pattern_name" varchar,
+  "mfg" text,
+  "batch" text,
+  "tco_pattern_name" text,
   "tco_type" tco_type,
-  "sheet_resistance" float,
-  "t550" float
+  "sheet_resistance" real,
+  "t550" real
 );
 
 CREATE TABLE "tbl_layouts" (
   "id" SERIAL PRIMARY KEY,
-  "name" varchar,
-  "version" varchar
+  "name" text,
+  "version" text,
+  "substrate_extents" box
 );
 
 CREATE TABLE "tbl_layout_pixel" (
   "id" SERIAL PRIMARY KEY,
-  "layout_id" int,
-  "pixel" int,
-  "area" float,
-  "shape" shape,
-  "x_dim" float,
-  "x" float,
-  "y" float
+  "layout_id" integer,
+  "pixel" integer,
+  "light_circle" circle,
+  "dark_circle" circle,
+  "light_outline" path,
+  "dark_outline" path
 );
 
 CREATE TABLE "tbl_devices" (
   "id" SERIAL PRIMARY KEY,
-  "substrate_id" int,
-  "layout_pixel_id" int,
+  "substrate_id" integer,
+  "layout_pixel_id" integer,
   "type" device_type
 );
 
 CREATE TABLE "tbl_setups" (
   "id" SERIAL PRIMARY KEY,
-  "name" varchar,
-  "location" varchar
+  "name" text,
+  "location" text
 );
 
 CREATE TABLE "tbl_measurement_slot" (
   "id" SERIAL PRIMARY KEY,
-  "setup_id" int,
-  "designator" varchar
+  "setup_id" integer,
+  "designator" text,
+  "center" point
 );
 
 CREATE TABLE "tbl_iv_event" (
   "id" SERIAL PRIMARY KEY,
-  "device_id" int,
-  "run_id" int,
-  "start_sample_id" bigint,
-  "n_points" int,
+  "device_id" integer,
+  "run_id" integer,
+  "start_record_id" integer,
+  "smu_id" integer,
+  "n_points" integer,
   "forward" bool,
-  "rate" float,
+  "duration" interval,
+  "rate" real,
   "source" source,
-  "metadata_placeholder" float
+  "metadata_placeholder" real
 );
 
-CREATE TABLE "tbl_raw_smu_data" (
-  "id" BIGSERIAL PRIMARY KEY,
-  "smu_id" int,
-  "hardware_timestamp" float,
-  "voltage" float,
-  "current" float,
-  "status" uint32
+CREATE TABLE "tbl_ss_event" (
+  "id" SERIAL PRIMARY KEY,
+  "device_id" integer,
+  "run_id" integer,
+  "start_record_id" integer,
+  "smu_id" integer,
+  "n_points" integer,
+  "duration" interval,
+  "source_value" real,
+  "source" source,
+  "metadata_placeholder" real
+);
+
+CREATE TABLE "tbl_mppt_event" (
+  "id" SERIAL PRIMARY KEY,
+  "device_id" integer,
+  "run_id" integer,
+  "start_record_id" integer,
+  "smu_id" integer,
+  "n_points" integer,
+  "duration" interval,
+  "algorithm_name" text,
+  "algorithm_version" text,
+  "algorithm_parameters" jsonb,
+  "source" source,
+  "metadata_placeholder" real
+);
+
+CREATE TABLE "tbl_smu1_iv_dat" (
+  "id" SERIAL PRIMARY KEY,
+  "hardware_timestamp" real,
+  "voltage" real,
+  "current" real,
+  "status" bit(32)
+);
+
+CREATE TABLE "tbl_smu1_ss_dat" (
+  "id" SERIAL PRIMARY KEY,
+  "hardware_timestamp" real,
+  "voltage" real,
+  "current" real,
+  "status" bit(32)
+);
+
+CREATE TABLE "tbl_smu1_mppt_dat" (
+  "id" SERIAL PRIMARY KEY,
+  "hardware_timestamp" real,
+  "voltage" real,
+  "current" real,
+  "status" bit(32)
 );
 
 CREATE TABLE "tbl_smus" (
   "id" SERIAL PRIMARY KEY,
-  "name" varchar,
-  "idn" varchar
+  "name" text,
+  "idn" text
 );
 
 CREATE TABLE "tbl_slot_substrate_mapping" (
   "id" SERIAL PRIMARY KEY,
-  "slot_id" int,
-  "substrate_id" int,
-  "run_id" int
+  "slot_id" integer,
+  "substrate_id" integer,
+  "run_id" integer
 );
 
 CREATE TABLE "tbl_slot_smu_slot_mapping" (
   "id" SERIAL PRIMARY KEY,
-  "smu_id" int,
-  "run_id" int,
-  "slot_id" int
+  "smu_id" integer,
+  "run_id" integer,
+  "slot_id" integer
 );
 
 ALTER TABLE "tbl_iv_run" ADD FOREIGN KEY ("user_id") REFERENCES "tbl_users" ("id");
@@ -154,9 +200,25 @@ ALTER TABLE "tbl_iv_event" ADD FOREIGN KEY ("device_id") REFERENCES "tbl_devices
 
 ALTER TABLE "tbl_iv_event" ADD FOREIGN KEY ("run_id") REFERENCES "tbl_iv_run" ("id");
 
-ALTER TABLE "tbl_iv_event" ADD FOREIGN KEY ("start_sample_id") REFERENCES "tbl_raw_smu_data" ("id");
+ALTER TABLE "tbl_iv_event" ADD FOREIGN KEY ("start_record_id") REFERENCES "tbl_smu1_iv_dat" ("id");
 
-ALTER TABLE "tbl_raw_smu_data" ADD FOREIGN KEY ("smu_id") REFERENCES "tbl_smus" ("id");
+ALTER TABLE "tbl_iv_event" ADD FOREIGN KEY ("smu_id") REFERENCES "tbl_smus" ("id");
+
+ALTER TABLE "tbl_ss_event" ADD FOREIGN KEY ("device_id") REFERENCES "tbl_devices" ("id");
+
+ALTER TABLE "tbl_ss_event" ADD FOREIGN KEY ("run_id") REFERENCES "tbl_iv_run" ("id");
+
+ALTER TABLE "tbl_ss_event" ADD FOREIGN KEY ("start_record_id") REFERENCES "tbl_smu1_ss_dat" ("id");
+
+ALTER TABLE "tbl_ss_event" ADD FOREIGN KEY ("smu_id") REFERENCES "tbl_smus" ("id");
+
+ALTER TABLE "tbl_mppt_event" ADD FOREIGN KEY ("device_id") REFERENCES "tbl_devices" ("id");
+
+ALTER TABLE "tbl_mppt_event" ADD FOREIGN KEY ("run_id") REFERENCES "tbl_iv_run" ("id");
+
+ALTER TABLE "tbl_mppt_event" ADD FOREIGN KEY ("start_record_id") REFERENCES "tbl_smu1_mppt_dat" ("id");
+
+ALTER TABLE "tbl_mppt_event" ADD FOREIGN KEY ("smu_id") REFERENCES "tbl_smus" ("id");
 
 ALTER TABLE "tbl_slot_substrate_mapping" ADD FOREIGN KEY ("slot_id") REFERENCES "tbl_measurement_slot" ("id");
 
@@ -190,9 +252,13 @@ COMMENT ON TABLE "tbl_layout_pixel" IS 'One row per pixel on a layout design';
 
 COMMENT ON COLUMN "tbl_layout_pixel"."pixel" IS 'pixel number';
 
-COMMENT ON COLUMN "tbl_layout_pixel"."area" IS 'cm^2';
+COMMENT ON COLUMN "tbl_layout_pixel"."light_circle" IS 'dims are mm, for circular illuminated area';
 
-COMMENT ON COLUMN "tbl_layout_pixel"."x_dim" IS 'null for square or circle shape, >0 for rectangle';
+COMMENT ON COLUMN "tbl_layout_pixel"."dark_circle" IS 'dims are mm, for circular dark area';
+
+COMMENT ON COLUMN "tbl_layout_pixel"."light_outline" IS 'dims are mm, illuminated outline area';
+
+COMMENT ON COLUMN "tbl_layout_pixel"."dark_outline" IS 'dims are mm, dark outline area';
 
 COMMENT ON TABLE "tbl_devices" IS 'One row per individual device fabricated, that is generally 6 per substrate';
 
@@ -206,7 +272,23 @@ COMMENT ON COLUMN "tbl_iv_event"."source" IS 'TODO: check if this is redundant, 
 
 COMMENT ON COLUMN "tbl_iv_event"."metadata_placeholder" IS 'TODO: many cols to add here';
 
-COMMENT ON TABLE "tbl_raw_smu_data" IS 'One row per data point collected by any SMU (this will be huge)';
+COMMENT ON TABLE "tbl_ss_event" IS 'One row per steady-state dwell executed';
+
+COMMENT ON COLUMN "tbl_ss_event"."source" IS 'TODO: check if this is redundant, redundant with status byte';
+
+COMMENT ON COLUMN "tbl_ss_event"."metadata_placeholder" IS 'TODO: many cols to add here';
+
+COMMENT ON TABLE "tbl_mppt_event" IS 'One row per mppt interval executed';
+
+COMMENT ON COLUMN "tbl_mppt_event"."source" IS 'TODO: check if this is redundant, redundant with status byte';
+
+COMMENT ON COLUMN "tbl_mppt_event"."metadata_placeholder" IS 'TODO: many cols to add here';
+
+COMMENT ON TABLE "tbl_smu1_iv_dat" IS 'One row per iv curve data point collected by SMU with ID=1';
+
+COMMENT ON TABLE "tbl_smu1_ss_dat" IS 'One row per steady state data point collected by SMU with ID=1';
+
+COMMENT ON TABLE "tbl_smu1_mppt_dat" IS 'One row per MPPT data point collected by SMU with ID=1';
 
 COMMENT ON TABLE "tbl_smus" IS 'One row per smu';
 
