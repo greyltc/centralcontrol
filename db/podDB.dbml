@@ -31,128 +31,178 @@ enum tco_type {
 }
 
 Table tbl_users as U {
-  id int [pk, increment] // auto-increment
-  name varchar
-  created_at timestamp
+  id integer [pk, increment] // auto-increment
+  name text
+  created_at timestampz
   type user_type
   Note: 'One row per user'
 }
 
 Table tbl_iv_run as R {
-  id int [pk, increment] // auto-increment
-  user_id int [ref: > U.id]
-  start_date datetime
-  UUID uint128
-  name varchar
-  suns float
-  recipe varchar
-  duration int
-  placeholder float [note: "TODO: many cols to add here"]
+  id integer [pk, increment] // auto-increment
+  user_id integer [ref: > U.id]
+  start_date timestampz
+  UUID uuid
+  name text
+  suns real
+  recipe text
+  duration interval
+  placeholder integer [note: "TODO: many cols to add here"]
   Note: 'One row per time Start button pressed on setup'
 }
 
 Table tbl_substrates as S {
-  id int [pk, increment] // auto-increment
-  substrate_type_id int [ref: > STYP.id]
-  label varchar [unique]
+  id integer [pk, increment] // auto-increment
+  substrate_type_id integer [ref: > STYP.id]
+  label text [unique]
   label_creation timestamp
   Note: 'One row per substrate labeled'
 }
 
 Table tbl_substrate_types as STYP {
-  id int [pk, increment] // auto-increment
-  mfg varchar
-  batch varchar
-  tco_pattern_name varchar
+  id integer [pk, increment] // auto-increment
+  mfg text
+  batch text
+  tco_pattern_name text
   tco_type tco_type
-  sheet_resistance float  [note: "ohm/sq"]
-  t550 float [note: "percent transmission at 550nm"]
+  sheet_resistance real  [note: "ohm/sq"]
+  t550 real [note: "percent transmission at 550nm"]
   Note: 'One per substrate type'
 }
 
 Table tbl_layouts as L {
-  id int [pk, increment] // auto-increment
-  name varchar
-  version varchar
+  id integer [pk, increment] // auto-increment
+  name text
+  version text
+  substrate_extents box
   Note: 'One row per unique layout design'
 }
 
 Table tbl_layout_pixel as P {
-  id int [pk, increment] // auto-increment
-  layout_id int [ref: > L.id]
-  pixel int [note: "pixel number"]
-  area float [note: "cm^2"]
-  shape shape
-  x_dim float [note: "null for square or circle shape, >0 for rectangle"]
-  x float
-  y float
+  id integer [pk, increment] // auto-increment
+  layout_id integer [ref: > L.id]
+  pixel integer [note: "pixel number"]
+  light_circle circle  [note: "dims are mm, for circular illuminated area"]
+  dark_circle circle  [note: "dims are mm, for circular dark area"]
+  light_outline path  [note: "dims are mm, illuminated outline area"]
+  dark_outline path  [note: "dims are mm, dark outline area"]
   Note: 'One row per pixel on a layout design'
 }
 
 Table tbl_devices as D {
-  id int [pk, increment] // auto-increment
-  substrate_id int  [ref: > S.id]
-  layout_pixel_id int [ref: > P.id]
+  id integer [pk, increment] // auto-increment
+  substrate_id integer  [ref: > S.id]
+  layout_pixel_id integer [ref: > P.id]
   type device_type
   Note: 'One row per individual device fabricated, that is generally 6 per substrate'
 }
 
 Table tbl_setups as SUP {
-  id int [pk, increment] // auto-increment
-  name varchar
-  location varchar
+  id integer [pk, increment] // auto-increment
+  name text
+  location text
   Note: 'One row per measurement setup'
 }
 
 Table tbl_measurement_slot as SLOT {
-  id int [pk, increment] // auto-increment
-  setup_id int  [ref: > SUP.id]
-  designator varchar
+  id integer [pk, increment] // auto-increment
+  setup_id integer  [ref: > SUP.id]
+  designator text
+  center point
   Note: 'One per measurement slot in a setup'
 }
 
 Table tbl_iv_event as IE {
   id serial [pk, increment] // auto-increment
-  device_id int [ref: > D.id]
-  run_id int [ref: > R.id]
-  start_sample_id bigint [ref: > SMUDAT.id]
-  n_points int
+  device_id integer [ref: > D.id]
+  run_id integer [ref: > R.id]
+  start_record_id integer [ref: > SMU_1_IV.id]
+  smu_id integer [ref: > SMUS.id]
+  n_points integer
   forward bool
-  rate float
+  duration interval
+  rate real
   source source [note: "TODO: check if this is redundant, redundant with status byte"]
-  metadata_placeholder float [note: "TODO: many cols to add here"]
+  metadata_placeholder real [note: "TODO: many cols to add here"]
   Note: 'One row per JV scan executed'
 }
 
-Table tbl_raw_smu_data as SMUDAT {
-  id bigint [pk, increment] // auto-increment
-  smu_id int [ref: > SMUS.id]
-  hardware_timestamp float
-  voltage float
-  current float
-  status uint32
-  Note: 'One row per data point collected by any SMU (this will be huge)'
+Table tbl_ss_event as SSE {
+  id serial [pk, increment] // auto-increment
+  device_id integer [ref: > D.id]
+  run_id integer [ref: > R.id]
+  start_record_id integer [ref: > SMU_1_SS.id]
+  smu_id integer [ref: > SMUS.id]
+  n_points integer
+  duration interval
+  source_value real
+  source source [note: "TODO: check if this is redundant, redundant with status byte"]
+  metadata_placeholder real [note: "TODO: many cols to add here"]
+  Note: 'One row per steady-state dwell executed'
+}
+
+Table tbl_mppt_event as SSE {
+  id serial [pk, increment] // auto-increment
+  device_id integer [ref: > D.id]
+  run_id integer [ref: > R.id]
+  start_record_id integer [ref: > SMU_1_MPPT.id]
+  smu_id integer [ref: > SMUS.id]
+  n_points integer
+  duration interval
+  algorithm_name text
+  algorithm_version text
+  algorithm_parameters jsonb
+  source source [note: "TODO: check if this is redundant, redundant with status byte"]
+  metadata_placeholder real [note: "TODO: many cols to add here"]
+  Note: 'One row per mppt interval executed'
+}
+
+Table tbl_smu1_iv_dat as SMU_1_IV {
+  id integer [pk, increment] // auto-increment
+  hardware_timestamp real
+  voltage real
+  current real
+  status bit(32)
+  Note: 'One row per iv curve data point collected by SMU with ID=1'
+}
+
+Table tbl_smu1_ss_dat as SMU_1_SS {
+  id integer [pk, increment] // auto-increment
+  hardware_timestamp real
+  voltage real
+  current real
+  status bit(32)
+  Note: 'One row per steady state data point collected by SMU with ID=1'
+}
+
+Table tbl_smu1_mppt_dat as SMU_1_MPPT {
+  id integer [pk, increment] // auto-increment
+  hardware_timestamp real
+  voltage real
+  current real
+  status bit(32)
+  Note: 'One row per MPPT data point collected by SMU with ID=1'
 }
 
 Table tbl_smus as SMUS {
-  id int [pk, increment] // auto-increment
-  name varchar
-  idn varchar
+  id integer [pk, increment] // auto-increment
+  name text
+  idn text
   Note: 'One row per smu'
 }
 
 Table tbl_slot_substrate_mapping as SUBMAP {
-  id int [pk, increment] // auto-increment
-  slot_id int [ref: > SLOT.id]
-  substrate_id int [ref: > S.id]
-  run_id int [ref: > R.id]
+  id integer [pk, increment] // auto-increment
+  slot_id integer [ref: > SLOT.id]
+  substrate_id integer [ref: > S.id]
+  run_id integer [ref: > R.id]
   Note: 'N rows per run where N is the number of slots loaded in that run'
 }
 
 Table tbl_slot_smu_slot_mapping as SMUMAP {
-    id int [pk, increment] // auto-increment
-    smu_id int [ref: > SMUS.id]
-    run_id int [ref: > R.id]
-    slot_id int [ref: > SLOT.id]
+    id integer [pk, increment] // auto-increment
+    smu_id integer [ref: > SMUS.id]
+    run_id integer [ref: > R.id]
+    slot_id integer [ref: > SLOT.id]
     Note: 'N rows per run where N is the number of slots loaded in that run'
 }
