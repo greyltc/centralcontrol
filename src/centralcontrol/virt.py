@@ -24,6 +24,7 @@ class Illumination(object):
     barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
     _current_state = False  # True if we believe the light is on, False if we believe it's off
     requested_state = False  # keeps track of what state we'd like the light to be in
+    last_temps = None
 
     def __init__(self, *args, **kwargs):
         # setup logging
@@ -162,7 +163,9 @@ class Illumination(object):
         return self.intensity
 
     def get_temperatures(self, *args, **kwargs):
-        return [25.3, 17.3]
+        temp = [25.3, 17.3]
+        self.last_temps = temp
+        return temp
 
 
 class pcb(object):
