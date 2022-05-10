@@ -363,10 +363,10 @@ class UtilityHandler(object):
 
                 if "smu" in task:
                     for index, smup in enumerate(task["smu"]):  # loop through the list of SMUs
-                        self.lg.info(f"Checking sourcemeter {index} at {smup['address']}...")
                         if smup["virtual"] == True:
                             self.lg.info(f"Sourcemeter {index} looks virtually great!")
                         else:
+                            self.lg.info(f"Checking sourcemeter {index} at {smup['address']}...")
                             # for sourcemeter
                             open_params = {}
                             open_params["resource_name"] = smup["address"]
