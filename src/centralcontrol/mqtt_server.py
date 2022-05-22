@@ -926,7 +926,7 @@ class MQTTServer(object):
                     n_done += 1
                     remaining = len(run_queue)
                     if (remaining == 0) and (args["cycles"] == 0):
-                        run_queue = start_q
+                        run_queue = start_q.copy()
                         remaining = len(run_queue)
                         # refresh the deque to loop forever
 
