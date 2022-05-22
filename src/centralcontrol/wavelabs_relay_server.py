@@ -59,7 +59,7 @@ def main():
         for key, mask in events:
             callback = key.data
             callback_return = callback(key.fileobj)
-            if type(callback_return) == socketserver.socket.socket:
+            if isinstance(callback_return, socketserver.socket.socket):
                 # this was a new connection
                 conn = callback_return
                 port = conn.getsockname()[1]

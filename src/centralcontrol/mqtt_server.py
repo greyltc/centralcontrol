@@ -832,7 +832,7 @@ class MQTTServer(object):
                             unwrapped_run_queue.append({key: val})
                     run_queue = unwrapped_run_queue  # overwrite the run_queue with it's unwrapped version
 
-                start_q = run_queue  # make a copy that we might use later in case we're gonna loop forever
+                start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
                 if args["cycles"] != 0:
                     run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
                     p_total = len(run_queue)
