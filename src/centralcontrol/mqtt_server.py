@@ -698,10 +698,6 @@ class MQTTServer(object):
             ci_args["visa_lib"] = config["visa"]["visa_lib"]
         if "smu" in config:  # enabled is checked per smu in connect
             ci_args["smus"] = config["smu"]
-            if ("sweep_deets_btn" in args) and (args["sweep_deets_btn"] == True):
-                ci_args["print_sweep_deets"] = True
-            else:
-                ci_args["print_sweep_deets"] = False
             ci_args["sweep_stats"] = config["smu"]
         if "controller" in config:
             if ("enabled" not in config["controller"]) or (config["controller"]["enabled"] != False):
@@ -750,8 +746,8 @@ class MQTTServer(object):
             sm = smc(**smucfg)  # initalize the smu class
             sm.connect()  # set it up
             sm.killer = self.killer  # register the kill signal
-            if "sweep_stats_log_info" in request["args"]:
-                sm.sweep_stats_log_info = request["args"]["sweep_stats_log_info"]
+            if "print_sweep_deets" in request["args"]:
+                sm.print_sweep_deets = request["args"]["print_sweep_deets"]
             smus[i] = sm  # store it for use later
             mppts[i] = mppt.mppt(sm, killer=self.killer)
 

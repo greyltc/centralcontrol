@@ -9,8 +9,6 @@ import threading
 import sys
 import logging
 
-from sqlalchemy import true
-
 # for logging directly to systemd journal if we can
 try:
     import systemd.journal
@@ -355,6 +353,7 @@ class smu(object):
     nplc = 1
     ccheck = False
     killer = None
+    print_sweep_deets: bool = False
 
     def __init__(self, *args, **kwargs):
         # setup logging
@@ -421,6 +420,9 @@ class smu(object):
         self.status = 0
         self.four88point1 = True
         self.auto_ohms = False
+
+        if "print_sweep_deets" in kwargs:
+            self.print_sweep_deets = kwargs["print_sweep_deets"]
 
     def connect(self):
         self.lg.debug(f"{self.__class__} initalized.")
@@ -634,7 +636,30 @@ class smu(object):
             m_len = 4
         else:
             m_len = 5
-        return self.query_values("READ?")
+        vals = self.query_values("READ?")
+
+        if len(vals) > 1:
+            first_element = vals[0]
+            last_element = vals[-1]
+            if m_len == 4:
+                t_start = first_element[2]
+                t_end = last_element[2]
+            elif m_len == 5:
+                t_start = first_element[3]
+                t_end = last_element[3]
+            else:
+                t_start = 0
+                t_end = 0
+            v_start = first_element[0]
+            v_end = last_element[0]
+            self.last_sweep_time = t_end - t_start
+            stats_string = f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/len(vals)*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(vals)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
+            if self.print_sweep_deets == True:
+                self.lg.info(stats_string)
+            else:
+                self.lg.debug(stats_string)
+
+        return vals
 
     def set_ccheck_mode(self, mode):
         self.ccheck = mode
