@@ -20,12 +20,12 @@ def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
     if "type" in cfg:
         smu_type = cfg["type"]
     else:
-        lg.info("Assuming k2400 type smu")
-        smu_type = "k2400"
+        lg.info("Assuming k24xx type smu")
+        smu_type = "k24xx"
 
     ret = vsmu  # the default is to make a virtual smu type
     if ("virtual" in cfg) and (cfg["virtual"] is False):
-        if smu_type == "k2400":
+        if smu_type == "k24xx":
             ret = k2400  # hardware k2400 selected
 
     if ("enabled" in cfg) and (cfg["enabled"] is False):

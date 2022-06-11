@@ -374,9 +374,11 @@ class UtilityHandler(object):
                     for index, smup in enumerate(task["smu"]):  # loop through the list of SMUs
                         smc = sourcemeter.factory(smup)  # use the class factory to get a sourcemeter class
                         if smc is not None:  # check if it's disabled
-                            self.lg.info(f"Checking sourcemeter {index}...")
-                            if "address" in smup:
-                                self.lg.info(f"at address {smup['address']}")
+                            if "address_string" in smup:
+                                addrwords = f" at address {smup['address_string']}"
+                            else:
+                                addrwords = ""
+                            self.lg.info(f"Checking sourcemeter {index}{addrwords}...")
                             sm = smc(**smup)  # initialize the smu class with the config dict
                             try:
                                 sm.connect()
