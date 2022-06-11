@@ -49,7 +49,7 @@ class Illumination(object):
         self.requested_state = False
         self.barrier = threading.Barrier(1, action=self.set_state, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
 
-        self.lg.debug(f"{__name__} virtually initialized.")
+        self.lg.debug(f"{self.__class__} initialized.")
 
     @property
     def n_sync(self):
@@ -198,7 +198,7 @@ class pcb(object):
         self._votes_needed = 1
         self.on_votes = collections.deque([], maxlen=self._votes_needed)
 
-        self.lg.debug(f"{__name__} virtually initialized.")
+        self.lg.debug(f"{self.__class__} initialized.")
 
         if "expected_muxes" in kwargs:
             self.detected_muxes = kwargs["expected_muxes"]
@@ -348,12 +348,13 @@ class pcb(object):
             return "Command virtually unsupported"
 
 
-class k2400(object):
-    """Solar cell device simulator (looks like k2400 class)"""
+class smu(object):
+    """virtual smu class"""
 
-    idn = "Virtual Sourcemeter"
+    idn: str
     nplc = 1
     ccheck = False
+    killer = None
 
     def __init__(self, *args, **kwargs):
         # setup logging
@@ -374,10 +375,12 @@ class k2400(object):
                 ch.setFormatter(logFormat)
                 self.lg.addHandler(ch)
 
+        self.idn = "Virtual Sourcemeter"
+
         self._votes_needed = 1
         self.on_votes = collections.deque([], maxlen=self._votes_needed)
 
-        self.lg.debug(f"{__name__} virtually initialized.")
+        self.lg.debug(f"{self.__class__} setup complete.")
 
         self.t0 = time.time()
         self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
@@ -418,6 +421,10 @@ class k2400(object):
         self.status = 0
         self.four88point1 = True
         self.auto_ohms = False
+
+    def connect(self):
+        self.lg.debug(f"{self.__class__} initalized.")
+        return
 
     def __del__(self, *args, **kwargs):
         return
@@ -636,4 +643,4 @@ class k2400(object):
         return True
 
     def close(self):
-        pass
+        self.lg.debug(f"{self.__class__} closed.")

@@ -18,7 +18,9 @@ import uuid
 import humanize
 import datetime
 import numpy as np
-import inspect
+
+from centralcontrol import mppt
+from centralcontrol import sourcemeter
 
 import logging
 
@@ -463,16 +465,17 @@ class MQTTServer(object):
         payload = {"level": record.levelno, "msg": record.msg}
         self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
+    def suns_voc(duration: float, mnt: Fabric, sm):
+        pass
+
     def do_iv(self, mnt, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
-        """
-        parallelizable I-V tasks for use in threads
-        """
+        """parallelizable I-V tasks for use in threads"""
         measurement = mnt
         mppt.current_compliance = compliance_i
         data = []
 
         # "Voc" if
-        if args["i_dwell"] > 0:
+        if (args["i_dwell"] > 0) and args["i_dwell_check"]:
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
                 return []
@@ -738,11 +741,19 @@ class MQTTServer(object):
                 del ci_args["light_virt"]
             if "light_address" in ci_args:
                 del ci_args["light_address"]
-        if ("enable_smu" in args) and (args["enable_smu"] == False):
-            if "smus" in ci_args:
-                del ci_args["smus"]
 
         measurement.connect_instruments(**ci_args)
+        smus = {}
+        mppts = {}
+        for i, smucfg in enumerate(request["config"]["smu"]):
+            smc = sourcemeter.factory(smucfg)  # use the class factory to get a sourcemeter class
+            sm = smc(**smucfg)  # initalize the smu class
+            sm.connect()  # set it up
+            sm.killer = self.killer  # register the kill signal
+            if "sweep_stats_log_info" in request["args"]:
+                sm.sweep_stats_log_info = request["args"]["sweep_stats_log_info"]
+            smus[i] = sm  # store it for use later
+            mppts[i] = mppt.mppt(sm, killer=self.killer)
 
         def send_spectrum(intensity):
             if hasattr(measurement.le, "get_spectrum"):
@@ -817,15 +828,14 @@ class MQTTServer(object):
 
                 # set NPLC
                 if args["nplc"] != -1:
-                    if len(measurement.sms) > 0:
-                        for sm in measurement.sms:
-                            sm.setNPLC(args["nplc"])
+                    for key, val in smus.items():
+                        val.setNPLC(args["nplc"])
 
                 # deselect all pixels
                 measurement.select_pixel(mux_string="s", pcb=gp_pcb)
 
                 if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
-                    # we'll unwrap the run queue here so that we get ungrouped queue items
+                    # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
                     unwrapped_run_queue = collections.deque()
                     for thing in run_queue:
                         for key, val in thing.items():
@@ -885,12 +895,10 @@ class MQTTServer(object):
                     pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
                     measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
 
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(measurement.sms)) as executor:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
                         futures = {}
 
                         for smu_index, pixel in q_item.items():
-                            sm = measurement.sms[smu_index]
-
                             # setup data handler
                             if calibration == False:
                                 dh = DataHandler(pixel=pixel, outq=self.outq)
@@ -903,16 +911,16 @@ class MQTTServer(object):
 
                             if "Virtual" in sm.idn:
                                 # set virtual smu scaling
-                                sm.area = pixel["area"]
+                                smus[smu_index].area = pixel["area"]
 
                             # submit for processing
-                            futures[smu_index] = executor.submit(self.do_iv, measurement, sm, measurement.mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
+                            futures[smu_index] = executor.submit(self.do_iv, measurement, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
 
                         # collect the datas!
                         datas = {}
                         for smu_index, future in futures.items():
                             data = future.result()
-                            measurement.sms[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
+                            smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
                             measurement.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
                             datas[smu_index] = data
                             if calibration == True:
@@ -1200,7 +1208,7 @@ class MQTTServer(object):
                     self.stop_process()
                 elif (action == "calibrate_eqe") and (request["args"]["enable_eqe"] == True):
                     self.start_process(self._calibrate_eqe, (request,))
-                elif (action == "calibrate_psu") and (request["args"]["enable_psu"] == True) and (request["args"]["enable_smu"] == True):
+                elif (action == "calibrate_psu") and (request["args"]["enable_psu"] == True):
                     self.start_process(self._calibrate_psu, (request,))
                 elif action == "quit":
                     self.msg_queue.task_done()

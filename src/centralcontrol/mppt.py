@@ -32,7 +32,7 @@ class mppt:
 
     t0 = None  # the time we started the mppt algorithm
 
-    def __init__(self, sm, absolute_current_limit, killer=threading.Event()):
+    def __init__(self, sm, absolute_current_limit=0.1, killer=threading.Event()):
         self.sm = sm
         self.killer = killer
         # setup logging

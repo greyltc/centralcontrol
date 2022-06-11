@@ -14,7 +14,7 @@ except ImportError:
     pass
 
 
-class k2400:
+class k2400(object):
     """
     Intertace for Keithley 2400 sourcemeter
     """
@@ -30,8 +30,9 @@ class k2400:
     default_comms_timeout = 50000  # in ms
     sweep_stats_log_info = False  # false uses debug logging level, true logs sweep stats at info level
 
-    def __init__(self, visa_lib="@py", scan=False, addressString=None, terminator="\r", serialBaud=57600, front=False, twoWire=False, quiet=False, killer=threading.Event()):
-        self.killer = killer
+    def __init__(self, visa_lib="@py", scan=False, address_string=None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), **kwargs):
+        """just set class variables here"""
+
         # setup logging
         self.lg = logging.getLogger(__name__)
         self.lg.setLevel(logging.DEBUG)
@@ -50,19 +51,29 @@ class k2400:
                 ch.setFormatter(logFormat)
                 self.lg.addHandler(ch)
 
+        self.killer = killer
         self.quiet = quiet
-        self.rm = self._getResourceManager(visa_lib)
+        self.visa_lib = visa_lib
+        self.address_string = address_string
+        self.terminator = terminator
+        self.serial_baud = serial_baud
+        self.front = front
+        self.two_wire = two_wire
+        self.scan = scan
 
-        if scan:
+        self.lg.debug(f"{__name__} setup complete")
+
+    def connect(self):
+        """attempt to connect to hardware and initialize it"""
+        self.rm = self._getResourceManager(self.visa_lib)
+
+        if self.scan:
             self.lg.debug(f"{self.rm.list_resources()}")
 
-        self.addressString = addressString
-        self.terminator = terminator
-        self.serialBaud = serialBaud
         self.sm, self.ifc = self._getSourceMeter(self.rm)
-        self._setupSourcemeter(front=front, twoWire=twoWire)
+        self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
 
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug(f"{__name__} initialized")
 
     def __del__(self):
         try:
@@ -140,13 +151,13 @@ class k2400:
     def _getSourceMeter(self, rm):
         timeoutMS = self.default_comms_timeout  # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
         open_params = {}
-        open_params["resource_name"] = self.addressString
+        open_params["resource_name"] = self.address_string
 
-        if "ASRL" in self.addressString:
+        if "ASRL" in self.address_string:
             open_params["timeout"] = timeoutMS
             open_params["write_termination"] = self.terminator
             open_params["read_termination"] = self.terminator
-            open_params["baud_rate"] = self.serialBaud
+            open_params["baud_rate"] = self.serial_baud
 
             # this likely does nothing (I think these hardware flow control lines go nowhere useful inside the 2400)
             open_params["flow_control"] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS
@@ -158,28 +169,28 @@ class k2400:
             # open_params['allow_dma'] = True
 
             smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
-        elif "GPIB" in self.addressString:
+        elif "GPIB" in self.address_string:
             open_params["write_termination"] = "\n"
             open_params["read_termination"] = "\n"
             # open_params['io_protocol'] = pyvisa.constants.VI_HS488
 
-            addrParts = self.addressString.split("::")
+            addrParts = self.address_string.split("::")
             controller = addrParts[0]
             board = controller[4:]
             address = addrParts[1]
             smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}? Try both SCPI and 488.1 comms modes, though 488.1 should be much faster"
-        elif ("TCPIP" in self.addressString) and ("SOCKET" in self.addressString):
+        elif ("TCPIP" in self.address_string) and ("SOCKET" in self.address_string):
             open_params["timeout"] = timeoutMS
             open_params["write_termination"] = "\n"
             open_params["read_termination"] = "\n"
 
-            addrParts = self.addressString.split("::")
+            addrParts = self.address_string.split("::")
             host = addrParts[1]
             port = host = addrParts[2]
             smCommsMsg = f"ERROR: Can't talk to sourcemeter\nTried Ethernet<-->Serial link via {host}:{port}\nThe sourcemeter's comms parameters must match the Ethernet<-->Serial adapter's parameters\nand the terminator should be configured as <CR>"
         else:
             smCommsMsg = "ERROR: Can't talk to sourcemeter"
-            open_params = {"resource_name": self.addressString}
+            open_params = {"resource_name": self.address_string}
 
         sm = rm.open_resource(**open_params)
 
@@ -264,7 +275,7 @@ class k2400:
         except:
             self.four88point1 = False
 
-    def _setupSourcemeter(self, twoWire, front):
+    def _setupSourcemeter(self, two_wire, front):
         """Do initial setup for sourcemeter"""
         sm = self.sm
         sm.timeout = self.default_comms_timeout  # long enough to collect an entire sweep [ms]
@@ -286,7 +297,7 @@ class k2400:
         sm.write("source:clear:auto off")
         sm.write("source:voltage:protection 20")  # the instrument will never generate over 20v
 
-        self.setWires(twoWire=twoWire)
+        self.setWires(two_wire=two_wire)
         self.opc()
         sm.write(":sense:function:concurrent on")
         sm.write(':sense:function "current:dc", "voltage:dc"')
@@ -360,8 +371,8 @@ class k2400:
     def disconnect(self):
         self.__del__()
 
-    def setWires(self, twoWire=False):
-        if twoWire:
+    def setWires(self, two_wire=False):
+        if two_wire:
             self.sm.write(":system:rsense off")  # four wire mode off
         else:
             self.sm.write(":system:rsense on")  # four wire mode on
@@ -711,10 +722,10 @@ if __name__ == "__main__":
     # address = 'ASRL/dev/ttyS0::INSTR'
     address = "ASRL/dev/ttyUSB0::INSTR"
 
-    k = k2400(addressString=address, terminator="\r", serialBaud=57600)
+    k = k2400(address_string=address, terminator="\r", serial_baud=57600)
 
     con_time = time.time()
-    print(f"Connected to {k.addressString} in {con_time-start} seconds")
+    print(f"Connected to {k.address_string} in {con_time-start} seconds")
 
     # do a contact check
     k.set_ccheck_mode(True)

@@ -13,6 +13,7 @@ import collections
 import numpy as np
 import time
 import uuid
+import typing
 
 # for main loop & multithreading
 import gi
@@ -35,9 +36,9 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
 
 from . import virt
 from .motion import motion
-from .k2400 import k2400 as sm
 from .illumination import Illumination
 from .pcb import Pcb
+from . import sourcemeter
 
 
 class UtilityHandler(object):
@@ -279,47 +280,55 @@ class UtilityHandler(object):
                         with pcb_class(task["pcb"], timeout=5) as p:
                             p.query("iv")  # make sure the circuit is in I-V mode (not eqe)
                             p.query("s")  # make sure we're starting with nothing selected
-                            if task["smu"][0]["virtual"] == True:
-                                smu = virt.k2400
-                            else:
-                                smu = sm
-                            k = smu(addressString=task["smu"][0]["address"], terminator=task["smu"][0]["terminator"], serialBaud=task["smu"][0]["baud"], front=task["smu"][0]["front_terminals"])
-
-                            # set up sourcemeter for the task
-                            if task["type"] == "current":
-                                pass  # TODO: smu measure current command goes here
-                            elif task["type"] == "rtd":
-                                k.setupDC(auto_ohms=True)
-                            elif task["type"] == "connectivity":
-                                self.lg.info(f"Checking connections. Only failures will be printed.")
-                                k.set_ccheck_mode(True)
+                            smus = {}
+                            for i, smucfg in enumerate(task["smu"]):
+                                smc = sourcemeter.factory(smucfg)  # use the class factory to get a sourcemeter class
+                                sm = smc(**smucfg)  # initalize smu class
+                                sm.connect()
+                                if "device_grouping" in task:
+                                    sm.device_grouping = task["device_grouping"]
+                                # set up sourcemeter for the task
+                                if task["type"] == "current":
+                                    pass  # TODO: smu measure current command goes here
+                                elif task["type"] == "rtd":
+                                    sm.setupDC(auto_ohms=True)
+                                elif task["type"] == "connectivity":
+                                    self.lg.info(f"Checking connections. Only failures will be printed.")
+                                    sm.set_ccheck_mode(True)
+                                smus[i] = sm
 
                             for i, slot in enumerate(task["slots"]):
                                 dev = task["pads"][i]
                                 mux_string = task["mux_strings"][i]
                                 p.query(mux_string)  # select the device
-                                if task["type"] == "current":
-                                    pass  # TODO: smu measure current command goes here
-                                elif task["type"] == "rtd":
-                                    m = k.measure()[0]
-                                    ohm = m[2]
-                                    if (ohm < 3000) and (ohm > 500):
-                                        self.lg.info(f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
-                                elif task["type"] == "connectivity":
-                                    if k.contact_check() == False:
-                                        self.lg.info(f"{slot} -- {dev} appears disconnected.")
-                                p.query(f"s{slot}0")  # disconnect the slot
+                                smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                                if smu_index is None:
+                                    smu_index = 0
+                                    self.lg.warning("Using the first SMU")
+                                if smus[smu_index].idn != "disabled":
+                                    if task["type"] == "current":
+                                        pass  # TODO: smu measure current command goes here
+                                    elif task["type"] == "rtd":
+                                        m = smus[smu_index].measure()[0]
+                                        ohm = m[2]
+                                        if (ohm < 3000) and (ohm > 500):
+                                            self.lg.info(f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
+                                    elif task["type"] == "connectivity":
+                                        if smus[smu_index].contact_check() == False:
+                                            self.lg.info(f"{slot} -- {dev} appears disconnected.")
+                                    p.query(f"s{slot}0")  # disconnect the slot
 
-                            if task["type"] == "connectivity":
-                                k.set_ccheck_mode(False)
-                                self.lg.info("Contact check complete.")
-                            elif task["type"] == "rtd":
-                                self.lg.info("Temperature measurement complete.")
-                                k.setupDC(sourceVoltage=False)
+                            for key, val in smus.items():
+                                if task["type"] == "connectivity":
+                                    val.set_ccheck_mode(False)
+                                    # self.lg.info("Contact check complete.")
+                                elif task["type"] == "rtd":
+                                    # self.lg.info("Temperature measurement complete.")
+                                    val.setupDC(sourceVoltage=False)
                             p.query("s")
-                            del k
+                    self.lg.info("Round robin task complete.")
             except Exception as e:
-                self.lg.warn(e)
+                self.lg.warning(e)
                 logging.exception(e)
                 try:
                     del mo  # ensure mo is cleaned up
@@ -332,7 +341,6 @@ class UtilityHandler(object):
 
             # system health check
             if task["cmd"] == "check_health":
-                rm = pyvisa.ResourceManager("@py")
                 if "pcb" in task:
                     self.lg.info(f"Checking controller@{task['pcb']}...")
                     try:
@@ -352,6 +360,7 @@ class UtilityHandler(object):
                         self.lg.info(f"Power supply looks virtually great!")
                     else:
                         try:
+                            rm = pyvisa.ResourceManager("@py")
                             with rm.open_resource(task["psu"]) as psu:
                                 self.lg.info("Power supply connection initiated")
                                 idn = psu.query("*IDN?")
@@ -363,38 +372,21 @@ class UtilityHandler(object):
 
                 if "smu" in task:
                     for index, smup in enumerate(task["smu"]):  # loop through the list of SMUs
-                        if smup["virtual"] == True:
-                            self.lg.info(f"Sourcemeter {index} looks virtually great!")
-                        else:
-                            self.lg.info(f"Checking sourcemeter {index} at {smup['address']}...")
-                            # for sourcemeter
-                            open_params = {}
-                            open_params["resource_name"] = smup["address"]
-                            open_params["timeout"] = 300  # ms
-                            if "ASRL" in open_params["resource_name"]:  # data bits = 8, parity = none
-                                open_params["read_termination"] = smup["terminator"]  # NOTE: <CR> is "\r" and <LF> is "\n" this is set by the user by interacting with the buttons on the instrument front panel
-                                open_params["write_termination"] = "\r"  # this is not configuable via the instrument front panel (or in any way I guess)
-                                open_params["baud_rate"] = smup["baud"]  # this is set by the user by interacting with the buttons on the instrument front panel
-                                open_params["flow_control"] = pyvisa.constants.VI_ASRL_FLOW_RTS_CTS  # user must choose NONE for flow control on the front panel
-                            elif "GPIB" in open_params["resource_name"]:
-                                open_params["write_termination"] = "\n"
-                                open_params["read_termination"] = "\n"
-                                # GPIB takes care of EOI, so there is no read_termination
-                                open_params["io_protocol"] = pyvisa.constants.VI_HS488  # this must be set by the user by interacting with the buttons on the instrument front panel by choosing 488.1, not scpi
-                            elif ("TCPIP" in open_params["resource_name"]) and ("SOCKET" in open_params["resource_name"]):
-                                # GPIB <--> Ethernet adapter
-                                pass
-
+                        smc = sourcemeter.factory(smup)  # use the class factory to get a sourcemeter class
+                        if smc is not None:  # check if it's disabled
+                            self.lg.info(f"Checking sourcemeter {index}...")
+                            if "address" in smup:
+                                self.lg.info(f"at address {smup['address']}")
+                            sm = smc(**smup)  # initialize the smu class with the config dict
                             try:
-                                with rm.open_resource(**open_params) as smu:
-                                    self.lg.info("Sourcemeter connection initiated")
-                                    smu.timeout = 5000  # in ms
-                                    idn = smu.query("*IDN?")
-                                    self.lg.info(f"Sourcemeter identification string: {idn}")
+                                sm.connect()
+                                self.lg.info(f"🟢 Sourcemeter comms working correctly. Identifed as: {sm.idn}")
                             except Exception as e:
-                                emsg = f"Could not talk to sourcemeter"
+                                emsg = f"🔴 Could not talk to sourcemeter: {e}"
                                 self.lg.warn(emsg)
                                 logging.exception(emsg)
+                        else:
+                            self.lg.info(f"Sourcemeter {index} is configured to be disabled.")
 
                 if "lia_address" in task:
                     self.lg.info(f"Checking lock-in@{task['lia_address']}...")
