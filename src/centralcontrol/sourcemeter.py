@@ -1,6 +1,3 @@
-# from __future__ import annotations
-
-# from typing import Type, TypeVar, ClassVar, Union
 import logging
 
 import typing
@@ -26,20 +23,19 @@ def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
         lg.info("Assuming k2400 type smu")
         smu_type = "k2400"
 
-    ret = vsmu
+    ret = vsmu  # the default is to make a virtual smu type
     if ("virtual" in cfg) and (cfg["virtual"] is False):
         if smu_type == "k2400":
-            ret = k2400
+            ret = k2400  # hardware k2400 selected
 
     if ("enabled" in cfg) and (cfg["enabled"] is False):
-        lg.info("SMU disabled")
-        ret = DisabledSMU
+        ret = DisabledSMU  # disabled SMU selected
 
-    if ret == vsmu:
-        lg.info("Using a virtual SMU")
-
+    name = SourcemeterAPI.__name__
     bases = (SourcemeterAPI, ret)
-    return type(SourcemeterAPI.__name__, bases, {})  # return the configured smu class overlayed with our API
+    # tdict = ret.__dict__.copy()
+    tdict = {}
+    return type(name, bases, tdict)  # return the configured smu class overlayed with our API
 
 
 class SourcemeterAPI(object):
@@ -89,11 +85,22 @@ class DisabledSMU(object):
 
 if __name__ == "__main__":
     cfg = {}
+    cfg["enabled"] = True
+    cfg["virtual"] = True
+    smuc = factory(cfg)
+    sm = smuc(**cfg)
+    sm.ding = "dong"
+    # sm.connect(ass=3)
+    print(sm.idn)
+    print(sm.ding)
+
+    cfg = {}
     cfg["enabled"] = False
     cfg["virtual"] = True
     smuc = factory(cfg)
     sm = smuc(**cfg)
-    sm.c
-    sm = smuc(**cfg)
+    sm.ding = "dong"
     sm.connect(ass=3)
     print(sm.idn)
+    print(sm.ding)
+    # the disabled class doesn't quite act right when getting attributes that aren't "idn"

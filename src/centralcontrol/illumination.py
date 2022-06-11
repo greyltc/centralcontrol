@@ -28,6 +28,8 @@ class Illumination(object):
     _current_state = False  # True if we believe the light is on, False if we believe it's off
     requested_state = False  # keeps track of what state we'd like the light to be in
     last_temps = None
+    _current_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. what we believe the light's intensity is
+    requested_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. keeps track of what we want the light's intensity to be
 
     def __init__(self, address="", connection_timeout=10, comms_timeout=1):
         """sets up communication to light source"""
@@ -54,6 +56,7 @@ class Illumination(object):
         self.request_on = False
         self.requested_state = False
         self.barrier = threading.Barrier(1, action=self.set_state, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
+        self.barrier2 = threading.Barrier(1, action=self.set_intensity, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
 
         addr_split = address.split(sep="://", maxsplit=1)
         protocol = addr_split[0]
@@ -103,10 +106,27 @@ class Illumination(object):
         self.barrier = threading.Barrier(value, action=self.set_state, timeout=self.barrier_timeout)
 
     @property
+    def n_sync2(self):
+        """how many threads we need to wait for to synchronize"""
+        return self.barrier2.parties
+
+    @n_sync2.setter
+    def n_sync2(self, value):
+        """
+        update the number of threads we need to wait for to consider ourselves *NSYNC
+        setting this while waiting for synchronization will raise a barrier broken error
+        """
+
+        self.barrier2.abort()
+
+        # the thing that blocks threads until they're in sync for a light state change
+        self.barrier2 = threading.Barrier(value, action=self.set_intensity, timeout=self.barrier_timeout)
+
+    @property
     def on(self):
         """
         query the light's current state
-        (might differe than requested state)
+        (might differ than requested state)
         """
         return self._current_state
 
@@ -132,29 +152,85 @@ class Illumination(object):
         else:
             self.lg.debug(f"Don't understand new light state request: {value=}")
 
-    def set_state(self, force_state=None):
+    @property
+    def intensity(self):
+        """
+        query the light's current intensity
+        (might differ than requested intensity)
+        """
+        return self._current_intensity
+
+    @intensity.setter
+    def intensity(self, value: int):
+        """set the intensity value you wish the light to be"""
+        if isinstance(value, int):
+            if value != self._current_intensity:
+                self.lg.debug(f"Request to change light intensity to {value}. Waiting for synchronization...")
+                self.requested_intensity = value
+                try:
+                    draw = self.barrier.wait()
+                    if draw == 0:  # we're the lucky winner!
+                        self.lg.debug(f"Light intensity synchronization complete!")
+                except threading.BrokenBarrierError as e:
+                    # most likely a timeout
+                    # could also be if the barrier was reset or aborted during the wait
+                    # or if the call to change the light state errored
+                    raise ValueError(f"The light synchronization barrier was broken! {e}")
+            else:
+                # requested state matches actual state
+                self.lg.debug(f"Light intensity is already {value}")
+        else:
+            self.lg.debug(f"Don't understand new light intensity request: {value=}")
+
+    def set_intensity(self, force_intensity=None):
+        """
+        set illumination intensity based on self.requested_intensity
+        should not be called directly (instead use the barrier-enabled on parameter)
+        unless you call it with force_intensity to an int to bypass the barrier-based thread sync interface
+        """
+        ret = None
+        setpoint = force_intensity
+        if setpoint is None:
+            setpoint = self.requested_intensity
+        if not isinstance(setpoint, int):
+            raise ValueError(f"New light output setting invalid: {setpoint=}")
+
+        self.lg.debug(f"set_state {self.requested_state} called")
+        if setpoint == 0:
+            iret = 0  # no error
+            oret = self.light_engine.off()
+        else:
+            iret = self.light_engine.set_intensity(setpoint)
+            oret = self.light_engine.on()
+
+        if ((oret == 0) or ((isinstance(ret, str) and ret.startswith("sn")))) and (iret == 0):
+            self._current_intensity = setpoint
+        else:
+            self.lg.debug(f"failure to set the light's intensity")
+
+        return ret
+
+    def set_state(self, force_state: bool = None):
         """
         set illumination state based on self.requested_state
         should not be called directly (instead use the barrier-enabled on parameter)
         unless you call it with force_state True or False to bypass the barrier-based thread sync interface
         """
-        call_state = None  # the state we'll be setting the light to
         ret = None
-        if force_state is None:
-            call_state = self.requested_state
-        elif isinstance(force_state, bool):
-            call_state = force_state
-        else:
-            raise ValueError(f"New light state setting invalid: {call_state=}")
+        setpoint = force_state
+        if setpoint is None:
+            setpoint = self.requested_state
+        if not isinstance(setpoint, bool):
+            raise ValueError(f"New light state setting invalid: {setpoint=}")
 
-        self.lg.debug(f"set_state {self.requested_state} called")
-        if call_state:
+        self.lg.debug(f"set_state {setpoint} called")
+        if setpoint:
             ret = self.light_engine.on()
         else:
             ret = self.light_engine.off()
 
-        if (ret == 0) or (isinstance(ret, str) and ret.startswith("sn")):
-            self._current_state = call_state
+        if (ret == 0) or ((isinstance(ret, str) and ret.startswith("sn"))):
+            self._current_state = setpoint
         else:
             self.lg.debug(f"failure to set the light's state")
 

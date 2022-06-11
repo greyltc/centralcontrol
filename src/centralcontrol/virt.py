@@ -394,6 +394,7 @@ class smu(object):
         # TODO: add dark area
         self.compliance = 1  # A
         self.dark = False  # if we're in the dark, do computations with Iph = 0
+        self._intensity = 1  # scale Iph by this (simulates variable intensity)
 
         # here we choose some numbers for our simulated solar cell model
         self.Iphd = 23  # photocurrent density, in mA/cm^2 (where cm^2 is for illuminated area)
@@ -423,6 +424,19 @@ class smu(object):
 
         if "print_sweep_deets" in kwargs:
             self.print_sweep_deets = kwargs["print_sweep_deets"]
+
+    @property
+    def intensity(self):
+        return self._intensity
+
+    @intensity.setter
+    def intensity(self, value):
+        if value != self._intensity:  # there's an intensity change
+            self._intensity = value
+            if self.I == 0:  # open circuit case
+                self.openCircuitEvent()
+            else:
+                self.updateCurrent()
 
     def connect(self):
         self.lg.debug(f"{self.__class__} initalized.")
@@ -501,10 +515,10 @@ class smu(object):
         Rsh = self.Rsha / self.area
         n = self.n
         I0 = self.I0d * self.area / 1000
+        iph_scale = self._intensity
         if self.dark == True:
-            Iph = 0
-        else:
-            Iph = self.Iphd * self.area / 1000
+            iph_scale = 0
+        Iph = self.Iphd * self.area / 1000 * iph_scale
         Vth = self.Vth
         if Rsh < float("inf"):
             Voc = Rsh * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
@@ -519,10 +533,10 @@ class smu(object):
         Rsh = self.Rsha / self.area
         n = self.n
         I0 = self.I0d * self.area / 1000
+        iph_scale = self._intensity
         if self.dark == True:
-            Iph = 0
-        else:
-            Iph = self.Iphd * self.area / 1000
+            iph_scale = 0
+        Iph = self.Iphd * self.area / 1000 * iph_scale
         Vth = self.Vth
         V = self.V
         if (Rs > 0) and (Rsh < float("inf")):  # both resistors active

@@ -23,6 +23,7 @@ from centralcontrol import mppt
 from centralcontrol import sourcemeter
 
 import logging
+import typing
 
 # for logging directly to systemd journal if we can
 try:
@@ -465,8 +466,15 @@ class MQTTServer(object):
         payload = {"level": record.levelno, "msg": record.msg}
         self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
 
-    def suns_voc(duration: float, mnt: Fabric, sm):
-        pass
+    def suns_voc(self, duration: float, light, sm, intensities: typing.List[int], dh):
+        """do a suns-Voc measurement"""
+        step_time = duration / len(intensities)
+        svt = []
+        for intensity_setpoint in intensities:
+            light.intensity = intensity_setpoint
+            sm.intensity = intensity_setpoint / 100  # tell the simulated device how much light it's getting
+            svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
+        return svt
 
     def do_iv(self, mnt, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
         """parallelizable I-V tasks for use in threads"""
@@ -479,15 +487,6 @@ class MQTTServer(object):
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
                 return []
-            self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
-            # Voc needs light
-            if hasattr(measurement, "le"):
-                measurement.le.on = True
-
-            if calibration == False:
-                kind = "vt_measurement"
-                dh.kind = kind
-                self._clear_plot(kind)
 
             ss_args = {}
             ss_args["sourceVoltage"] = False
@@ -496,15 +495,53 @@ class MQTTServer(object):
             ss_args["setPoint"] = args["i_dwell_value"]
             ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
 
-            sm.setupDC(**ss_args)
+            sm.setupDC(**ss_args)  # initialize the SMU hardware for a steady state measurement
+
+            svoc_steps = int(abs(args["suns_voc"]))  # number of suns-Voc steps we might take
+            svoc_step_threshold = 2  # must request at least this many steps before the measurement turns on
+            if svoc_steps > svoc_step_threshold:  # suns-Voc is enabled
+                int_min = 10  # minimum settable intensity
+                int_max = args["light_recipe_int"]  # the highest intensity we'll go to
+                int_rng = int_max - int_min  # the magnitude of the range we'll sweep over
+                int_step_size = int_rng / (svoc_steps - 2)  # how big the intensity steps will be
+                intensities = [0, 10]  # values for the first two intensity steps
+                intensities += [round(int_min + (x + 1) * int_step_size) for x in range(svoc_steps - 2)]  # values for the rest of the intensity steps
+
+            if args["suns_voc"] < -svoc_step_threshold:
+                self.lg.debug(f"Doing upwards suns-Voc for {args['i_dwell']} seconds.")
+                if calibration == False:
+                    kind = "vt_measurement"
+                    dh.kind = kind
+                    self._clear_plot(kind)
+                svtb = self.suns_voc(args["i_dwell"], measurement.le, sm, intensities, dh)  # do the experiment
+                data += svtb  # keep the data
+
+            if hasattr(measurement, "le"):
+                measurement.le.on = True  # Voc needs light
+            self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
+            if calibration == False:
+                kind = "vt_measurement"
+                dh.kind = kind
+                self._clear_plot(kind)
             vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
-            data = vt
+            data += vt
 
             # if this was at Voc, use the last measurement as estimate of Voc
             if (args["i_dwell_value"] == 0) and (len(vt) > 1):
                 ssvoc = vt[-1][0]
             else:
                 ssvoc = None
+
+            if args["suns_voc"] > svoc_step_threshold:
+                self.lg.debug(f"Doing downwards suns-Voc for {args['i_dwell']} seconds.")
+                if calibration == False:
+                    kind = "vt_measurement"
+                    dh.kind = kind
+                    self._clear_plot(kind)
+                intensities_reversed = intensities[::-1]
+                svta = self.suns_voc(args["i_dwell"], measurement.le, sm, intensities_reversed, dh)  # do the experiment
+                data += svta
+                sm.intensity = 1  # reset the simulated device's intensity
         else:
             ssvoc = None
 
@@ -518,12 +555,10 @@ class MQTTServer(object):
             if sweep == "dark":
                 if hasattr(measurement, "le"):
                     measurement.le.on = False
-                if "Virtual" in sm.idn:
                     sm.dark = True
             else:
                 if hasattr(measurement, "le"):
                     measurement.le.on = True
-                if "Virtual" in sm.idn:
                     sm.dark = False
 
             if calibration == False:
@@ -877,6 +912,7 @@ class MQTTServer(object):
                     # set up light source voting/synchronization (if any)
                     if hasattr(measurement, "le"):
                         measurement.le.n_sync = n_parallel
+                        measurement.le.n_sync2 = n_parallel
 
                     # move stage
                     if mo is not None:
@@ -905,9 +941,7 @@ class MQTTServer(object):
                             # get or estimate compliance current
                             compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
 
-                            if "Virtual" in sm.idn:
-                                # set virtual smu scaling
-                                smus[smu_index].area = pixel["area"]
+                            smus[smu_index].area = pixel["area"]  # set virtual smu scaling
 
                             # submit for processing
                             futures[smu_index] = executor.submit(self.do_iv, measurement, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
@@ -1158,7 +1192,6 @@ class MQTTServer(object):
                     # report complete
                     self.lg.info("Run complete!")
 
-                print("Measurement complete.")
             except KeyboardInterrupt:
                 pass
             except Exception as e:
