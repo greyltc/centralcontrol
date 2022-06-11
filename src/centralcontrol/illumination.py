@@ -193,9 +193,9 @@ class Illumination(object):
         if setpoint is None:
             setpoint = self.requested_intensity
         if not isinstance(setpoint, int):
-            raise ValueError(f"New light output setting invalid: {setpoint=}")
+            raise ValueError(f"New light intensity setpoint is invalid: {setpoint=}")
 
-        self.lg.debug(f"set_state {self.requested_state} called")
+        self.lg.debug(f"set_intensity({self.requested_intensity}) called")
         if setpoint == 0:
             iret = 0  # no error
             oret = self.light_engine.off()
@@ -223,7 +223,7 @@ class Illumination(object):
         if not isinstance(setpoint, bool):
             raise ValueError(f"New light state setting invalid: {setpoint=}")
 
-        self.lg.debug(f"set_state {setpoint} called")
+        self.lg.debug(f"set_state({setpoint}) called")
         if setpoint:
             ret = self.light_engine.on()
         else:
