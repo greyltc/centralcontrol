@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import contextlib
 import paho.mqtt.client as mqtt
 import argparse
 import pickle
@@ -13,7 +14,6 @@ import collections
 import numpy as np
 import time
 import uuid
-import typing
 
 # for main loop & multithreading
 import gi
@@ -36,9 +36,9 @@ if (__name__ == "__main__") and (__package__ in [None, ""]):
 
 from . import virt
 from .motion import motion
-from .illumination import Illumination
 from .pcb import Pcb
-from . import sourcemeter
+from centralcontrol import sourcemeter
+from centralcontrol import illumination
 
 
 class UtilityHandler(object):
@@ -83,7 +83,7 @@ class UtilityHandler(object):
                 ch.setFormatter(logFormat)
                 self.lg.addHandler(ch)
 
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug("Initialized.")
 
     # The callback for when the client receives a CONNACK response from the server.
     def on_connect(self, client, userdata, flags, rc):
@@ -127,16 +127,16 @@ class UtilityHandler(object):
                 try:
                     with tpcb(cmd_msg["pcb"], timeout=10) as p:
                         p.query("b")
-                    self.lg.warn("Emergency stop command issued. Re-Homing required before any further movements.")
+                    self.lg.warning("Emergency stop command issued. Re-Homing required before any further movements.")
                 except Exception as e:
                     emsg = "Unable to emergency stop."
-                    self.lg.warn(emsg)
+                    self.lg.warning(emsg)
                     logging.exception(emsg)
             elif self.taskq.unfinished_tasks == 0:
                 # the worker is available so let's give it something to do
                 self.taskq.put_nowait(cmd_msg)
             elif self.taskq.unfinished_tasks > 0:
-                self.lg.warn(f"Backend busy (task queue size = {self.taskq.unfinished_tasks}). Command rejected.")
+                self.lg.warning(f"Backend busy (task queue size = {self.taskq.unfinished_tasks}). Command rejected.")
             else:
                 self.lg.debug(f"Command message rejected:: {cmd_msg}")
             self.cmdq.task_done()
@@ -205,7 +205,7 @@ class UtilityHandler(object):
                     if result == "":
                         self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
                     else:
-                        self.lg.warn(f"Command {task['pcb_cmd']} not acknowleged with {result}")
+                        self.lg.warning(f"Command {task['pcb_cmd']} not acknowleged with {result}")
 
                 # get the stage location
                 elif task["cmd"] == "read_stage":
@@ -228,51 +228,42 @@ class UtilityHandler(object):
                             self.lg.info(mono.readline.strip())
 
                 elif task["cmd"] == "spec":
-                    if "le_address" in task:
-                        self.lg.info(f"Checking light engine@{task['le_address']}...")
-                        le = None
-                        try:
-                            if task["le_virt"] == True:
-                                ill = virt.Illumination
-                            else:
-                                ill = Illumination
-                            le = ill(address=task["le_address"], connection_timeout=1)
-                            con_res = le.connect()
-                            if con_res == 0:
-                                status = le.get_run_status()
-                                if status is None:
-                                    self.lg.warning("Unable to complete light engine query")
-                                else:
-                                    self.lg.info(f"Light engine connection successful. Run Status = {status}")
-                                    return_code = le.set_recipe(recipe_name=task["le_recipe"])
-                                    if return_code == 0:
-                                        self.lg.info(f"{task['le_recipe']} recipe set sucessfully!")
-                                        int_res = le.set_intensity(task["le_recipe_int"])
-                                        if int_res == 0:
-                                            response = {}
-                                            response["data"] = le.get_spectrum()
-                                            response["timestamp"] = time.time()
-                                            output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
-                                            self.outputq.put(output)
-                                            self.lg.info("Spectrum fetched sucessfully!")
-                                            self.lg.info(f"Found light source temperatures: {le.last_temps}")
-                                        else:
-                                            self.lg.warn(f"Unable to set intensity to {task['le_recipe_int']} with error {int_res}")
-                                    else:
-                                        self.lg.warn(f"Unable to set recipe {task['le_recipe']} with error {return_code}")
-                            elif con_res == -1:
-                                self.lg.warn("Timeout waiting for wavelabs to connect")
-                            else:
-                                self.lg.warn(f"Unable to connect to light engine with error {con_res}")
-                        except Exception as e:
-                            emsg = f"Light engine connection check failed: {e}"
-                            self.lg.warning(emsg)
-                            logging.exception(emsg)
-                        finally:
-                            if hasattr(le, "disconnect"):
-                                le.disconnect()
+                    sscfg = task["solarsim"]  # the solar sim configuration
+                    sscfg["active_recipe"] = task["recipe"]
+                    sscfg["intensity"] = task["intensity"]
+                    self.lg.info("Fetching solar sim spectrum...")
+                    solarsim_class = illumination.factory(sscfg)  # use the class factory to get a solarsim class
+                    ss = solarsim_class(**sscfg)  # instantiate the class
+                    emsg = []
+                    try:
+                        with ss as connected_solarsim:  # use the context manager to manage connection and disconnection
+                            conn_status = connected_solarsim.conn_status
+                            off_res = connected_solarsim.off()  # let's make sure it's off
+                            data = connected_solarsim.get_spectrum()
+                            temps = connected_solarsim.last_temps
+                    except Exception as e:
+                        emsg.append(f"🔴 Solar sim comms failure: {e}")
+                    else:  # no error, check the connection and disconnection status numbers
+                        if conn_status < 0:  # check for unclean connection
+                            emsg.append(f"🔴 Unable to complete connection to solar sim: {conn_status=}")
+                        if ss.conn_status != -80:  # check for unclean disconnection
+                            emsg.append(f"🔴 Unclean disconnection from solar sim")
+                        if not isinstance(data, tuple) or len(data) != 2:  # check data shape
+                            emsg.append(f"🔴 Spectrum data was not fetched correctly {off_res=}")
+
+                    # notify user
+                    if len(emsg) > 0:
+                        for badmsg in emsg:
+                            self.lg.warning(badmsg)
+                            logging.exception(badmsg)
                     else:
-                        self.lg.info(f"No light engine configured.")
+                        response = {}
+                        response["data"] = data
+                        response["timestamp"] = time.time()
+                        output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
+                        self.outputq.put(output)
+                        self.lg.info("🟢 Spectrum fetched sucessfully!")
+                        self.lg.info(f"Found light source temperatures: {temps}")
 
                 # device round robin commands
                 elif task["cmd"] == "round_robin":
@@ -280,51 +271,51 @@ class UtilityHandler(object):
                         with pcb_class(task["pcb"], timeout=5) as p:
                             p.query("iv")  # make sure the circuit is in I-V mode (not eqe)
                             p.query("s")  # make sure we're starting with nothing selected
-                            smus = {}
-                            for i, smucfg in enumerate(task["smu"]):
-                                smc = sourcemeter.factory(smucfg)  # use the class factory to get a sourcemeter class
-                                sm = smc(**smucfg)  # initalize smu class
-                                sm.connect()
-                                if "device_grouping" in task:
-                                    sm.device_grouping = task["device_grouping"]
-                                # set up sourcemeter for the task
-                                if task["type"] == "current":
-                                    pass  # TODO: smu measure current command goes here
-                                elif task["type"] == "rtd":
-                                    sm.setupDC(auto_ohms=True)
-                                elif task["type"] == "connectivity":
-                                    self.lg.info(f"Checking connections. Only failures will be printed.")
-                                    sm.set_ccheck_mode(True)
-                                smus[i] = sm
 
-                            for i, slot in enumerate(task["slots"]):
-                                dev = task["pads"][i]
-                                mux_string = task["mux_strings"][i]
-                                p.query(mux_string)  # select the device
-                                smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
-                                if smu_index is None:
-                                    smu_index = 0
-                                    self.lg.warning("Using the first SMU")
-                                if smus[smu_index].idn != "disabled":
+                            smucfgs = task["smu"]  # a list of sourcemeter configurations
+                            with contextlib.ExitStack() as stack:  # handles the proper cleanup of all the SMUs
+                                # initialize and connect to all the sourcemeters in a way that will gracefully disconnect them later
+                                smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]
+                                for sm in smus:
+                                    if "device_grouping" in task:
+                                        sm.device_grouping = task["device_grouping"]
+                                    # set up sourcemeter for the task
                                     if task["type"] == "current":
                                         pass  # TODO: smu measure current command goes here
                                     elif task["type"] == "rtd":
-                                        m = smus[smu_index].measure()[0]
-                                        ohm = m[2]
-                                        if (ohm < 3000) and (ohm > 500):
-                                            self.lg.info(f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
+                                        sm.setupDC(auto_ohms=True)
                                     elif task["type"] == "connectivity":
-                                        if smus[smu_index].contact_check() == False:
-                                            self.lg.info(f"{slot} -- {dev} appears disconnected.")
+                                        self.lg.info(f"Checking connections. Only failures will be printed.")
+                                        sm.set_ccheck_mode(True)
+
+                                for i, slot in enumerate(task["slots"]):
+                                    dev = task["pads"][i]
+                                    mux_string = task["mux_strings"][i]
+                                    p.query(mux_string)  # select the device
+                                    smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                                    if smu_index is None:
+                                        smu_index = 0
+                                        self.lg.warning("Using the first SMU")
+                                    if smus[smu_index].idn != "disabled":
+                                        if task["type"] == "current":
+                                            pass  # TODO: smu measure current command goes here
+                                        elif task["type"] == "rtd":
+                                            m = smus[smu_index].measure()[0]
+                                            ohm = m[2]
+                                            if (ohm < 3000) and (ohm > 500):
+                                                self.lg.info(f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
+                                        elif task["type"] == "connectivity":
+                                            if smus[smu_index].contact_check() == False:
+                                                self.lg.info(f"{slot} -- {dev} appears disconnected.")
                                     p.query(f"s{slot}0")  # disconnect the slot
 
-                            for key, val in smus.items():
-                                if task["type"] == "connectivity":
-                                    val.set_ccheck_mode(False)
-                                    # self.lg.info("Contact check complete.")
-                                elif task["type"] == "rtd":
-                                    # self.lg.info("Temperature measurement complete.")
-                                    val.setupDC(sourceVoltage=False)
+                                for sm in smus:
+                                    if task["type"] == "connectivity":
+                                        sm.set_ccheck_mode(False)
+                                        # self.lg.info("Contact check complete.")
+                                    elif task["type"] == "rtd":
+                                        # self.lg.info("Temperature measurement complete.")
+                                        sm.setupDC(sourceVoltage=False)
                             p.query("s")
                     self.lg.info("Round robin task complete.")
             except Exception as e:
@@ -351,7 +342,7 @@ class UtilityHandler(object):
                             self.lg.info(f"Controller muxes: {p.detected_muxes}")
                     except Exception as e:
                         emsg = f"Could not talk to control box"
-                        self.lg.warn(emsg)
+                        self.lg.warning(emsg)
                         logging.exception(emsg)
 
                 if "psu" in task:
@@ -367,28 +358,40 @@ class UtilityHandler(object):
                                 self.lg.info(f"Power supply identification string: {idn.strip()}")
                         except Exception as e:
                             emsg = f"Could not talk to PSU"
-                            self.lg.warn(emsg)
+                            self.lg.warning(emsg)
                             logging.exception(emsg)
 
                 if "smu" in task:
-                    for index, smup in enumerate(task["smu"]):  # loop through the list of SMUs
-                        smc = sourcemeter.factory(smup)  # use the class factory to get a sourcemeter class
-                        if smc is not None:  # check if it's disabled
-                            if "address_string" in smup:
-                                addrwords = f" at address {smup['address_string']}"
-                            else:
-                                addrwords = ""
-                            self.lg.info(f"Checking sourcemeter {index}{addrwords}...")
-                            sm = smc(**smup)  # initialize the smu class with the config dict
-                            try:
-                                sm.connect()
-                                self.lg.info(f"🟢 Sourcemeter comms working correctly. Identifed as: {sm.idn}")
-                            except Exception as e:
-                                emsg = f"🔴 Could not talk to sourcemeter: {e}"
-                                self.lg.warn(emsg)
-                                logging.exception(emsg)
+                    smucfgs = task["smu"]  # a list of sourcemeter configurations
+                    for index, smucfg in enumerate(smucfgs):  # loop through the list of SMUs
+                        if "address_string" in smucfg:
+                            addrwords = f" at {smucfg['address_string']}"
                         else:
-                            self.lg.info(f"Sourcemeter {index} is configured to be disabled.")
+                            addrwords = ""
+                        self.lg.info(f"Checking sourcemeter #{index}{addrwords}...")
+
+                        sourcemeter_class = sourcemeter.factory(smucfg)  # use the class factory to get a sourcemeter class
+                        sm = sourcemeter_class(**smucfg)  # instantiate the class
+                        emsg = []
+                        try:
+                            with sm as connected_sourcemeter:  # use the context manager to manage connection and disconnection
+                                conn_status = connected_sourcemeter.conn_status
+                                smuidn = connected_sourcemeter.idn
+                        except Exception as e:
+                            emsg.append(f"🔴 Sourcemeter comms failure: {e}")
+                        else:  # no error, check the connection and disconnection status numbers
+                            if conn_status < 0:  # check for unclean connection
+                                emsg.append(f"🔴 Unable to complete connection to SMU: {conn_status=}")
+                            elif sm.conn_status != -80:  # check for unclean disconnection
+                                emsg.append(f"🔴 Unclean disconnection from SMU")
+
+                        # notify user
+                        if len(emsg) > 0:
+                            for badmsg in emsg:
+                                self.lg.warning(badmsg)
+                                logging.exception(badmsg)
+                        else:
+                            self.lg.info(f"🟢 Sourcemeter comms working correctly. Identifed as: {smuidn}")
 
                 if "lia_address" in task:
                     self.lg.info(f"Checking lock-in@{task['lia_address']}...")
@@ -403,7 +406,7 @@ class UtilityHandler(object):
                                 self.lg.info(f"Lock-in identification string: {idn.strip()}")
                         except Exception as e:
                             emsg = f"Could not talk to lock-in"
-                            self.lg.warn(emsg)
+                            self.lg.warning(emsg)
                             logging.exception(emsg)
 
                 if "mono_address" in task:
@@ -418,41 +421,52 @@ class UtilityHandler(object):
                                 self.lg.info(f"Monochromator wavelength query result: {qu.strip()}")
                         except Exception as e:
                             emsg = f"Could not talk to monochromator"
-                            self.lg.warn(emsg)
+                            self.lg.warning(emsg)
                             logging.exception(emsg)
 
-                if "le_address" in task:
-                    self.lg.info(f"Checking light engine@{task['le_address']}...")
-                    le = None
+                if "solarsim" in task:
+                    sscfg = task["solarsim"]
+                    recipe = task["recipe"]
+                    intensity = task["intensity"]
+                    self.lg.info("Checking solar sim comms...")
+                    solarsim_class = illumination.factory(sscfg)  # use the class factory to get a solarsim class
+                    ss = solarsim_class(**sscfg)  # instantiate the class
+                    emsg = []
                     try:
-                        if task["le_virt"] == True:
-                            ill = virt.Illumination
-                        else:
-                            ill = Illumination
-                        le = ill(address=task["le_address"], connection_timeout=1)
-                        con_res = le.connect()
-                        if con_res == 0:
-                            status = le.get_run_status()
-                            if status is None:
-                                self.lg.warning("Unable to complete light engine query")
+                        with ss as connected_solarsim:  # use the context manager to manage connection and disconnection
+                            conn_status = connected_solarsim.conn_status
+                            run_status = connected_solarsim.get_run_status()
+                            ssidn = connected_solarsim.idn
+                            if not isinstance(run_status, str):
+                                emsg.append(f"🔴 Unable to complete solar sim status query {run_status=}")
                             else:
-                                self.lg.info(f"Light engine connection successful. Run Status = {status}")
-                                return_code = le.set_recipe(recipe_name=task["le_recipe"])
+                                self.lg.info(f"Solar sim connection successful. Run Status = {run_status}")
+                                return_code = connected_solarsim.activate_recipe(recipe)
                                 if return_code == 0:
-                                    self.lg.info(f"{task['le_recipe']} recipe set sucessfully!")
+                                    self.lg.info(f'"{recipe}" recipe activated!')
+                                    connected_solarsim.intensity = int(intensity)
+                                    actual_intensity = connected_solarsim.intensity
+                                    if actual_intensity == int(intensity):
+                                        self.lg.info(f"{int(intensity)}% instensity set sucessfully!")
+                                    else:
+                                        emsg.append(f"🔴 Tried to set intensity to {int(intensity)}%, but it is {actual_intensity}%")
                                 else:
-                                    self.lg.warn(f"Unable to set recipe {task['le_recipe']} with error {return_code}")
-                        elif con_res == -1:
-                            self.lg.warn("Timeout waiting for wavelabs to connect")
-                        else:
-                            self.lg.warn(f"Unable to connect to light engine with error {con_res}")
+                                    emsg.append(f"🔴 Unable to set recipe {recipe} with error {return_code}")
                     except Exception as e:
-                        emsg = f"Light engine connection check failed: {e}"
-                        self.lg.warning(emsg)
-                        logging.exception(emsg)
-                    finally:
-                        if hasattr(le, "disconnect"):
-                            le.disconnect()
+                        emsg.append(f"🔴 Solar sim comms failure: {e}")
+                    else:  # no hard error, check the connection and disconnection status numbers
+                        if conn_status < 0:  # check for unclean connection
+                            emsg.append(f"🔴 Unable to complete connection to solar sim: {conn_status=}")
+                        if ss.conn_status != -80:  # check for unclean disconnection
+                            emsg.append(f"🔴 Unclean disconnection from solar sim")
+
+                    # notify user
+                    if len(emsg) > 0:
+                        for badmsg in emsg:
+                            self.lg.warning(badmsg)
+                            logging.exception(badmsg)
+                    else:
+                        self.lg.info(f"🟢 Solarsim comms working correctly. Identifed as: {ssidn}")
 
             self.taskq.task_done()
 

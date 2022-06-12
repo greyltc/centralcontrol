@@ -5,14 +5,10 @@ from __future__ import division
 import time
 from collections import deque
 
-import sys
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 # this boilerplate is required to allow this module to be run directly as a script
 if __name__ == "__main__" and __package__ in [None, ""]:
@@ -111,24 +107,9 @@ class Us(object):
         self.stage_firmwares = {}
 
         # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
-
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug("Initialized.")
 
     # wrapper for handling firmware comms that should return ints
     def _pwrapint(self, cmd):

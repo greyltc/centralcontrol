@@ -5,14 +5,10 @@ import json
 import pathlib
 import numpy as np
 
-import sys
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 class Xdac(object):
@@ -35,23 +31,7 @@ class Xdac(object):
     cal_data = None
 
     def __init__(self, context, ip="169.254.38.99"):
-        # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
-
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.req_socket = context.socket(zmq.REQ)
         self.req_socket.connect(f"tcp://{ip}:{self.req_port}")
@@ -71,7 +51,7 @@ class Xdac(object):
                     raise ValueError(f"{self.cal_file_name} has incorrect json format")
             self.cal_data = cal_data
 
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug(f"Initialized.")
 
     # setChannel: set voltage of each channel
     # setChannelVoltage(ch, voltage (in V))
@@ -81,10 +61,10 @@ class Xdac(object):
 
         if voltageVal > self.max_voltage:
             voltageVal = self.max_voltage
-            self.lg.warn("Voltage setpoint {voltageVal} is too high. Clipping to upper limit {self.max_voltage}")
+            self.lg.warning("Voltage setpoint {voltageVal} is too high. Clipping to upper limit {self.max_voltage}")
         elif voltageVal < self.min_voltage:
             voltageVal = self.min_voltage
-            self.lg.warn("Voltage setpoint {voltageVal} is too low. Clipping to lower limit {self.min_voltage}")
+            self.lg.warning("Voltage setpoint {voltageVal} is too low. Clipping to lower limit {self.min_voltage}")
         # Send Request to XDAC (Server)
         msgV = "SETV:" + ("%d" % channel) + ":" + ("%.3f" % voltageVal)
         self.req_socket.send(msgV.encode("utf-8"))
@@ -100,10 +80,10 @@ class Xdac(object):
         # Set threeshold fo Current and Voltage
         if currentVal > self.max_current:
             currentVal = self.max_current
-            self.lg.warn("Current setpoint {currentVal} is too high. Clipping to upper limit {self.min_current}")
+            self.lg.warning("Current setpoint {currentVal} is too high. Clipping to upper limit {self.min_current}")
         elif currentVal < self.min_current:
             currentVal = self.min_current
-            self.lg.warn("Current setpoint {currentVal} is too low. Clipping to lower limit {self.min_current}")
+            self.lg.warning("Current setpoint {currentVal} is too low. Clipping to lower limit {self.min_current}")
         # Send Request to XDAC (Server)
         msgC = "SETC:" + ("%d" % channel) + ":" + ("%.3f" % currentVal)
         self.req_socket.send(msgC.encode("utf-8"))

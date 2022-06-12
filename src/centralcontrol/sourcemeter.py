@@ -1,38 +1,34 @@
-import logging
-
 import typing
 from centralcontrol.virt import smu as vsmu
 from centralcontrol.k2400 import k2400
+
+try:
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
     """sourcemeter class factory
     give it a smu configuration dictionary and it will return the correct smu class to use
-    also handles disabled smus by reutrning None
     """
-    logname = __name__
-    if isinstance(__package__, str) and __package__ in __name__:
-        # log at the package level if the imports are all correct
-        logname = __package__
-    lg = logging.getLogger(logname)
-    lg.setLevel(logging.DEBUG)
-
-    if "type" in cfg:
-        smu_type = cfg["type"]
+    lg = getLogger(__name__)  # setup logging
+    if "kind" in cfg:
+        kind = cfg["kind"]
     else:
         lg.info("Assuming k24xx type smu")
-        smu_type = "k24xx"
+        kind = "k24xx"
 
-    ret = vsmu  # the default is to make a virtual smu type
+    base = vsmu  # the default is to make a virtual smu type
     if ("virtual" in cfg) and (cfg["virtual"] is False):
-        if smu_type == "k24xx":
-            ret = k2400  # hardware k2400 selected
+        if kind == "k24xx":
+            base = k2400  # hardware k2400 selected
 
     if ("enabled" in cfg) and (cfg["enabled"] is False):
-        ret = DisabledSMU  # disabled SMU selected
+        base = DisabledSMU  # disabled SMU selected
 
     name = SourcemeterAPI.__name__
-    bases = (SourcemeterAPI, ret)
+    bases = (SourcemeterAPI, base)
     # tdict = ret.__dict__.copy()
     tdict = {}
     return type(name, bases, tdict)  # return the configured smu class overlayed with our API
@@ -41,17 +37,44 @@ def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
 class SourcemeterAPI(object):
     """unified sourcemeter programming interface"""
 
-    idn: str
-    quiet: bool
     device_grouping: typing.List[typing.List[str]]
+    conn_status: int = -99  # connection status
+    idn: str
 
     def __init__(self, **kwargs) -> None:
         """just sets class variables"""
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+
         super(SourcemeterAPI, self).__init__(**kwargs)
+        return None
+
+    def __enter__(self) -> "SourcemeterAPI":
+        """so that the smu can enter a context"""
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        """so that the smu can leave a context cleanly"""
+        self.disconnect()
+        return False
 
     def connect(self) -> None:
         """connects to and initalizes hardware"""
-        return super(SourcemeterAPI, self).connect()
+        if self.conn_status < 0:
+            self.conn_status = super(SourcemeterAPI, self).connect()  # call the underlying connect method
+            if self.conn_status < 0:
+                self.lg.debug(f"Connection attempt failed with status {self.conn_status}")
+        return None
+
+    def disconnect(self) -> None:
+        """disconnect and clean up"""
+        try:
+            super(SourcemeterAPI, self).disconnect()  # call the underlying disconnect method
+            self.conn_status = -80  # clean disconnection
+        except Exception as e:
+            self.conn_status = -89  # unclean disconnection
+            self.lg.debug(f"Unclean disconnect: {e}")
+        return None
 
     def which_smu(self, devaddr: str) -> int:
         """given a device address, returns the index of the SMU connected to it
@@ -79,6 +102,8 @@ class DisabledSMU(object):
             return object.__getattribute__(self, name)
         elif name == "idn":
             return "disabled"  # handle idn parameter check
+        elif name == "connect":
+            return lambda *args, **kwargs: 0  # connect() always returns zero
         else:
             return lambda *args, **kwargs: None  # all function calls return with none
 

@@ -14,14 +14,10 @@ from .us import Us
 import json
 from urllib.parse import urlparse, parse_qs
 
-import sys
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 class motion:
@@ -53,22 +49,7 @@ class motion:
         sets up communication to motion controller
         """
         # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
-
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
         parsed = None
         qparsed = None
@@ -146,7 +127,7 @@ class motion:
 
             for ax in self.axes:
                 if self.actual_lengths[ax] <= 0:
-                    self.lg.warn(f"Warning: axis {ax} is not ready for motion. Please press the 'Recalibrate' button (ignore this message if you just did that).")
+                    self.lg.warning(f"Warning: axis {ax} is not ready for motion. Please press the 'Recalibrate' button (ignore this message if you just did that).")
 
         self.lg.debug(f"motion connected")
         return result

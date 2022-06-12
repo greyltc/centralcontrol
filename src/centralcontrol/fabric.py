@@ -8,21 +8,13 @@ import threading
 import re
 import time
 import sys
-from pathlib import Path
-import inspect
 
-# this boilerplate code allows this module to be run directly as a script
-if (__name__ == "__main__") and (__package__ in [None, ""]):
-    __package__ = "centralcontrol"
-    # get the dir that holds __package__ on the front of the search path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from . import virt
-from .k2400 import k2400
-from .pcb import Pcb
-from .motion import motion
-from .mppt import mppt
-from .illumination import Illumination
+from centralcontrol import virt
+from centralcontrol.k2400 import k2400
+from centralcontrol.pcb import Pcb
+from centralcontrol.motion import motion
+from centralcontrol.mppt import mppt
+from centralcontrol.illumination import Illumination
 
 import sr830
 import virtual_sr830
@@ -32,13 +24,10 @@ import dp800
 import virtual_dp800
 import eqe
 
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 class Fabric(object):
@@ -74,25 +63,8 @@ class Fabric(object):
         # print("Software revision: {:s}".format(self.software_revision))
         self.killer = killer
 
-        # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
-
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
-
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg.debug("Initialized.")
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
@@ -122,7 +94,7 @@ class Fabric(object):
 
         # enforce the global current limit
         if ret_val > self.current_limit:
-            self.lg.warn("Detected & denied an attempt to damage equipment through overcurrent")
+            self.lg.warning("Overcurrent protection kicked in")
             ret_val = self.current_limit
 
         return ret_val
@@ -344,7 +316,8 @@ class Fabric(object):
         else:
             self.motion_pcb = Pcb
 
-    def connect_instruments(self, visa_lib="@py", pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5], **kwargs):
+    # def connect_instruments(self, visa_lib="@py", pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, light_address=None, light_virt=False, light_recipe=None, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5], **kwargs):
+    def connect_instruments(self, visa_lib="@py", pcb_address=None, pcb_virt=False, motion_address=None, motion_virt=False, lia_address=None, lia_virt=False, lia_terminator="\r", lia_baud=9600, lia_output_interface=0, mono_address=None, mono_virt=False, mono_terminator="\r", mono_baud=9600, psu_address=None, psu_virt=False, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5], **kwargs):
         """Connect to instruments.
 
         If any instrument addresses are `None`, virtual (fake) instruments are
@@ -420,8 +393,8 @@ class Fabric(object):
         if (mono_address is not None) or (mono_virt == True):
             self._connect_monochromator(virtual=mono_virt, visa_lib=visa_lib, mono_address=mono_address, mono_terminator=mono_terminator, mono_baud=mono_baud)
 
-        if (light_address is not None) or (light_virt == True):
-            self._connect_solarsim(virtual=light_virt, light_address=light_address, light_recipe=light_recipe)
+        # if (light_address is not None) or (light_virt == True):
+        #    self._connect_solarsim(virtual=light_virt, light_address=light_address, light_recipe=light_recipe)
 
         if (psu_address is not None) or (psu_virt == True):
             self._connect_psu(virtual=psu_virt, visa_lib=visa_lib, psu_address=psu_address, psu_terminator=psu_terminator, psu_baud=psu_baud, psu_ocps=psu_ocps)

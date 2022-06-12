@@ -4,26 +4,25 @@ import xml.etree.cElementTree as ET
 import time
 import xml.etree as elT
 
-import sys
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 class Wavelabs(object):
-    """interface to the wavelabs LED solar simulator"""
+    """interface for the wavelabs LED solar simulator"""
 
+    idn: str
     iseq = 0  # sequence number for comms with wavelabs software
     def_relay_port = 3335
     def_direct_port = 3334
     spectrum_ms = 1002
     okay_message_codes = [0, -4001]
     retry_codes = [9997, 9998, 9999]  # response codes of these code types should result in a comms retry
-    default_recipe = "am1_5_1_sun"
+    active_recipe = None
+    active_intensity = 100
+    last_temps = (0.0, 0.0)
 
     class XMLHandler:
         """
@@ -81,37 +80,20 @@ class Wavelabs(object):
         def close(self):
             pass
 
-    def __init__(self, host="0.0.0.0", port=None, relay=False, connection_timeout=10, comms_timeout=1):
+    def __init__(self, kind="wavelabs", host="0.0.0.0", port=3334, connection_timeout=10, comms_timeout=1, active_recipe=None, intensity=100, **kwargs):
         """
-        sets up the wavelabs object
-        address is a string of the format:
-        wavelabs://listen_ip:listen_port (should probably be wavelabs://0.0.0.0:3334)
-        or
-        wavelabs-relay://host_ip:host_port (should probably be wavelabs-relay://localhost:3335)
+        sets up the wavelabs comms object
         timeouts are in seconds
         """
-        # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
-
-        self.relay = relay
+        if "relay" in kind:
+            self.relay = True
+        else:
+            self.relay = False
         self.host = host
         if port is None:
-            if relay == False:
+            if self.relay == False:
                 self.port = self.def_direct_port
             else:
                 self.port = self.def_relay_port
@@ -122,8 +104,10 @@ class Wavelabs(object):
         self.sock_file = None
         self.client_socket = None
         self.server_socket = None
+        self.active_recipe = active_recipe
+        self.active_intensity = intensity
 
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug("Initialized.")
 
     def disconnect(self):
         """do our best to clean up and tear down connection"""
@@ -262,6 +246,18 @@ class Wavelabs(object):
         if ret == 0:
             self.client_socket.settimeout(comms_timeout)
             self.sock_file = self.client_socket.makefile(mode="rwb")
+            if self.relay:
+                self.idn = "wavelabs-relay"
+            else:
+                self.idn = "wavelabs"
+            if self.active_recipe is not None:
+                ret = self.activate_recipe(self, recipe_name=None)
+                if ret == 0:
+                    ret = self.set_intensity(self.active_intensity)
+                    if ret != 0:
+                        self.lg.debug("Failed to set recipe intensity in connect()")
+                else:
+                    self.lg.debug("Failed to activate recipe in connect()")
         else:
             self.lg.debug("Wavelabs.connect() failed, cleaning up.")
             self.disconnect()
@@ -311,14 +307,21 @@ class Wavelabs(object):
     def activate_recipe(self, recipe_name=None):
         """activate a solar sim recipe by name"""
         if recipe_name is None:
-            recipe_name = self.default_recipe
-        root = ET.Element("WLRC")
-        ET.SubElement(root, "ActivateRecipe", iSeq=str(self.iseq), sRecipe=recipe_name)
-        self.iseq = self.iseq + 1
-        response = self.query(root)
-        if response.error != 0:
-            self.lg.debug(f"Wavelabs recipe {recipe_name} could not be activated, check that it exists")
-        return response.error
+            recipe_name = self.active_recipe
+        if recipe_name is not None:
+            root = ET.Element("WLRC")
+            ET.SubElement(root, "ActivateRecipe", iSeq=str(self.iseq), sRecipe=recipe_name)
+            self.iseq = self.iseq + 1
+            response = self.query(root)
+            if response.error != 0:
+                self.lg.debug(f"Wavelabs recipe {recipe_name} could not be activated, check that it exists")
+            else:
+                self.active_recipe = recipe_name
+            ret = response.error
+        else:
+            self.lg.debug(f"No recipe given to activate")
+            ret = -1
+        return ret
 
     def get_run_status(self):
         """get run status"""
@@ -329,7 +332,7 @@ class Wavelabs(object):
         response = self.query(root)
         if response.error != 0:
             self.lg.debug(f"Trouble with Wavelabs comms with {element_name}")
-            ret = None
+            ret = response.error
         else:
             ret = response.status
         return ret
@@ -388,7 +391,7 @@ class Wavelabs(object):
 
     def getRecipeParam(self, recipe_name=None, step=1, device="Light", param="Intensity"):
         if recipe_name is None:
-            recipe_name = self.default_recipe
+            recipe_name = self.active_recipe
         ret = None
         root = ET.Element("WLRC")
         ET.SubElement(root, "GetRecipeParam", iSeq=str(self.iseq), sRecipe=recipe_name, iStep=str(step), sDevice=device, sParam=param)
@@ -444,7 +447,7 @@ class Wavelabs(object):
 
     def setRecipeParam(self, recipe_name=None, step=1, device="Light", param="Intensity", value=100.0):
         if recipe_name is None:
-            recipe_name = self.default_recipe
+            recipe_name = self.active_recipe
         root = ET.Element("WLRC")
         ET.SubElement(root, "SetRecipeParam", iSeq=str(self.iseq), sRecipe=recipe_name, iStep=str(step), sDevice=device, sParam=param, sVal=str(value))
         self.iseq = self.iseq + 1
@@ -492,7 +495,10 @@ class Wavelabs(object):
         return self.getRecipeParam(param="Intensity")
 
     def set_intensity(self, intensity):
-        return self.setRecipeParam(param="Intensity", value=int(intensity))
+        ret = self.setRecipeParam(param="Intensity", value=int(intensity))
+        if ret == 0:
+            self.active_intensity = intensity
+        return ret
 
     def get_ir_led_temp(self, run_ID=None):
         str_tmp = self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID)
@@ -501,6 +507,16 @@ class Wavelabs(object):
     def get_vis_led_temp(self, run_ID=None):
         str_tmp = self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID)
         return float(str_tmp)
+
+    def get_temperatures(self):
+        """
+        returns a list of light engine temperature measurements
+        """
+        temp = []
+        temp.append(self.get_vis_led_temp())
+        temp.append(self.get_ir_led_temp())
+        self.last_temps = temp
+        return temp
 
     def get_spectrum(self):
         """ "assumes a recipe has been set"""
@@ -524,6 +540,8 @@ class Wavelabs(object):
                                     spectrum = spectra[0]
                                     x = spectrum["data"]["Wavelenght"]
                                     y = spectrum["data"]["Irradiance"]
+                                    temp = self.get_temperatures()  # mostly to record it in the logs
+                                    self.lg.debug(f"get_spectrum() complete with {temp=}")
         finally:
             if old_duration is not None:
                 self.setRecipeParam(param="Duration", value=int(old_duration))
@@ -537,8 +555,8 @@ if __name__ == "__main__":
     do_disco = False
     gui_plot_spectrum = False
 
-    wl = Wavelabs(host="0.0.0.0", port=3334, default_recipe="AM1.5G", relay=False)  # for direct connection
-    # wl = Wavelabs(host='127.0.0.1', port=3335, relay=True, default_recipe='am1_5_1_sun')  #  for comms via relay
+    wl = Wavelabs(host="0.0.0.0", port=3334, active_recipe="AM1.5G", relay=False)  # for direct connection
+    # wl = Wavelabs(host='127.0.0.1', port=3335, relay=True, active_recipe='am1_5_1_sun')  #  for comms via relay
     print("Connecting to light engine...")
     wl.connect()
     status = wl.get_run_status()

@@ -18,9 +18,9 @@ import uuid
 import humanize
 import datetime
 import numpy as np
+import contextlib
 
-from centralcontrol import mppt
-from centralcontrol import sourcemeter
+from centralcontrol import illumination, mppt, sourcemeter
 
 import logging
 import typing
@@ -135,7 +135,7 @@ class MQTTServer(object):
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_disconnect = self.on_disconnect
 
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug("Initialized.")
 
     def start_process(self, target, args):
         """Start a new process to perform an action if no process is running.
@@ -153,7 +153,7 @@ class MQTTServer(object):
             self.process.start()
             self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Busy"), "qos": 2, "retain": True})
         else:
-            self.lg.warn("Measurement server busy!")
+            self.lg.warning("Measurement server busy!")
 
     def stop_process(self):
         """Stop a running process."""
@@ -171,7 +171,7 @@ class MQTTServer(object):
             self.lg.info("Request to stop completed!")
             self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
         else:
-            self.lg.warn("Nothing to stop. Measurement server is idle.")
+            self.lg.warning("Nothing to stop. Measurement server is idle.")
 
     def _calibrate_eqe(self, request):
         """Measure the EQE reference photodiode.
@@ -199,7 +199,7 @@ class MQTTServer(object):
                     pixel_queue = self._build_q(request, experiment="eqe")
 
                     if len(pixel_queue) > 1:
-                        self.lg.warn(f"Only one diode can be calibrated at a time, but {len(pixel_queue)} were given. Only the first diode will be measured.")
+                        self.lg.warning(f"Only one diode can be calibrated at a time, but {len(pixel_queue)} were given. Only the first diode will be measured.")
 
                         # only take first pixel for a calibration
                         pixel_dict = pixel_queue[0]
@@ -476,7 +476,7 @@ class MQTTServer(object):
             svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
         return svt
 
-    def do_iv(self, mnt, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
+    def do_iv(self, mnt, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
         """parallelizable I-V tasks for use in threads"""
         measurement = mnt
         mppt.current_compliance = compliance_i
@@ -513,11 +513,10 @@ class MQTTServer(object):
                     kind = "vt_measurement"
                     dh.kind = kind
                     self._clear_plot(kind)
-                svtb = self.suns_voc(args["i_dwell"], measurement.le, sm, intensities, dh)  # do the experiment
+                svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
                 data += svtb  # keep the data
 
-            if hasattr(measurement, "le"):
-                measurement.le.on = True  # Voc needs light
+            ss.on = True  # Voc needs light
             self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
             if calibration == False:
                 kind = "vt_measurement"
@@ -539,7 +538,7 @@ class MQTTServer(object):
                     dh.kind = kind
                     self._clear_plot(kind)
                 intensities_reversed = intensities[::-1]
-                svta = self.suns_voc(args["i_dwell"], measurement.le, sm, intensities_reversed, dh)  # do the experiment
+                svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
                 data += svta
                 sm.intensity = 1  # reset the simulated device's intensity
         else:
@@ -553,13 +552,11 @@ class MQTTServer(object):
             self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
             # sweeps may or may not need light
             if sweep == "dark":
-                if hasattr(measurement, "le"):
-                    measurement.le.on = False
-                    sm.dark = True
+                ss.on = False
+                sm.dark = True
             else:
-                if hasattr(measurement, "le"):
-                    measurement.le.on = True
-                    sm.dark = False
+                ss.on = True
+                sm.dark = False
 
             if calibration == False:
                 kind = "iv_measurement/1"
@@ -620,8 +617,7 @@ class MQTTServer(object):
                 return data
             self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
             # mppt needs light
-            if hasattr(measurement, "le"):
-                measurement.le.on = True
+            ss.on = True
 
             if calibration == False:
                 kind = "mppt_measurement"
@@ -663,8 +659,7 @@ class MQTTServer(object):
                 return data
             self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
             # jsc needs light
-            if hasattr(measurement, "le"):
-                measurement.le.on = True
+            ss.on = True
 
             if calibration == False:
                 kind = "it_measurement"
@@ -682,6 +677,24 @@ class MQTTServer(object):
             data += it
 
             return data
+
+    def send_spectrum(self, ss):
+        try:
+            intensity_setpoint = ss.get_intensity()
+            wls, counts = ss.get_spectrum()
+            data = [[wl, count] for wl, count in zip(wls, counts)]
+            spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
+            self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
+            if intensity_setpoint != 100:
+                # now do it again to make sure we have a record of the 100% baseline
+                ss.set_intensity(100)
+                wls, counts = ss.get_spectrum()
+                data = [[wl, count] for wl, count in zip(wls, counts)]
+                spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
+                self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
+                ss.set_intensity(intensity_setpoint)
+        except Exception as e:
+            self.lg.debug("Failure to collect spectrum data: {e}")
 
     def _ivt(self, run_queue, request, measurement, calibration=False, rtd=False):
         """Run through pixel queue of i-v-t measurements.
@@ -731,9 +744,9 @@ class MQTTServer(object):
         motion_address = None
         if ("visa" in config) and ("visa_lib" in config["visa"]):
             ci_args["visa_lib"] = config["visa"]["visa_lib"]
-        if "smu" in config:  # enabled is checked per smu in connect
-            ci_args["smus"] = config["smu"]
-            ci_args["sweep_stats"] = config["smu"]
+        # if "smu" in config:  # enabled is checked per smu in connect
+        #     ci_args["smus"] = config["smu"]
+        #     ci_args["sweep_stats"] = config["smu"]
         if "controller" in config:
             if ("enabled" not in config["controller"]) or (config["controller"]["enabled"] != False):
                 if "virtual" in config["controller"]:
@@ -750,14 +763,14 @@ class MQTTServer(object):
                 if "uri" in config["stage"]:
                     ci_args["motion_address"] = config["stage"]["uri"]
                     motion_address = config["stage"]["uri"]
-        if "solarsim" in config:
-            if ("enabled" not in config["solarsim"]) or (config["solarsim"]["enabled"] != False):
-                if "virtual" in config["solarsim"]:
-                    ci_args["light_virt"] = config["solarsim"]["virtual"]
-                if "address" in config["solarsim"]:
-                    ci_args["light_address"] = config["solarsim"]["address"]
-        if "light_recipe" in args:
-            ci_args["light_recipe"] = args["light_recipe"]
+        # if "solarsim" in config:
+        #     if ("enabled" not in config["solarsim"]) or (config["solarsim"]["enabled"] != False):
+        #         if "virtual" in config["solarsim"]:
+        #             ci_args["light_virt"] = config["solarsim"]["virtual"]
+        #         if "address" in config["solarsim"]:
+        #             ci_args["light_address"] = config["solarsim"]["address"]
+        # if "light_recipe" in args:
+        #     ci_args["light_recipe"] = args["light_recipe"]
 
         # check gui overrides
         if ("enable_stage" in args) and (args["enable_stage"] == False):
@@ -767,214 +780,194 @@ class MQTTServer(object):
                 del ci_args["motion_address"]
             if "motion_virt" in ci_args:
                 del ci_args["motion_virt"]
-        if ("enable_solarsim" in args) and (args["enable_solarsim"] == False):
-            if "light_virt" in ci_args:
-                del ci_args["light_virt"]
-            if "light_address" in ci_args:
-                del ci_args["light_address"]
+        # if ("enable_solarsim" in args) and (args["enable_solarsim"] == False):
+        #     if "light_virt" in ci_args:
+        #         del ci_args["light_virt"]
+        #     if "light_address" in ci_args:
+        #         del ci_args["light_address"]
 
-        measurement.connect_instruments(**ci_args)
-        smus = {}
-        mppts = {}
-        for i, smucfg in enumerate(request["config"]["smu"]):
-            smc = sourcemeter.factory(smucfg)  # use the class factory to get a sourcemeter class
-            sm = smc(**smucfg)  # initalize the smu class
-            sm.connect()  # set it up
-            sm.killer = self.killer  # register the kill signal
-            if "print_sweep_deets" in request["args"]:
-                sm.print_sweep_deets = request["args"]["print_sweep_deets"]
-            smus[i] = sm  # store it for use later
-            mppts[i] = mppt.mppt(sm, killer=self.killer)
+        measurement.connect_instruments(**ci_args)  # connect some instruments
 
-        def send_spectrum(intensity):
-            if hasattr(measurement.le, "get_spectrum"):
-                wls, counts = measurement.le.get_spectrum()
-                data = [[wl, count] for wl, count in zip(wls, counts)]
-                spectrum_dict = {"data": data, "intensity": intensity, "timestamp": time.time()}
-                self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
+        smucfgs = request["config"]["smu"]  # the smu configs
+        for smucfg in smucfgs:
+            smucfg["print_speep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
+        sscfg = request["config"]["solarsim"]  # the solar sim config
+        sscfg["active_recipe"] = request["args"]["light_recipe"]  # throw in recipe
+        sscfg["intensity"] = request["args"]["light_recipe_int"]  # throw in configured intensity
 
-        # take baseline spectrum if we should and we can
-        if hasattr(measurement, "le"):
-            intensity = 100
-            measurement.le.set_intensity(intensity)
-            send_spectrum(intensity)
+        with contextlib.ExitStack() as stack:  # big context manager
+            # register the equipment comms instances with the ExitStack for magic cleanup/disconnect
+            smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
+            ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
+            for sm in smus:
+                sm.killer = self.killer  # register the kill signal
+            mppts = [mppt.mppt(sm, killer=self.killer) for sm in smus]  # spin up all the max power point trackers
 
-            if "light_recipe_int" in args:
-                run_intensity = int(args["light_recipe_int"])
-                if run_intensity != 100:  # check for non-standard intensity
-                    measurement.le.set_intensity(run_intensity)
-                    send_spectrum(run_intensity)  # do another sepctrum measurement at this new intensity
+            self.send_spectrum(ss)  # record spectrum data
 
-            # check & update the light state
-            measurement.le.get_run_status()
-
-        fake_pcb = measurement.fake_pcb
-        inner_pcb = measurement.fake_pcb
-        inner_init_args = {}
-        if gp_pcb_address is not None:
-            if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
-                inner_pcb = measurement.real_pcb
-                inner_init_args["timeout"] = 5
-                inner_init_args["address"] = gp_pcb_address
-                inner_init_args["expected_muxes"] = config["controller"]["expected_muxes"]
-        with fake_pcb() as fake_p:
-            with inner_pcb(**inner_init_args) as inner_p:
-                if gp_pcb_is_fake == True:
-                    gp_pcb = fake_p
-                else:
-                    gp_pcb = inner_p
-
-                if motion_address is not None:
-                    if motion_pcb_is_fake == gp_pcb_is_fake:
-                        mo = measurement.motion(motion_address, pcb_object=gp_pcb)
-                    elif motion_pcb_is_fake == True:
-                        mo = measurement.motion(motion_address, pcb_object=fake_p)
+            fake_pcb = measurement.fake_pcb
+            inner_pcb = measurement.fake_pcb
+            inner_init_args = {}
+            if gp_pcb_address is not None:
+                if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
+                    inner_pcb = measurement.real_pcb
+                    inner_init_args["timeout"] = 5
+                    inner_init_args["address"] = gp_pcb_address
+                    inner_init_args["expected_muxes"] = config["controller"]["expected_muxes"]
+            with fake_pcb() as fake_p:
+                with inner_pcb(**inner_init_args) as inner_p:
+                    if gp_pcb_is_fake == True:
+                        gp_pcb = fake_p
                     else:
-                        mo = measurement.motion(motion_address, pcb_object=inner_p)
-                    mo.connect()
-                else:
-                    mo = None
+                        gp_pcb = inner_p
 
-                if ("enable_eqe" in args) and (args["enable_eqe"] == True):  # we don't need to switch the relay if there is no EQE
-                    # set the master experiment relay
-                    resp = measurement.set_experiment_relay("iv", gp_pcb)
-
-                    if resp != 0:
-                        self.lg.error(f"Experiment relay error: {resp}! Aborting run")
-                        return
-
-                # figure out what the sweeps will be like
-                sweeps = []
-                if args["sweep_check"] == True:
-                    # detmine type of sweeps to perform
-                    s = args["lit_sweep"]
-                    if s == 0:
-                        sweeps = ["dark", "light"]
-                    elif s == 1:
-                        sweeps = ["light", "dark"]
-                    elif s == 2:
-                        sweeps = ["dark"]
-                    elif s == 3:
-                        sweeps = ["light"]
-
-                # set NPLC
-                if args["nplc"] != -1:
-                    for key, val in smus.items():
-                        val.setNPLC(args["nplc"])
-
-                # deselect all pixels
-                measurement.select_pixel(mux_string="s", pcb=gp_pcb)
-
-                if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
-                    # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
-                    unwrapped_run_queue = collections.deque()
-                    for thing in run_queue:
-                        for key, val in thing.items():
-                            unwrapped_run_queue.append({key: val})
-                    run_queue = unwrapped_run_queue  # overwrite the run_queue with it's unwrapped version
-
-                start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
-                if args["cycles"] != 0:
-                    run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
-                    p_total = len(run_queue)
-                else:
-                    p_total = float("inf")
-                remaining = p_total
-                n_done = 0
-                t0 = time.time()
-
-                while (remaining > 0) and (not self.killer.is_set()):
-                    q_item = run_queue.popleft()
-
-                    dt = time.time() - t0
-                    if (n_done > 0) and (args["cycles"] != 0):
-                        tpp = dt / n_done  # recalc time per pixel
-                        finishtime = time.time() + tpp * remaining
-                        finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                        human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                        fraction = n_done / p_total
-                        text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                        progress_msg = {"text": text, "fraction": fraction}
-                        self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
-
-                    n_parallel = len(q_item)  # how many pixels this group holds
-                    dev_labels = [val["device_label"] for key, val in q_item.items()]
-                    print_label = " + ".join(dev_labels)
-                    theres = np.array([val["pos"] for key, val in q_item.items()])
-                    self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(dev_labels), "qos": 2, "retain": True})
-                    if n_parallel > 1:
-                        there = tuple(theres.mean(0))  # the average location of the group
+                    if motion_address is not None:
+                        if motion_pcb_is_fake == gp_pcb_is_fake:
+                            mo = measurement.motion(motion_address, pcb_object=gp_pcb)
+                        elif motion_pcb_is_fake == True:
+                            mo = measurement.motion(motion_address, pcb_object=fake_p)
+                        else:
+                            mo = measurement.motion(motion_address, pcb_object=inner_p)
+                        mo.connect()
                     else:
-                        there = theres[0]
+                        mo = None
 
-                    self.lg.info(f"[{n_done+1}/{p_total}] Operating on {print_label}")
+                    if ("enable_eqe" in args) and (args["enable_eqe"] == True):  # we don't need to switch the relay if there is no EQE
+                        # set the master experiment relay
+                        resp = measurement.set_experiment_relay("iv", gp_pcb)
 
-                    # set up light source voting/synchronization (if any)
-                    if hasattr(measurement, "le"):
-                        measurement.le.n_sync = n_parallel
-                        measurement.le.n_sync2 = n_parallel
+                        if resp != 0:
+                            self.lg.error(f"Experiment relay error: {resp}! Aborting run")
+                            return
 
-                    # move stage
-                    if mo is not None:
-                        if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
-                            # force light off for motion if configured
-                            if hasattr(measurement, "le") and ("off_during_motion" in config["solarsim"]):
-                                if config["solarsim"]["off_during_motion"] == True:
-                                    measurement.le.set_state(force_state=False)
-                            mo.goto(there)
+                    # figure out what the sweeps will be like
+                    sweeps = []
+                    if args["sweep_check"] == True:
+                        # detmine type of sweeps to perform
+                        s = args["lit_sweep"]
+                        if s == 0:
+                            sweeps = ["dark", "light"]
+                        elif s == 1:
+                            sweeps = ["light", "dark"]
+                        elif s == 2:
+                            sweeps = ["dark"]
+                        elif s == 3:
+                            sweeps = ["light"]
 
-                    # select pixel(s)
-                    pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
-                    measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
+                    # set NPLC
+                    if args["nplc"] != -1:
+                        [sm.setNPLC(args["nplc"]) for sm in smus]
 
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
-                        futures = {}
+                    # deselect all pixels
+                    measurement.select_pixel(mux_string="s", pcb=gp_pcb)
 
-                        for smu_index, pixel in q_item.items():
-                            # setup data handler
-                            if calibration == False:
-                                dh = DataHandler(pixel=pixel, outq=self.outq)
-                            else:
-                                dh = self.Dummy()
-                                dh.handle_data = lambda x: None
+                    if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
+                        # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
+                        unwrapped_run_queue = collections.deque()
+                        for thing in run_queue:
+                            for key, val in thing.items():
+                                unwrapped_run_queue.append({key: val})
+                        run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
 
-                            # get or estimate compliance current
-                            compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
+                    start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
+                    if args["cycles"] != 0:
+                        run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
+                        p_total = len(run_queue)
+                    else:
+                        p_total = float("inf")
+                    remaining = p_total
+                    n_done = 0
+                    t0 = time.time()
 
-                            smus[smu_index].area = pixel["area"]  # set virtual smu scaling
+                    while (remaining > 0) and (not self.killer.is_set()):
+                        q_item = run_queue.popleft()
 
-                            # submit for processing
-                            futures[smu_index] = executor.submit(self.do_iv, measurement, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
+                        dt = time.time() - t0
+                        if (n_done > 0) and (args["cycles"] != 0):
+                            tpp = dt / n_done  # recalc time per pixel
+                            finishtime = time.time() + tpp * remaining
+                            finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+                            human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                            fraction = n_done / p_total
+                            text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
+                            progress_msg = {"text": text, "fraction": fraction}
+                            self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
 
-                        # collect the datas!
-                        datas = {}
-                        for smu_index, future in futures.items():
-                            data = future.result()
-                            smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
-                            measurement.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
-                            datas[smu_index] = data
-                            if calibration == True:
-                                diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{q_item[smu_index]['label']}_device_{q_item[smu_index]['pixel']}"}
-                                if rtd == True:
-                                    self.lg.debug("RTD cal")
-                                    self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
+                        n_parallel = len(q_item)  # how many pixels this group holds
+                        dev_labels = [val["device_label"] for key, val in q_item.items()]
+                        print_label = " + ".join(dev_labels)
+                        theres = np.array([val["pos"] for key, val in q_item.items()])
+                        self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(dev_labels), "qos": 2, "retain": True})
+                        if n_parallel > 1:
+                            there = tuple(theres.mean(0))  # the average location of the group
+                        else:
+                            there = theres[0]
+
+                        self.lg.info(f"[{n_done+1}/{p_total}] Operating on {print_label}")
+
+                        # set up light source voting/synchronization (if any)
+                        ss.n_sync = n_parallel
+
+                        # move stage
+                        if mo is not None:
+                            if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
+                                # force light off for motion if configured
+                                if "off_during_motion" in config["solarsim"]:
+                                    if config["solarsim"]["off_during_motion"] is True:
+                                        ss.apply_intensity(0)
+                                mo.goto(there)
+
+                        # select pixel(s)
+                        pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
+                        measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
+
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
+                            futures = {}
+
+                            for smu_index, pixel in q_item.items():
+                                # setup data handler
+                                if calibration == False:
+                                    dh = DataHandler(pixel=pixel, outq=self.outq)
                                 else:
-                                    self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
+                                    dh = self.Dummy()
+                                    dh.handle_data = lambda x: None
 
-                    n_done += 1
-                    remaining = len(run_queue)
-                    if (remaining == 0) and (args["cycles"] == 0):
-                        run_queue = start_q.copy()
+                                # get or estimate compliance current
+                                compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
+
+                                smus[smu_index].area = pixel["area"]  # set virtual smu scaling
+
+                                # submit for processing
+                                futures[smu_index] = executor.submit(self.do_iv, measurement, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
+
+                            # collect the datas!
+                            datas = {}
+                            for smu_index, future in futures.items():
+                                data = future.result()
+                                smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
+                                measurement.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
+                                datas[smu_index] = data
+                                if calibration == True:
+                                    diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{q_item[smu_index]['label']}_device_{q_item[smu_index]['pixel']}"}
+                                    if rtd == True:
+                                        self.lg.debug("RTD cal")
+                                        self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
+                                    else:
+                                        self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
+
+                        n_done += 1
                         remaining = len(run_queue)
-                        # refresh the deque to loop forever
+                        if (remaining == 0) and (args["cycles"] == 0):
+                            run_queue = start_q.copy()
+                            remaining = len(run_queue)
+                            # refresh the deque to loop forever
 
-                progress_msg = {"text": "Done!", "fraction": 1}
-                self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
-                self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps([]), "qos": 2, "retain": True})
+                    progress_msg = {"text": "Done!", "fraction": 1}
+                    self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+                    self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps([]), "qos": 2, "retain": True})
 
-        # don't leave the light on!
-        if hasattr(measurement, "le"):
-            measurement.le.set_state(force_state=False)
+            # don't leave the light on!
+            ss.apply_intensity(0)
 
     def _eqe(self, pixel_queue, request, measurement, calibration=False):
         """Run through pixel queue of EQE measurements.
@@ -1101,7 +1094,7 @@ class MQTTServer(object):
                     # function so need to make sure "user" is used under these conditions
                     if ((auto_gain_method := config["lia"]["auto_gain_method"]) == "instr") and (measurement.lia.time_constants[args["eqe_int"]] > 1):
                         auto_gain_method = "user"
-                        self.lg.warn("Instrument autogain cannot be used when time constant > 1s. 'user' autogain setting will be used instead.")
+                        self.lg.warning("Instrument autogain cannot be used when time constant > 1s. 'user' autogain setting will be used instead.")
 
                     # determine how live measurement data will be handled
                     if calibration == True:

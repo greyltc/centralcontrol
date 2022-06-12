@@ -5,13 +5,10 @@ import time
 import pyvisa
 import threading
 
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 class k2400(object):
@@ -30,26 +27,10 @@ class k2400(object):
     default_comms_timeout = 50000  # in ms
     print_sweep_deets: bool = False  # false uses debug logging level, true logs sweep stats at info level
 
-    def __init__(self, visa_lib="@py", scan=False, address_string=None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), **kwargs):
+    def __init__(self, visa_lib="@py", scan=False, address_string=None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
         """just set class variables here"""
 
-        # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
-
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.killer = killer
         self.quiet = quiet
@@ -60,10 +41,9 @@ class k2400(object):
         self.front = front
         self.two_wire = two_wire
         self.scan = scan
-        if "print_sweep_deets" in kwargs:
-            self.print_sweep_deets = kwargs["print_sweep_deets"]
+        self.print_sweep_deets = print_sweep_deets
 
-        self.lg.debug(f"{__name__} setup complete")
+        self.lg.debug("Initialized.")
 
     def connect(self):
         """attempt to connect to hardware and initialize it"""
@@ -75,9 +55,11 @@ class k2400(object):
         self.sm, self.ifc = self._getSourceMeter(self.rm)
         self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
 
-        self.lg.debug(f"{__name__} initialized")
+        self.lg.debug("Connected.")
 
-    def __del__(self):
+        return 0
+
+    def disconnect(self):
         try:
             self.sm.write(":abort")
         except:
@@ -369,9 +351,6 @@ class k2400(object):
                 self.lg.debug("Contact check option not installed")
         else:
             self.lg.debug("Contact check function requires 4-wire mode")
-
-    def disconnect(self):
-        self.__del__()
 
     def setWires(self, two_wire=False):
         if two_wire:
@@ -798,6 +777,6 @@ if __name__ == "__main__":
     # shut off the output
     k.outOn(False)
 
-    k.__del__()  # TODO: switch to context manager for proper cleanup
+    k.disconnect()  # TODO: switch to context manager for proper cleanup
 
     print(f"Total Time = {time.time()-start} seconds")

@@ -5,14 +5,10 @@ import socket
 import time
 import os
 
-import sys
-import logging
-
-# for logging directly to systemd journal if we can
 try:
-    import systemd.journal
-except ImportError:
-    pass
+    from centralcontrol.logstuff import get_logger as getLogger
+except:
+    from logging import getLogger
 
 
 class Pcb(object):
@@ -54,23 +50,7 @@ class Pcb(object):
     def __init__(self, address=None, timeout=comms_timeout, expected_muxes=[]):
         self.comms_timeout = timeout  # pcb has this many seconds to respond
 
-        # setup logging
-        self.lg = logging.getLogger(__name__)
-        self.lg.setLevel(logging.DEBUG)
-
-        if not self.lg.hasHandlers():
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
+        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
         if address is not None:
             addr_split = address.split(":")
@@ -83,7 +63,7 @@ class Pcb(object):
 
         self.expected_muxes = expected_muxes
 
-        self.lg.debug(f"{__name__} initialized.")
+        self.lg.debug("Initialized")
 
     def __enter__(self):
         self.connect()
