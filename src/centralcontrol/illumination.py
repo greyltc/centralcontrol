@@ -21,7 +21,7 @@ def factory(cfg: typing.Dict) -> typing.Type["LightAPI"]:
     if "kind" in cfg:
         kind = cfg["kind"]
     else:
-        lg.info("Assuming wavelabs type light")
+        lg.debug("Assuming wavelabs type light")
         kind = "wavelabs"
 
     base = FakeLight  # the default is to make a virtual light

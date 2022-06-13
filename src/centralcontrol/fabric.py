@@ -212,29 +212,29 @@ class Fabric(object):
 
         self._connected_instruments.append(self.mono)
 
-    def _connect_solarsim(self, virtual=False, light_address=None, light_recipe=None):
-        """Create solar simulator connection.
+    # def _connect_solarsim(self, virtual=False, light_address=None, light_recipe=None):
+    #     """Create solar simulator connection.
 
-        Parameters
-        ----------
-        dummy : bool
-            Choose whether or not to make all instruments virtual. Useful for testing
-            control logic.
-        visa_lib : str
-            PyVISA backend.
-        light_address : str
-            VISA resource name for the light engine. If `None` is given a virtual
-            instrument is created.
-        """
-        if virtual == True:
-            ill = virt.Illumination
-        else:
-            ill = Illumination
-        self.le = ill(address=light_address, connection_timeout=10, comms_timeout=1)
-        self.le.connect()
-        self.le.set_recipe(light_recipe)
+    #     Parameters
+    #     ----------
+    #     dummy : bool
+    #         Choose whether or not to make all instruments virtual. Useful for testing
+    #         control logic.
+    #     visa_lib : str
+    #         PyVISA backend.
+    #     light_address : str
+    #         VISA resource name for the light engine. If `None` is given a virtual
+    #         instrument is created.
+    #     """
+    #     if virtual == True:
+    #         ill = virt.Illumination
+    #     else:
+    #         ill = Illumination
+    #     self.le = ill(address=light_address, connection_timeout=10, comms_timeout=1)
+    #     self.le.connect()
+    #     self.le.set_recipe(light_recipe)
 
-        self._connected_instruments.append(self.le)
+    #     self._connected_instruments.append(self.le)
 
     def _connect_psu(self, virtual=False, visa_lib="@py", psu_address=None, psu_terminator="\r", psu_baud=9600, psu_ocps=[0.5, 0.5, 0.5]):
         """Create LED PSU connection.

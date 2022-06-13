@@ -16,7 +16,7 @@ def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
     if "kind" in cfg:
         kind = cfg["kind"]
     else:
-        lg.info("Assuming k24xx type smu")
+        lg.debug("Assuming k24xx type smu")
         kind = "k24xx"
 
     base = vsmu  # the default is to make a virtual smu type
