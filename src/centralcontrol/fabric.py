@@ -14,7 +14,6 @@ from centralcontrol.k2400 import k2400
 from centralcontrol.pcb import Pcb
 from centralcontrol.motion import motion
 from centralcontrol.mppt import mppt
-from centralcontrol.illumination import Illumination
 
 import sr830
 import virtual_sr830

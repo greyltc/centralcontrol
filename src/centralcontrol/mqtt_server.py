@@ -516,7 +516,7 @@ class MQTTServer(object):
                 svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
                 data += svtb  # keep the data
 
-            ss.on = True  # Voc needs light
+            ss.lit = True  # Voc needs light
             self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
             if calibration == False:
                 kind = "vt_measurement"
@@ -552,10 +552,10 @@ class MQTTServer(object):
             self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
             # sweeps may or may not need light
             if sweep == "dark":
-                ss.on = False
+                ss.lit = False
                 sm.dark = True
             else:
-                ss.on = True
+                ss.lit = True
                 sm.dark = False
 
             if calibration == False:
@@ -617,7 +617,7 @@ class MQTTServer(object):
                 return data
             self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
             # mppt needs light
-            ss.on = True
+            ss.lit = True
 
             if calibration == False:
                 kind = "mppt_measurement"
@@ -659,7 +659,7 @@ class MQTTServer(object):
                 return data
             self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
             # jsc needs light
-            ss.on = True
+            ss.lit = True
 
             if calibration == False:
                 kind = "it_measurement"
@@ -680,7 +680,7 @@ class MQTTServer(object):
 
     def send_spectrum(self, ss):
         try:
-            intensity_setpoint = ss.get_intensity()
+            intensity_setpoint = int(ss.get_intensity())
             wls, counts = ss.get_spectrum()
             data = [[wl, count] for wl, count in zip(wls, counts)]
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}

@@ -105,7 +105,7 @@ class Wavelabs(object):
         self.client_socket = None
         self.server_socket = None
         self.active_recipe = active_recipe
-        self.active_intensity = intensity
+        self.active_intensity = int(intensity)
 
         self.lg.debug("Initialized.")
 
@@ -251,7 +251,7 @@ class Wavelabs(object):
             else:
                 self.idn = "wavelabs"
             if self.active_recipe is not None:
-                ret = self.activate_recipe(self, recipe_name=None)
+                ret = self.activate_recipe(self.active_recipe)
                 if ret == 0:
                     ret = self.set_intensity(self.active_intensity)
                     if ret != 0:
@@ -287,7 +287,7 @@ class Wavelabs(object):
 
         if response.error not in self.okay_message_codes:
             self.lg.error(f"Got error number {response.error} from WaveLabs software: {response.error_message}")
-            raise ValueError("Wavelabs comms failure.")
+            raise ValueError(f"Error {response.error}: {response.error_message}")
 
         return response
 
@@ -453,7 +453,7 @@ class Wavelabs(object):
         self.iseq = self.iseq + 1
         response = self.query(root)
         if response.error != 0:
-            self.lg.debug("Failed to set recipe parameter")
+            self.lg.debug(f"Failed to set recipe parameter. {response=}")
         else:
             self.activate_recipe(recipe_name=recipe_name)
         return response.error
@@ -464,8 +464,12 @@ class Wavelabs(object):
         ET.SubElement(root, "StartRecipe", iSeq=str(self.iseq), sAutomationID="justtext")
         self.iseq = self.iseq + 1
         response = self.query(root)
-        runID = response.run_ID
-        return runID
+        if response.error != 0:
+            self.lg.debug(f"Failed to StartRecipe. {response=}")
+            ret = response.error
+        else:
+            ret = response.run_ID
+        return ret
 
     def off(self):
         """cancel a currently running recipe"""
@@ -473,6 +477,8 @@ class Wavelabs(object):
         ET.SubElement(root, "CancelRecipe", iSeq=str(self.iseq))
         self.iseq = self.iseq + 1
         response = self.query(root)
+        if response.error != 0:
+            self.lg.debug(f"Failed to CancelRecipe. {response=}")
         return response.error
 
     def exitProgram(self):
@@ -482,7 +488,7 @@ class Wavelabs(object):
         self.iseq = self.iseq + 1
         response = self.query(root)
         if response.error != 0:
-            self.lg.debug("Could not exit WaveLabs program")
+            self.lg.debug(f"Could not exit WaveLabs program {response=}")
         return response
 
     def get_runtime(self):
@@ -497,7 +503,7 @@ class Wavelabs(object):
     def set_intensity(self, intensity):
         ret = self.setRecipeParam(param="Intensity", value=int(intensity))
         if ret == 0:
-            self.active_intensity = intensity
+            self.active_intensity = int(intensity)
         return ret
 
     def get_ir_led_temp(self, run_ID=None):

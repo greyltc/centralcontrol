@@ -238,7 +238,7 @@ class UtilityHandler(object):
                     try:
                         with ss as connected_solarsim:  # use the context manager to manage connection and disconnection
                             conn_status = connected_solarsim.conn_status
-                            off_res = connected_solarsim.off()  # let's make sure it's off
+                            connected_solarsim.intensity = 0  # let's make sure it's off
                             data = connected_solarsim.get_spectrum()
                             temps = connected_solarsim.last_temps
                     except Exception as e:
@@ -249,7 +249,7 @@ class UtilityHandler(object):
                         if ss.conn_status != -80:  # check for unclean disconnection
                             emsg.append(f"🔴 Unclean disconnection from solar sim")
                         if not isinstance(data, tuple) or len(data) != 2:  # check data shape
-                            emsg.append(f"🔴 Spectrum data was not fetched correctly {off_res=}")
+                            emsg.append(f"🔴 Spectrum data was malformed.")
 
                     # notify user
                     if len(emsg) > 0:
