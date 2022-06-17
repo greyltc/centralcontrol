@@ -19,6 +19,8 @@ import humanize
 import datetime
 import numpy as np
 import contextlib
+from slothdb.dbsync import SlothDBSync as SlothDB
+from slothdb import enums as en
 
 from centralcontrol import illumination, mppt, sourcemeter
 
@@ -476,121 +478,122 @@ class MQTTServer(object):
             svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
         return svt
 
-    def do_iv(self, mnt, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
+    def do_iv(self, rid, mnt, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
         """parallelizable I-V tasks for use in threads"""
-        measurement = mnt
-        mppt.current_compliance = compliance_i
-        data = []
+        with SlothDB(db_uri=config["db"]["uri"]) as db:
+            # pixel deets for db
+            measurement = mnt
+            mppt.current_compliance = compliance_i
+            data = []
 
-        # "Voc" if
-        if (args["i_dwell"] > 0) and args["i_dwell_check"]:
-            if self.killer.is_set():
-                self.lg.debug("Killed by killer.")
-                return []
+            # "Voc" if
+            if (args["i_dwell"] > 0) and args["i_dwell_check"]:
+                if self.killer.is_set():
+                    self.lg.debug("Killed by killer.")
+                    return []
 
-            ss_args = {}
-            ss_args["sourceVoltage"] = False
-            if ("ccd" in config) and "max_voltage" in config["ccd"]:
-                ss_args["compliance"] = config["ccd"]["max_voltage"]
-            ss_args["setPoint"] = args["i_dwell_value"]
-            ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
+                ss_args = {}
+                ss_args["sourceVoltage"] = False
+                if ("ccd" in config) and "max_voltage" in config["ccd"]:
+                    ss_args["compliance"] = config["ccd"]["max_voltage"]
+                ss_args["setPoint"] = args["i_dwell_value"]
+                ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
 
-            sm.setupDC(**ss_args)  # initialize the SMU hardware for a steady state measurement
+                sm.setupDC(**ss_args)  # initialize the SMU hardware for a steady state measurement
 
-            svoc_steps = int(abs(args["suns_voc"]))  # number of suns-Voc steps we might take
-            svoc_step_threshold = 2  # must request at least this many steps before the measurement turns on
-            if svoc_steps > svoc_step_threshold:  # suns-Voc is enabled
-                int_min = 10  # minimum settable intensity
-                int_max = args["light_recipe_int"]  # the highest intensity we'll go to
-                int_rng = int_max - int_min  # the magnitude of the range we'll sweep over
-                int_step_size = int_rng / (svoc_steps - 2)  # how big the intensity steps will be
-                intensities = [0, 10]  # values for the first two intensity steps
-                intensities += [round(int_min + (x + 1) * int_step_size) for x in range(svoc_steps - 2)]  # values for the rest of the intensity steps
+                svoc_steps = int(abs(args["suns_voc"]))  # number of suns-Voc steps we might take
+                svoc_step_threshold = 2  # must request at least this many steps before the measurement turns on
+                if svoc_steps > svoc_step_threshold:  # suns-Voc is enabled (either up or down)
+                    int_min = 10  # minimum settable intensity
+                    int_max = args["light_recipe_int"]  # the highest intensity we'll go to
+                    int_rng = int_max - int_min  # the magnitude of the range we'll sweep over
+                    int_step_size = int_rng / (svoc_steps - 2)  # how big the intensity steps will be
+                    intensities = [0, 10]  # values for the first two intensity steps
+                    intensities += [round(int_min + (x + 1) * int_step_size) for x in range(svoc_steps - 2)]  # values for the rest of the intensity steps
 
-            if args["suns_voc"] < -svoc_step_threshold:
-                self.lg.debug(f"Doing upwards suns-Voc for {args['i_dwell']} seconds.")
+                if args["suns_voc"] < -svoc_step_threshold:  # suns-voc is up
+                    self.lg.debug(f"Doing upwards suns-Voc for {args['i_dwell']} seconds.")
+                    if calibration == False:
+                        kind = "vt_measurement"
+                        dh.kind = kind
+                        self._clear_plot(kind)
+
+                    # db prep
+                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP)  # register new light sweep
+                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                    deets["fixed"] = en.Fixed.VOLTAGE
+                    deets["setpoint"] = ss_args["setPoint"]
+                    deets["isetpoints"] = intensities
+                    db.upsert("tbl_isweep_events", deets, eid)  # save event details
+                    svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
+                    db.putsmdat(eid, [tuple(row) for row in svtb])  # TODO: stream this with the data handler
+                    db.complete_event(eid)  # mark light sweep as done
+                    data += svtb  # keep the data
+
+                ss.lit = True  # Voc needs light
+                self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
                 if calibration == False:
                     kind = "vt_measurement"
                     dh.kind = kind
                     self._clear_plot(kind)
-                svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
-                data += svtb  # keep the data
+                # db prep
+                eid = db.new_event(rid, en.Event.SS)  # register new ss event
+                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                deets["fixed"] = en.Fixed.CURRENT
+                deets["setpoint"] = ss_args["setPoint"]
+                db.upsert("tbl_ss_events", deets, eid)  # save event details
+                vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
+                db.putsmdat(eid, [tuple(row) for row in vt])  # TODO: stream this with the data handler
+                db.complete_event(eid)  # mark ss event as done
+                data += vt
 
-            ss.lit = True  # Voc needs light
-            self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
-            if calibration == False:
-                kind = "vt_measurement"
-                dh.kind = kind
-                self._clear_plot(kind)
-            vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
-            data += vt
+                # if this was at Voc, use the last measurement as estimate of Voc
+                if (args["i_dwell_value"] == 0) and (len(vt) > 1):
+                    ssvoc = vt[-1][0]
+                else:
+                    ssvoc = None
 
-            # if this was at Voc, use the last measurement as estimate of Voc
-            if (args["i_dwell_value"] == 0) and (len(vt) > 1):
-                ssvoc = vt[-1][0]
+                if args["suns_voc"] > svoc_step_threshold:
+                    self.lg.debug(f"Doing downwards suns-Voc for {args['i_dwell']} seconds.")
+                    if calibration == False:
+                        kind = "vt_measurement"
+                        dh.kind = kind
+                        self._clear_plot(kind)
+                    intensities_reversed = intensities[::-1]
+                    # db prep
+                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP)  # register new light sweep
+                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                    deets["fixed"] = en.Fixed.VOLTAGE
+                    deets["setpoint"] = ss_args["setPoint"]
+                    deets["isetpoints"] = intensities_reversed
+                    db.upsert("tbl_isweep_events", deets, eid)  # save event details
+                    svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
+                    db.putsmdat(eid, [tuple(row) for row in svta])  # TODO: stream this with the data handler
+                    db.complete_event(eid)  # mark light sweep as done
+                    data += svta
+                    sm.intensity = 1  # reset the simulated device's intensity
             else:
                 ssvoc = None
 
-            if args["suns_voc"] > svoc_step_threshold:
-                self.lg.debug(f"Doing downwards suns-Voc for {args['i_dwell']} seconds.")
-                if calibration == False:
-                    kind = "vt_measurement"
-                    dh.kind = kind
-                    self._clear_plot(kind)
-                intensities_reversed = intensities[::-1]
-                svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
-                data += svta
-                sm.intensity = 1  # reset the simulated device's intensity
-        else:
-            ssvoc = None
-
-        # perform sweeps
-        for sweep in sweeps:
-            if self.killer.is_set():
-                self.lg.debug("Killed by killer.")
-                return data
-            self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
-            # sweeps may or may not need light
-            if sweep == "dark":
-                ss.lit = False
-                sm.dark = True
-            else:
-                ss.lit = True
-                sm.dark = False
-
-            if calibration == False:
-                kind = "iv_measurement/1"
-                dh.kind = kind
-                dh.sweep = sweep
-                self._clear_plot("iv_measurement")
-
-            sweep_args = {}
-            sweep_args["sourceVoltage"] = True
-            sweep_args["senseRange"] = "f"
-            sweep_args["compliance"] = compliance_i
-            sweep_args["nPoints"] = int(args["iv_steps"])
-            sweep_args["stepDelay"] = args["source_delay"] / 1000
-            sweep_args["start"] = args["sweep_start"]
-            sweep_args["end"] = args["sweep_end"]
-
-            sm.setupSweep(**sweep_args)
-            iv1 = sm.measure(sweep_args["nPoints"])
-            dh.handle_data(iv1)
-            data += iv1
-
-            # register this curve with the mppt
-            Pmax_sweep1, Vmpp1, Impp1, maxIx1 = mppt.register_curve(iv1, light=(sweep == "light"))
-
-            if args["return_switch"] == True:
+            # perform sweeps
+            for sweep in sweeps:
                 if self.killer.is_set():
                     self.lg.debug("Killed by killer.")
                     return data
-                self.lg.debug(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
+                self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
+                # sweeps may or may not need light
+                if sweep == "dark":
+                    ss.lit = False
+                    sm.dark = True
+                else:
+                    ss.lit = True
+                    sm.dark = False
 
                 if calibration == False:
-                    kind = "iv_measurement/2"
+                    kind = "iv_measurement/1"
                     dh.kind = kind
                     dh.sweep = sweep
+                    self._clear_plot("iv_measurement")
 
                 sweep_args = {}
                 sweep_args["sourceVoltage"] = True
@@ -598,83 +601,145 @@ class MQTTServer(object):
                 sweep_args["compliance"] = compliance_i
                 sweep_args["nPoints"] = int(args["iv_steps"])
                 sweep_args["stepDelay"] = args["source_delay"] / 1000
-                sweep_args["start"] = args["sweep_end"]
-                sweep_args["end"] = args["sweep_start"]
-
+                sweep_args["start"] = args["sweep_start"]
+                sweep_args["end"] = args["sweep_end"]
                 sm.setupSweep(**sweep_args)
-                iv2 = sm.measure(sweep_args["nPoints"])
-                dh.handle_data(iv2)
-                data += iv2
 
-                Pmax_sweep2, Vmpp2, Impp2, maxIx2 = mppt.register_curve(iv2, light=(sweep == "light"))
+                # db prep
+                eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP)  # register new ss event
+                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                deets["fixed"] = en.Fixed.VOLTAGE
+                deets["n_points"] = sweep_args["nPoints"]
+                deets["from_setpoint"] = sweep_args["start"]
+                deets["to_setpoint"] = sweep_args["end"]
+                db.upsert("tbl_sweep_events", deets, eid)  # save event details
+                iv1 = sm.measure(sweep_args["nPoints"])
+                db.putsmdat(eid, [tuple(row) for row in iv1])  # TODO: stream this with the data handler
+                db.complete_event(eid)  # mark event as done
 
-        # TODO: read and interpret parameters for smart mode
+                dh.handle_data(iv1)
+                data += iv1
 
-        # mppt if
-        if args["mppt_dwell"] > 0:
-            if self.killer.is_set():
-                self.lg.debug("Killed by killer.")
-                return data
-            self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
-            # mppt needs light
-            ss.lit = True
+                # register this curve with the mppt
+                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = mppt.register_curve(iv1, light=(sweep == "light"))
 
-            if calibration == False:
-                kind = "mppt_measurement"
-                dh.kind = kind
-                self._clear_plot(kind)
+                if args["return_switch"] == True:
+                    if self.killer.is_set():
+                        self.lg.debug("Killed by killer.")
+                        return data
+                    self.lg.debug(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
 
-            if ssvoc is not None:
-                # tell the mppt what our measured steady state Voc was
-                mppt.Voc = ssvoc
+                    if calibration == False:
+                        kind = "iv_measurement/2"
+                        dh.kind = kind
+                        dh.sweep = sweep
 
-            mppt_args = {}
-            mppt_args["duration"] = args["mppt_dwell"]
-            mppt_args["NPLC"] = args["nplc"]
-            mppt_args["extra"] = args["mppt_params"]
-            mppt_args["callback"] = dh.handle_data
-            if ("ccd" in config) and "max_voltage" in config["ccd"]:
-                mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
-            mppt_args["i_limit"] = compliance_i
-            mppt_args["area"] = area
-            (mt, vt) = mppt.launch_tracker(**mppt_args)
-            mppt.reset()
+                    sweep_args = {}
+                    sweep_args["sourceVoltage"] = True
+                    sweep_args["senseRange"] = "f"
+                    sweep_args["compliance"] = compliance_i
+                    sweep_args["nPoints"] = int(args["iv_steps"])
+                    sweep_args["stepDelay"] = args["source_delay"] / 1000
+                    sweep_args["start"] = args["sweep_end"]
+                    sweep_args["end"] = args["sweep_start"]
+                    sm.setupSweep(**sweep_args)
 
-            # reset nplc because the mppt can mess with it
-            if args["nplc"] != -1:
-                sm.setNPLC(args["nplc"])
+                    eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP)  # register new ss event
+                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                    deets["fixed"] = en.Fixed.VOLTAGE
+                    deets["n_points"] = sweep_args["nPoints"]
+                    deets["from_setpoint"] = sweep_args["start"]
+                    deets["to_setpoint"] = sweep_args["end"]
+                    db.upsert("tbl_sweep_events", deets, eid)  # save event details
+                    iv2 = sm.measure(sweep_args["nPoints"])
+                    db.putsmdat(eid, [tuple(row) for row in iv2])  # TODO: stream this with the data handler
+                    db.complete_event(eid)  # mark event as done
+                    dh.handle_data(iv2)
+                    data += iv2
 
-            if (calibration == False) and (len(vt) > 0):
-                dh.kind = "vtmppt_measurement"
-                for d in vt:
-                    dh.handle_data(d)
+                    Pmax_sweep2, Vmpp2, Impp2, maxIx2 = mppt.register_curve(iv2, light=(sweep == "light"))
 
-            data += vt
-            data += mt
+            # TODO: read and interpret parameters for smart mode
 
-        # "J_sc" if
-        if args["v_dwell"] > 0:
-            if self.killer.is_set():
-                self.lg.debug("Killed by killer.")
-                return data
-            self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
-            # jsc needs light
-            ss.lit = True
+            # mppt if
+            if args["mppt_dwell"] > 0:
+                if self.killer.is_set():
+                    self.lg.debug("Killed by killer.")
+                    return data
+                self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
+                # mppt needs light
+                ss.lit = True
 
-            if calibration == False:
-                kind = "it_measurement"
-                dh.kind = kind
-                self._clear_plot(kind)
+                if calibration == False:
+                    kind = "mppt_measurement"
+                    dh.kind = kind
+                    self._clear_plot(kind)
 
-            ss_args = {}
-            ss_args["sourceVoltage"] = True
-            ss_args["compliance"] = compliance_i
-            ss_args["setPoint"] = args["v_dwell_value"]
-            ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
+                if ssvoc is not None:
+                    # tell the mppt what our measured steady state Voc was
+                    mppt.Voc = ssvoc
 
-            sm.setupDC(**ss_args)
-            it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
-            data += it
+                mppt_args = {}
+                mppt_args["duration"] = args["mppt_dwell"]
+                mppt_args["NPLC"] = args["nplc"]
+                mppt_args["extra"] = args["mppt_params"]
+                mppt_args["callback"] = dh.handle_data
+                if ("ccd" in config) and "max_voltage" in config["ccd"]:
+                    mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
+                mppt_args["i_limit"] = compliance_i
+                mppt_args["area"] = area
+
+                eid = db.new_event(rid, en.Event.MPPT)  # register new ss event
+                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                deets["algorithm"] = args["mppt_params"]
+                db.upsert("tbl_mppt_events", deets, eid)  # save event details
+                (mt, vt) = mppt.launch_tracker(**mppt_args)
+                db.putsmdat(eid, [tuple(row) for row in iv2])  # TODO: stream this with the data handler
+                db.complete_event(eid)  # mark event as done
+                mppt.reset()
+
+                # reset nplc because the mppt can mess with it
+                if args["nplc"] != -1:
+                    sm.setNPLC(args["nplc"])
+
+                if (calibration == False) and (len(vt) > 0):
+                    dh.kind = "vtmppt_measurement"
+                    for d in vt:
+                        dh.handle_data(d)
+
+                data += vt
+                data += mt
+
+            # "J_sc" if
+            if args["v_dwell"] > 0:
+                if self.killer.is_set():
+                    self.lg.debug("Killed by killer.")
+                    return data
+                self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
+                # jsc needs light
+                ss.lit = True
+
+                if calibration == False:
+                    kind = "it_measurement"
+                    dh.kind = kind
+                    self._clear_plot(kind)
+
+                ss_args = {}
+                ss_args["sourceVoltage"] = True
+                ss_args["compliance"] = compliance_i
+                ss_args["setPoint"] = args["v_dwell_value"]
+                ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
+
+                sm.setupDC(**ss_args)
+                eid = db.new_event(rid, en.Event.SS)  # register new ss event
+                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                deets["fixed"] = en.Fixed.VOLTAGE
+                deets["setpoint"] = ss_args["setPoint"]
+                db.upsert("tbl_ss_events", deets, eid)  # save event details
+                it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
+                db.putsmdat(eid, [tuple(row) for row in it])  # TODO: stream this with the data handler
+                db.complete_event(eid)  # mark ss event as done
+                data += it
 
             return data
 
@@ -799,6 +864,15 @@ class MQTTServer(object):
             # register the equipment comms instances with the ExitStack for magic cleanup/disconnect
             smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
             ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
+            db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
+            user = request["args"]["user_name"]
+            uidfetch = db.get("tbl_users", ("id",), f"name = '{user}'")
+            # get userid (via new registration if needed)
+            if uidfetch == []:
+                uid = db.new_user(user)
+            else:
+                uid = uidfetch[0][0]
+            rid = db.new_run(uid)  # register a new run
             for sm in smus:
                 sm.killer = self.killer  # register the kill signal
             mppts = [mppt.mppt(sm, killer=self.killer) for sm in smus]  # spin up all the max power point trackers
@@ -938,7 +1012,7 @@ class MQTTServer(object):
                                 smus[smu_index].area = pixel["area"]  # set virtual smu scaling
 
                                 # submit for processing
-                                futures[smu_index] = executor.submit(self.do_iv, measurement, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
+                                futures[smu_index] = executor.submit(self.do_iv, rid, measurement, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
 
                             # collect the datas!
                             datas = {}
