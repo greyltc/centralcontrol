@@ -666,8 +666,8 @@ class k2400(object):
         # self.opc() # before we start reading, ensure the device is ready
         while (i < measurements) and (time.time() < t_end) and (not self.killer.is_set()):
             i = i + 1
-            measurement = self.measure()[0]
-            q.append(measurement)
+            measurement = self.measure()
+            q.append(measurement[0])
             cb(measurement)
         if self.killer.is_set():
             self.lg.debug("Killed by killer")
