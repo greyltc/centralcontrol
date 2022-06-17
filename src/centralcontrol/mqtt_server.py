@@ -65,8 +65,9 @@ class DataHandler(object):
         self.pixel = pixel
         self.sweep = sweep
         self.outq = outq
+        self.dbputter = None
 
-    def handle_data(self, data):
+    def handle_data(self, data, dodb: bool = True):
         """Handle measurement data.
 
         Parameters
@@ -75,6 +76,8 @@ class DataHandler(object):
             Measurement data.
         """
         payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
+        if (self.dbputter is not None) and dodb:
+            self.dbputter(data)
         self.outq.put({"topic": f"data/raw/{self.kind}", "payload": pickle.dumps(payload), "qos": 2})
 
 
@@ -481,7 +484,7 @@ class MQTTServer(object):
     def do_iv(self, rid, mnt, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
         """parallelizable I-V tasks for use in threads"""
         with SlothDB(db_uri=config["db"]["uri"]) as db:
-            # pixel deets for db
+            dh.dbputter = db.putsmdat
             measurement = mnt
             mppt.current_compliance = compliance_i
             data = []
@@ -525,8 +528,10 @@ class MQTTServer(object):
                     deets["setpoint"] = ss_args["setPoint"]
                     deets["isetpoints"] = intensities
                     db.upsert("tbl_isweep_events", deets, eid)  # save event details
+                    db.eid = eid  # register event id for datahandler
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
-                    db.putsmdat(eid, [tuple(row) for row in svtb])  # TODO: stream this with the data handler
+                    db.eid = None  # unregister event id
+                    # db.putsmdat(eid, [tuple(row) for row in svtb])  # TODO: stream this with the data handler
                     db.complete_event(eid)  # mark light sweep as done
                     data += svtb  # keep the data
 
@@ -542,8 +547,10 @@ class MQTTServer(object):
                 deets["fixed"] = en.Fixed.CURRENT
                 deets["setpoint"] = ss_args["setPoint"]
                 db.upsert("tbl_ss_events", deets, eid)  # save event details
+                db.eid = eid  # register event id for datahandler
                 vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
-                db.putsmdat(eid, [tuple(row) for row in vt])  # TODO: stream this with the data handler
+                db.eid = None  # unregister event id
+                # db.putsmdat(eid, [tuple(row) for row in vt])  # TODO: stream this with the data handler
                 db.complete_event(eid)  # mark ss event as done
                 data += vt
 
@@ -567,8 +574,10 @@ class MQTTServer(object):
                     deets["setpoint"] = ss_args["setPoint"]
                     deets["isetpoints"] = intensities_reversed
                     db.upsert("tbl_isweep_events", deets, eid)  # save event details
+                    db.eid = eid  # register event id for datahandler
                     svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
-                    db.putsmdat(eid, [tuple(row) for row in svta])  # TODO: stream this with the data handler
+                    db.eid = None  # unregister event id
+                    # db.putsmdat(eid, [tuple(row) for row in svta])  # TODO: stream this with the data handler
                     db.complete_event(eid)  # mark light sweep as done
                     data += svta
                     sm.intensity = 1  # reset the simulated device's intensity
@@ -614,10 +623,10 @@ class MQTTServer(object):
                 deets["to_setpoint"] = sweep_args["end"]
                 db.upsert("tbl_sweep_events", deets, eid)  # save event details
                 iv1 = sm.measure(sweep_args["nPoints"])
-                db.putsmdat(eid, [tuple(row) for row in iv1])  # TODO: stream this with the data handler
+                db.putsmdat([tuple(row) for row in iv1], eid)
                 db.complete_event(eid)  # mark event as done
 
-                dh.handle_data(iv1)
+                dh.handle_data(iv1, dodb=False)
                 data += iv1
 
                 # register this curve with the mppt
@@ -652,9 +661,9 @@ class MQTTServer(object):
                     deets["to_setpoint"] = sweep_args["end"]
                     db.upsert("tbl_sweep_events", deets, eid)  # save event details
                     iv2 = sm.measure(sweep_args["nPoints"])
-                    db.putsmdat(eid, [tuple(row) for row in iv2])  # TODO: stream this with the data handler
+                    db.putsmdat([tuple(row) for row in iv2], eid)  # TODO: stream this with the data handler
                     db.complete_event(eid)  # mark event as done
-                    dh.handle_data(iv2)
+                    dh.handle_data(iv2, dodb=False)
                     data += iv2
 
                     Pmax_sweep2, Vmpp2, Impp2, maxIx2 = mppt.register_curve(iv2, light=(sweep == "light"))
@@ -689,12 +698,14 @@ class MQTTServer(object):
                 mppt_args["i_limit"] = compliance_i
                 mppt_args["area"] = area
 
-                eid = db.new_event(rid, en.Event.MPPT)  # register new ss event
+                eid = db.new_event(rid, en.Event.MPPT)  # register new mppt event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["algorithm"] = args["mppt_params"]
                 db.upsert("tbl_mppt_events", deets, eid)  # save event details
+                db.eid = eid  # register event id for datahandler
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
-                db.putsmdat(eid, [tuple(row) for row in iv2])  # TODO: stream this with the data handler
+                db.eid = None  # unregister event id
+                # db.putsmdat([tuple(row) for row in iv2], eid)  # TODO: stream this with the data handler
                 db.complete_event(eid)  # mark event as done
                 mppt.reset()
 
@@ -736,12 +747,14 @@ class MQTTServer(object):
                 deets["fixed"] = en.Fixed.VOLTAGE
                 deets["setpoint"] = ss_args["setPoint"]
                 db.upsert("tbl_ss_events", deets, eid)  # save event details
+                db.eid = eid  # register event id for datahandler
                 it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
-                db.putsmdat(eid, [tuple(row) for row in it])  # TODO: stream this with the data handler
+                db.eid = None  # unregister event id
+                # db.putsmdat(eid, [tuple(row) for row in it])  # TODO: stream this with the data handler
                 db.complete_event(eid)  # mark ss event as done
                 data += it
 
-            return data
+        return data
 
     def send_spectrum(self, ss):
         try:
@@ -1039,6 +1052,8 @@ class MQTTServer(object):
                     progress_msg = {"text": "Done!", "fraction": 1}
                     self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
                     self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps([]), "qos": 2, "retain": True})
+
+            db.vac()  # mantain db
 
             # don't leave the light on!
             ss.apply_intensity(0)
