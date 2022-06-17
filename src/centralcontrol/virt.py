@@ -572,9 +572,9 @@ class smu(object):
                     self.updateCurrent()
                     time.sleep(self.measurementTime)
                     if self.auto_ohms == False:
-                        measurementLine = list([self.V, self.I, time.time() - self.t0, self.status])
+                        measurementLine = (self.V, self.I, time.time() - self.t0, self.status)
                     else:
-                        measurementLine = list([self.V, self.I, self.V / self.I, time.time() - self.t0, self.status])
+                        measurementLine = (self.V, self.I, self.V / self.I, time.time() - self.t0, self.status)
                     sweepArray.append(measurementLine)
                 self.last_sweep_time = sweepArray[-1][2] - sweepArray[0][2]
                 self.lg.debug(f"Sweep duration = {self.last_sweep_time} s")
@@ -582,10 +582,10 @@ class smu(object):
             else:  # non sweep mode
                 time.sleep(self.measurementTime)
                 if self.auto_ohms == False:
-                    measurementLine = list([self.V, self.I, time.time() - self.t0, self.status])
+                    measurementLine = (self.V, self.I, time.time() - self.t0, self.status)
                 else:
                     ohm = 700 + random.random() * 100
-                    measurementLine = list([self.V, self.I, ohm, time.time() - self.t0, self.status])
+                    measurementLine = (self.V, self.I, ohm, time.time() - self.t0, self.status)
                 return [measurementLine]
         elif command == ":source:voltage:step?":
             dV = (self.sweepEnd - self.sweepStart) / self.nPoints
@@ -606,9 +606,8 @@ class smu(object):
         q = []
         while (i < measurements) and (time.time() < t_end) and (not self.killer.is_set()):
             i = i + 1
-            measurement = self.measure()[0]
-            q.append(measurement)
-            cb(measurement)
+            cb(measurement := self.measure())
+            q.append(measurement[0])
         return q
 
     def measure(self, nPoints=1):

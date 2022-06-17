@@ -327,12 +327,12 @@ class mppt:
 
         self.sm.setSource(v_set)
         time.sleep(delay_ms / 1000)
-        measurement = self.sm.measure()[0]
+        measurement = self.sm.measure()
         callback(measurement)
 
-        v, i, tx, status = measurement
+        v, i, tx, status = measurement[0]
 
-        q.append(measurement)
+        q.append(measurement[0])
         return (v, i, tx)
 
     def really_dumb_tracker(self, duration, start_voltage, callback=lambda x: None, dAngleMax=7, dwell_time=10, sweep_delay_ms=30):
