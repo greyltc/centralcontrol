@@ -527,7 +527,7 @@ class MQTTServer(object):
                     deets["fixed"] = en.Fixed.VOLTAGE
                     deets["setpoint"] = ss_args["setPoint"]
                     deets["isetpoints"] = intensities
-                    db.upsert("tbl_isweep_events", deets, eid)  # save event details
+                    db.upsert(f"{db.schema}.tbl_isweep_events", deets, eid)  # save event details
                     db.eid = eid  # register event id for datahandler
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
                     db.eid = None  # unregister event id
@@ -546,7 +546,7 @@ class MQTTServer(object):
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["fixed"] = en.Fixed.CURRENT
                 deets["setpoint"] = ss_args["setPoint"]
-                db.upsert("tbl_ss_events", deets, eid)  # save event details
+                db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
                 db.eid = eid  # register event id for datahandler
                 vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
                 db.eid = None  # unregister event id
@@ -573,7 +573,7 @@ class MQTTServer(object):
                     deets["fixed"] = en.Fixed.VOLTAGE
                     deets["setpoint"] = ss_args["setPoint"]
                     deets["isetpoints"] = intensities_reversed
-                    db.upsert("tbl_isweep_events", deets, eid)  # save event details
+                    db.upsert(f"{db.schema}.tbl_isweep_events", deets, eid)  # save event details
                     db.eid = eid  # register event id for datahandler
                     svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
                     db.eid = None  # unregister event id
@@ -621,7 +621,7 @@ class MQTTServer(object):
                 deets["n_points"] = sweep_args["nPoints"]
                 deets["from_setpoint"] = sweep_args["start"]
                 deets["to_setpoint"] = sweep_args["end"]
-                db.upsert("tbl_sweep_events", deets, eid)  # save event details
+                db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                 iv1 = sm.measure(sweep_args["nPoints"])
                 db.putsmdat([tuple(row) for row in iv1], eid)
                 db.complete_event(eid)  # mark event as done
@@ -659,7 +659,7 @@ class MQTTServer(object):
                     deets["n_points"] = sweep_args["nPoints"]
                     deets["from_setpoint"] = sweep_args["start"]
                     deets["to_setpoint"] = sweep_args["end"]
-                    db.upsert("tbl_sweep_events", deets, eid)  # save event details
+                    db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                     iv2 = sm.measure(sweep_args["nPoints"])
                     db.putsmdat([tuple(row) for row in iv2], eid)  # TODO: stream this with the data handler
                     db.complete_event(eid)  # mark event as done
@@ -701,7 +701,7 @@ class MQTTServer(object):
                 eid = db.new_event(rid, en.Event.MPPT, sm.address)  # register new mppt event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["algorithm"] = args["mppt_params"]
-                db.upsert("tbl_mppt_events", deets, eid)  # save event details
+                db.upsert(f"{db.schema}.tbl_mppt_events", deets, eid)  # save event details
                 db.eid = eid  # register event id for datahandler
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
                 db.eid = None  # unregister event id
@@ -746,7 +746,7 @@ class MQTTServer(object):
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["fixed"] = en.Fixed.VOLTAGE
                 deets["setpoint"] = ss_args["setPoint"]
-                db.upsert("tbl_ss_events", deets, eid)  # save event details
+                db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
                 db.eid = eid  # register event id for datahandler
                 it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
                 db.eid = None  # unregister event id
@@ -879,7 +879,7 @@ class MQTTServer(object):
             ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
             db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
             user = request["args"]["user_name"]
-            uidfetch = db.get("tbl_users", ("id",), f"name = '{user}'")
+            uidfetch = db.get(f"{db.schema}.tbl_users", ("id",), f"name = '{user}'")
             # get userid (via new registration if needed)
             if uidfetch == []:
                 uid = db.new_user(user)
