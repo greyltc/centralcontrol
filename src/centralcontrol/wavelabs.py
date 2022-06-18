@@ -23,6 +23,7 @@ class Wavelabs(object):
     active_recipe = None
     active_intensity = 100
     last_temps = (0.0, 0.0)
+    address = None
 
     class XMLHandler:
         """
@@ -80,7 +81,7 @@ class Wavelabs(object):
         def close(self):
             pass
 
-    def __init__(self, kind="wavelabs", host="0.0.0.0", port=3334, connection_timeout=10, comms_timeout=1, active_recipe=None, intensity=100, **kwargs):
+    def __init__(self, kind="wavelabs", address="0.0.0.0:3334", connection_timeout=10, comms_timeout=1, active_recipe=None, intensity=100, **kwargs):
         """
         sets up the wavelabs comms object
         timeouts are in seconds
@@ -91,14 +92,16 @@ class Wavelabs(object):
             self.relay = True
         else:
             self.relay = False
-        self.host = host
-        if port is None:
+        self.address = address
+        addr_split = address.split(":")
+        self.host = addr_split[0]
+        if len(addr_split) == 1:
             if self.relay == False:
                 self.port = self.def_direct_port
             else:
                 self.port = self.def_relay_port
         else:
-            self.port = port
+            self.port = int(addr_split[1])
         self.connection_timeout = connection_timeout
         self.comms_timeout = comms_timeout
         self.sock_file = None
@@ -561,7 +564,7 @@ if __name__ == "__main__":
     do_disco = False
     gui_plot_spectrum = False
 
-    wl = Wavelabs(host="0.0.0.0", port=3334, active_recipe="AM1.5G", relay=False)  # for direct connection
+    wl = Wavelabs(address="0.0.0.0:3334", active_recipe="AM1.5G", relay=False)  # for direct connection
     # wl = Wavelabs(host='127.0.0.1', port=3335, relay=True, active_recipe='am1_5_1_sun')  #  for comms via relay
     print("Connecting to light engine...")
     wl.connect()

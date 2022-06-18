@@ -364,8 +364,8 @@ class UtilityHandler(object):
                 if "smu" in task:
                     smucfgs = task["smu"]  # a list of sourcemeter configurations
                     for index, smucfg in enumerate(smucfgs):  # loop through the list of SMUs
-                        if "address_string" in smucfg:
-                            addrwords = f" at {smucfg['address_string']}"
+                        if "address" in smucfg:
+                            addrwords = f" at {smucfg['address']}"
                         else:
                             addrwords = ""
                         self.lg.info(f"Checking sourcemeter #{index}{addrwords}...")

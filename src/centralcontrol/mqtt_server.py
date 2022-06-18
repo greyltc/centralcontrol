@@ -522,7 +522,7 @@ class MQTTServer(object):
                         self._clear_plot(kind)
 
                     # db prep
-                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP)  # register new light sweep
+                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
                     deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                     deets["fixed"] = en.Fixed.VOLTAGE
                     deets["setpoint"] = ss_args["setPoint"]
@@ -542,7 +542,7 @@ class MQTTServer(object):
                     dh.kind = kind
                     self._clear_plot(kind)
                 # db prep
-                eid = db.new_event(rid, en.Event.SS)  # register new ss event
+                eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["fixed"] = en.Fixed.CURRENT
                 deets["setpoint"] = ss_args["setPoint"]
@@ -568,7 +568,7 @@ class MQTTServer(object):
                         self._clear_plot(kind)
                     intensities_reversed = intensities[::-1]
                     # db prep
-                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP)  # register new light sweep
+                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
                     deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                     deets["fixed"] = en.Fixed.VOLTAGE
                     deets["setpoint"] = ss_args["setPoint"]
@@ -615,7 +615,7 @@ class MQTTServer(object):
                 sm.setupSweep(**sweep_args)
 
                 # db prep
-                eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP)  # register new ss event
+                eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["fixed"] = en.Fixed.VOLTAGE
                 deets["n_points"] = sweep_args["nPoints"]
@@ -653,7 +653,7 @@ class MQTTServer(object):
                     sweep_args["end"] = args["sweep_start"]
                     sm.setupSweep(**sweep_args)
 
-                    eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP)  # register new ss event
+                    eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
                     deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                     deets["fixed"] = en.Fixed.VOLTAGE
                     deets["n_points"] = sweep_args["nPoints"]
@@ -698,7 +698,7 @@ class MQTTServer(object):
                 mppt_args["i_limit"] = compliance_i
                 mppt_args["area"] = area
 
-                eid = db.new_event(rid, en.Event.MPPT)  # register new mppt event
+                eid = db.new_event(rid, en.Event.MPPT, sm.address)  # register new mppt event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["algorithm"] = args["mppt_params"]
                 db.upsert("tbl_mppt_events", deets, eid)  # save event details
@@ -742,7 +742,7 @@ class MQTTServer(object):
                 ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
 
                 sm.setupDC(**ss_args)
-                eid = db.new_event(rid, en.Event.SS)  # register new ss event
+                eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["fixed"] = en.Fixed.VOLTAGE
                 deets["setpoint"] = ss_args["setPoint"]

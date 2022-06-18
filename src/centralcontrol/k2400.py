@@ -27,7 +27,7 @@ class k2400(object):
     default_comms_timeout = 50000  # in ms
     print_sweep_deets: bool = False  # false uses debug logging level, true logs sweep stats at info level
 
-    def __init__(self, visa_lib="@py", scan=False, address_string=None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
+    def __init__(self, visa_lib="@py", scan=False, address=None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
         """just set class variables here"""
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -35,7 +35,7 @@ class k2400(object):
         self.killer = killer
         self.quiet = quiet
         self.visa_lib = visa_lib
-        self.address_string = address_string
+        self.address = address
         self.terminator = terminator
         self.serial_baud = serial_baud
         self.front = front
@@ -135,9 +135,9 @@ class k2400(object):
     def _getSourceMeter(self, rm):
         timeoutMS = self.default_comms_timeout  # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
         open_params = {}
-        open_params["resource_name"] = self.address_string
+        open_params["resource_name"] = self.address
 
-        if "ASRL" in self.address_string:
+        if "ASRL" in self.address:
             open_params["timeout"] = timeoutMS
             open_params["write_termination"] = self.terminator
             open_params["read_termination"] = self.terminator
@@ -153,28 +153,28 @@ class k2400(object):
             # open_params['allow_dma'] = True
 
             smCommsMsg = "ERROR: Can't talk to sourcemeter\nDefault sourcemeter serial comms params are: 57600-8-n with <CR> terminator and NONE flow control."
-        elif "GPIB" in self.address_string:
+        elif "GPIB" in self.address:
             open_params["write_termination"] = "\n"
             open_params["read_termination"] = "\n"
             # open_params['io_protocol'] = pyvisa.constants.VI_HS488
 
-            addrParts = self.address_string.split("::")
+            addrParts = self.address.split("::")
             controller = addrParts[0]
             board = controller[4:]
             address = addrParts[1]
             smCommsMsg = f"ERROR: Can't talk to sourcemeter\nIs GPIB controller {board} correct?\nIs the sourcemeter configured to listen on address {address}? Try both SCPI and 488.1 comms modes, though 488.1 should be much faster"
-        elif ("TCPIP" in self.address_string) and ("SOCKET" in self.address_string):
+        elif ("TCPIP" in self.address) and ("SOCKET" in self.address):
             open_params["timeout"] = timeoutMS
             open_params["write_termination"] = "\n"
             open_params["read_termination"] = "\n"
 
-            addrParts = self.address_string.split("::")
+            addrParts = self.address.split("::")
             host = addrParts[1]
             port = host = addrParts[2]
             smCommsMsg = f"ERROR: Can't talk to sourcemeter\nTried Ethernet<-->Serial link via {host}:{port}\nThe sourcemeter's comms parameters must match the Ethernet<-->Serial adapter's parameters\nand the terminator should be configured as <CR>"
         else:
             smCommsMsg = "ERROR: Can't talk to sourcemeter"
-            open_params = {"resource_name": self.address_string}
+            open_params = {"resource_name": self.address}
 
         sm = rm.open_resource(**open_params)
 
@@ -703,10 +703,10 @@ if __name__ == "__main__":
     # address = 'ASRL/dev/ttyS0::INSTR'
     address = "ASRL/dev/ttyUSB0::INSTR"
 
-    k = k2400(address_string=address, terminator="\r", serial_baud=57600)
+    k = k2400(address=address, terminator="\r", serial_baud=57600)
 
     con_time = time.time()
-    print(f"Connected to {k.address_string} in {con_time-start} seconds")
+    print(f"Connected to {k.address} in {con_time-start} seconds")
 
     # do a contact check
     k.set_ccheck_mode(True)

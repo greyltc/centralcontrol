@@ -25,6 +25,7 @@ class FakeLight(object):
     # requested_state = False  # keeps track of what state we'd like the light to be in
     last_temps = (0.0, 0.0)
     active_recipe = None
+    address = None
 
     def __init__(self, *args, **kwargs):
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -34,6 +35,9 @@ class FakeLight(object):
 
         if "intensity" in kwargs:
             self._on_intensity = kwargs["intensity"]
+
+        if "address" in kwargs:
+            self.address = kwargs["address"]
 
         # self.request_on = False
         # self.requested_state = False
@@ -339,6 +343,7 @@ class smu(object):
     ccheck = False
     killer = None
     print_sweep_deets: bool = False
+    address = None
 
     def __init__(self, *args, **kwargs):
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -353,6 +358,9 @@ class smu(object):
             self.killer = kwargs["killer"]
         else:
             self.killer = threading.Event()
+
+        if "address" in kwargs:
+            self.address = kwargs["address"]
 
         # these will get updated externally as needed
         self.area = 1  # cm^2
