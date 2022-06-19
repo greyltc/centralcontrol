@@ -622,8 +622,15 @@ class k2400(object):
             else:
                 vals = self.sm.query_binary_values(":read?", data_points=nPoints * m_len)
 
-        # turn this into a list of tuples because pretty much everything upstream likes that format
-        reshaped = list(zip(*[iter(vals)] * m_len))
+        #reshaped = list(zip(*[iter(vals)] * m_len))
+        # let's make sure the status gets sent back as an int, not a float
+        if m_len == 4:
+            reshaped = [(a, b, c, int(d)) for a, b, c, d in vals]
+        elif m_len == 5:
+            reshaped = [(a, b, c, d, int(e)) for a, b, c, d, e in vals]
+        else:
+            raise ValueError("unsupported data format")
+
 
         # if this was a sweep, compute how long it took
         if len(reshaped) > 1:
