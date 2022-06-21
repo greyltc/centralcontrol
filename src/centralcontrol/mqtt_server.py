@@ -1055,6 +1055,7 @@ class MQTTServer(object):
                     self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
                     self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps([]), "qos": 2, "retain": True})
 
+            db.complete_run(rid)  # mark run as complete
             db.vac()  # mantain db
 
             # don't leave the light on!
