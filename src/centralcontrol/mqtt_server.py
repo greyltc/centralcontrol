@@ -481,11 +481,10 @@ class MQTTServer(object):
             svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
         return svt
 
-    def do_iv(self, rid, mnt, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
+    def do_iv(self, rid, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
         """parallelizable I-V tasks for use in threads"""
         with SlothDB(db_uri=config["db"]["uri"]) as db:
             dh.dbputter = db.putsmdat
-            measurement = mnt
             mppt.current_compliance = compliance_i
             data = []
 
@@ -531,7 +530,6 @@ class MQTTServer(object):
                     db.eid = eid  # register event id for datahandler
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
                     db.eid = None  # unregister event id
-                    # db.putsmdat(eid, [tuple(row) for row in svtb])  # TODO: stream this with the data handler
                     db.complete_event(eid)  # mark light sweep as done
                     data += svtb  # keep the data
 
@@ -550,7 +548,6 @@ class MQTTServer(object):
                 db.eid = eid  # register event id for datahandler
                 vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
                 db.eid = None  # unregister event id
-                # db.putsmdat(eid, [tuple(row) for row in vt])  # TODO: stream this with the data handler
                 db.complete_event(eid)  # mark ss event as done
                 data += vt
 
@@ -577,7 +574,6 @@ class MQTTServer(object):
                     db.eid = eid  # register event id for datahandler
                     svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
                     db.eid = None  # unregister event id
-                    # db.putsmdat(eid, [tuple(row) for row in svta])  # TODO: stream this with the data handler
                     db.complete_event(eid)  # mark light sweep as done
                     data += svta
                     sm.intensity = 1  # reset the simulated device's intensity
@@ -623,9 +619,8 @@ class MQTTServer(object):
                 deets["to_setpoint"] = sweep_args["end"]
                 db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                 iv1 = sm.measure(sweep_args["nPoints"])
-                db.putsmdat([tuple(row) for row in iv1], eid)
+                db.putsmdat(iv1, eid)
                 db.complete_event(eid)  # mark event as done
-
                 dh.handle_data(iv1, dodb=False)
                 data += iv1
 
@@ -661,7 +656,7 @@ class MQTTServer(object):
                     deets["to_setpoint"] = sweep_args["end"]
                     db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                     iv2 = sm.measure(sweep_args["nPoints"])
-                    db.putsmdat([tuple(row) for row in iv2], eid)  # TODO: stream this with the data handler
+                    db.putsmdat(iv2, eid)
                     db.complete_event(eid)  # mark event as done
                     dh.handle_data(iv2, dodb=False)
                     data += iv2
@@ -705,7 +700,6 @@ class MQTTServer(object):
                 db.eid = eid  # register event id for datahandler
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
                 db.eid = None  # unregister event id
-                # db.putsmdat([tuple(row) for row in iv2], eid)  # TODO: stream this with the data handler
                 db.complete_event(eid)  # mark event as done
                 mppt.reset()
 
@@ -750,7 +744,6 @@ class MQTTServer(object):
                 db.eid = eid  # register event id for datahandler
                 it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
                 db.eid = None  # unregister event id
-                # db.putsmdat(eid, [tuple(row) for row in it])  # TODO: stream this with the data handler
                 db.complete_event(eid)  # mark ss event as done
                 data += it
 
@@ -874,18 +867,27 @@ class MQTTServer(object):
         sscfg["intensity"] = request["args"]["light_recipe_int"]  # throw in configured intensity
 
         with contextlib.ExitStack() as stack:  # big context manager
-            # register the equipment comms instances with the ExitStack for magic cleanup/disconnect
-            smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
-            ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
+            # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
             db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
+
+            # user validation
             user = request["args"]["user_name"]
             uidfetch = db.get(f"{db.schema}.tbl_users", ("id",), f"name = '{user}'")
             # get userid (via new registration if needed)
-            if uidfetch == []:
-                uid = db.new_user(user)
+            if uidfetch == []:  # user does not exist
+                uid = db.new_user(user)  # register new
             else:
+                # user exists
                 uid = uidfetch[0][0]
-            rid = db.new_run(uid)  # register a new run
+                active = db.get(f"{db.schema}.tbl_users", ("active",), f"id = {uid}")[0][0]
+                if active is False:
+                    uid = -1
+                    raise ValueError(f"{user} is not a valid user name")
+
+            smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
+            ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
+
+            rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
             for sm in smus:
                 sm.killer = self.killer  # register the kill signal
             mppts = [mppt.mppt(sm, killer=self.killer) for sm in smus]  # spin up all the max power point trackers
@@ -1025,7 +1027,7 @@ class MQTTServer(object):
                                 smus[smu_index].area = pixel["area"]  # set virtual smu scaling
 
                                 # submit for processing
-                                futures[smu_index] = executor.submit(self.do_iv, rid, measurement, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
+                                futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
 
                             # collect the datas!
                             datas = {}
