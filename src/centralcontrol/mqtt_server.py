@@ -9,7 +9,7 @@ import multiprocessing
 import concurrent.futures
 import threading
 import os
-import pickle
+import json
 import queue
 import signal
 import time
@@ -19,6 +19,7 @@ import humanize
 import datetime
 import numpy as np
 import contextlib
+import pandas as pd
 from slothdb.dbsync import SlothDBSync as SlothDB
 from slothdb import enums as en
 
@@ -78,7 +79,7 @@ class DataHandler(object):
         payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
         if (self.dbputter is not None) and dodb:
             self.dbputter(data)
-        self.outq.put({"topic": f"data/raw/{self.kind}", "payload": pickle.dumps(payload), "qos": 2})
+        self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
 
 
 class MQTTServer(object):
@@ -135,7 +136,7 @@ class MQTTServer(object):
 
         # setup mqtt subscriber client
         self.mqttc = mqtt.Client(client_id=self.client_id)
-        self.mqttc.will_set("measurement/status", pickle.dumps("Offline"), 2, retain=True)
+        self.mqttc.will_set("measurement/status", json.dumps("Offline"), 2, retain=True)
         self.mqttc.on_message = self.on_message
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_disconnect = self.on_disconnect
@@ -156,7 +157,7 @@ class MQTTServer(object):
         if self.process.is_alive() == False:
             self.process = multiprocessing.Process(target=target, args=args, daemon=True)
             self.process.start()
-            self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Busy"), "qos": 2, "retain": True})
+            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
         else:
             self.lg.warning("Measurement server busy!")
 
@@ -174,7 +175,7 @@ class MQTTServer(object):
             self.killer.clear()
             self.lg.debug(f"{self.process.is_alive()=}")
             self.lg.info("Request to stop completed!")
-            self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
+            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
         else:
             self.lg.warning("Nothing to stop. Measurement server is idle.")
 
@@ -225,7 +226,7 @@ class MQTTServer(object):
             traceback.print_exc()
             self.lg.error("EQE CALIBRATION ABORTED! " + str(e))
 
-            self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
+            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
     def _calibrate_psu(self, request):
         """Measure the reference photodiode as a funtcion of LED current.
@@ -341,7 +342,7 @@ class MQTTServer(object):
                                 fraction = n_done / p_total
                                 text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
                                 progress_msg = {"text": text, "fraction": fraction}
-                                self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+                                self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
                             self.lg.info(f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
 
@@ -357,7 +358,7 @@ class MQTTServer(object):
                                     psu_calibration = measurement.calibrate_psu(channel, 0.9 * config["psu"][f"ch{channel}_ocp"], 10, config["psu"][f"ch{channel}_voltage"])
 
                                     diode_dict = {"data": psu_calibration, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
-                                    self.outq.put({"topic": "calibration/psu/ch{channel}", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
+                                    self.outq.put({"topic": "calibration/psu/ch{channel}", "payload": json.dumps(diode_dict), "qos": 2, "retain": True})
 
                             measurement.select_pixel(mux_string="s", pcb=gp_pcb)  # deselect pixels
 
@@ -365,7 +366,7 @@ class MQTTServer(object):
                             remaining = len(pixel_queue)
 
                         progress_msg = {"text": "Done!", "fraction": 1}
-                        self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+                        self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
             self.lg.info("LED PSU calibration complete!")
         except KeyboardInterrupt:
@@ -374,7 +375,7 @@ class MQTTServer(object):
             traceback.print_exc()
             self.lg.error("PSU CALIBRATION ABORTED! " + str(e))
 
-        self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
+        self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
     def _build_q(self, request, experiment):
         """Generate a queue of pixels to run through.
@@ -403,6 +404,9 @@ class MQTTServer(object):
         else:
             raise (ValueError(f"Unknown experiment: {experiment}"))
         center = config["stage"]["experiment_positions"][experiment]
+
+        # recreate a dataframe from the dict
+        stuff = pd.DataFrame.from_dict(stuff)
 
         # build pixel/group queue for the run
         run_q = collections.deque()
@@ -464,12 +468,12 @@ class MQTTServer(object):
         mqttqp : MQTTQueuePublisher
             MQTT queue publisher object that publishes measurement data.
         """
-        self.outq.put({"topic": f"plotter/{kind}/clear", "payload": pickle.dumps(""), "qos": 2})
+        self.outq.put({"topic": f"plotter/{kind}/clear", "payload": json.dumps(""), "qos": 2})
 
     # send up a log message to the status channel
     def send_log_msg(self, record):
         payload = {"level": record.levelno, "msg": record.msg}
-        self.outq.put({"topic": "measurement/log", "payload": pickle.dumps(payload), "qos": 2})
+        self.outq.put({"topic": "measurement/log", "payload": json.dumps(payload), "qos": 2})
 
     def suns_voc(self, duration: float, light, sm, intensities: typing.List[int], dh):
         """do a suns-Voc measurement"""
@@ -755,14 +759,14 @@ class MQTTServer(object):
             wls, counts = ss.get_spectrum()
             data = [[wl, count] for wl, count in zip(wls, counts)]
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
-            self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
+            self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
             if intensity_setpoint != 100:
                 # now do it again to make sure we have a record of the 100% baseline
                 ss.set_intensity(100)
                 wls, counts = ss.get_spectrum()
                 data = [[wl, count] for wl, count in zip(wls, counts)]
                 spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
-                self.outq.put({"topic": "calibration/spectrum", "payload": pickle.dumps(spectrum_dict), "qos": 2, "retain": True})
+                self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
                 ss.set_intensity(intensity_setpoint)
         except Exception as e:
             self.lg.debug("Failure to collect spectrum data: {e}")
@@ -980,13 +984,13 @@ class MQTTServer(object):
                             fraction = n_done / p_total
                             text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
                             progress_msg = {"text": text, "fraction": fraction}
-                            self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+                            self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
                         n_parallel = len(q_item)  # how many pixels this group holds
                         dev_labels = [val["device_label"] for key, val in q_item.items()]
                         print_label = " + ".join(dev_labels)
                         theres = np.array([val["pos"] for key, val in q_item.items()])
-                        self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps(dev_labels), "qos": 2, "retain": True})
+                        self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
                         if n_parallel > 1:
                             there = tuple(theres.mean(0))  # the average location of the group
                         else:
@@ -1040,9 +1044,9 @@ class MQTTServer(object):
                                     diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{q_item[smu_index]['label']}_device_{q_item[smu_index]['pixel']}"}
                                     if rtd == True:
                                         self.lg.debug("RTD cal")
-                                        self.outq.put({"topic": "calibration/rtz", "payload": pickle.dumps(diode_dict), "qos": 2})
+                                        self.outq.put({"topic": "calibration/rtz", "payload": json.dumps(diode_dict), "qos": 2})
                                     else:
-                                        self.outq.put({"topic": "calibration/solarsim_diode", "payload": pickle.dumps(diode_dict), "qos": 2})
+                                        self.outq.put({"topic": "calibration/solarsim_diode", "payload": json.dumps(diode_dict), "qos": 2})
 
                         n_done += 1
                         remaining = len(run_queue)
@@ -1052,8 +1056,8 @@ class MQTTServer(object):
                             # refresh the deque to loop forever
 
                     progress_msg = {"text": "Done!", "fraction": 1}
-                    self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
-                    self.outq.put({"topic": "plotter/live_devices", "payload": pickle.dumps([]), "qos": 2, "retain": True})
+                    self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+                    self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
 
             db.complete_run(rid)  # mark run as complete
             db.vac()  # mantain db
@@ -1168,7 +1172,7 @@ class MQTTServer(object):
                         fraction = n_done / p_total
                         text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
                         progress_msg = {"text": text, "fraction": fraction}
-                        self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+                        self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
                     self.lg.info(f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
 
@@ -1224,7 +1228,7 @@ class MQTTServer(object):
                     # update eqe diode calibration data in
                     if calibration == True:
                         diode_dict = {"data": eqe, "timestamp": time.time(), "diode": f"{pixel['label']}_device_{pixel['pixel']}"}
-                        self.outq.put({"topic": "calibration/eqe", "payload": pickle.dumps(diode_dict), "qos": 2, "retain": True})
+                        self.outq.put({"topic": "calibration/eqe", "payload": json.dumps(diode_dict), "qos": 2, "retain": True})
 
                     n_done += 1
                     remaining = len(pixel_queue)
@@ -1233,7 +1237,7 @@ class MQTTServer(object):
                         # refresh the deque to loop forever
 
                 progress_msg = {"text": "Done!", "fraction": 1}
-                self.outq.put({"topic": "progress", "payload": pickle.dumps(progress_msg), "qos": 2})
+                self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
     def _run(self, request):
         """Act on command line instructions.
@@ -1283,7 +1287,7 @@ class MQTTServer(object):
                 traceback.print_exc()
                 self.lg.error(f"RUN ABORTED! " + str(e))
 
-            self.outq.put({"topic": "measurement/status", "payload": pickle.dumps("Ready"), "qos": 2, "retain": True})
+            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
     # The callback for when a PUBLISH message is received from the server.
     def on_message(self, client, userdata, msg):
@@ -1293,7 +1297,7 @@ class MQTTServer(object):
     def on_connect(self, client, userdata, flags, rc):
         self.lg.debug(f"mqtt_server connected to broker with result code {rc}")
         client.subscribe("measurement/#", qos=2)
-        client.publish("measurement/status", pickle.dumps("Ready"), qos=2, retain=True)
+        client.publish("measurement/status", json.dumps("Ready"), qos=2, retain=True)
 
     # when client disconnects from broker
     def on_disconnect(self, client, userdata, rc):
@@ -1312,7 +1316,7 @@ class MQTTServer(object):
             msg = self.msg_queue.get()
 
             try:
-                request = pickle.loads(msg.payload)
+                request = json.loads(msg.payload)
                 action = msg.topic.split("/")[-1]
 
                 # perform a requested action

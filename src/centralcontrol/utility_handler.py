@@ -3,7 +3,7 @@
 import contextlib
 import paho.mqtt.client as mqtt
 import argparse
-import pickle
+import json
 import threading
 import queue
 import serial  # for monochromator
@@ -104,7 +104,7 @@ class UtilityHandler(object):
     def filter_cmd(self, mqtt_msg):
         result = {"cmd": ""}
         try:
-            msg = pickle.loads(mqtt_msg.payload)
+            msg = json.loads(mqtt_msg.payload)
         except Exception as e:
             msg = None
         if isinstance(msg, collections.abc.Iterable):
@@ -145,7 +145,7 @@ class UtilityHandler(object):
     def send_pos(self, mo):
         pos = mo.get_position()
         payload = {"pos": pos}
-        payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+        payload = json.dumps(payload)
         output = {"destination": "response", "payload": payload}  # post the position to the response channel
         self.outputq.put(output)
 
@@ -260,7 +260,7 @@ class UtilityHandler(object):
                         response = {}
                         response["data"] = data
                         response["timestamp"] = time.time()
-                        output = {"destination": "calibration/spectrum", "payload": pickle.dumps(response)}
+                        output = {"destination": "calibration/spectrum", "payload": json.dumps(response)}
                         self.outputq.put(output)
                         self.lg.info("🟢 Spectrum fetched sucessfully!")
                         self.lg.info(f"Found light source temperatures: {temps}")
@@ -473,7 +473,7 @@ class UtilityHandler(object):
     # send up a log message to the status channel
     def send_log_msg(self, record):
         payload = {"log": {"level": record.levelno, "text": record.msg}}
-        payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+        payload = json.dumps(payload)
         output = {"destination": "status", "payload": payload}
         self.outputq.put(output)
 
