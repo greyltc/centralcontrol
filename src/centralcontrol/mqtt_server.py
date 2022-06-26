@@ -422,7 +422,7 @@ class MQTTServer(object):
                         pixel_dict["layout"] = stuff.loc[rsel]["layout"].values[0]
                         pixel_dict["sub_name"] = stuff.loc[rsel]["system_label"].values[0]
                         pixel_dict["device_label"] = stuff.loc[rsel]["device_label"].values[0]
-                        pixel_dict["pixel"] = stuff.loc[rsel]["mux_index"].values[0]
+                        pixel_dict["pixel"] = int(stuff.loc[rsel]["mux_index"].values[0])
                         loc = stuff.loc[rsel]["loc"].values[0]
                         pos = [a + b for a, b in zip(center, loc)]
                         pixel_dict["pos"] = pos
@@ -445,7 +445,7 @@ class MQTTServer(object):
                 pixel_dict["layout"] = things["layout"]
                 pixel_dict["sub_name"] = things["system_label"]
                 pixel_dict["device_label"] = things["device_label"]
-                pixel_dict["pixel"] = things["mux_index"]
+                pixel_dict["pixel"] = int(things["mux_index"])
                 loc = things["loc"]
                 pos = [a + b for a, b in zip(center, loc)]
                 pixel_dict["pos"] = pos
@@ -1316,7 +1316,7 @@ class MQTTServer(object):
             msg = self.msg_queue.get()
 
             try:
-                request = json.loads(msg.payload)
+                request = json.loads(msg.payload.decode())
                 action = msg.topic.split("/")[-1]
 
                 # perform a requested action

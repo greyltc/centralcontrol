@@ -104,7 +104,7 @@ class UtilityHandler(object):
     def filter_cmd(self, mqtt_msg):
         result = {"cmd": ""}
         try:
-            msg = json.loads(mqtt_msg.payload)
+            msg = json.loads(mqtt_msg.payload.decode())
         except Exception as e:
             msg = None
         if isinstance(msg, collections.abc.Iterable):
