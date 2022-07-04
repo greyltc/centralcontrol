@@ -174,7 +174,7 @@ class MQTTServer(object):
                 self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGINT")
             self.killer.clear()
             self.lg.debug(f"{self.process.is_alive()=}")
-            self.lg.info("Request to stop completed!")
+            self.lg.log(29, "Request to stop completed!")
             self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
         else:
             self.lg.warning("Nothing to stop. Measurement server is idle.")
@@ -197,7 +197,7 @@ class MQTTServer(object):
                 i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                 measurement.current_limit = min(i_limits)
                 # create temporary mqtt client
-                self.lg.info("Calibrating EQE...")
+                self.lg.log(29, "Calibrating EQE...")
                 args = request["args"]
 
                 # get pixel queue
@@ -219,7 +219,7 @@ class MQTTServer(object):
 
                 self._eqe(pixel_queue, request, measurement, calibration=True)
 
-            self.lg.info("EQE calibration complete!")
+            self.lg.log(29, "EQE calibration complete!")
         except KeyboardInterrupt:
             pass
         except Exception as e:
@@ -246,7 +246,7 @@ class MQTTServer(object):
                 i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                 measurement.current_limit = min(i_limits)
 
-                self.lg.info("Calibration LED PSU...")
+                self.lg.log(29, "Calibration LED PSU...")
 
                 config = request["config"]
                 args = request["args"]
@@ -344,7 +344,7 @@ class MQTTServer(object):
                                 progress_msg = {"text": text, "fraction": fraction}
                                 self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-                            self.lg.info(f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
+                            self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
 
                             # move to pixel
                             measurement.goto_pixel(pixel, mo)
@@ -368,7 +368,7 @@ class MQTTServer(object):
                         progress_msg = {"text": "Done!", "fraction": 1}
                         self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-            self.lg.info("LED PSU calibration complete!")
+            self.lg.log(29, "LED PSU calibration complete!")
         except KeyboardInterrupt:
             pass
         except Exception as e:
@@ -996,7 +996,7 @@ class MQTTServer(object):
                         else:
                             there = theres[0]
 
-                        self.lg.info(f"[{n_done+1}/{p_total}] Operating on {print_label}")
+                        self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {print_label}")
 
                         # set up light source voting/synchronization (if any)
                         ss.n_sync = n_parallel
@@ -1174,7 +1174,7 @@ class MQTTServer(object):
                         progress_msg = {"text": text, "fraction": fraction}
                         self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-                    self.lg.info(f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
+                    self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {pixel['device_label']}")
 
                     # move to pixel
                     measurement.goto_pixel(pixel, mo)
@@ -1182,7 +1182,7 @@ class MQTTServer(object):
                     measurement.select_pixel(mux_string="s", pcb=gp_pcb)  # deselect pixels
                     measurement.select_pixel(mux_string=pixel["mux_string"], pcb=gp_pcb)
 
-                    self.lg.info(f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm")
+                    self.lg.log(29, f"Scanning EQE from {args['eqe_start']} nm to {args['eqe_end']} nm")
 
                     compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
 
@@ -1260,7 +1260,7 @@ class MQTTServer(object):
         if user_aborted == False:
             try:
                 with Fabric(killer=self.killer) as measurement:
-                    self.lg.info("Starting run...")
+                    self.lg.log(29, "Starting run...")
                     try:
                         i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                         i_limit = min(i_limits)
@@ -1279,7 +1279,7 @@ class MQTTServer(object):
                         measurement.disconnect_all_instruments()
 
                     # report complete
-                    self.lg.info("Run complete!")
+                    self.lg.log(29, "Run complete!")
 
             except KeyboardInterrupt:
                 pass

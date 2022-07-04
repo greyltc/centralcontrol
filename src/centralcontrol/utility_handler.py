@@ -180,10 +180,10 @@ class UtilityHandler(object):
                                     break
                         if needs_home == True:
                             mo.home()
-                            self.lg.info("Stage calibration procedure complete.")
+                            self.lg.log(29, "Stage calibration procedure complete.")
                             self.send_pos(mo)
                         else:
-                            self.lg.info("The stage is already calibrated.")
+                            self.lg.log(29, "The stage is already calibrated.")
                     del mo
 
                 # send the stage some place
@@ -218,20 +218,20 @@ class UtilityHandler(object):
                 # zero the mono
                 elif task["cmd"] == "mono_zero":
                     if task["mono_virt"] == True:
-                        self.lg.info("0 GOTO virtually worked!")
-                        self.lg.info("1 FILTER virtually worked!")
+                        self.lg.log(29, "0 GOTO virtually worked!")
+                        self.lg.log(29, "1 FILTER virtually worked!")
                     else:
                         with serial.Serial(task["mono_address"], 9600, timeout=1) as mono:
                             mono.write("0 GOTO")
-                            self.lg.info(mono.readline.strip())
+                            self.lg.log(29, mono.readline.strip())
                             mono.write("1 FILTER")
-                            self.lg.info(mono.readline.strip())
+                            self.lg.log(29, mono.readline.strip())
 
                 elif task["cmd"] == "spec":
                     sscfg = task["solarsim"]  # the solar sim configuration
                     sscfg["active_recipe"] = task["recipe"]
                     sscfg["intensity"] = task["intensity"]
-                    self.lg.info("Fetching solar sim spectrum...")
+                    self.lg.log(29, "Fetching solar sim spectrum...")
                     solarsim_class = illumination.factory(sscfg)  # use the class factory to get a solarsim class
                     ss = solarsim_class(**sscfg)  # instantiate the class
                     emsg = []
@@ -262,8 +262,8 @@ class UtilityHandler(object):
                         response["timestamp"] = time.time()
                         output = {"destination": "calibration/spectrum", "payload": json.dumps(response)}
                         self.outputq.put(output)
-                        self.lg.info("🟢 Spectrum fetched sucessfully!")
-                        self.lg.info(f"Found light source temperatures: {temps}")
+                        self.lg.log(29, "🟢 Spectrum fetched sucessfully!")
+                        self.lg.log(29, f"Found light source temperatures: {temps}")
 
                 # device round robin commands
                 elif task["cmd"] == "round_robin":
@@ -285,7 +285,7 @@ class UtilityHandler(object):
                                     elif task["type"] == "rtd":
                                         sm.setupDC(auto_ohms=True)
                                     elif task["type"] == "connectivity":
-                                        self.lg.info(f"Checking connections. Only failures will be printed.")
+                                        self.lg.log(29, f"Checking connections. Only failures will be printed.")
                                         sm.set_ccheck_mode(True)
 
                                 for i, slot in enumerate(task["slots"]):
@@ -303,21 +303,21 @@ class UtilityHandler(object):
                                             m = smus[smu_index].measure()[0]
                                             ohm = m[2]
                                             if (ohm < 3000) and (ohm > 500):
-                                                self.lg.info(f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
+                                                self.lg.log(29, f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
                                         elif task["type"] == "connectivity":
                                             if smus[smu_index].contact_check() == False:
-                                                self.lg.info(f"{slot} -- {dev} appears disconnected.")
+                                                self.lg.log(29, f"{slot} -- {dev} appears disconnected.")
                                     p.query(f"s{slot}0")  # disconnect the slot
 
                                 for sm in smus:
                                     if task["type"] == "connectivity":
                                         sm.set_ccheck_mode(False)
-                                        # self.lg.info("Contact check complete.")
+                                        # self.lg.log(29, "Contact check complete.")
                                     elif task["type"] == "rtd":
-                                        # self.lg.info("Temperature measurement complete.")
+                                        # self.lg.log(29, "Temperature measurement complete.")
                                         sm.setupDC(sourceVoltage=False)
                             p.query("s")
-                    self.lg.info("Round robin task complete.")
+                    self.lg.log(29, "Round robin task complete.")
             except Exception as e:
                 self.lg.warning(e)
                 logging.exception(e)
@@ -333,29 +333,29 @@ class UtilityHandler(object):
             # system health check
             if task["cmd"] == "check_health":
                 if "pcb" in task:
-                    self.lg.info(f"Checking controller@{task['pcb']}...")
+                    self.lg.log(29, f"Checking controller@{task['pcb']}...")
                     try:
                         with pcb_class(task["pcb"], timeout=5) as p:
-                            self.lg.info("Controller connection initiated")
-                            self.lg.info(f"Controller firmware version: {p.firmware_version}")
-                            self.lg.info(f"Controller axes: {p.detected_axes}")
-                            self.lg.info(f"Controller muxes: {p.detected_muxes}")
+                            self.lg.log(29, "Controller connection initiated")
+                            self.lg.log(29, f"Controller firmware version: {p.firmware_version}")
+                            self.lg.log(29, f"Controller axes: {p.detected_axes}")
+                            self.lg.log(29, f"Controller muxes: {p.detected_muxes}")
                     except Exception as e:
                         emsg = f"Could not talk to control box"
                         self.lg.warning(emsg)
                         logging.exception(emsg)
 
                 if "psu" in task:
-                    self.lg.info(f"Checking power supply@{task['psu']}...")
+                    self.lg.log(29, f"Checking power supply@{task['psu']}...")
                     if task["psu_virt"] == True:
-                        self.lg.info(f"Power supply looks virtually great!")
+                        self.lg.log(29, f"Power supply looks virtually great!")
                     else:
                         try:
                             rm = pyvisa.ResourceManager("@py")
                             with rm.open_resource(task["psu"]) as psu:
-                                self.lg.info("Power supply connection initiated")
+                                self.lg.log(29, "Power supply connection initiated")
                                 idn = psu.query("*IDN?")
-                                self.lg.info(f"Power supply identification string: {idn.strip()}")
+                                self.lg.log(29, f"Power supply identification string: {idn.strip()}")
                         except Exception as e:
                             emsg = f"Could not talk to PSU"
                             self.lg.warning(emsg)
@@ -368,7 +368,7 @@ class UtilityHandler(object):
                             addrwords = f" at {smucfg['address']}"
                         else:
                             addrwords = ""
-                        self.lg.info(f"Checking sourcemeter #{index}{addrwords}...")
+                        self.lg.log(29, f"Checking sourcemeter #{index}{addrwords}...")
 
                         sourcemeter_class = sourcemeter.factory(smucfg)  # use the class factory to get a sourcemeter class
                         sm = sourcemeter_class(**smucfg)  # instantiate the class
@@ -391,34 +391,34 @@ class UtilityHandler(object):
                                 self.lg.warning(badmsg)
                                 logging.exception(badmsg)
                         else:
-                            self.lg.info(f"🟢 Sourcemeter comms working correctly. Identifed as: {smuidn}")
+                            self.lg.log(29, f"🟢 Sourcemeter comms working correctly. Identifed as: {smuidn}")
 
                 if "lia_address" in task:
-                    self.lg.info(f"Checking lock-in@{task['lia_address']}...")
+                    self.lg.log(29, f"Checking lock-in@{task['lia_address']}...")
                     if task["lia_virt"] == True:
-                        self.lg.info(f"Lock-in looks virtually great!")
+                        self.lg.log(29, f"Lock-in looks virtually great!")
                     else:
                         try:
                             with rm.open_resource(task["lia_address"], baud_rate=9600) as lia:
                                 lia.read_termination = "\r"
-                                self.lg.info("Lock-in connection initiated")
+                                self.lg.log(29, "Lock-in connection initiated")
                                 idn = lia.query("*IDN?")
-                                self.lg.info(f"Lock-in identification string: {idn.strip()}")
+                                self.lg.log(29, f"Lock-in identification string: {idn.strip()}")
                         except Exception as e:
                             emsg = f"Could not talk to lock-in"
                             self.lg.warning(emsg)
                             logging.exception(emsg)
 
                 if "mono_address" in task:
-                    self.lg.info(f"Checking monochromator@{task['mono_address']}...")
+                    self.lg.log(29, f"Checking monochromator@{task['mono_address']}...")
                     if task["mono_virt"] == True:
-                        self.lg.info(f"Monochromator looks virtually great!")
+                        self.lg.log(29, f"Monochromator looks virtually great!")
                     else:
                         try:
                             with rm.open_resource(task["mono_address"], baud_rate=9600) as mono:
-                                self.lg.info("Monochromator connection initiated")
+                                self.lg.log(29, "Monochromator connection initiated")
                                 qu = mono.query("?nm")
-                                self.lg.info(f"Monochromator wavelength query result: {qu.strip()}")
+                                self.lg.log(29, f"Monochromator wavelength query result: {qu.strip()}")
                         except Exception as e:
                             emsg = f"Could not talk to monochromator"
                             self.lg.warning(emsg)
@@ -428,7 +428,7 @@ class UtilityHandler(object):
                     sscfg = task["solarsim"]
                     recipe = task["recipe"]
                     intensity = task["intensity"]
-                    self.lg.info("Checking solar sim comms...")
+                    self.lg.log(29, "Checking solar sim comms...")
                     solarsim_class = illumination.factory(sscfg)  # use the class factory to get a solarsim class
                     ss = solarsim_class(**sscfg)  # instantiate the class
                     emsg = []
@@ -440,14 +440,14 @@ class UtilityHandler(object):
                             if not isinstance(run_status, str):
                                 emsg.append(f"🔴 Unable to complete solar sim status query {run_status=}")
                             else:
-                                self.lg.info(f"Solar sim connection successful. Run Status = {run_status}")
+                                self.lg.log(29, f"Solar sim connection successful. Run Status = {run_status}")
                                 return_code = connected_solarsim.activate_recipe(recipe)
                                 if return_code == 0:
-                                    self.lg.info(f'"{recipe}" recipe activated!')
+                                    self.lg.log(29, f'"{recipe}" recipe activated!')
                                     connected_solarsim.intensity = int(intensity)
                                     actual_intensity = connected_solarsim.intensity
                                     if actual_intensity == int(intensity):
-                                        self.lg.info(f"{int(intensity)}% instensity set sucessfully!")
+                                        self.lg.log(29, f"{int(intensity)}% instensity set sucessfully!")
                                     else:
                                         emsg.append(f"🔴 Tried to set intensity to {int(intensity)}%, but it is {actual_intensity}%")
                                 else:
@@ -466,7 +466,7 @@ class UtilityHandler(object):
                             self.lg.warning(badmsg)
                             logging.exception(badmsg)
                     else:
-                        self.lg.info(f"🟢 Solarsim comms working correctly. Identifed as: {ssidn}")
+                        self.lg.log(29, f"🟢 Solarsim comms working correctly. Identifed as: {ssidn}")
 
             self.taskq.task_done()
 

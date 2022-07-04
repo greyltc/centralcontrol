@@ -642,7 +642,7 @@ class smu(object):
             self.last_sweep_time = t_end - t_start
             stats_string = f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/len(vals)*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(vals)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
             if self.print_sweep_deets == True:
-                self.lg.info(stats_string)
+                self.lg.log(29, stats_string)
             else:
                 self.lg.debug(stats_string)
 

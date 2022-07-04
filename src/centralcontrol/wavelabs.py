@@ -197,7 +197,7 @@ class Wavelabs(object):
             sto = self.server_socket.gettimeout()
             (self.client_socket, client_address) = self.server_socket.accept()
             self.server_socket.close()  # there won't be another client
-            self.lg.info(f"New direct connection from Wavelabs client software from {client_address}")
+            self.lg.log(29, f"New direct connection from Wavelabs client software from {client_address}")
             ret = 0
         except socket.timeout as to:
             ret = -1  # timeout waiting for wavelabs software to connect

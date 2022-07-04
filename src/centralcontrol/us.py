@@ -158,7 +158,7 @@ class Us(object):
                     if self.len_axes_mm[ax] == 0:
                         raise ValueError(f"Calibration of axis {ax} resulted in measured length of zero.")
                     else:
-                        self.lg.info(f"Calibration complete. Axes lengths are {self.len_axes_mm}")
+                        self.lg.log(29, f"Calibration complete. Axes lengths are {self.len_axes_mm}")
         else:  # special home
             home_commands = procedure.split("!")
             for hcmd in home_commands:

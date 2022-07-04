@@ -650,7 +650,7 @@ class k2400(object):
             self.last_sweep_time = t_end - t_start
             stats_string = f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/len(reshaped)*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(reshaped)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
             if self.print_sweep_deets:
-                self.lg.info(stats_string)
+                self.lg.log(29, stats_string)
             else:
                 self.lg.debug(stats_string)
             self.sm.timeout = self.default_comms_timeout  # reset comms timeout to default value after sweep

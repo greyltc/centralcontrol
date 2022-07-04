@@ -163,9 +163,9 @@ class Xdac(object):
         finds current zero offsets for all channels.
         all channels should be open (disconnected) for this to work correctly
         """
-        self.lg.info("Initiating current zero-offset calibration.")
-        self.lg.info("All channels must be disconnected now.")
-        self.lg.info("Performing calibration. Please wait...")
+        self.lg.log(29, "Initiating current zero-offset calibration.")
+        self.lg.log(29, "All channels must be disconnected now.")
+        self.lg.log(29, "Performing calibration. Please wait...")
 
         for ch in range(self.n_chans):
             self.setOff(ch + 1)
@@ -191,5 +191,5 @@ class Xdac(object):
         with open(str(plo), "w") as fp:
             json.dump(self.cal_data, fp)
 
-        self.lg.info("Calibration complete!")
-        self.lg.info(f"Current zero-offsets = {offsets} mA")
+        self.lg.log(29, "Calibration complete!")
+        self.lg.log(29, f"Current zero-offsets = {offsets} mA")
