@@ -1321,6 +1321,7 @@ class MQTTServer(object):
 
                 # perform a requested action
                 if (action == "run") and ((request["args"]["enable_eqe"] == True) or (request["args"]["enable_iv"] == True)):
+                    self.lg.setLevel(request["config"]["meta"]["internal_loglevel"])
                     self.start_process(self._run, (request,))
                 elif action == "stop":
                     self.stop_process()
