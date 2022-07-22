@@ -84,7 +84,7 @@ class LightAPI(object):
                     self._current_intensity = super(LightAPI, self).get_intensity()
                 else:
                     self._current_intensity = 0  # the light is off
-        return None
+        return self.conn_status
 
     def disconnect(self) -> None:
         """disconnect and clean up"""
