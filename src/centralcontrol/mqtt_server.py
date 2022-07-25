@@ -15,6 +15,7 @@ import signal
 import time
 import traceback
 import uuid
+import hmac
 import humanize
 import datetime
 import numpy as np
@@ -96,6 +97,7 @@ class MQTTServer(object):
     # can be switched to threading.Event()
     # if we stop using the multiprocessing module
     killer = multiprocessing.Event()
+    hk = "gosox".encode()
 
     class Dummy(object):
         pass
@@ -1274,9 +1276,7 @@ class MQTTServer(object):
                         measurement.disconnect_all_instruments()
 
                     if "EQE_stuff" in args:
-                        q = self._build_q(request, experiment="eqe")
-                        self._eqe(q, request, measurement)
-                        measurement.disconnect_all_instruments()
+                        request
 
                     # report complete
                     self.lg.log(29, "Run complete!")
@@ -1320,9 +1320,16 @@ class MQTTServer(object):
                 action = msg.topic.split("/")[-1]
 
                 # perform a requested action
-                if (action == "run") and ((request["args"]["enable_eqe"] == True) or (request["args"]["enable_iv"] == True)):
-                    self.lg.setLevel(request["config"]["meta"]["internal_loglevel"])
-                    self.start_process(self._run, (request,))
+                if action == "run":
+                    rundata = request["rundata"]
+                    remotedigest = bytes.fromhex(rundata.pop("digest").lstrip("0x"))
+                    jrundatab = json.dumps(rundata).encode()
+                    localdigest = hmac.digest(self.hk, jrundatab, "sha1")
+                    if remotedigest != localdigest:
+                        raise ValueError(f"Can't read run message")
+                    if (rundata["args"]["enable_eqe"] == True) or (rundata["args"]["enable_iv"] == True):
+                        self.lg.setLevel(rundata["config"]["meta"]["internal_loglevel"])
+                        self.start_process(self._run, (rundata,))
                 elif action == "stop":
                     self.stop_process()
                 elif (action == "calibrate_eqe") and (request["args"]["enable_eqe"] == True):
