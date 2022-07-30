@@ -2,7 +2,7 @@
 
 import sys
 import time
-import pyvisa
+import serial
 import threading
 
 try:
@@ -27,14 +27,13 @@ class k2400(object):
     default_comms_timeout = 50000  # in ms
     print_sweep_deets: bool = False  # false uses debug logging level, true logs sweep stats at info level
 
-    def __init__(self, visa_lib="@py", scan=False, address=None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
+    def __init__(self, visa_lib="@py", scan=False, address: str = None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
         """just set class variables here"""
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.killer = killer
         self.quiet = quiet
-        self.visa_lib = visa_lib
         self.address = address
         self.terminator = terminator
         self.serial_baud = serial_baud
@@ -43,19 +42,77 @@ class k2400(object):
         self.scan = scan
         self.print_sweep_deets = print_sweep_deets
 
-        self.lg.debug("Initialized.")
+        self.lg.debug("k2400 initialized.")
 
     def connect(self):
         """attempt to connect to hardware and initialize it"""
-        self.rm = self._getResourceManager(self.visa_lib)
 
-        if self.scan:
-            self.lg.debug(f"{self.rm.list_resources()}")
+        class HWURL(object):
+            class Serial(serial.Serial):
+                @serial.Serial.port.setter
+                def port(self, value):
+                    """translate port name before storing it"""
+                    if isinstance(value, str) and value.startswith("hw://"):
+                        try:
+                            url_meat = value.removeprefix("hw://")
+                            portsplit = url_meat.split("?")
+                            serial.Serial.port.__set__(self, portsplit.pop(0))
+                            if len(portsplit) != 0:
+                                argsplit = portsplit[0].split("&")
+                                for arg in argsplit:
+                                    if "=" in arg:
+                                        [argname, argval] = arg.split("=", 1)
+                                        attr = getattr(serial.Serial, argname)
+                                        if argname == "baudrate":
+                                            argval = int(argval)
+                                        elif argname in ("bytesize", "parity", "stopbits"):
+                                            argval = getattr(serial, argval.upper())
+                                        elif "timeout" in argname:
+                                            if argval.lower() == "none":
+                                                argval = None
+                                            else:
+                                                argval = float(argval)
+                                        elif argname in ("xonxoff", "rtscts", "dsrdtr"):
+                                            argval = argval.lower() in ("yes", "true", "t", "1")
+                                        attr.__set__(self, argval)
+                        except Exception as e:
+                            raise ValueError(f"Failed parsing hw:// url: {e}")
+                    elif value is None:
+                        serial.Serial.port.__set__(self, value)
+                    else:
+                        raise ValueError(f"Expected hw:// url, got: {value}")
 
-        self.sm, self.ifc = self._getSourceMeter(self.rm)
+        sys.modules["hwurl"] = HWURL
+        sys.modules["hwurl.protocol_hw"] = HWURL
+        serial.protocol_handler_packages.append("hwurl")
+
+        try:
+            self.ser = serial.serial_for_url(self.address)
+        except Exception as e:
+            raise ValueError(f"Failure connecting to {self.address} with: {e}")
+
+        if any([x in self.address for x in ("hw://", "rfc2217://")]):
+            ser = serial.Serial()
+            ser.port = self.address.removeprefix("ASRL").removesuffix("::INSTR")
+            ser.baudrate = self.serial_baud
+            ser.bytesize = serial.EIGHTBITS
+            ser.parity = serial.PARITY_NONE
+            ser.stopbits = serial.STOPBITS_ONE
+            ser.timeout = 1
+            ser.xonxoff = False
+            ser.rtscts = False
+            ser.dsrdtr = False
+            ser.write_timeout = 1
+            ser.inter_byte_timeout = 1
+
+        else:
+            raise ValueError(f"Can't parse address: {self.address}")
+
         self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
 
         self.lg.debug("Connected.")
+
+        self.ser = ser
 
         return 0
 
@@ -90,47 +147,6 @@ class k2400(object):
             self.sm.close()
         except:
             pass
-
-        try:
-            self.ifc.close()
-        except:
-            pass
-
-        # then just close everything possible
-        try:
-            for num, ses in self.rm.visalib.sessions.items():
-                try:
-                    ses.close()
-                except:
-                    pass
-        except:
-            pass
-
-    def _getResourceManager(self, visa_lib):
-        try:
-            rm = pyvisa.ResourceManager(visa_lib)
-        except:
-            exctype, value1 = sys.exc_info()[:2]
-            try:
-                rm = pyvisa.ResourceManager()
-            except:
-                exctype, value2 = sys.exc_info()[:2]
-                self.lg.error("Unable to connect to instrument.")
-                self.lg.error("Error 1 (using {:s} backend):".format(visa_lib))
-                self.lg.error(value1)
-                self.lg.error("Error 2 (using pyvisa default backend):")
-                self.lg.error(value2)
-                raise ValueError("Unable to create a resource manager.")
-
-        vLibPath = rm.visalib.get_library_paths()[0]
-        if vLibPath == "unset":
-            self.backend = "pyvisa-py"
-        else:
-            self.backend = vLibPath
-
-        if not self.quiet:
-            self.lg.debug("Using {:s} pyvisa backend.".format(self.backend))
-        return rm
 
     def _getSourceMeter(self, rm):
         timeoutMS = self.default_comms_timeout  # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
@@ -177,13 +193,6 @@ class k2400(object):
             open_params = {"resource_name": self.address}
 
         sm = rm.open_resource(**open_params)
-
-        # attempt to make a GPIB interface object and ensure it's enabled for remote control
-        try:
-            ifc = rm.open_resource(f"{controller}::INTFC")
-            ifc.visalib.sessions[ifc.session].controller.remote_enable(1)
-        except:
-            ifc = None
 
         # attempt to send SDC (selective device clear) signal
         try:
@@ -244,7 +253,7 @@ class k2400(object):
         else:
             raise ValueError("Got a bad response to *IDN?: {:s}".format(self.idn))
 
-        return sm, ifc
+        return sm
 
     # attempt to learn if the machine is in 488.1 mode (fast comms)
     def check488point1(self, sm=None):
@@ -708,9 +717,23 @@ if __name__ == "__main__":
     # address = "GPIB0::24::INSTR"
     # address = 'TCPIP0::10.45.0.186::4000::SOCKET'
     # address = 'ASRL/dev/ttyS0::INSTR'
-    address = "ASRL/dev/ttyUSB0::INSTR"
+    schema = "hw://"
+    port = "/dev/ttyS0"
+    options = {}
+    options["baudrate"] = 57600
+    options["bytesize"] = "EIGHTBITS"
+    options["parity"] = "PARITY_NONE"
+    options["stopbits"] = "STOPBITS_ONE"
+    options["timeout"] = 1
+    options["xonxoff"] = False
+    options["rtscts"] = False
+    options["dsrdtr"] = False
+    options["write_timeout"] = 1
+    options["inter_byte_timeout"] = 1
+    address = f"{schema}{port}?{'&'.join([f'{a}={b}' for a, b in options.items()])}"
 
-    k = k2400(address=address, terminator="\r", serial_baud=57600)
+    k = k2400(address=address)
+    k.connect()
 
     con_time = time.time()
     print(f"Connected to {k.address} in {con_time-start} seconds")
