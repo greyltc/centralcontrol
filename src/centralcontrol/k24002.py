@@ -91,28 +91,9 @@ class k2400(object):
         except Exception as e:
             raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
-        if any([x in self.address for x in ("hw://", "rfc2217://")]):
-            ser = serial.Serial()
-            ser.port = self.address.removeprefix("ASRL").removesuffix("::INSTR")
-            ser.baudrate = self.serial_baud
-            ser.bytesize = serial.EIGHTBITS
-            ser.parity = serial.PARITY_NONE
-            ser.stopbits = serial.STOPBITS_ONE
-            ser.timeout = 1
-            ser.xonxoff = False
-            ser.rtscts = False
-            ser.dsrdtr = False
-            ser.write_timeout = 1
-            ser.inter_byte_timeout = 1
-
-        else:
-            raise ValueError(f"Can't parse address: {self.address}")
-
         self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
 
-        self.lg.debug("Connected.")
-
-        self.ser = ser
+        self.lg.debug("k2400 connected.")
 
         return 0
 
