@@ -87,9 +87,11 @@ class k2400(object):
         serial.protocol_handler_packages.append("hwurl")
 
         try:
-            self.ser = serial.serial_for_url(self.address)
+            sm = serial.serial_for_url(self.address)
         except Exception as e:
             raise ValueError(f"Failure connecting to {self.address} with: {e}")
+
+        self.idn = sm.query("*IDN?")
 
         self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
 
