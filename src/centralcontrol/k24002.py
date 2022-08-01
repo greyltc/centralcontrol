@@ -11,7 +11,7 @@ except:
     from logging import getLogger
 
 
-class k2400(object):
+class K2400(object):
     """
     Intertace for Keithley 2400 sourcemeter
     """
@@ -24,10 +24,12 @@ class k2400(object):
     last_sweep_time = 0
     readyForAction = False
     four88point1 = False
-    default_comms_timeout = 50000  # in ms
     print_sweep_deets: bool = False  # false uses debug logging level, true logs sweep stats at info level
+    _write_term_str = "\n"
+    _read_term_str = "\r"
+    connected = False
 
-    def __init__(self, visa_lib="@py", scan=False, address: str = None, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
+    def __init__(self, address: str, terminator="\r", serial_baud=57600, front=False, two_wire=False, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
         """just set class variables here"""
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -39,14 +41,15 @@ class k2400(object):
         self.serial_baud = serial_baud
         self.front = front
         self.two_wire = two_wire
-        self.scan = scan
         self.print_sweep_deets = print_sweep_deets
+        self.write_term = bytes([ord(x) for x in self._write_term_str])
+        self.read_term = bytes([ord(x) for x in self._read_term_str])
+        self.write_term_len = len(self.write_term)
+        self.read_term_len = len(self.read_term)
+        self.connected = False
 
-        self.lg.debug("k2400 initialized.")
-
-    def connect(self):
-        """attempt to connect to hardware and initialize it"""
-
+        # add some features to pyserial's address URL handling
+        # trigger this through the use of a hwurl:// schema
         class HWURL(object):
             class Serial(serial.Serial):
                 @serial.Serial.port.setter
@@ -86,50 +89,257 @@ class k2400(object):
         sys.modules["hwurl.protocol_hw"] = HWURL
         serial.protocol_handler_packages.append("hwurl")
 
+        self.lg.debug("k2400 initialized.")
+
+    def __enter__(self) -> "K2400":
+        """so that the smu can enter a context"""
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        """so that the smu can leave a context cleanly"""
+        self.disconnect()
+        return False
+
+    @property
+    def write_term_str(self):
+        return self._write_term_str
+
+    @write_term_str.setter
+    def write_term_str(self, value):
+        self._write_term_str = value
+        self.write_term = bytes([ord(x) for x in self._write_term_str])
+        self.write_term_len = len(self.write_term)
+
+    @property
+    def read_term_str(self):
+        return self._read_term_str
+
+    @read_term_str.setter
+    def read_term_str(self, value):
+        self._read_term_str = value
+        self.read_term = bytes([ord(x) for x in self._read_term_str])
+        self.read_term_len = len(self.read_term)
+
+    def connect(self):
+        """attempt to connect to hardware and initialize it"""
+
+        if "socket" in self.address:
+            self.read_term_str = "\n"
+
         try:
-            sm = serial.serial_for_url(self.address)
+            ser = serial.serial_for_url(self.address)
         except Exception as e:
             raise ValueError(f"Failure connecting to {self.address} with: {e}")
+        else:
+            self.connected = ser.is_open
+        ser.reset_output_buffer()
 
-        self.idn = sm.query("*IDN?")
+        if ser.xonxoff:
+            ser.send_break()
+            one = ser.write(bytes([17]))  # XON
+            if one != 1:
+                raise ValueError(f"Serial send failure.")
 
-        self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
+        ser.send_break()
+        one = ser.write(bytes([18]))  # interrupt
+        # ser.break_condition = False
+        if one != 1:
+            raise ValueError(f"Serial send failure.")
+
+        ser.send_break()
+        ser.reset_input_buffer()
+        self.ser = ser
+
+        self.hardware_reset()
+
+        # tests the ROM's checksum. can take over a second
+        old_to = self.ser.timeout
+        self.ser.timeout = 5
+        if self.query("*TST?") != "0":
+            raise ValueError(f"Self test failed.")
+        self.ser.timeout = old_to
+
+        # setting1 = self.query("nplc 2.0; nplc?")
+        # t1 = time.time() - t0
+
+        # rst_resp = self.query("*RST")
+        # self.write("*RST")
+        # t2 = time.time() - t0
+        # setting2 = self.query("nplc?")
+        # t3 = time.time() - t0
+
+        # opc = self.query("*OPC?")
+        # t3 = time.time() - t0
+
+        # self.idn = self.query("*IDN?")
+        # print(self.idn)
+
+        # self.write("SYST:BEEP:STAT off")
+
+        # for i in range(25):
+        #    self.write(":output on")
+        #    self.write(":output off")
+
+        # self.ser.close()
+
+        # self.idn = self.query("*IDN?")
+
+        # self._setupSourcemeter(front=self.front, two_wire=self.two_wire)
 
         self.lg.debug("k2400 connected.")
 
         return 0
 
-    def disconnect(self):
+    def opc(self) -> bool:
+        """asks the hardware to finish whatever it's doing then send a 1"""
+        opc_val = self.query("*OPC?")
+        if opc_val == "1":
+            ret = True
+        else:
+            ret = False
+            self.lg.debug(f"*OPC? gave: {opc_val}")
+        return ret
+
+    def write(self, cmd):
+        cmd_bytes = len(cmd)
+        bytes_written = self.ser.write(cmd.encode() + self.write_term)
+        if cmd_bytes != (bytes_written - self.write_term_len):
+            raise ValueError(f"Write failure, {bytes_written - self.write_term_len} != {cmd_bytes}")
+
+    def query(self, question: str) -> str:
+        self.write(question)
+        return self.read()
+
+    def read(self) -> str:
+        return self.ser.read_until(self.read_term).decode().removesuffix(self.read_term_str)
+
+    def hardware_reset(self):
+        """attempt to stop everything and put the hardware into a known baseline state"""
         try:
-            self.sm.write(":abort")
+            self.ser.send_break()
         except:
             pass
 
         try:
-            self.sm.clear()  # SDC (selective device clear) signal
+            self.ser.write(bytes([18]))  # interrupt
         except:
             pass
 
         try:
-            self.sm.write(":output off")
+            self.ser.send_break()
         except:
             pass
 
-        # attempt to get into local mode
+        # the above breaks can generate DCLs so lets discard those
+        try:
+            self.ser.reset_input_buffer()
+        except:
+            pass
+
+        try:
+            self.write("*RST")  # GPIB defaults
+        except:
+            pass
+
         try:
             self.opc()
-            self.sm.write(":system:local")
-            time.sleep(0.2)  # wait 200ms for this command to execute before closing the interface
-            if (not self.four88point1) and (self.sm.interface_type != pyvisa.constants.InterfaceType.asrl):
-                # this doesn't work in 488.1 mode
-                self.sm.visalib.sessions[self.sm.session].interface.ibloc()
         except:
             pass
 
         try:
-            self.sm.close()
+            self.write("syst:pres")  # factory defaults
         except:
             pass
+
+        try:
+            self.opc()
+        except:
+            pass
+
+        try:
+            self.write("*CLS")  # reset registers
+        except:
+            pass
+
+        try:
+            self.write("*ESE 0")  # reset registers
+        except:
+            pass
+
+        try:
+            self.write("stat:pres")  # reset more registers
+        except:
+            pass
+
+        try:
+            self.write("stat:que:cle")  # clear error queue
+        except:
+            pass
+
+        try:
+            self.write("syst:beep:stat 0")  # the beeps are annoying
+        except:
+            pass
+
+        try:
+            self.write("syst:lfr:auto 1")  # auto line frequency on
+        except:
+            pass
+
+        try:
+            self.write("trac:cle")  # clear trace/data buffer
+        except:
+            pass
+
+        try:
+            self.opc()
+        except:
+            pass
+
+    def disconnect(self):
+        """do our best to close down and clean up the instrument"""
+
+        self.hardware_reset()
+
+        # going local this way is only possible from rs232 on a 2400, so we won't do that
+        #    try:
+        #        self.write("syst:loc")
+        #    except:
+        #        pass
+
+        try:
+            self.ser.close()
+        except:
+            pass
+        else:
+            self.connected = self.ser.is_open
+
+        # try:
+        #    self.ser.write(":abort")
+        # except:
+        #    pass
+
+        # try:
+        #     self.sm.write(":output off")
+        # except:
+        #     pass
+
+        # # attempt to get into local mode
+        # try:
+        #     self.opc()
+        #     self.sm.write(":system:local")
+        #     time.sleep(0.2)  # wait 200ms for this command to execute before closing the interface
+        #     if (not self.four88point1) and (self.sm.interface_type != pyvisa.constants.InterfaceType.asrl):
+        #         # this doesn't work in 488.1 mode
+        #         self.sm.visalib.sessions[self.sm.session].interface.ibloc()
+        # except:
+        #     pass
+
+        # try:
+        #     self.sm.close()
+        # except:
+        #     pass
 
     def _getSourceMeter(self, rm):
         timeoutMS = self.default_comms_timeout  # initial comms timeout, needs to be long for serial devices because things can back up and they're slow
@@ -366,8 +576,8 @@ class k2400(object):
     def setSource(self, outVal):
         self.sm.write(":source:{:s} {:.8f}".format(self.src, outVal))
 
-    def write(self, toWrite):
-        self.sm.write(toWrite)
+    # def write(self, toWrite):
+    #    self.sm.write(toWrite)
 
     def outOn(self, on=True):
         if on:
@@ -522,34 +732,34 @@ class k2400(object):
         max_transport_time = 10000  # [ms] let's assume no sweep will ever take longer than 10s to transport
         sm.timeout = max_sweep_duration + max_transport_time  # [ms]
 
-    def opc(self, sm=None):
-        """returns when all operations are complete"""
-        if self.four88point1 == False:
-            opc_timeout = False
-            if sm is None:
-                sm = self.sm
-            retries_left = 5
-            tout = sm.timeout  # save old timeout
-            sm.timeout = 2500  # in ms
-            while retries_left > 0:
-                cmd = "*WAI"
-                bw = sm.write(cmd)
-                if bw == (len(cmd) + 1):
-                    one = "zero"
-                    try:
-                        one = sm.query("*OPC?")
-                    except pyvisa.errors.VisaIOError:
-                        opc_timeout = True  # need to handle this so we don't queue up OPC queries
-                    if one == "1":
-                        break
-                retries_left = retries_left - 1
-            sm.timeout = tout
-            if retries_left == 0:
-                raise (ValueError("OPC FAIL"))
-            # we make sure there are no bytes left in the input buffer
-            if opc_timeout == True:
-                time.sleep(2.6)  # wait for the opc commands to unqueue
-            self._flush_input_buffer(sm, delayms=500)
+    # def opc(self, sm=None):
+    #     """returns when all operations are complete"""
+    #     if self.four88point1 == False:
+    #         opc_timeout = False
+    #         if sm is None:
+    #             sm = self.sm
+    #         retries_left = 5
+    #         tout = sm.timeout  # save old timeout
+    #         sm.timeout = 2500  # in ms
+    #         while retries_left > 0:
+    #             cmd = "*WAI"
+    #             bw = sm.write(cmd)
+    #             if bw == (len(cmd) + 1):
+    #                 one = "zero"
+    #                 try:
+    #                     one = sm.query("*OPC?")
+    #                 except pyvisa.errors.VisaIOError:
+    #                     opc_timeout = True  # need to handle this so we don't queue up OPC queries
+    #                 if one == "1":
+    #                     break
+    #             retries_left = retries_left - 1
+    #         sm.timeout = tout
+    #         if retries_left == 0:
+    #             raise (ValueError("OPC FAIL"))
+    #         # we make sure there are no bytes left in the input buffer
+    #         if opc_timeout == True:
+    #             time.sleep(2.6)  # wait for the opc commands to unqueue
+    #         self._flush_input_buffer(sm, delayms=500)
 
     def _stb(self, sm=None):
         if not self.four88point1:
@@ -708,12 +918,14 @@ if __name__ == "__main__":
     options["parity"] = "PARITY_NONE"
     options["stopbits"] = "STOPBITS_ONE"
     options["timeout"] = 1
-    options["xonxoff"] = False
+    options["xonxoff"] = True
     options["rtscts"] = False
     options["dsrdtr"] = False
     options["write_timeout"] = 1
     options["inter_byte_timeout"] = 1
     address = f"{schema}{port}?{'&'.join([f'{a}={b}' for a, b in options.items()])}"
+    # address = "rfc2217://10.45.0.135:23"
+    # address = "socket://10.45.0.135:5025"
 
     k = k2400(address=address)
     k.connect()
