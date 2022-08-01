@@ -74,7 +74,7 @@ class K2400TestCase(unittest.TestCase):
 
     def test_sweep(self):
         """tests sweep. needs real hardware"""
-        n_points = 1001
+        n_points = 101
         v_start = 1
         v_end = 0
         i_limit = 0.001

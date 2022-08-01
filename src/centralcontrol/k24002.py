@@ -579,7 +579,6 @@ class K2400(object):
         # make sure long sweeps don't result in comms timeouts
         max_transport_time = 10000  # [ms] let's asssetupSume no sweep will ever take longer than 10s to transport
         self.ser.timeout = (max_sweep_duration + max_transport_time) / 1000  # [s]
-        self.ser.timeout = 1
 
     def do_azer(self):
         """parform autozero routine"""
