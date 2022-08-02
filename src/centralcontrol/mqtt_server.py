@@ -678,6 +678,7 @@ class MQTTServer(object):
                     Pmax_sweep2, Vmpp2, Impp2, maxIx2 = mppt.register_curve(iv2, light=(sweep == "light"))
 
             # TODO: read and interpret parameters for smart mode
+            dh.sweep = ""  # not a sweep
 
             # mppt if
             if args["mppt_dwell"] > 0:
