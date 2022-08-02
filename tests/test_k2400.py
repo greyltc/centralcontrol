@@ -28,13 +28,13 @@ class K2400TestCase(unittest.TestCase):
 
     def test_init(self):
         """initilization test"""
-        sm = k2400.K2400("")
-        self.assertIsInstance(sm, k2400.K2400)
+        sm = k2400.k2400("")
+        self.assertIsInstance(sm, k2400.k2400)
 
     def test_connect(self):
         """tests connection. needs real hardware"""
 
-        with k2400.K2400(*self.args) as sm:
+        with k2400.k2400(*self.args) as sm:
             self.assertTrue(sm.connected)
         self.assertTrue(sm.expect_in_idn in sm.idn)
         self.assertFalse(sm.connected)
@@ -44,7 +44,7 @@ class K2400TestCase(unittest.TestCase):
         tests making a resistance measurement with DC setup.
         needs real hardware
         """
-        with k2400.K2400(*self.args) as sm:
+        with k2400.k2400(*self.args) as sm:
             sm.setupDC(auto_ohms=True)
             rslt = sm.measure()
         self.assertIsInstance(rslt, list)
@@ -55,7 +55,7 @@ class K2400TestCase(unittest.TestCase):
     def test_contact_check(self):
         """tests contact check. needs real hardware"""
 
-        with k2400.K2400(*self.args, **self.kwargs) as sm:
+        with k2400.k2400(*self.args, **self.kwargs) as sm:
             sm.set_ccheck_mode(True)
             rslt = sm.contact_check()
             # print(f"Contact check result: {rslt}")
@@ -65,7 +65,7 @@ class K2400TestCase(unittest.TestCase):
     def test_measure_until(self):
         """tests measure_until. needs real hardware"""
         seconds = 10  # [s]
-        with k2400.K2400(*self.args) as sm:
+        with k2400.k2400(*self.args) as sm:
             sm.setupDC(auto_ohms=True)
             sm.setNPLC(1)
             rslt = sm.measureUntil(t_dwell=seconds)
@@ -78,7 +78,7 @@ class K2400TestCase(unittest.TestCase):
         v_start = 1
         v_end = 0
         i_limit = 0.001
-        with k2400.K2400(*self.args) as sm:
+        with k2400.k2400(*self.args) as sm:
             sm.setupSweep(compliance=i_limit, nPoints=n_points, start=v_start, end=v_end)
             rslt = sm.measure(n_points)
         self.assertIsInstance(rslt, list)

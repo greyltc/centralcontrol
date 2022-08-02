@@ -12,7 +12,7 @@ except:
     from logging import getLogger
 
 
-class K2400(object):
+class k2400(object):
     """
     Intertace for Keithley 2400 sourcemeter
     """
@@ -96,7 +96,7 @@ class K2400(object):
 
         self.lg.debug("k2400 initialized.")
 
-    def __enter__(self) -> "K2400":
+    def __enter__(self) -> "k2400":
         """so that the smu can enter a context"""
         self.connect()
         return self
@@ -209,7 +209,7 @@ class K2400(object):
         self.idn = self.query("*IDN?")  # ask the device to identify its self
         self.write("outp:smod himp")  # outputs go to high impedance when switched off
         self.write("sour:volt:prot 20")  # limit the voltage output (in all modes) for safety
-        self.set_wires(two_wire)
+        self.setWires(two_wire)
         self.write("sens:func 'curr:dc', 'volt:dc'")
         self.write("form:elem time,volt,curr,stat")  # set what we want reported
         # status is a 24 bit intiger. bits are these:
@@ -234,7 +234,7 @@ class K2400(object):
         # Bits 19, 20 and 21 (Limit Results) — Provides limit test results (see grading and sorting modes below).
         # Bit 22 (Remote Sense) — Set to 1 if 4-wire remote sense selected.
         # Bit 23 (Pulse Mode) — Set to 1 if in the Pulse Mode.
-        self.set_terminals(front)
+        self.setTerminals(front)
 
         self.src = self.query("sour:func:mode?")  # check/set the source
         self.write("syst:azer off")  # we'll do this once before every measurement
@@ -412,13 +412,13 @@ class K2400(object):
         else:
             self.lg.debug("Contact check function requires 4-wire mode")
 
-    def set_wires(self, two_wire=False):
+    def setWires(self, two_wire=False):
         if two_wire:
             self.write("syst:rsen 0")  # four wire mode off
         else:
             self.write("syst:rsen 1")  # four wire mode on
 
-    def set_terminals(self, front=False):
+    def setTerminals(self, front=False):
         if front:
             self.write("rout:term fron")
         else:
