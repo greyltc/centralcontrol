@@ -495,7 +495,7 @@ class MQTTServer(object):
             svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
         return svt
 
-    def do_iv(self, rid, ss, sm, mppt, dh, compliance_i, args, config, calibration, sweeps, area):
+    def do_iv(self, rid, ss, sm, mppt, dh, compliance_i, dark_compliance_i, args, config, calibration, sweeps, area, dark_area):
         """parallelizable I-V tasks for use in threads"""
         with SlothDB(db_uri=config["db"]["uri"]) as db:
             dh.dbputter = db.putsmdat
@@ -604,9 +604,11 @@ class MQTTServer(object):
                 if sweep == "dark":
                     ss.lit = False
                     sm.dark = True
+                    sweep_current_limit = dark_compliance_i
                 else:
                     ss.lit = True
                     sm.dark = False
+                    sweep_current_limit = compliance_i
 
                 if calibration == False:
                     kind = "iv_measurement/1"
@@ -617,7 +619,7 @@ class MQTTServer(object):
                 sweep_args = {}
                 sweep_args["sourceVoltage"] = True
                 sweep_args["senseRange"] = "f"
-                sweep_args["compliance"] = compliance_i
+                sweep_args["compliance"] = sweep_current_limit
                 sweep_args["nPoints"] = int(args["iv_steps"])
                 sweep_args["stepDelay"] = args["source_delay"] / 1000
                 sweep_args["start"] = args["sweep_start"]
@@ -626,11 +628,17 @@ class MQTTServer(object):
 
                 # db prep
                 eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}'}
                 deets["fixed"] = en.Fixed.VOLTAGE
                 deets["n_points"] = sweep_args["nPoints"]
                 deets["from_setpoint"] = sweep_args["start"]
                 deets["to_setpoint"] = sweep_args["end"]
+                deets["area"] = area
+                deets["dark_area"] = dark_area
+                if sweep == "dark":
+                    deets["light"] = False
+                else:
+                    deets["light"] = True
                 db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                 iv1 = sm.measure(sweep_args["nPoints"])
                 db.putsmdat(iv1, eid)
@@ -655,7 +663,7 @@ class MQTTServer(object):
                     sweep_args = {}
                     sweep_args["sourceVoltage"] = True
                     sweep_args["senseRange"] = "f"
-                    sweep_args["compliance"] = compliance_i
+                    sweep_args["compliance"] = sweep_current_limit
                     sweep_args["nPoints"] = int(args["iv_steps"])
                     sweep_args["stepDelay"] = args["source_delay"] / 1000
                     sweep_args["start"] = args["sweep_end"]
@@ -663,11 +671,17 @@ class MQTTServer(object):
                     sm.setupSweep(**sweep_args)
 
                     eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}'}
                     deets["fixed"] = en.Fixed.VOLTAGE
                     deets["n_points"] = sweep_args["nPoints"]
                     deets["from_setpoint"] = sweep_args["start"]
                     deets["to_setpoint"] = sweep_args["end"]
+                    deets["area"] = area
+                    deets["dark_area"] = dark_area
+                    if sweep == "dark":
+                        deets["light"] = False
+                    else:
+                        deets["light"] = True
                     db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                     iv2 = sm.measure(sweep_args["nPoints"])
                     db.putsmdat(iv2, eid)
@@ -1038,11 +1052,12 @@ class MQTTServer(object):
 
                                 # get or estimate compliance current
                                 compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
+                                dark_compliance_i = measurement.compliance_current_guess(area=pixel["dark_area"], jmax=args["jmax"], imax=args["imax"])
 
                                 smus[smu_index].area = pixel["area"]  # set virtual smu scaling
 
                                 # submit for processing
-                                futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, args, config, calibration, sweeps, pixel["area"])
+                                futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, dark_compliance_i, args, config, calibration, sweeps, pixel["area"], pixel["dark_area"])
 
                             # collect the datas!
                             datas = {}
