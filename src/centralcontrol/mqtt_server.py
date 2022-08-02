@@ -428,12 +428,20 @@ class MQTTServer(object):
                         loc = stuff.loc[rsel]["loc"].values[0]
                         pos = [a + b for a, b in zip(center, loc)]
                         pixel_dict["pos"] = pos
+                        pixel_dict["mux_string"] = stuff.loc[rsel]["mux_string"].values[0]
+
                         area = stuff.loc[rsel]["area"].values[0]
                         if area == -1:  # handle custom area
                             pixel_dict["area"] = args["a_ovr_spin"]
                         else:
                             pixel_dict["area"] = area
-                        pixel_dict["mux_string"] = stuff.loc[rsel]["mux_string"].values[0]
+
+                        dark_area = stuff.loc[rsel]["dark_area"].values[0]
+                        if dark_area == -1:  # handle custom dark area
+                            pixel_dict["dark_area"] = args["a_ovr_spin"]
+                        else:
+                            pixel_dict["dark_area"] = dark_area
+
                         group_dict[smu_index] = pixel_dict
                 if len(group_dict) > 0:
                     run_q.append(group_dict)
