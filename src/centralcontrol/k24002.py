@@ -609,7 +609,7 @@ class k2400(object):
         vals = []
         self.write(":read?")  # trigger measurement
         red = self.read()
-        red_nums = [float(x) for x in red.split(",")]
+        red_nums = [float(x.removesuffix("\x00")) for x in red.split(",")]
         for i in range(nPoints):
             line = []
             for j in range(pps):
