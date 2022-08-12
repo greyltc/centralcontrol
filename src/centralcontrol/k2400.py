@@ -170,7 +170,7 @@ class k2400(object):
 
         if "socket" in self.address:
             self.read_term_str = "\n"
-            kwargs = {"timeout": 1.0}
+            kwargs = {}
             hostport = self.address.removeprefix("socket://")
             [self.host, self.port] = hostport.split(":", 1)
             self.socket_cleanup(self.host, int(self.port))
@@ -181,6 +181,8 @@ class k2400(object):
 
         try:
             self.ser = serial.serial_for_url(self.address, **kwargs)
+            if "socket" in self.address:
+                self.ser._socket.settimeout(5.0)
         except Exception as e:
             raise ValueError(f"Failure connecting to {self.address} with: {e}")
         else:
@@ -216,6 +218,10 @@ class k2400(object):
         self.ser.timeout = self.timeout
 
         self.setup(self.front, self.two_wire)
+
+        if "socket" in self.address:  #
+            # timeout for  normal operation will be shorter
+            self.ser._socket.settimeout(1.0)
 
         self.lg.debug("k2400 connected.")
 
