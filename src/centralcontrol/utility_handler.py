@@ -166,6 +166,7 @@ class UtilityHandler(object):
                     pcb_class = virt.pcb
             try:  # attempt to do the task
                 if task["cmd"] == "home":
+                    self.lg.debug(f"Starting on {task['cmd']=}")
                     with stage_pcb_class(task["pcb"], timeout=5) as p:
                         mo = motion(address=task["stage_uri"], pcb_object=p)
                         mo.connect()
@@ -185,6 +186,7 @@ class UtilityHandler(object):
                         else:
                             self.lg.log(29, "The stage is already calibrated.")
                     del mo
+                    self.lg.debug(f"{task['cmd']=} complete!")
 
                 # send the stage some place
                 elif task["cmd"] == "goto":
@@ -194,6 +196,7 @@ class UtilityHandler(object):
                         mo.goto(task["pos"])
                         self.send_pos(mo)
                     del mo
+                    self.lg.debug(f"{task['cmd']=} complete!")
 
                 # handle any generic PCB command that has an empty return on success
                 elif task["cmd"] == "for_pcb":
@@ -206,6 +209,7 @@ class UtilityHandler(object):
                         self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
                     else:
                         self.lg.warning(f"Command {task['pcb_cmd']} not acknowleged with {result}")
+                    self.lg.debug(f"{task['cmd']=} complete!")
 
                 # get the stage location
                 elif task["cmd"] == "read_stage":
@@ -214,6 +218,7 @@ class UtilityHandler(object):
                         mo.connect()
                         self.send_pos(mo)
                     del mo
+                    self.lg.debug(f"{task['cmd']=} complete!")
 
                 # zero the mono
                 elif task["cmd"] == "mono_zero":
@@ -226,6 +231,7 @@ class UtilityHandler(object):
                             self.lg.log(29, mono.readline.strip())
                             mono.write("1 FILTER")
                             self.lg.log(29, mono.readline.strip())
+                    self.lg.debug(f"{task['cmd']=} complete!")
 
                 elif task["cmd"] == "spec":
                     sscfg = task["solarsim"]  # the solar sim configuration
@@ -264,6 +270,7 @@ class UtilityHandler(object):
                         self.outputq.put(output)
                         self.lg.log(29, "🟢 Spectrum fetched sucessfully!")
                         self.lg.log(29, f"Found light source temperatures: {temps}")
+                    self.lg.debug(f"{task['cmd']=} complete!")
 
                 # device round robin commands
                 elif task["cmd"] == "round_robin":
@@ -323,10 +330,6 @@ class UtilityHandler(object):
                 logging.exception(e)
                 try:
                     del mo  # ensure mo is cleaned up
-                except:
-                    pass
-                try:
-                    del k  # ensure k is cleaned up
                 except:
                     pass
 
@@ -467,6 +470,7 @@ class UtilityHandler(object):
                             logging.exception(badmsg)
                     else:
                         self.lg.log(29, f"🟢 Solarsim comms working correctly. Identifed as: {ssidn}")
+                self.lg.debug(f"{task['cmd']=} complete!")
 
             self.taskq.task_done()
 

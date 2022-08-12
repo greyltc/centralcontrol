@@ -219,8 +219,8 @@ class k2400(object):
 
         self.setup(self.front, self.two_wire)
 
-        if "socket" in self.address:  #
-            # timeout for  normal operation will be shorter
+        if "socket" in self.address:
+            # timeout for normal operation will be shorter
             self.ser._socket.settimeout(1.0)
 
         self.lg.debug("k2400 connected.")
