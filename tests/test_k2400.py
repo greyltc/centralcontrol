@@ -1,6 +1,6 @@
 import unittest
 
-import centralcontrol.k24002 as k2400
+import centralcontrol.k2400 as k2400
 
 
 class K2400TestCase(unittest.TestCase):

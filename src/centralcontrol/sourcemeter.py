@@ -1,8 +1,6 @@
 import typing
 from centralcontrol.virt import smu as vsmu
-from centralcontrol.k24002 import k2400
-
-# from centralcontrol.k2400 import k2400
+from centralcontrol.k2400 import k2400
 
 try:
     from centralcontrol.logstuff import get_logger as getLogger
