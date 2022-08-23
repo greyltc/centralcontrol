@@ -33,6 +33,8 @@ class k2400(object):
     ser: serial.Serial = None
     timeout: float = None  # default comms timeout
     do_r: bool = False  # include resistance in measurement
+    t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
+    last_lo = None  # we're not set up for contact checking
 
     def __init__(self, address: str, terminator="\r", serial_baud=57600, front=True, two_wire=True, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
         """just set class variables here"""
@@ -416,28 +418,8 @@ class k2400(object):
             self.dead_socket_cleanup(self.host)
             self.socket_cleanup(self.host, int(self.port))
 
-    # note that this also checks the GUARD-SENSE connections, short those manually if not in use
-    def set_ccheck_mode(self, value: bool = True):
-        if self.query("syst:rsen?") == "1":
-            if "CONTACT-CHECK" in self.opts.upper():
-                if value:
-                    self.outOn(on=False)
-                    self.write("outp:smod guar")
-                    self.write("syst:cch 1")
-                    self.write("sens:volt:nplc 0.1")
-                    # setup I=0 voltage measurement
-                    self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange="f", auto_ohms=False)
-                else:
-                    self.write("outp:smod himp")
-                    self.outOn(on=False)
-                    self.write(f"sens:volt:nplc {self.nplc_user_set}")
-                    self.write("syst:cch 0")
-            else:
-                self.lg.debug("Contact check option not installed")
-        else:
-            self.lg.debug("Contact check function requires 4-wire mode")
-
     def setWires(self, two_wire=False):
+        self.two_wire = two_wire  # record setting
         if two_wire:
             self.write("syst:rsen 0")  # four wire mode off
         else:
@@ -478,51 +460,65 @@ class k2400(object):
         else:
             self.write("display:digits 7")
 
-    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", auto_ohms=False):
+    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", ohms=False):
         """setup DC measurement operation
         if senseRange == 'a' the instrument will auto range for both current and voltage measurements
         if senseRange == 'f' then the sense range will follow the compliance setting
         if sourceVoltage == False, we'll have a current source at setPoint amps with max voltage +/- compliance volts
-        auto_ohms = true will override everything and make the output data change to (voltage,current,resistance,time,status)
+        ohms = True will use the given DC source/sense settings but include a resistance measurement in the output
+        ohms = "auto" will override everything and make the output data change to (voltage,current,resistance,time,status)
         """
 
-        if auto_ohms == True:
-            self.write(':sense:function:on "resistance"')
-            self.write(":sense:resistance:mode auto")
-            self.write(":sense:resistance:range:auto on")
-            # sm.write(':sense:resistance:range 20E3')
-            self.write(":format:elements voltage,current,resistance,time,status")
-        else:
-            self.write(':sense:function:off "resistance"')
+        if ohms == "auto":
+            self.write('sens:function:on "resistance"')
+            self.write("sens:resistance:mode auto")
+            self.write("sens:resistance:range:auto on")
+            # sm.write('sens:resistance:range 20E3')
+            self.write("format:elements voltage,current,resistance,time,status")
+        elif isinstance(ohms, bool):
+            if ohms:
+                self.write("format:elements voltage,current,resistance,time,status")
+                self.write("sens:resistance:mode man")
+            else:
+                self.write('sens:function:off "resistance"')
+                self.write("format:elements voltage,current,time,status")
+
             if sourceVoltage:
-                src = "voltage"
-                snc = "current"
+                src = "volt"
+                snc = "curr"
             else:
-                src = "current"
-                snc = "voltage"
+                src = "curr"
+                snc = "volt"
             self.src = src
-            self.write(":source:function {:s}".format(src))
-            self.write(":source:{:s}:mode fixed".format(src))
-            self.write(":source:{:s} {:.8f}".format(src, setPoint))
+            self.write(f"source:function {src}")
+            self.write(f"source:{src}:mode fixed")
+            self.write(f"source:{src} {setPoint:.8f}")
 
-            self.write(":source:delay:auto on")
+            self.write("source:delay:auto on")
 
-            self.write(':sense:function "{:s}"'.format(snc))
-            self.write(":sense:{:s}:protection {:.8f}".format(snc, compliance))
-
-            if senseRange == "f":
-                self.write(":sense:{:s}:range:auto off".format(snc))
-                self.write(":sense:{:s}:protection:rsynchronize on".format(snc))
-            elif senseRange == "a":
-                self.write(":sense:{:s}:range:auto on".format(snc))
+            if ohms:
+                self.write('sens:func "res"')
             else:
-                self.write(":sense:{:s}:range {:.8f}".format(snc, senseRange))
+                self.write(f'sens:func "{snc}"')
+            self.write(f"sens:{snc}:prot {compliance:.8f}")
+
+            # set the sense range
+            if senseRange == "f":
+                self.write(f"sens:{snc}:range:auto off")
+                self.write(f"sens:{snc}:protection:rsynchronize on")
+            elif senseRange == "a":
+                self.write(f"sens:{snc}:range:auto on")
+            else:
+                self.write(f"sens:{snc}:range {senseRange:.8f}")
 
             # this again is to make sure the sense range gets updated
-            self.write(":sense:{:s}:protection {:.8f}".format(snc, compliance))
-            self.write(":format:elements voltage,current,time,status")
+            self.write(f"sens:{snc}:protection {compliance:.8f}")
 
-        self.do_r = auto_ohms
+            # always auto range ohms
+            if ohms:
+                self.write(f"sens:resistance:range:auto on")
+
+        self.do_r = ohms
         self.outOn()
         self.write("trigger:count 1")
 
@@ -627,12 +623,12 @@ class k2400(object):
         """
 
         # figure out how many points per sample we expect
-        if self.do_r:
-            pps = 5
-        else:
+        if isinstance(self.do_r, bool) and (not self.do_r):
             pps = 4
+        else:
+            pps = 5
         vals = []
-        self.write(":read?")  # trigger measurement
+        self.write("read?")  # trigger measurement
         red = self.read()
         red_nums = [float(x.removesuffix("\x00")) for x in red.split(",")]
         for i in range(nPoints):
@@ -692,23 +688,91 @@ class k2400(object):
             self.lg.debug("Killed by killer")
         return q
 
-    def contact_check(self):
+    # note that this also checks the GUARD-SENSE connections, short those manually if not in use
+    def set_ccheck_mode(self, value: bool = True, cctype: str = "external"):
+        if cctype == "internal":
+            if self.query("syst:rsen?") == "1":
+                if "CONTACT-CHECK" in self.opts.upper():
+                    if value:
+                        self.outOn(on=False)
+                        self.write("outp:smod guar")
+                        self.write("syst:cch 1")
+                        self.write("sens:volt:nplc 0.1")
+                        # setup I=0 voltage measurement
+                        self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange="f", ohms=False)
+                    else:
+                        self.write("outp:smod himp")
+                        self.outOn(on=False)
+                        self.write(f"sens:volt:nplc {self.nplc_user_set}")
+                        self.write("syst:cch 0")
+                else:
+                    self.lg.debug("Contact check option not installed")
+            else:
+                self.lg.debug("Contact check function requires 4-wire mode")
+        elif cctype == "external":
+            self.outOn(on=False)
+            if self.query("outp?") == "0":  # check if that worked
+                if value:
+                    self.write("syst:rsen 0")  # four wire mode off
+                    self.write("sens:volt:nplc 0.1")
+                    self.set_do(14)  # LO check
+                    time.sleep(self.t_relay_bounce)
+                    self.setupDC(sourceVoltage=False, compliance=3, setPoint=0.01, senseRange="f", ohms=True)
+                    self.last_lo = True  # we're set up for lo side checking
+                else:
+                    self.setWires(self.two_wire)  # restore previous 2/4 wire setting
+                    self.write(f"sens:volt:nplc {self.nplc_user_set}")  # restore previous nplc setting
+                    self.setupDC(sourceVoltage=False, compliance=3, setPoint=0.0, senseRange="f", ohms=False)
+                    self.outOn(on=False)
+                    if self.query("outp?") == "0":  # check if that worked
+                        self.set_do(15)  # normal operation
+                        time.sleep(self.t_relay_bounce)
+                        self.last_lo = None  # we're not set up for contact checking
+
+    def do_contact_check(self, lo_side=True, cctype: str = "external") -> bool:
         """
         call set_ccheck_mode(True) before calling this
         and set_ccheck_mode(False) after you're done checking contacts
+        cctype can be "none", "external" or "internal" (internal is for -c model 24XXs only)
         attempts to turn on the output and trigger a measurement.
         tests if the output remains on after that. if so, the contact check passed
         True for contacted. always true if the sourcemeter hardware does not support this feature
         """
         good_contact = False
-        self.outOn()  # try to turn on the output
-        if self.query(":output?") == "1":  # check if that worked
-            self.write("init")
-            time.sleep(0.1)  # TODO: figure out a better way to do this. mysterious dealys = bad
-            if self.query(":output?") == "1":
-                good_contact = True  # if INIT didn't trip the output off, then we're connected
+        if cctype == "internal":
+            self.outOn()  # try to turn on the output
+            if self.query(":output?") == "1":  # check if that worked
+                self.write("init")
+                time.sleep(0.1)  # TODO: figure out a better way to do this. mysterious dealys = bad
+                if self.query(":output?") == "1":
+                    good_contact = True  # if INIT didn't trip the output off, then we're connected
+        elif cctype == "external":
+            # TODO: add a potential check
+            threshold_ohm = 3  # resistance values below this give passing tests
+            if lo_side is None:
+                self.lg.debug("Contact check has not been set up.")
+            else:
+                if ((lo_side) and (not self.last_lo)) or ((not lo_side) and (self.last_lo)):  # we're not set up for the right checking side
+                    self.outOn(on=False)
+                    if self.query("outp?") == "0":  # check if that worked
+                        if lo_side:
+                            self.set_do(14)  # LO check
+                            self.last_lo = True  # we're set up for lo side checking
+                        if not lo_side:
+                            self.set_do(13)  # HI check
+                            self.last_lo = False  # we're set up for hi side checking
+                        time.sleep(self.t_relay_bounce)
+                        self.outOn()
+                if self.query("outp?") == "1":  # check that the output is on
+                    m = self.measure()[0]
+                    ohm = m[2]
+                    in_compliance = (1 << 3) & m[4]  # check compliance bit (3) in status word
+                    if (not in_compliance) and (ohm < threshold_ohm):
+                        good_contact = True
+        elif cctype == "none":
+            good_contact = True
         return good_contact
-    
-    def set_do(value:int):
+
+    def set_do(self, value: int):
         """sets digital output"""
         self.write(f"sour2:ttl {value}")

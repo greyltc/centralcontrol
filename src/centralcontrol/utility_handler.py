@@ -290,7 +290,7 @@ class UtilityHandler(object):
                                     if task["type"] == "current":
                                         pass  # TODO: smu measure current command goes here
                                     elif task["type"] == "rtd":
-                                        sm.setupDC(auto_ohms=True)
+                                        sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)  # 3k ohm max
                                     elif task["type"] == "connectivity":
                                         self.lg.log(29, f"Checking connections. Only failures will be printed.")
                                         sm.set_ccheck_mode(True)
@@ -309,7 +309,8 @@ class UtilityHandler(object):
                                         elif task["type"] == "rtd":
                                             m = smus[smu_index].measure()[0]
                                             ohm = m[2]
-                                            if (ohm < 3000) and (ohm > 500):
+                                            in_compliance = (1 << 3) & m[4]  # check compliance bit (3) in status word
+                                            if not (in_compliance) and (ohm < 3000) and (ohm > 500):
                                                 self.lg.log(29, f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
                                         elif task["type"] == "connectivity":
                                             if smus[smu_index].contact_check() == False:

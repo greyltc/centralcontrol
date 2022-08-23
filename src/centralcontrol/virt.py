@@ -393,7 +393,7 @@ class smu(object):
 
         self.status = 0
         self.four88point1 = True
-        self.auto_ohms = False
+        self.ohms = False
 
         if "print_sweep_deets" in kwargs:
             self.print_sweep_deets = kwargs["print_sweep_deets"]
@@ -440,12 +440,10 @@ class smu(object):
     def updateSweepStop(self, stopVal):
         self.sweepEnd = stopVal
 
-    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", auto_ohms=False):
+    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", ohms=False):
         self.compliance = compliance
-        if auto_ohms == True:
-            self.auto_ohms = True
-        else:
-            self.auto_ohms = False
+        self.ohms = ohms
+        if isinstance(ohms, bool):
             if sourceVoltage:
                 src = "voltage"
                 snc = "current"
@@ -579,7 +577,7 @@ class smu(object):
                     self.V = voltages[i]
                     self.updateCurrent()
                     time.sleep(self.measurementTime)
-                    if self.auto_ohms == False:
+                    if isinstance(self.ohms, bool) and (not self.ohms):
                         measurementLine = (self.V, self.I, time.time() - self.t0, self.status)
                     else:
                         measurementLine = (self.V, self.I, self.V / self.I, time.time() - self.t0, self.status)
@@ -589,7 +587,7 @@ class smu(object):
                 return sweepArray
             else:  # non sweep mode
                 time.sleep(self.measurementTime)
-                if self.auto_ohms == False:
+                if isinstance(self.ohms, bool) and (not self.ohms):
                     measurementLine = (self.V, self.I, time.time() - self.t0, self.status)
                 else:
                     ohm = 700 + random.random() * 100
@@ -619,7 +617,7 @@ class smu(object):
         return q
 
     def measure(self, nPoints=1):
-        if self.auto_ohms == False:
+        if isinstance(self.ohms, bool) and (not self.ohms):
             m_len = 4
         else:
             m_len = 5
@@ -648,8 +646,8 @@ class smu(object):
 
         return vals
 
-    def set_ccheck_mode(self, mode):
-        self.ccheck = mode
+    def set_ccheck_mode(self, value: bool = True, cctype: str = "external"):
+        self.ccheck = value
 
     def contact_check(self, *args, **kwargs):
         return True

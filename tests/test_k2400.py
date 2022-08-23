@@ -1,6 +1,7 @@
 import unittest
 
 import centralcontrol.k2400 as k2400
+import time
 
 
 class K2400TestCase(unittest.TestCase):
@@ -21,7 +22,7 @@ class K2400TestCase(unittest.TestCase):
         options["write_timeout"] = 1
         options["inter_byte_timeout"] = 1
         address = f"{schema}{port}?{'&'.join([f'{a}={b}' for a, b in options.items()])}"
-        address = "socket://10.45.0.135:5025"
+        # address = "socket://10.45.0.135:5025"
         self.args = (address,)
 
         self.kwargs = {"two_wire": False}
@@ -45,7 +46,7 @@ class K2400TestCase(unittest.TestCase):
         needs real hardware
         """
         with k2400.k2400(*self.args) as sm:
-            sm.setupDC(auto_ohms=True)
+            sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)  # 3k ohm max
             rslt = sm.measure()
         self.assertIsInstance(rslt, list)
         self.assertIsInstance(rslt[0], tuple)
@@ -54,19 +55,24 @@ class K2400TestCase(unittest.TestCase):
 
     def test_contact_check(self):
         """tests contact check. needs real hardware"""
-
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
-            sm.set_ccheck_mode(True)
-            rslt = sm.contact_check()
-            # print(f"Contact check result: {rslt}")
-            sm.set_ccheck_mode(False)
-        self.assertIsInstance(rslt, bool)
+        cctype = "external"  # contact checker mode
+        with k2400.k2400(*self.args) as sm:
+            enable_cc_mode = True
+            sm.set_ccheck_mode(enable_cc_mode, cctype=cctype)
+            check_lo_side = True
+            lo_cc_pass = sm.do_contact_check(check_lo_side)
+            check_lo_side = False
+            hi_cc_pass = sm.do_contact_check(check_lo_side)
+            enable_cc_mode = False
+            sm.set_ccheck_mode(enable_cc_mode, cctype=cctype)
+        self.assertTrue(lo_cc_pass)
+        self.assertTrue(hi_cc_pass)
 
     def test_measure_until(self):
         """tests measure_until. needs real hardware"""
         seconds = 10  # [s]
         with k2400.k2400(*self.args) as sm:
-            sm.setupDC(auto_ohms=True)
+            sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)  # 3k ohm max
             sm.setNPLC(1)
             rslt = sm.measureUntil(t_dwell=seconds)
         self.assertIsInstance(rslt, list)
@@ -87,6 +93,11 @@ class K2400TestCase(unittest.TestCase):
     def test_dio(self):
         """tests digital output lines. needs real hardware"""
         with k2400.k2400(*self.args) as sm:
-            sm.set_do(15)  # default
-            #sm.set_do(14)  # LO check
-            #sm.set_do(13)  # HI check
+            sm.outOn(on=False)
+            if sm.query("outp?") == "0":  # check if that worked
+                sm.set_do(14)  # LO check
+                time.sleep(sm.t_relay_bounce)  # wait for the relay to stop bouncing
+                sm.set_do(13)  # HI check
+                time.sleep(sm.t_relay_bounce)  # wait for the relay to stop bouncing
+                sm.set_do(15)  # default
+                time.sleep(sm.t_relay_bounce)  # wait for the relay to stop bouncing
