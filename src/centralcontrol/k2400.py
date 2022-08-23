@@ -708,3 +708,7 @@ class k2400(object):
             if self.query(":output?") == "1":
                 good_contact = True  # if INIT didn't trip the output off, then we're connected
         return good_contact
+    
+    def set_do(value:int):
+        """sets digital output"""
+        self.write(f"sour2:ttl {value}")

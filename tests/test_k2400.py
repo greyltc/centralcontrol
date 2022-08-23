@@ -83,3 +83,10 @@ class K2400TestCase(unittest.TestCase):
             rslt = sm.measure(n_points)
         self.assertIsInstance(rslt, list)
         self.assertIsInstance(rslt[-1], tuple)
+
+    def test_dio(self):
+        """tests digital output lines. needs real hardware"""
+        with k2400.k2400(*self.args) as sm:
+            sm.set_do(15)  # default
+            #sm.set_do(14)  # LO check
+            #sm.set_do(13)  # HI check
