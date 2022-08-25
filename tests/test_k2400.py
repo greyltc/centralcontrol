@@ -22,7 +22,7 @@ class K2400TestCase(unittest.TestCase):
         options["write_timeout"] = 1
         options["inter_byte_timeout"] = 1
         address = f"{schema}{port}?{'&'.join([f'{a}={b}' for a, b in options.items()])}"
-        # address = "socket://10.45.0.135:5025"
+        address = "socket://10.45.0.135:5025"
         self.args = (address,)
 
         self.kwargs = {"two_wire": False}
@@ -52,21 +52,6 @@ class K2400TestCase(unittest.TestCase):
         self.assertIsInstance(rslt[0], tuple)
         self.assertEqual(5, len(rslt[0]))
         # print(f"R = {rslt[0][2]}")
-
-    def test_contact_check(self):
-        """tests contact check. needs real hardware"""
-        cctype = "external"  # contact checker mode
-        with k2400.k2400(*self.args) as sm:
-            enable_cc_mode = True
-            sm.set_ccheck_mode(enable_cc_mode, cctype=cctype)
-            check_lo_side = True
-            lo_cc_pass = sm.do_contact_check(check_lo_side)
-            check_lo_side = False
-            hi_cc_pass = sm.do_contact_check(check_lo_side)
-            enable_cc_mode = False
-            sm.set_ccheck_mode(enable_cc_mode, cctype=cctype)
-        self.assertTrue(lo_cc_pass)
-        self.assertTrue(hi_cc_pass)
 
     def test_measure_until(self):
         """tests measure_until. needs real hardware"""
@@ -101,3 +86,18 @@ class K2400TestCase(unittest.TestCase):
                 time.sleep(sm.t_relay_bounce)  # wait for the relay to stop bouncing
                 sm.set_do(15)  # default
                 time.sleep(sm.t_relay_bounce)  # wait for the relay to stop bouncing
+
+    def test_contact_check(self):
+        """tests contact check. needs real hardware"""
+        cctype = "external"  # contact checker mode
+        with k2400.k2400(*self.args) as sm:
+            enable_cc_mode = True
+            sm.set_ccheck_mode(enable_cc_mode, cctype=cctype)
+            check_lo_side = True
+            lo_cc_pass = sm.do_contact_check(check_lo_side)
+            check_lo_side = False
+            hi_cc_pass = sm.do_contact_check(check_lo_side)
+            enable_cc_mode = False
+            sm.set_ccheck_mode(enable_cc_mode, cctype=cctype)
+        self.assertTrue(lo_cc_pass)
+        self.assertTrue(hi_cc_pass)
