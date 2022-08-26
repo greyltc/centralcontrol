@@ -154,41 +154,56 @@ class k2400(object):
             self.lg.debug(f"Socket cleanup failure: {e}")
             pass
 
-    def hard_input_buffer_reset(self):
-        """does graceful then hard input buffer resets"""
-        # brute force discard
+    def hard_input_buffer_reset(self) -> bool:
+        """brute force input buffer discard with failure check"""
+        success = False  # did this fail?
+        old_to = self.ser.timeout
         self.ser.timeout = 0.2
         try:
             while True:
                 got = self.ser.read()
                 if len(got) == 0:
                     break
-        except:
+        except Exception as e:
             pass
-        self.ser.timeout = self.timeout
+        else:
+            success = True
+        self.ser.timeout = old_to
+        return success
 
     def connect(self):
         """attempt to connect to hardware and initialize it"""
 
-        if "socket" in self.address:
-            self.read_term_str = "\n"
-            kwargs = {}
-            hostport = self.address.removeprefix("socket://")
-            [self.host, self.port] = hostport.split(":", 1)
-            self.socket_cleanup(self.host, int(self.port))
-            self.dead_socket_cleanup(self.host)
-            self.socket_cleanup(self.host, int(self.port))
-        else:
-            kwargs = {}
-
-        try:
-            self.ser = serial.serial_for_url(self.address, **kwargs)
+        remaining_connection_retries = 5
+        while remaining_connection_retries > 0:
             if "socket" in self.address:
-                self.ser._socket.settimeout(5.0)
-        except Exception as e:
-            raise ValueError(f"Failure connecting to {self.address} with: {e}")
+                self.read_term_str = "\n"
+                kwargs = {}
+                hostport = self.address.removeprefix("socket://")
+                [self.host, self.port] = hostport.split(":", 1)
+                self.socket_cleanup(self.host, int(self.port))
+                self.dead_socket_cleanup(self.host)
+                self.socket_cleanup(self.host, int(self.port))
+            else:
+                kwargs = {}
+
+            try:
+                self.ser = serial.serial_for_url(self.address, **kwargs)
+                if "socket" in self.address:
+                    self.ser._socket.settimeout(5.0)
+            except Exception as e:
+                raise ValueError(f"Failure connecting to {self.address} with: {e}")
+
+            if self.hard_input_buffer_reset():
+                self.connected = self.ser.is_open
+                break  # exit connection retry loop
+            else:
+                remaining_connection_retries = remaining_connection_retries - 1
+                self.lg.debug(f"Connection retries remaining: {remaining_connection_retries}")
+                self.disconnect()
         else:
-            self.connected = self.ser.is_open
+            raise ValueError(f"Connection retries exhausted while connecting to {self.address}")
+
         self.ser.reset_output_buffer()
 
         if self.ser.xonxoff:
