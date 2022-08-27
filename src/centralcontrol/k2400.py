@@ -194,10 +194,10 @@ class k2400(object):
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
-            if self.hard_input_buffer_reset():
+            if self.hard_input_buffer_reset():  # here we check if the connection is a "ghost" one or not
                 self.connected = self.ser.is_open
-                break  # exit connection retry loop
-            else:
+                break  # not a ghost connection, exit connection retry loop
+            else:  # ghost connection!
                 remaining_connection_retries = remaining_connection_retries - 1
                 self.lg.debug(f"Connection retries remaining: {remaining_connection_retries}")
                 self.disconnect()
