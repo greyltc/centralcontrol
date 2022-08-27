@@ -510,10 +510,13 @@ class MQTTServer(object):
 
                 ss_args = {}
                 ss_args["sourceVoltage"] = False
-                if ("ccd" in config) and "max_voltage" in config["ccd"]:
+                if ("ccd" in config) and ("max_voltage" in config["ccd"]):
                     ss_args["compliance"] = config["ccd"]["max_voltage"]
                 ss_args["setPoint"] = args["i_dwell_value"]
-                ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
+                # NOTE: "a" (auto range) can possibly cause unknown delays between points
+                # but that's okay here because timing between points isn't
+                # super important with steady state measurements
+                ss_args["senseRange"] = "a"
 
                 sm.setupDC(**ss_args)  # initialize the SMU hardware for a steady state measurement
 
@@ -647,7 +650,7 @@ class MQTTServer(object):
                 data += iv1
 
                 # register this curve with the mppt
-                Pmax_sweep1, Vmpp1, Impp1, maxIx1 = mppt.register_curve(iv1, light=(sweep == "light"))
+                mppt.register_curve(iv1, light=(sweep == "light"))
 
                 if args["return_switch"] == True:
                     if self.killer.is_set():
@@ -689,7 +692,7 @@ class MQTTServer(object):
                     dh.handle_data(iv2, dodb=False)
                     data += iv2
 
-                    Pmax_sweep2, Vmpp2, Impp2, maxIx2 = mppt.register_curve(iv2, light=(sweep == "light"))
+                    mppt.register_curve(iv2, light=(sweep == "light"))
 
             # TODO: read and interpret parameters for smart mode
             dh.sweep = ""  # not a sweep
@@ -717,7 +720,7 @@ class MQTTServer(object):
                 mppt_args["NPLC"] = args["nplc"]
                 mppt_args["extra"] = args["mppt_params"]
                 mppt_args["callback"] = dh.handle_data
-                if ("ccd" in config) and "max_voltage" in config["ccd"]:
+                if ("ccd" in config) and ("max_voltage" in config["ccd"]):
                     mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
                 mppt_args["i_limit"] = compliance_i
                 mppt_args["area"] = area
@@ -736,10 +739,20 @@ class MQTTServer(object):
                 if args["nplc"] != -1:
                     sm.setNPLC(args["nplc"])
 
+                # in the case where we had to do a brief Voc in the mppt because we were running it blind,
+                # send that data to the handler
                 if (calibration == False) and (len(vt) > 0):
                     dh.kind = "vtmppt_measurement"
-                    for d in vt:
+                    eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
+                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
+                    deets["fixed"] = en.Fixed.CURRENT
+                    deets["setpoint"] = 0.0
+                    db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
+                    db.eid = eid  # register event id for datahandler
+                    for d in vt:  # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                         dh.handle_data([d])
+                    db.eid = None  # unregister event id
+                    db.complete_event(eid)  # mark ss event as done
 
                 data += vt
                 data += mt
@@ -1059,13 +1072,11 @@ class MQTTServer(object):
                                 # submit for processing
                                 futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, dark_compliance_i, args, config, calibration, sweeps, pixel["area"], pixel["dark_area"])
 
-                            # collect the datas!
-                            datas = {}
+                            # collect the results
                             for smu_index, future in futures.items():
                                 data = future.result()
                                 smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
                                 measurement.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
-                                datas[smu_index] = data
                                 if calibration == True:
                                     diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{q_item[smu_index]['label']}_device_{q_item[smu_index]['pixel']}"}
                                     if rtd == True:

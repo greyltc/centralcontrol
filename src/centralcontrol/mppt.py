@@ -28,6 +28,9 @@ class mppt:
 
     t0 = None  # the time we started the mppt algorithm
 
+    # if we're forced to guess Voc or Vmpp, assume that vmpp is this fraction of Voc
+    voc_vmpp_guess_ratio = 0.7
+
     def __init__(self, sm, absolute_current_limit=0.1, killer=threading.Event()):
         self.sm = sm
         self.killer = killer
@@ -103,30 +106,42 @@ class mppt:
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
 
+        dunnos = []  # list of params we need that we don't know
+        ssvocs = []  # data from required ssvoc measurement to learn Voc
         if self.Voc is None:
-            self.sm.setupDC(sourceVoltage=False, compliance=voc_compliance, setPoint=0, senseRange="a")
-            ssvocs = self.sm.measureUntil(t_dwell=1)
-            self.Voc = ssvocs[-1][0]
-            self.lg.warning(f"MPPT algo. had to find V_oc = {self.Voc} [V] because nobody gave us any voltage info...")
-        else:
-            ssvocs = []
+            dunnos.append("V_oc")
+        if self.Vmpp is None:
+            dunnos.append("V_mpp")
 
+        if len(dunnos) > 0:
+            self.lg.warning(f"The MPP tracker is starting up without knowing {' and '.join(dunnos)}")
+            if len(dunnos) == 2:  # we don't know anything so we have to measure Voc
+                voc_dwell_time = 1.0  # amount of time to wait for Voc to settle
+                self.sm.setupDC(sourceVoltage=False, compliance=voc_compliance, setPoint=0, senseRange="a")
+                ssvocs = self.sm.measureUntil(t_dwell=voc_dwell_time)
+                self.Voc = ssvocs[-1][0]  # take the last value as Voc
+                self.lg.warning(f"Discovered that V_oc =~ {self.Voc} [V] via a {voc_dwell_time:.1f}s voltage measurement")
+                dunnos.remove("V_oc")
+            if "V_oc" in dunnos:
+                self.Voc = 1 / self.voc_vmpp_guess_ratio * self.Vmpp
+                self.lg.warning(f"Inferred that V_oc =~ {self.Voc} [V] from {1/self.voc_vmpp_guess_ratio:.1f} times V_mpp")
+            if "V_mpp" in dunnos:
+                self.Vmpp = self.voc_vmpp_guess_ratio * self.Voc
+                self.lg.warning(f"Inferred that V_mpp =~ {self.Vmpp} [V] from {self.voc_vmpp_guess_ratio:.1f} times V_oc")
+
+        # handle a killer kill
         if self.killer.is_set():
             self.lg.debug("Killed by killer.")
             return (m, ssvocs)
 
-        if self.Vmpp is None:
-            self.Vmpp = 0.7 * self.Voc  # start at 70% of Voc if nobody told us otherwise
-            self.lg.warning(f"MPPT algo. assuming V_mpp = {self.Vmpp} [V] from V_oc because nobody told us otherwise...")
-
         # get the smu ready for doing the mppt
         self.sm.setupDC(sourceVoltage=True, compliance=i_limit, setPoint=self.Vmpp, senseRange="f")
 
-        # this locks the smu to the device's power quadrant
-        if self.Voc >= 0:
-            self.voltage_lock = True  # lock mppt voltage to be >0
+        # lock the smu to the device's power quadrant
+        if self.Vmpp >= 0:
+            self.quadrant_lock = True  # lock mppt voltage to be >0
         else:
-            self.voltage_lock = False  # lock mppt voltage to be <0
+            self.quadrant_lock = False  # lock mppt voltage to be <0
 
         # run a tracking algorithm
         extra_split = extra.split(sep="://", maxsplit=1)
@@ -134,16 +149,16 @@ class mppt:
         params = extra_split[1]
         if algo == "basic":
             if len(params) == 0:  #  use defaults
-                m.append(self.really_dumb_tracker(duration, start_voltage=self.Vmpp, callback=callback))
+                m += self.really_dumb_tracker(duration, start_voltage=self.Vmpp, callback=callback)
             else:
                 params = params.split(":")
                 if len(params) != 3:
                     raise (ValueError("MPPT configuration failure, Usage: --mppt-params basic://[degrees]:[dwell]:[sweep_delay_ms]"))
                 params = [float(f) for f in params]
-                m.append(self.really_dumb_tracker(duration, start_voltage=self.Vmpp, callback=callback, dAngleMax=params[0], dwell_time=params[1], sweep_delay_ms=params[2]))
+                m += self.really_dumb_tracker(duration, start_voltage=self.Vmpp, callback=callback, dAngleMax=params[0], dwell_time=params[1], sweep_delay_ms=params[2])
         elif algo == "spo":
             if len(params) == 0:  #  use defaults
-                m.append(self.spo(duration, start_voltage=self.Vmpp, callback=callback))
+                m += self.spo(duration, callback=callback)
             else:
                 raise (ValueError("MPPT configuration failure, Usage: spo://"))
         elif algo in ["gd", "snaith"]:
@@ -152,13 +167,13 @@ class mppt:
             else:
                 do_snaith = False
             if len(params) == 0:  #  use defaults
-                m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, snaith_mode=do_snaith, callback=callback))
+                m += self.gradient_descent(duration, start_voltage=self.Vmpp, snaith_mode=do_snaith, callback=callback)
             else:
                 params = params.split(":")
                 if len(params) != 10:
                     raise (ValueError("MPPT configuration failure, Usage: gd://[alpha]:[min_step]:[NPLC]:[delayms]:[max_step]:[momentum]:[delta_zero]:[jump_percent]:[jump_period]:[time_scale]"))
                 params = [float(f) for f in params]
-                m.append(self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6], jump_percent=params[7], jump_period=params[8], time_scale=(params[9] == 1)))
+                m += self.gradient_descent(duration, start_voltage=self.Vmpp, callback=callback, alpha=params[0], min_step=params[1], NPLC=params[2], delay_ms=params[3], snaith_mode=do_snaith, max_step=params[4], momentum=params[5], delta_zero=params[6], jump_percent=params[7], jump_period=params[8], time_scale=(params[9] == 1))
         else:
             self.lg.debug(f"WARNING: MPPT algorithm {algo} not understood, not doing max power point tracking")
 
@@ -167,17 +182,17 @@ class mppt:
         self.lg.debug("{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA".format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
         return (m, ssvocs)
 
-    def spo(self, duration, start_voltage, callback=lambda x: None):
-        self.lg.warning("spo:// does not find or track maximum power point")
-        q = deque()
+    def spo(self, duration, callback=lambda x: None):
+        """just runs with a fixed start voltage"""
+        self.lg.warning("spo:// does not attempt to hold maximum power point")
+
         data = self.sm.measureUntil(t_dwell=duration, cb=callback)
-        q.extend(data)
 
         # take whatever the most recent readings were to be the mppt
         self.Vmpp = data[0][0]
         self.Impp = data[0][1]
 
-        return q
+        return data
 
     def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01, jump_percent=10, jump_period=0, time_scale=True):
         """
@@ -208,9 +223,9 @@ class mppt:
         self.lg.debug(f"Snaith mode = {snaith_mode}")
         self.lg.debug(f"Source-measure delay = {delay_ms} [ms]")
 
-        q = deque()
+        q = []  # main list of measurements
         process_q_len = 20
-        m = deque(maxlen=process_q_len)  # measurement buffer for the mppt algorithm
+        m = deque(maxlen=process_q_len)  # measurement buffer for the mppt algorithm, newest values at the start
         # x = deque(maxlen=process_q_len)  # keeps independant variable setpoints
 
         if snaith_mode == True:
@@ -218,7 +233,7 @@ class mppt:
             this_soak_t = snaith_pre_soak_t
             self.lg.debug("Snaith Pre Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
             spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
-            q.extend(spos)
+            q += spos
 
             if self.killer.is_set():
                 self.lg.debug("Killed by killer.")
@@ -307,7 +322,7 @@ class mppt:
             this_soak_t = snaith_post_soak_t
             self.lg.debug("Snaith Post Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
             spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
-            q.extend(spos)
+            q += spos
 
         # take whatever the most recent readings were to be the mppt
         self.Vmpp = m[0][0]
@@ -315,24 +330,23 @@ class mppt:
 
         return q
 
-    def measure(self, v_set, q, delay_ms=0, callback=lambda x: None):
-        """
-        sets the voltage and makes a measurement
-        """
+    def measure(self, setpoint, q, delay_ms=0, callback=lambda x: None):
+        """changes the smu's setpoint and makes a measurement"""
         # enforce quadrant restrictions to prevent the mppt from erroniously wandering out of the power quadrant
-        if (self.voltage_lock == True) and (v_set < 0):
-            v_set = 0.0001
-        elif (self.voltage_lock == False) and (v_set > 0):
-            v_set = -0.0001
+        if (self.quadrant_lock) and (setpoint < 0):
+            setpoint = 0.0001
+        elif (not self.quadrant_lock) and (setpoint > 0):
+            setpoint = -0.0001
 
-        self.sm.setSource(v_set)
-        time.sleep(delay_ms / 1000)
+        self.sm.setSource(setpoint)
+        if delay_ms > 0:
+            time.sleep(delay_ms / 1000)
         measurement = self.sm.measure()
         callback(measurement)
 
         v, i, tx, status = measurement[0]
 
-        q.append(measurement[0])
+        q += measurement
         return (v, i, tx)
 
     def really_dumb_tracker(self, duration, start_voltage, callback=lambda x: None, dAngleMax=7, dwell_time=10, sweep_delay_ms=30):
@@ -351,7 +365,7 @@ class mppt:
         # work in voltage steps that are this fraction of Voc
         dV = self.Voc / 301
 
-        q = deque()
+        q = []
         Vmpp = start_voltage
 
         if duration <= 10:
@@ -366,7 +380,7 @@ class mppt:
         if self.Isc is None:
             # if nobody told us otherwise, just assume Isc is 10% higher than Impp
             self.Isc = self.Impp * 1.1
-        q.extend(ssmpps)
+        q += ssmpps
         if self.killer.is_set():
             self.lg.debug("Killed by killer.")
             return q
@@ -463,7 +477,7 @@ class mppt:
             self.lg.debug("Dwelling @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp * 1000, dwell))
             dq = self.sm.measureUntil(t_dwell=dwell, cb=callback)
             Impp = dq[-1][1]
-            q.extend(dq)
+            q += dq
 
             run_time = time.time() - self.t0
 
