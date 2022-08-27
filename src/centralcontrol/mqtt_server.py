@@ -739,7 +739,7 @@ class MQTTServer(object):
                 if (calibration == False) and (len(vt) > 0):
                     dh.kind = "vtmppt_measurement"
                     for d in vt:
-                        dh.handle_data(d)
+                        dh.handle_data([d])
 
                 data += vt
                 data += mt
