@@ -107,7 +107,7 @@ class mppt:
             self.sm.setupDC(sourceVoltage=False, compliance=voc_compliance, setPoint=0, senseRange="a")
             ssvocs = self.sm.measureUntil(t_dwell=1)
             self.Voc = ssvocs[-1][0]
-            self.lg.debug(f"mppt algo had to find V_oc = {self.Voc} [V] because nobody gave us any voltage info...")
+            self.lg.warning(f"MPPT algo. had to find V_oc = {self.Voc} [V] because nobody gave us any voltage info...")
         else:
             ssvocs = []
 
@@ -117,7 +117,7 @@ class mppt:
 
         if self.Vmpp is None:
             self.Vmpp = 0.7 * self.Voc  # start at 70% of Voc if nobody told us otherwise
-            self.lg.debug(f"mppt algo assuming V_mpp = {self.Vmpp} [V] from V_oc because nobody told us otherwise...")
+            self.lg.warning(f"MPPT algo. assuming V_mpp = {self.Vmpp} [V] from V_oc because nobody told us otherwise...")
 
         # get the smu ready for doing the mppt
         self.sm.setupDC(sourceVoltage=True, compliance=i_limit, setPoint=self.Vmpp, senseRange="f")
