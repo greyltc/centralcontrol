@@ -470,7 +470,7 @@ class k2400(object):
             self.write("outp 0")
 
     def getNPLC(self):
-        return float(self.query("sense:curr:nplc?"))
+        return float(self.query("sens:curr:nplc?"))
 
     def setNPLC(self, nplc: float):
         self.nplc_user_set = nplc
@@ -492,17 +492,17 @@ class k2400(object):
         """
 
         if ohms == "auto":
-            self.write('sens:function:on "resistance"')
-            self.write("sens:resistance:mode auto")
-            self.write("sens:resistance:range:auto on")
-            # sm.write('sens:resistance:range 20E3')
+            self.write('sens:func "res"')
+            self.write("sens:res:mode auto")
+            self.write("sens:res:range:auto on")
+            # sm.write('sens:res:range 20E3')
             self.write("format:elements voltage,current,resistance,time,status")
         elif isinstance(ohms, bool):
             if ohms:
                 self.write("format:elements voltage,current,resistance,time,status")
                 self.write("sens:resistance:mode man")
             else:
-                self.write('sens:function:off "resistance"')
+                self.write('sens:func:off "resistance"')
                 self.write("format:elements voltage,current,time,status")
 
             if sourceVoltage:
@@ -512,7 +512,7 @@ class k2400(object):
                 src = "curr"
                 snc = "volt"
             self.src = src
-            self.write(f"source:function {src}")
+            self.write(f"source:func {src}")
             self.write(f"source:{src}:mode fixed")
             self.write(f"source:{src} {setPoint:.8f}")
 
@@ -538,7 +538,7 @@ class k2400(object):
 
             # always auto range ohms
             if ohms:
-                self.write(f"sens:resistance:range:auto on")
+                self.write(f"sens:res:range:auto on")
 
         self.do_r = ohms
         self.outOn()
@@ -557,14 +557,14 @@ class k2400(object):
         approx_measure_time = 1000 / 50 * nplc  # [ms] assume 50Hz line freq just because that's safer
 
         if sourceVoltage:
-            src = "voltage"
-            snc = "current"
+            src = "volt"
+            snc = "curr"
         else:
-            src = "current"
-            snc = "voltage"
+            src = "curr"
+            snc = "volt"
         self.src = src
-        self.write("sour:func {:s}".format(src))
-        self.write("sour:{:s} {:0.6f}".format(src, start))
+        self.write(f"sour:func {src}")
+        self.write(f"sour:{src} {start:0.8f}")
 
         # seems to do exactly nothing
         # if snc == 'current':
@@ -573,21 +573,21 @@ class k2400(object):
         #  sm.write(':sense:current:range:holdoff {:.6f}'.format(holdoff_delay))
         #  self.opc()  # needed to prevent input buffer overrun with serial comms (should be taken care of by flowcontrol!)
 
-        self.write("sens:{:s}:prot {:.8f}".format(snc, compliance))
+        self.write(f"sens:{snc}:prot {compliance:0.8f}")
 
         if senseRange == "f":
-            self.write("sens:{:s}:range:auto 0".format(snc))
-            self.write("sens:{:s}:prot:rsyn 1".format(snc))
+            self.write(f"sens:{snc}:range:auto 0")
+            self.write(f"sens:{snc}:prot:rsyn 1")
         elif senseRange == "a":
-            self.write("sens:{:s}:range:auto on".format(snc))
+            self.write(f"sens:{snc}:range:auto on")
         else:
-            self.write("sens:{:s}:range {:.8f}".format(snc, senseRange))
+            self.write(f"sens:{snc}:range {senseRange:0.8f}")
 
         # this again is to make sure the sense range gets updated
-        self.write("sens:{:s}:prot {:.8f}".format(snc, compliance))
+        self.write(f"sens:{snc}:prot {compliance:0.8f}")
 
         self.outOn()
-        self.write("sour:{:s}:mode sweep".format(src))
+        self.write(f"sour:{src}:mode sweep")
         self.write("sour:sweep:spacing linear")
         if stepDelay < 0:
             # this just sets delay to 1ms (probably. the actual delay is in table 3-4, page 97, 3-13 of the k2400 manual)
@@ -598,17 +598,17 @@ class k2400(object):
             self.write(f"sour:delay {stepDelay:0.6f}")  # this value is in seconds!
             approx_point_duration = 20 + stepDelay * 1000 + approx_measure_time  # [ms] used for calculating dynamic sweep timeout
 
-        self.write("trigger:count {:d}".format(nPoints))
-        self.write("sour:sweep:points {:d}".format(nPoints))
-        self.write("sour:{:s}:start {:.6f}".format(src, start))
-        self.write("sour:{:s}:stop {:.6f}".format(src, end))
+        self.write(f"trigger:count {nPoints}")
+        self.write(f"sour:sweep:points {nPoints}")
+        self.write(f"sour:{src}:start {start:0.8f}")
+        self.write(f"sour:{src}:stop {end:0.8f}")
 
         # relax the timeout since the above can take a bit longer to process
         self.ser.timeout = 5
         if sourceVoltage:
             self.dV = abs(float(self.query("sour:volt:step?")))
         else:
-            self.dI = abs(float(self.query("source:curr:step?")))
+            self.dI = abs(float(self.query("sour:curr:step?")))
         self.ser.timeout = self.timeout  # restore default timeout
         # sm.write(':source:{:s}:range {:.4f}'.format(src,max(start,end)))
         self.write("sour:sweep:ranging best")

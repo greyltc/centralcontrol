@@ -344,6 +344,7 @@ class smu(object):
     killer = None
     print_sweep_deets: bool = False
     address = None
+    cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
 
     def __init__(self, *args, **kwargs):
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -650,7 +651,13 @@ class smu(object):
         self.ccheck = value
 
     def contact_check(self, *args, **kwargs):
-        return True
+        """simulates a contact check"""
+        rand = random.random()
+        if rand < self.cc_fail_probability:
+            check_pass = False
+        else:
+            check_pass = True
+        return check_pass
 
     def close(self):
         self.lg.debug(f"{self.__class__} closed.")
