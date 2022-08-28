@@ -135,9 +135,14 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, dead_socket_port))
+                s.settimeout(0.1)
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
+                while True:
+                    s.recv(1)  # chuck anything that was sent to us
+        except socket.timeout as e:
+            pass
         except Exception as e:
             self.lg.debug(f"Dead socket cleanup failure: {e}")
             pass
@@ -148,11 +153,15 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, port))
+                s.settimeout(0.1)
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
+                while True:
+                    s.recv(1)  # chuck anything that was sent to us
+        except socket.timeout as e:
+            pass
         except Exception as e:
             self.lg.debug(f"Socket cleanup failure: {e}")
-            pass
 
     def hard_input_buffer_reset(self) -> bool:
         """brute force input buffer discard with failure check"""
@@ -424,14 +433,19 @@ class k2400(object):
             self.ser.close()
         except:
             pass
-        else:
-            self.connected = self.ser.is_open
 
-        # use dead socket port to clean up old connections
         if "socket" in self.address:
+            try:
+                self.ser._socket.settimeout(0.1)
+                while True:
+                    self.ser._socket.recv(1)
+            except Exception as e:
+                pass
             self.socket_cleanup(self.host, int(self.port))
-            self.dead_socket_cleanup(self.host)
+            self.dead_socket_cleanup(self.host)  # use dead socket port to clean up old connections
             self.socket_cleanup(self.host, int(self.port))
+
+        self.connected = self.ser.is_open
 
     def setWires(self, two_wire=False):
         self.two_wire = two_wire  # record setting
