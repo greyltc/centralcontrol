@@ -51,9 +51,17 @@ class LightAPI(object):
     conn_status: int = -99  # connection status
     idn: str  # identification string
 
-    def __init__(self, **kwargs) -> None:
+    init_args: tuple = ()
+    init_kwargs: dict = {}
+
+    def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+
+        # store away the init args and kwargs
+        self.init_args = args
+        self.init_kwargs = kwargs
+
         if "intensity" in kwargs:
             self.on_intensity = int(kwargs["intensity"])  # use this initial intensity for the "on" value
 

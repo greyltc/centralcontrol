@@ -40,10 +40,16 @@ class SourcemeterAPI(object):
     device_grouping: typing.List[typing.List[str]]
     conn_status: int = -99  # connection status
     idn: str
+    init_args: tuple = ()
+    init_kwargs: dict = {}
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+
+        # store away the init args and kwargs
+        self.init_args = args
+        self.init_kwargs = kwargs
 
         super(SourcemeterAPI, self).__init__(**kwargs)
         return None

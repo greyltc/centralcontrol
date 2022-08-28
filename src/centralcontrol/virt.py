@@ -345,6 +345,7 @@ class smu(object):
     print_sweep_deets: bool = False
     address = None
     cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
+    cc_mode = "none"  # contact check mode
 
     def __init__(self, *args, **kwargs):
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -363,6 +364,12 @@ class smu(object):
         if "address" in kwargs:
             self.address = kwargs["address"]
 
+        if "cc_mode" in kwargs:
+            self.cc_mode = kwargs["cc_mode"]
+
+        # if non-zero, we have a resistor of this ohm value connected instead of a solar cell
+        self.resistor_connected = 0
+
         # these will get updated externally as needed
         self.area = 1  # cm^2
         # TODO: add dark area
@@ -377,14 +384,14 @@ class smu(object):
         self.Rsa = 1.8  # arial series resistance [ohm*cm^2] (where cm^2 is for physical device area)
         self.Rsha = 8e2  # arial shunt resistance [ohm*cm^2] (where cm^2 is for physical device area)
 
-        self.cellTemp = 29  # degC
+        self.cellTemp = 40.25  # degC
         self.T = 273.15 + self.cellTemp  # cell temp in K
         self.K = 1.3806488e-23  # boltzman constant
         self.q = 1.60217657e-19  # electron charge
         self.Vth = mpmath.mpf(self.K * self.T / self.q)  # thermal voltage ~26mv
-        self.V = 0  # voltage across device
+        # self.V = 0  # voltage across device
         self.I = 0  # current through device
-        self.updateCurrent()
+        self.update(current=False)  # sets self.V to Voc
 
         # for sweeps:
         self.sweepMode = False
@@ -410,9 +417,9 @@ class smu(object):
         if value != self._intensity:  # there's an intensity change
             self._intensity = value
             if self.I == 0:  # open circuit case
-                self.openCircuitEvent()
+                self.update(current=False)
             else:
-                self.updateCurrent()
+                self.update(current=True)
 
     def connect(self):
         self.idn = "Virtual Sourcemeter"
@@ -444,16 +451,20 @@ class smu(object):
     def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", ohms=False):
         self.compliance = compliance
         self.ohms = ohms
-        if isinstance(ohms, bool):
-            if sourceVoltage:
-                src = "voltage"
-                snc = "current"
-            else:
-                src = "current"
-                snc = "voltage"
+        self.sweepMode = False
+        if sourceVoltage:
+            src = "voltage"
+            snc = "current"
+        else:
+            src = "current"
+            snc = "voltage"
+        if ohms:  # "auto" or True
+            if isinstance(ohms, bool):  # True
+                self.src = src
+                self.write(f":source:{self.src} {setPoint:0.8f}")
+        else:
             self.src = src
-            self.write(":source:{:s} {:0.6f}".format(self.src, setPoint))
-            self.sweepMode = False
+            self.write(f":source:{self.src} {setPoint:0.8f}")
         return
 
     def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=-1, start=0, end=1, senseRange="f"):
@@ -482,73 +493,88 @@ class smu(object):
     def opc(self, *args, **kwargs):
         return
 
-    # the device is open circuit
-    def openCircuitEvent(self):
-        self.I = 0
-        Rsh = self.Rsha / self.area
-        n = self.n
-        I0 = self.I0d * self.area / 1000
-        iph_scale = self._intensity
-        if self.dark == True:
-            iph_scale = 0
-        Iph = self.Iphd * self.area / 1000 * iph_scale
-        Vth = self.Vth
-        if Rsh < float("inf"):
-            Voc = Rsh * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
-        else:
-            Voc = Vth * n * mpmath.log((I0 + Iph) / I0)
-        self.V = float(mpmath.fabs(Voc)) * float(mpmath.sign(mpmath.re(Voc)))
-        self.I = 0
-
-    # recompute device current
-    def updateCurrent(self):
-        Rs = self.Rsa / self.area
-        Rsh = self.Rsha / self.area
-        n = self.n
-        I0 = self.I0d * self.area / 1000
-        iph_scale = self._intensity
-        if self.dark == True:
-            iph_scale = 0
-        Iph = self.Iphd * self.area / 1000 * iph_scale
-        Vth = self.Vth
-        V = self.V
-        if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
-            I = (Rs * (I0 * Rsh + Iph * Rsh - V) - Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
-        elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
-            I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph - V / Rsh
-        elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
-            I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp((Rs * (I0 + Iph) + V) / (Vth * n)) / (Vth * n))) / Rs
-        else:  # no resistive losses
-            I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph
-        self.I = float(mpmath.fabs(I)) * float(mpmath.sign(mpmath.re(I)))
-        # simulate the SMU hitting compliance
-        if abs(self.I) > abs(self.compliance):  # check if we're over the current limit
-            # set I to correct compliance limit
-            if self.I >= 0:
-                self.I = abs(self.compliance)
+    def update(self, current: bool = True):
+        """compute device current or voltage given a known value of the other one"""
+        if self.resistor_connected != 0:
+            if current:
+                self.I = self.V / self.resistor_connected
             else:
-                self.I = -1 * abs(self.compliance)
-            # then figure out what V should be there
-            if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
-                peggedV = -self.I * Rs - self.I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-self.I + I0 + Iph) / (Vth * n)) / (Vth * n))
-            elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
-                peggedV = Rsh * (-self.I + I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-self.I + I0 + Iph) / (Vth * n)) / (Vth * n))
-            elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
-                peggedV = Vth * n * mpmath.log((-self.I + I0 + Iph) * mpmath.exp(-self.I * Rs / (Vth * n)) / I0)
-            else:  # no resistive losses
-                peggedV = Vth * n * mpmath.log((-self.I + I0 + Iph) / I0)
-            self.V = float(mpmath.fabs(peggedV)) * float(mpmath.sign(mpmath.re(peggedV)))
+                self.V = self.I * self.resistor_connected
+        else:
 
-        # change from cell's POV to SMU's POV
-        self.I = self.I * -1
+            Rs = self.Rsa / self.area
+            Rsh = self.Rsha / self.area
+            n = self.n
+            I0 = self.I0d * self.area / 1000
+            iph_scale = self._intensity
+            if self.dark == True:
+                iph_scale = 0
+            Iph = self.Iphd * self.area / 1000 * iph_scale
+            if current:  # we're updating current from a known voltage
+                I = self.i_from_v(self.V, Rs, Rsh, Iph, I0, n)
+                # simulate the SMU hitting compliance
+                if abs(I) > abs(self.compliance):  # check if we're over the current limit
+                    # set I to correct compliance limit
+                    if I >= 0:
+                        I = abs(self.compliance)
+                    else:
+                        I = -1 * abs(self.compliance)
+                    # then figure out what V should be there, due to compliance
+                    self.V = self.v_from_i(I, Rs, Rsh, Iph, I0, n)
+                self.I = I * -1  # change from cell's POV to SMU's POV
+            else:  # we're updating voltage from a known current
+                I = self.I * -1  # change from SMU's POV to cell's POV
+                # TODO: handle voltage compliance
+                self.V = self.v_from_i(I, Rs, Rsh, Iph, I0, n)
+
+    def v_from_i(self, I, Rs, Rsh, Iph, I0, n) -> float:
+        """find voltage from device params and current"""
+        Vth = self.Vth
+        if I == 0:  # Voc case
+            if Rsh < float("inf"):  # Rsh is not perfect
+                V = Rsh * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
+            else:  # Rsh is perfect (inf ohm)
+                V = Vth * n * mpmath.log((I0 + Iph) / I0)
+        else:  # not Voc
+            if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
+                V = -I * Rs - I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-I + I0 + Iph) / (Vth * n)) / (Vth * n))
+            elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
+                V = Rsh * (-I + I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-I + I0 + Iph) / (Vth * n)) / (Vth * n))
+            elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
+                V = Vth * n * mpmath.log((-I + I0 + Iph) * mpmath.exp(-I * Rs / (Vth * n)) / I0)
+            else:  # no resistive losses
+                V = Vth * n * mpmath.exp((-I + I0 + Iph) / I0)
+        return float(mpmath.fabs(V)) * float(mpmath.sign(mpmath.re(V)))
+
+    def i_from_v(self, V, Rs, Rsh, Iph, I0, n) -> float:
+        """find current from device params and voltage"""
+        Vth = self.Vth
+        if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
+            if V != 0:  # not Isc
+                I = (Rs * (I0 * Rsh + Iph * Rsh - V) - self.Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
+            else:  # at Isc
+                I = (Rs * (I0 * Rsh + Iph * Rsh) - Vth * n * (Rs + Rsh) * mpmath.lambertw(Rs * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh) + mpmath.log((I0 * Rsh) ** (Vth * n * (Rs + Rsh)))) / (Vth * n * (Rs + Rsh))) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
+        elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
+            if V != 0:  # not Isc
+                I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph - V / Rsh
+            else:  # at Isc
+                I = Iph
+        elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
+            if V != 0:  # not Isc
+                I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp((Rs * (I0 + Iph) + V) / (Vth * n)) / (Vth * n))) / Rs
+            else:  # at Isc
+                I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp(Rs * (I0 + Iph) / (Vth * n)) / (Vth * n))) / Rs
+        else:  # no resistive losses
+            if V != 0:  # not Isc
+                I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph
+            else:  # at Isc
+                I = Iph
+        return float(mpmath.fabs(I)) * float(mpmath.sign(mpmath.re(I)))
 
     def write(self, command):
         if ":source:current " in command:
-            currentVal = float(command.split(" ")[1])
-            if currentVal == 0:
-                self.openCircuitEvent()
-            else:
-                raise ValueError("Can't do currents other than zero right now!")
+            self.I = float(command.split(" ")[1])
+            self.update(current=False)
         elif command == ":source:voltage:mode sweep":
             self.sweepMode = True
         elif command == ":source:voltage:mode fixed":
@@ -561,7 +587,7 @@ class smu(object):
             self.sweepEnd = float(command.split(" ")[1])
         elif ":source:voltage " in command:
             self.V = float(command.split(" ")[1])
-            self.updateCurrent()
+            self.update(current=True)
 
     def query_ascii_values(self, command):
         return self.query_values(command)
@@ -576,11 +602,11 @@ class smu(object):
                 voltages = numpy.linspace(self.sweepStart, self.sweepEnd, self.nPoints)
                 for i in range(len(voltages)):
                     self.V = voltages[i]
-                    self.updateCurrent()
+                    self.update(current=True)
                     time.sleep(self.measurementTime)
                     if isinstance(self.ohms, bool) and (not self.ohms):
                         measurementLine = (self.V, self.I, time.time() - self.t0, self.status)
-                    else:
+                    else:  # ohms
                         measurementLine = (self.V, self.I, self.V / self.I, time.time() - self.t0, self.status)
                     sweepArray.append(measurementLine)
                 self.last_sweep_time = sweepArray[-1][2] - sweepArray[0][2]
@@ -590,9 +616,9 @@ class smu(object):
                 time.sleep(self.measurementTime)
                 if isinstance(self.ohms, bool) and (not self.ohms):
                     measurementLine = (self.V, self.I, time.time() - self.t0, self.status)
-                else:
-                    ohm = 700 + random.random() * 100
-                    measurementLine = (self.V, self.I, ohm, time.time() - self.t0, self.status)
+                else:  # ohms
+                    # ohm = 700 + random.random() * 100
+                    measurementLine = (self.V, self.I, self.V / self.I, time.time() - self.t0, self.status)
                 return [measurementLine]
         elif command == ":source:voltage:step?":
             dV = (self.sweepEnd - self.sweepStart) / self.nPoints
@@ -647,16 +673,23 @@ class smu(object):
 
         return vals
 
-    def set_ccheck_mode(self, value: bool = True, cctype: str = "external"):
-        self.ccheck = value
-
-    def contact_check(self, *args, **kwargs):
-        """simulates a contact check"""
-        rand = random.random()
-        if rand < self.cc_fail_probability:
-            check_pass = False
+    def enable_cc_mode(self, value: bool = True):
+        if self.cc_mode != "none":
+            self.ccheck = value
         else:
+            self.lg.warning("The contact check feature is not configured.")
+
+    def do_contact_check(self, *args, **kwargs):
+        """simulates a contact check"""
+        if self.cc_mode == "none":
             check_pass = True
+        else:
+            rand = random.random()
+            if rand < self.cc_fail_probability:
+                check_pass = False
+            else:
+                check_pass = True
+
         return check_pass
 
     def close(self):

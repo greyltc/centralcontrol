@@ -37,7 +37,7 @@ class k2400(object):
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode
 
-    def __init__(self, address: str, front=True, two_wire=True, quiet=False, killer=threading.Event(), print_sweep_deets=False, cc_mode: str = "none", **kwargs):
+    def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer=threading.Event(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -54,6 +54,7 @@ class k2400(object):
         self.read_term_len = len(self.read_term)
         self.connected = False
         self.cc_mode = cc_mode
+        self.remaining_init_kwargs = kwargs
 
         # add some features to pyserial's address URL handling
         # trigger this through the use of a hwurl:// schema
@@ -494,6 +495,7 @@ class k2400(object):
         if ohms == "auto":
             self.write('sens:func "res"')
             self.write("sens:res:mode auto")
+            self.lg.warning("Auto sense resistance mode could result in dangerously high current and/or voltage on the SMU's terminals")
             self.write("sens:res:range:auto on")
             # sm.write('sens:res:range 20E3')
             self.write("format:elements voltage,current,resistance,time,status")
@@ -791,7 +793,8 @@ class k2400(object):
                 if self.query("outp?") == "1":  # check that the output is on
                     m = self.measure()[0]
                     ohm = m[2]
-                    in_compliance = (1 << 3) & m[4]  # check compliance bit (3) in status word
+                    status = int(m[4])
+                    in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                     if (not in_compliance) and (ohm < threshold_ohm):
                         good_contact = True
         elif self.cc_mode == "none":

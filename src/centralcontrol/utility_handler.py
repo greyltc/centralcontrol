@@ -288,35 +288,69 @@ class UtilityHandler(object):
                                         sm.device_grouping = task["device_grouping"]
                                     # set up sourcemeter for the task
                                     if task["type"] == "current":
-                                        pass  # TODO: smu measure current command goes here
+                                        sm.setupDC(sourceVoltage=True, compliance=3, setPoint=0.0, senseRange="a", ohms=False)
+                                    if task["type"] == "voltage":
+                                        if "current_limit" in sm.init_kwargs:
+                                            i_lim = sm.init_kwargs["current_limit"]
+                                        else:
+                                            i_lim = 0.15
+                                        sm.setupDC(sourceVoltage=False, compliance=i_lim, setPoint=0.0, senseRange="a", ohms=False)
                                     elif task["type"] == "rtd":
-                                        sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)  # 3k ohm max
+                                        sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
                                     elif task["type"] == "connectivity":
-                                        self.lg.log(29, f"Checking connections. Only failures will be printed.")
                                         sm.enable_cc_mode(True)
 
                                 if task["type"] == "connectivity":
+                                    self.lg.log(29, f"Checking connections. Only failures will be printed.")
                                     lo_side = True
+                                # handle the all switches open case:
+                                task["slots"].insert(0, "none")
+                                task["pads"].insert(0, "none")
+                                task["mux_strings"].insert(0, "s")
                                 for i, slot in enumerate(task["slots"]):
                                     dev = task["pads"][i]
+                                    if slot == "none":
+                                        slot_words = "(Everything disconnected)"
+                                    else:
+                                        slot_words = f"({slot} -- {dev:n})"
                                     mux_string = task["mux_strings"][i]
                                     p.query(mux_string)  # select the device
-                                    smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                                    if slot == "none":
+                                        smu_index = 0  # I guess we should just use smu[0] for the all switches open case
+                                    else:
+                                        smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
                                     if smu_index is None:
                                         smu_index = 0
-                                        self.lg.warning("Using the first SMU")
+                                        self.lg.warning("Assuming the first SMU is the right one")
                                     if smus[smu_index].idn != "disabled":
                                         if task["type"] == "current":
-                                            pass  # TODO: smu measure current command goes here
+                                            m = smus[smu_index].measure()[0]
+                                            status = int(m[4])
+                                            in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
+                                            A = m[1]
+                                            if in_compliance:
+                                                self.lg.log(29, f"{slot_words} was in compliance")
+                                            else:
+                                                self.lg.log(29, f"{slot_words} shows {A:.8f} A")
+                                        elif task["type"] == "voltage":
+                                            m = smus[smu_index].measure()[0]
+                                            status = int(m[4])
+                                            in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
+                                            V = m[0]
+                                            if in_compliance:
+                                                self.lg.log(29, f"{slot_words} was in compliance")
+                                            else:
+                                                self.lg.log(29, f"{slot_words} shows {V:.6f} V")
                                         elif task["type"] == "rtd":
                                             m = smus[smu_index].measure()[0]
                                             ohm = m[2]
-                                            in_compliance = (1 << 3) & m[4]  # check compliance bit (3) in status word
+                                            status = int(m[4])
+                                            in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                                             if not (in_compliance) and (ohm < 3000) and (ohm > 500):
-                                                self.lg.log(29, f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
+                                                self.lg.log(29, f"{slot_words} could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
                                         elif task["type"] == "connectivity":
                                             if smus[smu_index].do_contact_check(lo_side=lo_side) == False:
-                                                self.lg.log(29, f"{slot} -- {dev} LO appears disconnected.")
+                                                self.lg.log(29, f"{slot_words} has a bad low-side 4-wire connection")
                                     p.query(f"s{slot}0")  # disconnect the slot
 
                                 # we need to do the loop again for cc check to check the high side
@@ -324,20 +358,28 @@ class UtilityHandler(object):
                                     lo_side = False
                                     for i, slot in enumerate(task["slots"]):
                                         dev = task["pads"][i]
+                                        if slot == "none":
+                                            slot_words = "(Everything disconnected)"
+                                        else:
+                                            slot_words = f"({slot} -- {dev:n})"
                                         mux_string = task["mux_strings"][i]
                                         p.query(mux_string)  # select the device
-                                        smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
-                                        if smus[smu_index].do_contact_check(lo_side=lo_side) == False:
-                                            self.lg.log(29, f"{slot} -- {dev} HI appears disconnected.")
+                                        if slot == "none":
+                                            smu_index = 0  # I guess we should just use smu[0] for the all switches open case
+                                        else:
+                                            smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                                        if smu_index is None:
+                                            smu_index = 0
+                                            self.lg.warning("Assuming the first SMU is the right one")
+                                        if smus[smu_index].idn != "disabled":
+                                            if smus[smu_index].do_contact_check(lo_side=lo_side) == False:
+                                                self.lg.log(29, f"{slot_words} has a bad high-side 4-wire connection")
                                         p.query(f"s{slot}0")  # disconnect the slot
 
                                 for sm in smus:
                                     if task["type"] == "connectivity":
                                         sm.enable_cc_mode(False)
-                                        # self.lg.log(29, "Contact check complete.")
-                                    elif task["type"] == "rtd":
-                                        # self.lg.log(29, "Temperature measurement complete.")
-                                        sm.setupDC(sourceVoltage=False)
+                                    sm.outOn(False)
                             p.query("s")
                     self.lg.log(29, "Round robin task complete.")
             except Exception as e:
@@ -491,7 +533,7 @@ class UtilityHandler(object):
 
     # send up a log message to the status channel
     def send_log_msg(self, record):
-        payload = {"log": {"level": record.levelno, "text": record.msg}}
+        payload = {"log": {"level": record.levelno, "text": str(record.msg)}}
         payload = json.dumps(payload)
         output = {"destination": "status", "payload": payload}
         self.outputq.put(output)
