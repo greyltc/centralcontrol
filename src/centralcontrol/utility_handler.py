@@ -293,8 +293,10 @@ class UtilityHandler(object):
                                         sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)  # 3k ohm max
                                     elif task["type"] == "connectivity":
                                         self.lg.log(29, f"Checking connections. Only failures will be printed.")
-                                        sm.set_ccheck_mode(True)
+                                        sm.enable_cc_mode(True)
 
+                                if task["type"] == "connectivity":
+                                    lo_side = True
                                 for i, slot in enumerate(task["slots"]):
                                     dev = task["pads"][i]
                                     mux_string = task["mux_strings"][i]
@@ -313,13 +315,25 @@ class UtilityHandler(object):
                                             if not (in_compliance) and (ohm < 3000) and (ohm > 500):
                                                 self.lg.log(29, f"{slot} -- {dev} Could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
                                         elif task["type"] == "connectivity":
-                                            if smus[smu_index].contact_check() == False:
-                                                self.lg.log(29, f"{slot} -- {dev} appears disconnected.")
+                                            if smus[smu_index].do_contact_check(lo_side=lo_side) == False:
+                                                self.lg.log(29, f"{slot} -- {dev} LO appears disconnected.")
                                     p.query(f"s{slot}0")  # disconnect the slot
+
+                                # we need to do the loop again for cc check to check the high side
+                                if task["type"] == "connectivity":
+                                    lo_side = False
+                                    for i, slot in enumerate(task["slots"]):
+                                        dev = task["pads"][i]
+                                        mux_string = task["mux_strings"][i]
+                                        p.query(mux_string)  # select the device
+                                        smu_index = smus[0].which_smu(f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                                        if smus[smu_index].do_contact_check(lo_side=lo_side) == False:
+                                            self.lg.log(29, f"{slot} -- {dev} HI appears disconnected.")
+                                        p.query(f"s{slot}0")  # disconnect the slot
 
                                 for sm in smus:
                                     if task["type"] == "connectivity":
-                                        sm.set_ccheck_mode(False)
+                                        sm.enable_cc_mode(False)
                                         # self.lg.log(29, "Contact check complete.")
                                     elif task["type"] == "rtd":
                                         # self.lg.log(29, "Temperature measurement complete.")

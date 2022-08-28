@@ -35,8 +35,9 @@ class k2400(object):
     do_r: bool = False  # include resistance in measurement
     t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
     last_lo = None  # we're not set up for contact checking
+    cc_mode = "none"  # contact check mode
 
-    def __init__(self, address: str, terminator="\r", serial_baud=57600, front=True, two_wire=True, quiet=False, killer=threading.Event(), print_sweep_deets=False, **kwargs):
+    def __init__(self, address: str, front=True, two_wire=True, quiet=False, killer=threading.Event(), print_sweep_deets=False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -44,8 +45,6 @@ class k2400(object):
         self.killer = killer
         self.quiet = quiet
         self.address = address
-        self.terminator = terminator
-        self.serial_baud = serial_baud
         self.front = front
         self.two_wire = two_wire
         self.print_sweep_deets = print_sweep_deets
@@ -54,6 +53,7 @@ class k2400(object):
         self.write_term_len = len(self.write_term)
         self.read_term_len = len(self.read_term)
         self.connected = False
+        self.cc_mode = cc_mode
 
         # add some features to pyserial's address URL handling
         # trigger this through the use of a hwurl:// schema
@@ -710,9 +710,10 @@ class k2400(object):
             self.lg.debug("Killed by killer")
         return q
 
-    # note that this also checks the GUARD-SENSE connections, short those manually if not in use
-    def set_ccheck_mode(self, value: bool = True, cctype: str = "external"):
-        if cctype == "internal":
+    def enable_cc_mode(self, value: bool = True):
+        """setup contact check mode"""
+        if self.cc_mode == "internal":
+            # note that this also checks the GUARD-SENSE connections, short those manually if not in use
             if self.query("syst:rsen?") == "1":
                 if "CONTACT-CHECK" in self.opts.upper():
                     if value:
@@ -731,7 +732,7 @@ class k2400(object):
                     self.lg.debug("Contact check option not installed")
             else:
                 self.lg.debug("Contact check function requires 4-wire mode")
-        elif cctype == "external":
+        elif self.cc_mode == "external":
             self.outOn(on=False)
             if self.query("outp?") == "0":  # check if that worked
                 if value:
@@ -750,25 +751,27 @@ class k2400(object):
                         self.set_do(15)  # normal operation
                         time.sleep(self.t_relay_bounce)
                         self.last_lo = None  # we're not set up for contact checking
+        else:
+            self.lg.warning("The contact check feature is not configured.")
 
-    def do_contact_check(self, lo_side=True, cctype: str = "external") -> bool:
+    def do_contact_check(self, lo_side=True) -> bool:
         """
-        call set_ccheck_mode(True) before calling this
-        and set_ccheck_mode(False) after you're done checking contacts
-        cctype can be "none", "external" or "internal" (internal is for -c model 24XXs only)
+        call enable_cc_mode(True) before calling this
+        and enable_cc_mode(False) after you're done checking contacts
         attempts to turn on the output and trigger a measurement.
         tests if the output remains on after that. if so, the contact check passed
         True for contacted. always true if the sourcemeter hardware does not support this feature
         """
+        # cc_mode can be "none", "external" or "internal" (internal is for -c model 24XXs only)
         good_contact = False
-        if cctype == "internal":
+        if self.cc_mode == "internal":
             self.outOn()  # try to turn on the output
             if self.query(":output?") == "1":  # check if that worked
                 self.write("init")
                 time.sleep(0.1)  # TODO: figure out a better way to do this. mysterious dealys = bad
                 if self.query(":output?") == "1":
                     good_contact = True  # if INIT didn't trip the output off, then we're connected
-        elif cctype == "external":
+        elif self.cc_mode == "external":
             # TODO: add a potential check
             threshold_ohm = 3  # resistance values below this give passing tests
             if lo_side is None:
@@ -791,7 +794,7 @@ class k2400(object):
                     in_compliance = (1 << 3) & m[4]  # check compliance bit (3) in status word
                     if (not in_compliance) and (ohm < threshold_ohm):
                         good_contact = True
-        elif cctype == "none":
+        elif self.cc_mode == "none":
             good_contact = True
         return good_contact
 
