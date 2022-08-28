@@ -135,17 +135,14 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, dead_socket_port))
-                s.settimeout(0.1)
+                s.settimeout(0)  # enter non-blocking mode
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
-                while True:
-                    s.recv(1)  # chuck anything that was sent to us
-        except socket.timeout as e:
-            pass
+                while len(s.recv(1)) != 0:  # chuck anything that was sent to us
+                    pass
         except Exception as e:
-            self.lg.debug(f"Dead socket cleanup failure: {e}")
-            pass
+            self.lg.debug(f"Dead socket cleanup issue: {e}")
 
     def socket_cleanup(self, host, port):
         """ensure a the host/port combo is clean and closed"""
@@ -153,31 +150,26 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, port))
-                s.settimeout(0.1)
+                s.settimeout(0)  # enter non-blocking mode
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
-                while True:
-                    s.recv(1)  # chuck anything that was sent to us
-        except socket.timeout as e:
-            pass
+                while len(s.recv(1)) != 0:  # chuck anything that was sent to us
+                    pass
         except Exception as e:
-            self.lg.debug(f"Socket cleanup failure: {e}")
+            self.lg.debug(f"Socket cleanup issue: {e}")
 
     def hard_input_buffer_reset(self) -> bool:
         """brute force input buffer discard with failure check"""
-        success = False  # did this fail?
-        old_to = self.ser.timeout
-        self.ser.timeout = 0.2
+        sto = self.ser.timeout  # save timeout value
+        self.ser.timeout = 0  # enter non-blocking mode
         try:
-            while True:
-                got = self.ser.read()
-                if len(got) == 0:
-                    break
+            while len(self.ser.read()) != 0:  # chuck anything that was sent to us
+                pass
         except Exception as e:
-            pass
+            success = False  # abnormal read result
         else:
-            success = True
-        self.ser.timeout = old_to
+            success = True  # normal reas result
+        self.ser.timeout = sto  # restore previous timeout
         return success
 
     def connect(self):
@@ -199,15 +191,16 @@ class k2400(object):
             try:
                 self.ser = serial.serial_for_url(self.address, **kwargs)
                 if "socket" in self.address:
+                    # set the initial timeout to something long for setup
                     self.ser._socket.settimeout(5.0)
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
-            if self.hard_input_buffer_reset():  # here we check if the connection is a "ghost" one or not
+            if self.hard_input_buffer_reset():  # this checks for a "ghost connection"
                 self.connected = self.ser.is_open
                 break  # not a ghost connection, exit connection retry loop
             else:  # ghost connection!
-                remaining_connection_retries = remaining_connection_retries - 1
+                remaining_connection_retries -= 1
                 self.lg.debug(f"Connection retries remaining: {remaining_connection_retries}")
                 self.disconnect()
         else:
@@ -232,7 +225,7 @@ class k2400(object):
         self.ser.reset_input_buffer()
         self.hard_input_buffer_reset()  # for discarding currently streaming data
         self.hardware_reset()
-        # really make sure the buffer's clean befo
+        # really make sure the buffer's clean
         self.hard_input_buffer_reset()  # for discarding currently streaming data
 
         # tests the ROM's checksum. can take over a second
@@ -436,7 +429,7 @@ class k2400(object):
 
         if "socket" in self.address:
             try:
-                self.ser._socket.settimeout(0.1)
+                self.ser._socket.settimeout(0)  # non-blocking mode
                 while True:
                     self.ser._socket.recv(1)
             except Exception as e:
