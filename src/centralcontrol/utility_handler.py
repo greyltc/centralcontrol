@@ -325,7 +325,7 @@ class UtilityHandler(object):
                                     if smus[smu_index].idn != "disabled":
                                         if task["type"] == "current":
                                             m = smus[smu_index].measure()[0]
-                                            status = int(m[4])
+                                            status = int(m[3])
                                             in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                                             A = m[1]
                                             if in_compliance:
@@ -334,7 +334,7 @@ class UtilityHandler(object):
                                                 self.lg.log(29, f"{slot_words} shows {A:.8f} A")
                                         elif task["type"] == "voltage":
                                             m = smus[smu_index].measure()[0]
-                                            status = int(m[4])
+                                            status = int(m[3])
                                             in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                                             V = m[0]
                                             if in_compliance:
