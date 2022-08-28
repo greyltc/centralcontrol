@@ -136,12 +136,14 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, dead_socket_port))
-                s.settimeout(0)  # enter non-blocking mode
+                s.settimeout(0.1)
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
                 while len(s.recv(1)) != 0:  # chuck anything that was sent to us
                     pass
+        except TimeoutError:
+            pass
         except Exception as e:
             self.lg.debug(f"Dead socket cleanup issue: {e}")
 
@@ -151,18 +153,20 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, port))
-                s.settimeout(0)  # enter non-blocking mode
+                s.settimeout(0.1)
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
                 while len(s.recv(1)) != 0:  # chuck anything that was sent to us
                     pass
+        except TimeoutError:
+            pass
         except Exception as e:
             self.lg.debug(f"Socket cleanup issue: {e}")
 
     def hard_input_buffer_reset(self) -> bool:
         """brute force input buffer discard with failure check"""
         sto = self.ser.timeout  # save timeout value
-        self.ser.timeout = 0  # enter non-blocking mode
+        self.ser.timeout = 0.2
         try:
             while len(self.ser.read()) != 0:  # chuck anything that was sent to us
                 pass
@@ -430,7 +434,7 @@ class k2400(object):
 
         if "socket" in self.address:
             try:
-                self.ser._socket.settimeout(0)  # non-blocking mode
+                self.ser._socket.settimeout(0.1)
                 while True:
                     self.ser._socket.recv(1)
             except Exception as e:
