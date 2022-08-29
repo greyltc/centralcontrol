@@ -261,6 +261,10 @@ class k2400(object):
     def setup(self, front=True, two_wire=False):
         """does baseline configuration in prep for data collection"""
         self.idn = self.query("*IDN?")  # ask the device to identify its self
+
+        tlink_val = self.query("syst:tlin ?")
+        if tlink_val == "1":
+            self.write("syst:tlin 0")  # dio lines on 245x mimic 240x series
         self.write("outp:smod himp")  # outputs go to high impedance when switched off
         self.write("sour:volt:prot 20")  # limit the voltage output (in all modes) for safety
         self.setWires(two_wire)
@@ -793,7 +797,7 @@ class k2400(object):
                     good_contact = True  # if INIT didn't trip the output off, then we're connected
         elif self.cc_mode == "external":
             # TODO: add a potential check
-            threshold_ohm = 10  # resistance values below this give passing tests
+            threshold_ohm = 50  # resistance values below this give passing tests
             if lo_side is None:
                 self.lg.debug("Contact check has not been set up.")
             else:
