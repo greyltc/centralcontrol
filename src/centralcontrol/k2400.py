@@ -169,7 +169,7 @@ class k2400(object):
             self.ser.timeout = 0.2
 
         try:
-            while len(fetcher) != 0:  # chuck anything that was sent to us
+            while len(fetcher()) != 0:  # chuck anything that was sent to us
                 pass
         except TimeoutError:
             success = True  # timeouts are ok
