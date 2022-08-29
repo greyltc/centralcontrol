@@ -140,10 +140,7 @@ class k2400(object):
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
-                while len(s.recv(1)) != 0:  # chuck anything that was sent to us
-                    pass
-        except TimeoutError:
-            pass
+                self.hard_input_buffer_reset(s)
         except Exception as e:
             self.lg.debug(f"Dead socket cleanup issue: {e}")
 
@@ -156,25 +153,37 @@ class k2400(object):
                 s.settimeout(0.1)
                 s.shutdown(socket.SHUT_RDWR)
                 s.close()
-                while len(s.recv(1)) != 0:  # chuck anything that was sent to us
-                    pass
-        except TimeoutError:
-            pass
+                self.hard_input_buffer_reset(s)
         except Exception as e:
             self.lg.debug(f"Socket cleanup issue: {e}")
 
-    def hard_input_buffer_reset(self) -> bool:
+    def hard_input_buffer_reset(self, s=None) -> bool:
         """brute force input buffer discard with failure check"""
-        sto = self.ser.timeout  # save timeout value
-        self.ser.timeout = 0.2
+        if isinstance(s, socket.socket):
+            oto = s.gettimeout()
+            s.settimeout(0.1)
+            fetcher = lambda: s.recv(16)
+        else:
+            oto = self.ser.timeout  # save timeout value
+            fetcher = self.ser.read
+            self.ser.timeout = 0.2
+
         try:
-            while len(self.ser.read()) != 0:  # chuck anything that was sent to us
+            while len(fetcher) != 0:  # chuck anything that was sent to us
                 pass
+        except TimeoutError:
+            success = True  # timeouts are ok
         except Exception as e:
             success = False  # abnormal read result
         else:
-            success = True  # normal reas result
-        self.ser.timeout = sto  # restore previous timeout
+            success = True  # normal read result
+
+        # restore previous timeout
+        if isinstance(s, socket.socket):
+            s.settimeout(oto)
+        else:
+            self.ser.timeout = oto
+
         return success
 
     def connect(self):
