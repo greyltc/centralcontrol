@@ -771,7 +771,7 @@ class k2400(object):
             if self.query("outp?") == "0":  # check if that worked
                 if value:
                     self.write("syst:rsen 0")  # four wire mode off
-                    self.write("sens:volt:nplc 1")
+                    self.write("sens:volt:nplc 0.1")
                     self.set_do(14)  # LO check
                     time.sleep(self.t_relay_bounce)
                     self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=sense_current, senseRange="f", ohms=True)
@@ -831,6 +831,7 @@ class k2400(object):
                     if not in_compliance:
                         if abs(ohm) < threshold_ohm:
                             good_contact = True
+                            self.lg.debug(f"CC resistance in  of bounds: abs({ohm}Ω) <  {threshold_ohm}Ω")
                         else:
                             self.lg.debug(f"CC resistance out of bounds: abs({ohm}Ω) >= {threshold_ohm}Ω")
         elif self.cc_mode == "none":
