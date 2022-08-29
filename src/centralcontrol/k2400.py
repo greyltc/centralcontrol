@@ -264,6 +264,7 @@ class k2400(object):
 
         tlink_val = self.query("syst:tlin ?")
         if tlink_val == "1":
+            self.lg.debug("Switching DIO port state to match 240x series")
             self.write("syst:tlin 0")  # dio lines on 245x mimic 240x series
         self.write("outp:smod himp")  # outputs go to high impedance when switched off
         self.write("sour:volt:prot 20")  # limit the voltage output (in all modes) for safety
