@@ -310,9 +310,9 @@ class UtilityHandler(object):
                                 for i, slot in enumerate(task["slots"]):
                                     dev = task["pads"][i]
                                     if slot == "none":
-                                        slot_words = "(Everything disconnected)"
+                                        slot_words = "[Everything disconnected]"
                                     else:
-                                        slot_words = f"({slot} -- {dev:n})"
+                                        slot_words = f"[{slot}{dev:n}]"
                                     mux_string = task["mux_strings"][i]
                                     p.query(mux_string)  # select the device
                                     if slot == "none":
@@ -359,9 +359,9 @@ class UtilityHandler(object):
                                     for i, slot in enumerate(task["slots"]):
                                         dev = task["pads"][i]
                                         if slot == "none":
-                                            slot_words = "(Everything disconnected)"
+                                            slot_words = "[Everything disconnected]"
                                         else:
-                                            slot_words = f"({slot} -- {dev:n})"
+                                            slot_words = f"[{slot}{dev:n}]"
                                         mux_string = task["mux_strings"][i]
                                         p.query(mux_string)  # select the device
                                         if slot == "none":
