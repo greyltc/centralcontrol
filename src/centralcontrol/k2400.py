@@ -139,7 +139,6 @@ class k2400(object):
                 s.settimeout(0.1)
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
-                s.close()
                 self.hard_input_buffer_reset(s)
         except Exception as e:
             self.lg.debug(f"Dead socket cleanup issue: {e}")
@@ -152,7 +151,6 @@ class k2400(object):
                 s.connect((host, port))
                 s.settimeout(0.1)
                 s.shutdown(socket.SHUT_RDWR)
-                s.close()
                 self.hard_input_buffer_reset(s)
         except Exception as e:
             self.lg.debug(f"Socket cleanup issue: {e}")
@@ -436,18 +434,23 @@ class k2400(object):
         # except:
         #     pass
 
-        try:
-            self.ser.close()
-        except:
-            pass
+        self.hard_input_buffer_reset()
 
         if "socket" in self.address:
             try:
-                self.ser._socket.settimeout(0.1)
-                while True:
-                    self.ser._socket.recv(1)
+                self.hard_input_buffer_reset(self.ser._socket)
             except Exception as e:
-                pass
+                self.lg.debug("Issue resetting input buffer during disconnect: {e}")
+
+            # use the dead socket port to close the connection from the other side
+            self.dead_socket_cleanup(self.host)
+
+        try:
+            self.ser.close()
+        except Exception as e:
+            self.lg.debug("Issue disconnecting: {e}")
+
+        if "socket" in self.address:
             self.socket_cleanup(self.host, int(self.port))
             self.dead_socket_cleanup(self.host)  # use dead socket port to clean up old connections
             self.socket_cleanup(self.host, int(self.port))
