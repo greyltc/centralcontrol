@@ -751,6 +751,8 @@ class k2400(object):
             else:
                 self.lg.debug("Contact check function requires 4-wire mode")
         elif self.cc_mode == "external":
+            sense_current = 0.001  # A
+            compliance_voltage = 3  # V
             self.outOn(on=False)
             if self.query("outp?") == "0":  # check if that worked
                 if value:
@@ -758,17 +760,17 @@ class k2400(object):
                     self.write("sens:volt:nplc 0.1")
                     self.set_do(14)  # LO check
                     time.sleep(self.t_relay_bounce)
-                    self.setupDC(sourceVoltage=False, compliance=3, setPoint=0.01, senseRange="f", ohms=True)
-                    self.last_lo = True  # we're set up for lo side checking
+                    self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=sense_current, senseRange="f", ohms=True)
+                    self.last_lo = True  # mark as set up for lo side checking
                 else:
                     self.setWires(self.two_wire)  # restore previous 2/4 wire setting
                     self.write(f"sens:volt:nplc {self.nplc_user_set}")  # restore previous nplc setting
-                    self.setupDC(sourceVoltage=False, compliance=3, setPoint=0.0, senseRange="f", ohms=False)
+                    self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=0.0, senseRange="f", ohms=False)
                     self.outOn(on=False)
                     if self.query("outp?") == "0":  # check if that worked
                         self.set_do(15)  # normal operation
                         time.sleep(self.t_relay_bounce)
-                        self.last_lo = None  # we're not set up for contact checking
+                        self.last_lo = None  # mark as unsetup for for any contact checking
         else:
             self.lg.warning("The contact check feature is not configured.")
 
@@ -791,19 +793,20 @@ class k2400(object):
                     good_contact = True  # if INIT didn't trip the output off, then we're connected
         elif self.cc_mode == "external":
             # TODO: add a potential check
-            threshold_ohm = 3  # resistance values below this give passing tests
+            threshold_ohm = 10  # resistance values below this give passing tests
             if lo_side is None:
                 self.lg.debug("Contact check has not been set up.")
             else:
                 if ((lo_side) and (not self.last_lo)) or ((not lo_side) and (self.last_lo)):  # we're not set up for the right checking side
+                    # we need to reconfigure the relays. do that with the output off
                     self.outOn(on=False)
                     if self.query("outp?") == "0":  # check if that worked
                         if lo_side:
                             self.set_do(14)  # LO check
-                            self.last_lo = True  # we're set up for lo side checking
+                            self.last_lo = True  # mark as set up for lo side checking
                         if not lo_side:
                             self.set_do(13)  # HI check
-                            self.last_lo = False  # we're set up for hi side checking
+                            self.last_lo = False  # mark as set up for high side checking
                         time.sleep(self.t_relay_bounce)
                         self.outOn()
                 if self.query("outp?") == "1":  # check that the output is on
@@ -811,7 +814,7 @@ class k2400(object):
                     ohm = m[2]
                     status = int(m[4])
                     in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
-                    if (not in_compliance) and (ohm < threshold_ohm):
+                    if (not in_compliance) and (abs(ohm) < threshold_ohm):
                         good_contact = True
         elif self.cc_mode == "none":
             good_contact = True
