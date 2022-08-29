@@ -139,7 +139,6 @@ class k2400(object):
                 s.settimeout(0.1)
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
-                s.close()
                 self.hard_input_buffer_reset(s)
         except Exception as e:
             self.lg.debug(f"Dead socket cleanup issue: {e}")
@@ -152,7 +151,6 @@ class k2400(object):
                 s.connect((host, port))
                 s.settimeout(0.1)
                 s.shutdown(socket.SHUT_RDWR)
-                s.close()
                 self.hard_input_buffer_reset(s)
         except Exception as e:
             self.lg.debug(f"Socket cleanup issue: {e}")
@@ -169,7 +167,7 @@ class k2400(object):
             self.ser.timeout = 0.2
 
         try:
-            while len(fetcher) != 0:  # chuck anything that was sent to us
+            while len(fetcher()) != 0:  # chuck anything that was sent to us
                 pass
         except TimeoutError:
             success = True  # timeouts are ok
@@ -436,18 +434,23 @@ class k2400(object):
         # except:
         #     pass
 
-        try:
-            self.ser.close()
-        except:
-            pass
+        self.hard_input_buffer_reset()
 
         if "socket" in self.address:
             try:
-                self.ser._socket.settimeout(0.1)
-                while True:
-                    self.ser._socket.recv(1)
+                self.hard_input_buffer_reset(self.ser._socket)
             except Exception as e:
-                pass
+                self.lg.debug("Issue resetting input buffer during disconnect: {e}")
+
+            # use the dead socket port to close the connection from the other side
+            self.dead_socket_cleanup(self.host)
+
+        try:
+            self.ser.close()
+        except Exception as e:
+            self.lg.debug("Issue disconnecting: {e}")
+
+        if "socket" in self.address:
             self.socket_cleanup(self.host, int(self.port))
             self.dead_socket_cleanup(self.host)  # use dead socket port to clean up old connections
             self.socket_cleanup(self.host, int(self.port))
@@ -468,14 +471,14 @@ class k2400(object):
             self.write("rout:term rear")
 
     def updateSweepStart(self, startVal):
-        self.write("source:{:s}:start {:.8f}".format(self.src, startVal))
+        self.write(f"source:{self.src}:start {startVal:0.8f}")
 
     def updateSweepStop(self, stopVal):
-        self.write("source:{:s}:stop {:.8f}".format(self.src, stopVal))
+        self.write(f"source:{self.src}:stop {stopVal:0.8f}")
 
     # sets the source to some value
     def setSource(self, outVal):
-        self.write("source:{:s} {:.8f}".format(self.src, outVal))
+        self.write(f"source:{self.src} {outVal:0.8f}")
 
     def outOn(self, on=True):
         if on:
@@ -529,7 +532,7 @@ class k2400(object):
             self.src = src
             self.write(f"source:func {src}")
             self.write(f"source:{src}:mode fixed")
-            self.write(f"source:{src} {setPoint:.8f}")
+            self.write(f"source:{src} {setPoint:0.8f}")
 
             self.write("source:delay:auto on")
 
@@ -537,7 +540,7 @@ class k2400(object):
                 self.write('sens:func "res"')
             else:
                 self.write(f'sens:func "{snc}"')
-            self.write(f"sens:{snc}:prot {compliance:.8f}")
+            self.write(f"sens:{snc}:prot {compliance:0.8f}")
 
             # set the sense range
             if senseRange == "f":
@@ -546,10 +549,10 @@ class k2400(object):
             elif senseRange == "a":
                 self.write(f"sens:{snc}:range:auto on")
             else:
-                self.write(f"sens:{snc}:range {senseRange:.8f}")
+                self.write(f"sens:{snc}:range {senseRange:0.8f}")
 
             # this again is to make sure the sense range gets updated
-            self.write(f"sens:{snc}:protection {compliance:.8f}")
+            self.write(f"sens:{snc}:protection {compliance:0.8f}")
 
             # always auto range ohms
             if ohms:

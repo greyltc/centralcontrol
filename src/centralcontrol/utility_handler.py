@@ -288,13 +288,13 @@ class UtilityHandler(object):
                                         sm.device_grouping = task["device_grouping"]
                                     # set up sourcemeter for the task
                                     if task["type"] == "current":
-                                        sm.setupDC(sourceVoltage=True, compliance=3, setPoint=0.0, senseRange="a", ohms=False)
-                                    if task["type"] == "voltage":
                                         if "current_limit" in sm.init_kwargs:
                                             i_lim = sm.init_kwargs["current_limit"]
                                         else:
                                             i_lim = 0.15
-                                        sm.setupDC(sourceVoltage=False, compliance=i_lim, setPoint=0.0, senseRange="a", ohms=False)
+                                        sm.setupDC(sourceVoltage=True, compliance=i_lim, setPoint=0.0, senseRange="a", ohms=False)
+                                    if task["type"] == "voltage":
+                                        sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.0, senseRange="a", ohms=False)
                                     elif task["type"] == "rtd":
                                         sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
                                     elif task["type"] == "connectivity":
