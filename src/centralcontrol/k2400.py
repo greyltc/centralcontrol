@@ -36,6 +36,7 @@ class k2400(object):
     t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode
+    is_2450: bool = None
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer=threading.Event(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
@@ -262,10 +263,13 @@ class k2400(object):
         """does baseline configuration in prep for data collection"""
         self.idn = self.query("*IDN?")  # ask the device to identify its self
 
-        tlink_val = self.query("syst:tlin ?")
-        if tlink_val == "1":
-            self.lg.debug("Switching DIO port state to match 240x series")
-            self.write("syst:tlin 0")  # dio lines on 245x mimic 240x series
+        # test for 2450
+        self.is_2450 = len(self.query("DISP:WIND:DATA?").strip()) == 0
+        if self.is_2450:
+            if self.query("syst:tlin?") != "0":
+                self.lg.debug("Switching DIO port state to match 240x series")
+                self.write("syst:tlin 0")  # dio lines on 245x to mimic 240x series
+
         self.write("outp:smod himp")  # outputs go to high impedance when switched off
         self.write("sour:volt:prot 20")  # limit the voltage output (in all modes) for safety
         self.setWires(two_wire)
@@ -337,6 +341,11 @@ class k2400(object):
 
     def hardware_reset(self):
         """attempt to stop everything and put the hardware into a known baseline state"""
+        try:
+            self.opc()
+        except:
+            pass
+
         try:
             self.ser.send_break()
         except:
@@ -762,7 +771,7 @@ class k2400(object):
             if self.query("outp?") == "0":  # check if that worked
                 if value:
                     self.write("syst:rsen 0")  # four wire mode off
-                    self.write("sens:volt:nplc 0.1")
+                    self.write("sens:volt:nplc 1")
                     self.set_do(14)  # LO check
                     time.sleep(self.t_relay_bounce)
                     self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=sense_current, senseRange="f", ohms=True)
@@ -798,7 +807,7 @@ class k2400(object):
                     good_contact = True  # if INIT didn't trip the output off, then we're connected
         elif self.cc_mode == "external":
             # TODO: add a potential check
-            threshold_ohm = 50  # resistance values below this give passing tests
+            threshold_ohm = 33.3  # resistance values below this give passing tests
             if lo_side is None:
                 self.lg.debug("Contact check has not been set up.")
             else:
@@ -819,8 +828,11 @@ class k2400(object):
                     ohm = m[2]
                     status = int(m[4])
                     in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
-                    if (not in_compliance) and (abs(ohm) < threshold_ohm):
-                        good_contact = True
+                    if not in_compliance:
+                        if abs(ohm) < threshold_ohm:
+                            good_contact = True
+                        else:
+                            self.lg.debug(f"CC resistance out of bounds: abs({ohm}Ω) >= {threshold_ohm}Ω")
         elif self.cc_mode == "none":
             good_contact = True
         return good_contact
