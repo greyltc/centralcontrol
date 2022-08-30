@@ -315,7 +315,6 @@ class UtilityHandler(object):
                                         slot_words = f"[{slot}{dev:n}]"
                                     mux_string = task["mux_strings"][i]
                                     p.query(mux_string)  # select the device
-                                    time.sleep(0.1)
                                     if slot == "none":
                                         smu_index = 0  # I guess we should just use smu[0] for the all switches open case
                                     else:
@@ -365,7 +364,6 @@ class UtilityHandler(object):
                                             slot_words = f"[{slot}{dev:n}]"
                                         mux_string = task["mux_strings"][i]
                                         p.query(mux_string)  # select the device
-                                        time.sleep(0.1)
                                         if slot == "none":
                                             smu_index = 0  # I guess we should just use smu[0] for the all switches open case
                                         else:
