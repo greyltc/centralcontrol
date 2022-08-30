@@ -829,12 +829,13 @@ class k2400(object):
                     status = int(m[4])
                     in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                     if not in_compliance:
-                        self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
                         if abs(ohm) < threshold_ohm:
                             good_contact = True
                             self.lg.debug(f"CC resistance in  of bounds: abs({ohm}Ω) <  {threshold_ohm}Ω")
                         else:
                             self.lg.debug(f"CC resistance out of bounds: abs({ohm}Ω) >= {threshold_ohm}Ω")
+                    else:
+                        self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
         elif self.cc_mode == "none":
             good_contact = True
         return good_contact
