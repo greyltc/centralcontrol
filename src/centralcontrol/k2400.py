@@ -843,3 +843,6 @@ class k2400(object):
     def set_do(self, value: int):
         """sets digital output"""
         self.write(f"sour2:ttl {value}")
+        readback = self.query(f"sour2:ttl:act?")
+        if f"{value}" != readback:
+            self.lg.debug("digital output readback failure: {value} != {readback}")
