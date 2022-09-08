@@ -2,6 +2,7 @@ import mimetypes
 import smtplib
 import pathlib
 import keyring
+import datetime
 from email.message import EmailMessage
 import unittest
 
@@ -14,15 +15,15 @@ class EmailTestCase(unittest.TestCase):
         # store this password with
         # secret-tool store --label='Solarsim email password' application "Python keyring library" service outlook.com username sunsimulator@outlook.com
         self.pw = keyring.get_password("outlook.com", self.source_account)
-        self.target_email = "john@gmail.com"
+        self.target_email = "sunsimulator@outlook.com"
 
     def test_email_send(self):
         """test sending an email"""
         msg = EmailMessage()
-        msg["Subject"] = "the quick brown fox"
+        msg["Subject"] = f"{datetime.datetime.utcnow()}"
         msg["From"] = f"Solar Simulator <{self.source_account}>"
         msg["To"] = self.target_email
-        msg.set_content("now I can spam you with python")
+        msg.set_content(f"{datetime.datetime.utcnow()}")
 
         path = pathlib.Path(__file__)
 
@@ -36,8 +37,12 @@ class EmailTestCase(unittest.TestCase):
         with open(str(path), "rb") as fp:
             msg.add_attachment(fp.read(), maintype=maintype, subtype=subtype, filename=path.name + ".txt")
 
+        result = None
         with smtplib.SMTP("smtp.office365.com", port=587) as smtp:
-            # smtp.set_debuglevel(1)
-            smtp.starttls()
-            smtp.login(self.source_account, self.pw)
-            smtp.send_message(msg)
+            smtp.set_debuglevel(1)
+
+            if self.pw:
+                smtp.starttls()
+                smtp.login(self.source_account, self.pw)
+                result = smtp.send_message(msg)  # TODO: get return code and check it
+        # self.assertEqual(result, good)

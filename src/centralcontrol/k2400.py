@@ -30,13 +30,13 @@ class k2400(object):
     _write_term_str = "\n"
     _read_term_str = "\r"
     connected = False
-    ser: serial.Serial = None
-    timeout: float = None  # default comms timeout
+    ser: serial.Serial | None = None
+    timeout: float | None = None  # default comms timeout
     do_r: bool = False  # include resistance in measurement
     t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode
-    is_2450: bool = None
+    is_2450: bool | None = None
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer=threading.Event(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
@@ -162,10 +162,12 @@ class k2400(object):
             oto = s.gettimeout()
             s.settimeout(0.1)
             fetcher = lambda: s.recv(16)
-        else:
+        elif self.ser is not None:
             oto = self.ser.timeout  # save timeout value
             fetcher = self.ser.read
             self.ser.timeout = 0.2
+        else:
+            return False
 
         try:
             while len(fetcher()) != 0:  # chuck anything that was sent to us
@@ -180,7 +182,7 @@ class k2400(object):
         # restore previous timeout
         if isinstance(s, socket.socket):
             s.settimeout(oto)
-        else:
+        elif self.ser is not None:
             self.ser.timeout = oto
 
         return success
@@ -315,6 +317,8 @@ class k2400(object):
     def opc(self) -> bool:
         """asks the hardware to finish whatever it's doing then send a 1"""
         retries = 5
+        ret: bool = False
+        opc_val = None
         for i in range(retries):
             opc_val = self.query("*OPC?")
             if opc_val == "1":
@@ -513,7 +517,7 @@ class k2400(object):
         else:
             self.write("display:digits 7")
 
-    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", ohms=False):
+    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint: float = 0.0, senseRange="f", ohms=False):
         """setup DC measurement operation
         if senseRange == 'a' the instrument will auto range for both current and voltage measurements
         if senseRange == 'f' then the sense range will follow the compliance setting
@@ -772,10 +776,10 @@ class k2400(object):
                 if value:
                     self.write("syst:rsen 0")  # four wire mode off
                     self.write("sens:volt:nplc 0.1")
-                    self.set_do(14)  # LO check
+                    self.set_do(13)  # HI check
                     time.sleep(self.t_relay_bounce)
                     self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=sense_current, senseRange="f", ohms=True)
-                    self.last_lo = True  # mark as set up for lo side checking
+                    self.last_lo = False  # mark as set up for hi side checking
                 else:
                     self.setWires(self.two_wire)  # restore previous 2/4 wire setting
                     self.write(f"sens:volt:nplc {self.nplc_user_set}")  # restore previous nplc setting
@@ -788,7 +792,7 @@ class k2400(object):
         else:
             self.lg.warning("The contact check feature is not configured.")
 
-    def do_contact_check(self, lo_side=True) -> bool:
+    def do_contact_check(self, lo_side=False) -> tuple[bool, float]:
         """
         call enable_cc_mode(True) before calling this
         and enable_cc_mode(False) after you're done checking contacts
@@ -798,6 +802,7 @@ class k2400(object):
         """
         # cc_mode can be "none", "external" or "internal" (internal is for -c model 24XXs only)
         good_contact = False
+        r_val = float("inf")
         if self.cc_mode == "internal":
             self.outOn()  # try to turn on the output
             if self.query(":output?") == "1":  # check if that worked
@@ -825,20 +830,21 @@ class k2400(object):
                         self.outOn()
                 if self.query("outp?") == "1":  # check that the output is on
                     m = self.measure()[0]
-                    ohm = m[2]
-                    status = int(m[4])
-                    in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
-                    if not in_compliance:
-                        if abs(ohm) < threshold_ohm:
-                            good_contact = True
-                            self.lg.debug(f"CC resistance in  of bounds: abs({ohm}Ω) <  {threshold_ohm}Ω")
+                    if len(m) == 5:
+                        r_val = m[2]
+                        status = int(m[4])
+                        in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
+                        if not in_compliance:
+                            if abs(r_val) < threshold_ohm:
+                                good_contact = True
+                                self.lg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {threshold_ohm}Ω")
+                            else:
+                                self.lg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {threshold_ohm}Ω")
                         else:
-                            self.lg.debug(f"CC resistance out of bounds: abs({ohm}Ω) >= {threshold_ohm}Ω")
-                    else:
-                        self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
+                            self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
         elif self.cc_mode == "none":
             good_contact = True
-        return good_contact
+        return (good_contact, r_val)
 
     def set_do(self, value: int):
         """sets digital output"""

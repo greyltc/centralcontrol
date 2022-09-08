@@ -302,7 +302,7 @@ class UtilityHandler(object):
 
                                 if task["type"] == "connectivity":
                                     self.lg.log(29, f"Checking connections. Only failures will be printed.")
-                                    lo_side = True
+                                    lo_side = False  # start with high side checking
                                 # handle the all switches open case:
                                 task["slots"].insert(0, "none")
                                 task["pads"].insert(0, "none")
@@ -349,7 +349,8 @@ class UtilityHandler(object):
                                             if not (in_compliance) and (ohm < 3000) and (ohm > 500):
                                                 self.lg.log(29, f"{slot_words} could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
                                         elif task["type"] == "connectivity":
-                                            if not smus[smu_index].do_contact_check(lo_side=lo_side):
+                                            good, val = smus[smu_index].do_contact_check(lo_side=lo_side)
+                                            if not good:
                                                 self.lg.log(29, f"🔴 {slot_words} has a bad low-side 4-wire connection")
                                     p.query(f"s{slot}0")  # disconnect the slot
 
@@ -372,7 +373,8 @@ class UtilityHandler(object):
                                             smu_index = 0
                                             self.lg.warning("Assuming the first SMU is the right one")
                                         if smus[smu_index].idn != "disabled":
-                                            if not smus[smu_index].do_contact_check(lo_side=lo_side):
+                                            good, val = smus[smu_index].do_contact_check(lo_side=lo_side)
+                                            if not good:
                                                 self.lg.log(29, f"🔴 {slot_words} has a bad high-side 4-wire connection")
                                         p.query(f"s{slot}0")  # disconnect the slot
 

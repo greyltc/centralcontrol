@@ -679,18 +679,18 @@ class smu(object):
         else:
             self.lg.warning("The contact check feature is not configured.")
 
-    def do_contact_check(self, *args, **kwargs):
+    def do_contact_check(self, *args, **kwargs) -> tuple[bool, float]:
         """simulates a contact check"""
+        rand = random.random()
         if self.cc_mode == "none":
             check_pass = True
         else:
-            rand = random.random()
             if rand < self.cc_fail_probability:
                 check_pass = False
             else:
                 check_pass = True
 
-        return check_pass
+        return (check_pass, rand)
 
     def close(self):
         self.lg.debug(f"{self.__class__} closed.")

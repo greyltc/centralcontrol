@@ -90,10 +90,14 @@ class K2400TestCase(unittest.TestCase):
     def test_contact_check(self):
         """tests contact check. needs real hardware"""
         self.kwargs["cc_mode"] = "external"  # contact checker mode
+        lo_cc_pass = False
+        hi_cc_pass = False
+        rval = None
         with k2400.k2400(*self.args, **self.kwargs) as sm:
             sm.enable_cc_mode(True)
-            lo_cc_pass = sm.do_contact_check(lo_side=True)
-            hi_cc_pass = sm.do_contact_check(lo_side=False)
+            lo_cc_pass, rval = sm.do_contact_check(lo_side=True)
+            hi_cc_pass, rval = sm.do_contact_check(lo_side=False)
             sm.enable_cc_mode(False)
+        self.assertIsInstance(rval, float)
         self.assertTrue(lo_cc_pass)
         self.assertTrue(hi_cc_pass)
