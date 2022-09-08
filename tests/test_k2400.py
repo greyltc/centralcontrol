@@ -25,7 +25,7 @@ class K2400TestCase(unittest.TestCase):
         # address = "socket://10.45.0.135:5025"
         self.args = (address,)
 
-        self.kwargs = {"two_wire": True}
+        self.kwargs: dict = {"two_wire": True}
 
     def test_init(self):
         """initilization test"""
@@ -48,10 +48,10 @@ class K2400TestCase(unittest.TestCase):
         with k2400.k2400(*self.args, **self.kwargs) as sm:
             sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
             rslt = sm.measure()
-        self.assertIsInstance(rslt, list)
-        self.assertIsInstance(rslt[0], tuple)
-        self.assertEqual(5, len(rslt[0]))
-        # print(f"R = {rslt[0][2]}")
+            self.assertIsInstance(rslt, list)
+            self.assertIsInstance(rslt[0], tuple)
+            self.assertEqual(5, len(rslt[0]))
+            # print(f"R = {rslt[0][2]}")
 
     def test_measure_until(self):
         """tests measure_until. needs real hardware"""
@@ -60,8 +60,8 @@ class K2400TestCase(unittest.TestCase):
             sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
             sm.setNPLC(1)
             rslt = sm.measureUntil(t_dwell=seconds)
-        self.assertIsInstance(rslt, list)
-        self.assertIsInstance(rslt[-1], tuple)
+            self.assertIsInstance(rslt, list)
+            self.assertIsInstance(rslt[-1], tuple)
 
     def test_sweep(self):
         """tests sweep. needs real hardware"""
@@ -72,8 +72,8 @@ class K2400TestCase(unittest.TestCase):
         with k2400.k2400(*self.args, **self.kwargs) as sm:
             sm.setupSweep(compliance=i_limit, nPoints=n_points, start=v_start, end=v_end)
             rslt = sm.measure(n_points)
-        self.assertIsInstance(rslt, list)
-        self.assertIsInstance(rslt[-1], tuple)
+            self.assertIsInstance(rslt, list)
+            self.assertIsInstance(rslt[-1], tuple)
 
     def test_dio(self):
         """tests digital output lines. needs real hardware"""
