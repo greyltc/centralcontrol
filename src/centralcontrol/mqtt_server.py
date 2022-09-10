@@ -199,8 +199,6 @@ class MQTTServer(object):
 
         if experiment == "solarsim":
             stuff = args["IV_stuff"]
-        elif experiment == "eqe":
-            stuff = args["EQE_stuff"]
         else:
             raise (ValueError(f"Unknown experiment: {experiment}"))
         center = config["stage"]["experiment_positions"][experiment]
@@ -208,8 +206,65 @@ class MQTTServer(object):
         # recreate a dataframe from the dict
         stuff = pd.DataFrame.from_dict(stuff)
 
-        # build pixel/group queue for the run
         run_q = collections.deque()
+
+        if "slots" in request:
+            required_cols = ["system_label", "user_label", "layout", "bitmask"]
+            validated = []  # holds validated slot data
+            # the client sent unvalidated slots data
+            # validate it and overwrite the origional slots data
+            try:
+                listlist: list[list[str]] = request["slots"]
+                # NOTE: this validation borrows from that done in runpanel
+                col_names = listlist.pop(0)
+                variables = col_names.copy()
+                for rcol in required_cols:
+                    assert rcol in col_names
+                    variables.remove(rcol)
+                # checkmarks = []  # list of lists of bools that tells us which pixels are selected
+                # user_labels = []  # list of user lables for going into the device picker store
+                # layouts = []  # list of layouts for going into the device picker store
+                # areas = []  # list of layouts for going into the device picker store
+                # pads = []  # list of layouts for going into the device picker store
+                for i, data in enumerate(listlist):
+                    assert len(data) == len(col_names)  # check for missing cells
+                    system_label = data[col_names.index("system_label")]
+                    assert system_label == self  # check system label validity
+                    layout = data[col_names.index("layout")]
+                    assert layout in config["substrates"]["layouts"]  # check layout name validity
+                    bm_val = int(data[col_names.index("bitmask")].removeprefix("0x"), 16)
+                    # li = self.layouts.index(layout)  # layout index
+                    # subs_areas = self.areas[li]  # list of pixel areas for this layout
+                    # assert 2 ** len(subs_areas) >= bm_val  # make sure the bitmask hex isn't too big for this layout
+                    if bm_val == 0:
+                        continue  # nothing's selected so we'll skip this row
+                    # subs_pads = self.pads[li]  # list of pixel areas for this layout
+                    bitmask = bin(bm_val).removeprefix("0b")
+                    # subs_cms = [x == "1" for x in f"{bitmask:{'0'}{'>'}{len(subs_areas)}}"][::-1]  # checkmarks (enabled pixels) for this substrate
+                    user_label = data[col_names.index("user_label")]
+                    # checkmarks.append(subs_cms)
+                    datalist = []
+                    datalist.append(system_label)
+                    datalist.append(user_label)
+                    # user_labels.append(user_label)
+                    datalist.append(layout)
+                    datalist.append(bitmask)
+                    # layouts.append(layout)
+                    # areas.append(subs_areas)
+                    # pads.append(subs_pads)
+
+                    for variable in variables:
+                        datalist.append(data[col_names.index(variable)])
+                    validated.append([str(i), datalist])
+
+            except Exception as e:
+                self.lg.error(f"Failed processing user-crafted slot table data: {e}")
+                return run_q  # send up an empty queue
+            else:
+                # use validated slot data to update stuff
+                pass
+
+        # build pixel/group queue for the run
         if (len(request["config"]["smu"]) > 1) and (experiment == "solarsim"):  # multismu case
             for group in request["config"]["substrates"]["device_grouping"]:
                 group_dict = {}
@@ -218,6 +273,8 @@ class MQTTServer(object):
                     if d in stuff.sort_string.values:
                         pixel_dict = {}
                         rsel = stuff["sort_string"] == d
+                        # if not stuff.loc[rsel]["activated"].values[0]:
+                        #    continue  # skip devices that are not selected
                         pixel_dict["label"] = stuff.loc[rsel]["label"].values[0]
                         pixel_dict["layout"] = stuff.loc[rsel]["layout"].values[0]
                         pixel_dict["sub_name"] = stuff.loc[rsel]["system_label"].values[0]
@@ -955,15 +1012,25 @@ class MQTTServer(object):
 
                 # perform a requested action
                 if action == "run":
-                    rundata = request["rundata"]
-                    remotedigest = bytes.fromhex(rundata.pop("digest").removeprefix("0x"))
-                    jrundatab = json.dumps(rundata).encode()
-                    localdigest = hmac.digest(self.hk, jrundatab, "sha1")
-                    if remotedigest != localdigest:
-                        raise ValueError(f"Can't read run message")
-                    if (rundata["args"]["enable_eqe"] == True) or (rundata["args"]["enable_iv"] == True):
-                        self.lg.setLevel(rundata["config"]["meta"]["internal_loglevel"])
-                        self.start_process(self._run, (rundata,))
+                    if "rundata" in request:
+                        rundata = request["rundata"]
+                        if "digest" in rundata:
+                            remotedigest_str = rundata.pop("digest")
+                            theirdigest = bytes.fromhex(remotedigest_str.removeprefix("0x"))
+                            jrundatab = json.dumps(rundata).encode()
+                            mydigest = hmac.digest(self.hk, jrundatab, "sha1")
+                            if theirdigest == mydigest:
+                                if "args" in rundata:
+                                    args = rundata["args"]
+                                    if "enable_iv" in args:
+                                        if args["enable_iv"] == True:
+                                            try:
+                                                self.lg.setLevel(rundata["config"]["meta"]["internal_loglevel"])
+                                            except:
+                                                self.lg.setLevel(logging.INFO)
+                                            if "slots" in request:  # shoehorn in unvalidated slot info loaded from a tsv file
+                                                rundata["slots"] = request["slots"]
+                                            self.start_process(self._run, (rundata,))
                 elif action == "stop":
                     self.stop_process()
                 elif action == "quit":
