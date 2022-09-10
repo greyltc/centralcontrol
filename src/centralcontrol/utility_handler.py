@@ -9,7 +9,6 @@ import queue
 import serial  # for monochromator
 from pathlib import Path
 import sys
-import pyvisa
 import collections
 import numpy as np
 import time
@@ -406,22 +405,6 @@ class UtilityHandler(object):
                         emsg = f"Could not talk to control box"
                         self.lg.warning(emsg)
                         logging.exception(emsg)
-
-                if "psu" in task:
-                    self.lg.log(29, f"Checking power supply@{task['psu']}...")
-                    if task["psu_virt"] == True:
-                        self.lg.log(29, f"Power supply looks virtually great!")
-                    else:
-                        try:
-                            rm = pyvisa.ResourceManager("@py")
-                            with rm.open_resource(task["psu"]) as psu:
-                                self.lg.log(29, "Power supply connection initiated")
-                                idn = psu.query("*IDN?")
-                                self.lg.log(29, f"Power supply identification string: {idn.strip()}")
-                        except Exception as e:
-                            emsg = f"Could not talk to PSU"
-                            self.lg.warning(emsg)
-                            logging.exception(emsg)
 
                 if "smu" in task:
                     smucfgs = task["smu"]  # a list of sourcemeter configurations

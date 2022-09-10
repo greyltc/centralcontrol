@@ -658,8 +658,6 @@ class MQTTServer(object):
         gp_pcb_address = None
         motion_pcb_is_fake = False
         motion_address = None
-        if ("visa" in config) and ("visa_lib" in config["visa"]):
-            ci_args["visa_lib"] = config["visa"]["visa_lib"]
         if "controller" in config:
             if ("enabled" not in config["controller"]) or (config["controller"]["enabled"] != False):
                 if "virtual" in config["controller"]:
