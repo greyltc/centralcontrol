@@ -51,7 +51,7 @@ class DataHandler(object):
 
     kind: str = ""
     sweep: str = ""
-    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], None | int], int] = None
+    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], bool | None], None] = None
 
     def __init__(self, pixel: dict, outq: multiprocessing.Queue):
         """Construct data handler object.
@@ -73,7 +73,7 @@ class DataHandler(object):
             Measurement data.
         """
         payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
-        if (self.dbputter is not None) and dodb:
+        if self.dbputter and dodb:
             self.dbputter(data, None)
         self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
 
