@@ -501,7 +501,7 @@ class MQTTServer(object):
             dh.sweep = ""  # not a sweep
 
             # mppt if
-            if (args["mppt_dwell_check"]) and (args["mppt_dwell"] > 0):
+            if (args["mppt_check"]) and (args["mppt_dwell"] > 0):
                 if self.killer.is_set():
                     self.lg.debug("Killed by killer.")
                     return data
