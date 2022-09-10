@@ -3,7 +3,8 @@
 import sys
 import time
 import serial
-import threading
+from threading import Event as tEvent
+from multiprocessing.synchronize import Event as mEvent
 import socket
 
 try:
@@ -23,10 +24,10 @@ class k2400(object):
     opts = ""
     status = 0
     nplc_user_set = 1.0
-    last_sweep_time: float = 0
+    last_sweep_time: float = 0.0
     readyForAction = False
     four88point1 = False
-    print_sweep_deets: bool = False  # false uses debug logging level, true logs sweep stats at info level
+    print_sweep_deets = False  # false uses debug logging level, true logs sweep stats at info level
     _write_term_str = "\n"
     _read_term_str = "\r"
     connected = False
@@ -37,8 +38,9 @@ class k2400(object):
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode
     is_2450: bool | None = None
+    killer: tEvent | mEvent
 
-    def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer=threading.Event(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
+    def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging

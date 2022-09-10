@@ -29,6 +29,7 @@ class MqttServerTestCase(unittest.TestCase):
             pixel_dict["pixel"] = 1
             pixel_dict["pos"] = [30]
             pixel_dict["area"] = 1.0
+            pixel_dict["dark_area"] = 1.1
             pixel_dict["mux_string"] = f"s{pixel_dict['sub_name']}{(1<< 8)+(1<<1)+(1<<0):05}"
             group_dict[0] = pixel_dict
             pixel_dict = {}
@@ -39,6 +40,7 @@ class MqttServerTestCase(unittest.TestCase):
             pixel_dict["pixel"] = 1
             pixel_dict["pos"] = [40]
             pixel_dict["area"] = 1.0
+            pixel_dict["dark_area"] = 1.1
             pixel_dict["mux_string"] = f"s{pixel_dict['sub_name']}{(1<< 8)+(1<<1)+(1<<0):05}"
             group_dict[1] = pixel_dict
             run_q.append(group_dict)
@@ -49,24 +51,35 @@ class MqttServerTestCase(unittest.TestCase):
             # setup config with all faked/virtual instruments
             config = {}
             smu = []
-            smu.append({"virtual": True})
-            smu.append({"virtual": True})
+            smu.append({"virtual": True, "address": "hw:///dev/ttyS0?baudrate=57600&bytesize=EIGHTBITS&parity=PARITY_NONE&stopbits=STOPBITS_ONE&timeout=1&xonxoff=True&rtscts=False&dsrdtr=False&write_timeout=1&inter_byte_timeout=1"})
+            smu.append({"virtual": True, "address": "hw:///dev/ttyS1?baudrate=57600&bytesize=EIGHTBITS&parity=PARITY_NONE&stopbits=STOPBITS_ONE&timeout=1&xonxoff=True&rtscts=False&dsrdtr=False&write_timeout=1&inter_byte_timeout=1"})
             config["smu"] = smu
             config["controller"] = {"virtual": True}
             config["stage"] = {"virtual": True, "uri": "us://controller?el=375&spm=6400&hto=60"}
             config["solarsim"] = {"virtual": True}
+            config["db"] = {"uri": "postgresql://"}
+            config["setup"] = {"site": "The Moon", "name": "R&D testbed number two"}
             request["config"] = config
 
             # setup stuff relevant for this test that the gui would have provided
             args = {}
+
+            args["user_name"] = "tester"
+            args["run_name_prefix"] = "testing_"
+
+            args["light_recipe"] = "stir in two cups of sugar"
+            args["light_recipe_int"] = 100
 
             args["nplc"] = -1
             args["cycles"] = 1
             args["jmax"] = 50
             args["imax"] = 100
 
+            args["i_dwell_check"] = True
             args["i_dwell"] = 1
             args["i_dwell_value"] = 0
+
+            args["suns_voc"] = 10
 
             args["sweep_check"] = True
             args["return_switch"] = True
@@ -76,19 +89,20 @@ class MqttServerTestCase(unittest.TestCase):
             args["iv_steps"] = 101
             args["source_delay"] = 1
 
+            args["mppt_check"] = True
             args["mppt_dwell"] = 1
             args["mppt_params"] = "gd://"
 
+            args["v_dwell_check"] = True
             args["v_dwell"] = 1
             args["v_dwell_value"] = 0
+
+            args["print_sweep_deets"] = True
 
             request["args"] = args
 
             # run the experiment
             m._ivt(run_q, request, f)
-            f.disconnect_all_instruments()
-
-        self.assertEqual(len(f._connected_instruments), 0)
 
     def test_full_cli_run(self):
         """just start a normal CLI run (runs forever)"""

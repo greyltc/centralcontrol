@@ -4,7 +4,8 @@ import numpy
 import random
 import inspect
 import collections
-import threading
+from threading import Event as tEvent
+from multiprocessing.synchronize import Event as mEvent
 
 try:
     from centralcontrol.logstuff import get_logger as getLogger
@@ -39,78 +40,7 @@ class FakeLight(object):
         if "address" in kwargs:
             self.address = kwargs["address"]
 
-        # self.request_on = False
-        # self.requested_state = False
-        # self.barrier = threading.Barrier(1, action=self.set_state, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
-
         self.lg.debug("Initialized.")
-
-    # @property
-    # def n_sync(self):
-    #     """how many threads we need to wait for to synchronize"""
-    #     return self.barrier.parties
-
-    # @n_sync.setter
-    # def n_sync(self, value):
-    #     """
-    #     update the number of threads we need to wait for to consider ourselves *NSYNC
-    #     setting this while waiting for synchronization will raise a barrier broken error
-    #     """
-
-    #     self.barrier.abort()
-
-    #     # the thing that blocks threads until they're in sync for a light state change
-    #     self.barrier = threading.Barrier(value, action=self.set_state, timeout=self.barrier_timeout)
-
-    # @property
-    # def on(self):
-    #     """
-    #     query the light's current state
-    #     (might differe than requested state)
-    #     """.format(recipe_name)
-    # def on(self, value):
-    #     """set true when you wish the light to be on and false if you want it to be off"""
-    #     if isinstance(value, bool):
-    #         if value != self._current_state:
-    #             self.lg.debug(f"Request to change light state to {value}. Waiting for synchronization...")
-    #             self.requested_state = valueintensity
-    #             try:
-    #                 draw = self.barrier.wait()
-    #                 if draw == 0:  # we're the lucky winner!
-    #                     self.lg.debug(f"Light state synchronization complete!")
-    #             except threading.BrokenBarrierError as e:
-    #                 # most likely a timeout
-    #                 # could also be if the barrier was reset or aborted during the wait
-    #                 # or if "action" (the call to change the light state) errored
-    #                 raise ValueError(f"The light synchronization barrier was broken! {e}")
-    #         else:
-    #             # requested state matches actual state
-    #             self.lg.debug(f"Light output is already {value}")
-    #     else:
-    #         self.lg.debug(f"Don't understand new light state request: {value=}")
-
-    # def set_state(self, force_state=None):
-    #     """
-    #     set illumination state based on self.requested_state
-    #     should not be called directly (instead intensityuse the barrier-enabled on parameter)
-    #     unless you call it with force_state True or False to bypass the barrier-based thread sync interface
-    #     """
-    #     call_state = None  # the state we'll be setting the light to
-    #     ret = None
-    #     if force_state is None:
-    #         call_state = self.requested_state
-    #         self.lg.debug(f"set_state {self.requested_state} called")
-    #     elif isinstance(force_state, bool):
-    #         call_state = force_state
-    #     else:
-    #         raise ValueError(f"New light state setting invalid: {call_state=}")
-
-    #     if call_state:
-    #         self.lg.debug("Virtual light turned on")
-    #     else:
-    #         self.lg.debug("Virtual light turned off")
-
-    #     return ret
 
     def connect(self):
         self.idn = "Virtual Solar Sim"
@@ -341,11 +271,12 @@ class smu(object):
     idn: str
     nplc = 1
     ccheck = False
-    killer = None
+    killer: tEvent | mEvent = tEvent()
     print_sweep_deets: bool = False
     address = None
     cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
     cc_mode = "none"  # contact check mode
+    area: float
 
     def __init__(self, *args, **kwargs):
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -358,8 +289,6 @@ class smu(object):
 
         if "killer" in kwargs:
             self.killer = kwargs["killer"]
-        else:
-            self.killer = threading.Event()
 
         if "address" in kwargs:
             self.address = kwargs["address"]
@@ -371,9 +300,9 @@ class smu(object):
         self.resistor_connected = 0
 
         # these will get updated externally as needed
-        self.area = 1  # cm^2
+        self.area: float = 1.0  # cm^2
         # TODO: add dark area
-        self.compliance = 1  # A
+        self.compliance: float = 1.0  # A
         self.dark = False  # if we're in the dark, do computations with Iph = 0
         self._intensity = 1  # scale Iph by this (simulates variable intensity)
 

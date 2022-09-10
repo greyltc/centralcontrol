@@ -1,4 +1,6 @@
 import typing
+from threading import Event as tEvent
+from multiprocessing.synchronize import Event as mEvent
 from centralcontrol.virt import smu as vsmu
 from centralcontrol.k2400 import k2400
 
@@ -37,11 +39,14 @@ def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
 class SourcemeterAPI(object):
     """unified sourcemeter programming interface"""
 
-    device_grouping: typing.List[typing.List[str]]
+    device_grouping: list[list[str]]
     conn_status: int = -99  # connection status
     idn: str
     init_args: tuple = ()
     init_kwargs: dict = {}
+    killer: mEvent | tEvent
+    setNPLC: typing.Callable[[float], None]
+    outOn: typing.Callable[[bool], None]
 
     def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
@@ -82,7 +87,7 @@ class SourcemeterAPI(object):
             self.lg.debug(f"Unclean disconnect: {e}")
         return None
 
-    def which_smu(self, devaddr: str) -> int:
+    def which_smu(self, devaddr: str) -> None | int:
         """given a device address, returns the index of the SMU connected to it
         you must register device_grouping before this will work"""
         ret = None

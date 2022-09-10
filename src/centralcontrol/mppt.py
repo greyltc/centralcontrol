@@ -1,8 +1,11 @@
 import numpy
 import time
 import random
+import typing
 from collections import deque
-import threading
+from threading import Event as tEvent
+from multiprocessing.synchronize import Event as mEvent
+from centralcontrol.sourcemeter import SourcemeterAPI as smapi
 
 try:
     from centralcontrol.logstuff import get_logger as getLogger
@@ -15,23 +18,28 @@ class mppt:
     Maximum power point tracker class
     """
 
-    Voc = None
-    Isc = None
-    Mmpp = None  # measurement from max power point
-    Vmpp = None  # voltage at max power point
-    Impp = None  # current at max power point
-    Pmax = None  # power at max power point (for keeping track of voc and isc)
-    area = None
+    # external signaler to end the mppt prematurely
+    killer: mEvent | tEvent
+
+    Voc: float | None = None
+    Isc: float | None = None
+    Mmpp: tuple[float, float, float] | None = None  # measurement from max power point
+    Vmpp: float | None = None  # voltage at max power point
+    Impp: float | None = None  # current at max power point
+    Pmax: float | None = None  # power at max power point (for keeping track of voc and isc)
+    area: float | None = None
 
     # under no circumstances should we violate this
     absolute_current_limit = 0.1  # always safe default
 
-    t0 = None  # the time we started the mppt algorithm
+    t0: float | None = None  # the time we started the mppt algorithm
 
     # if we're forced to guess Voc or Vmpp, assume that vmpp is this fraction of Voc
     voc_vmpp_guess_ratio = 0.7
 
-    def __init__(self, sm, absolute_current_limit=0.1, killer=threading.Event()):
+    sm: smapi
+
+    def __init__(self, sm: smapi, absolute_current_limit=0.1, killer: tEvent | mEvent = tEvent()):
         self.sm = sm
         self.killer = killer
 
@@ -91,7 +99,7 @@ class mppt:
         # returns maximum power[W], Vmpp, Impp and the index
         return (Pmax, Vmpp, Impp, maxIndex)
 
-    def launch_tracker(self, duration=30, callback=lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:10", area=1):
+    def launch_tracker(self, duration: float = 30.0, callback: typing.Callable[[list[tuple[float, float, float, int]]], None] = lambda x: None, NPLC=-1, voc_compliance=3, i_limit=0.1, extra="basic://7:10:10", area=1):
         """
         general function to call begin a max power point tracking algorithm
         duration given in seconds, optionally calling callback function on each measurement point
@@ -122,12 +130,16 @@ class mppt:
                 self.Voc = ssvocs[-1][0]  # take the last value as Voc
                 self.lg.warning(f"Discovered that V_oc =~ {self.Voc} [V] via a {voc_dwell_time:.1f}s voltage measurement")
                 dunnos.remove("V_oc")
-            if "V_oc" in dunnos:
+            if ("V_oc" in dunnos) and self.Vmpp:
                 self.Voc = 1 / self.voc_vmpp_guess_ratio * self.Vmpp
                 self.lg.warning(f"Inferred that V_oc =~ {self.Voc} [V] from {1/self.voc_vmpp_guess_ratio:.1f} times V_mpp")
-            if "V_mpp" in dunnos:
+            if ("V_mpp" in dunnos) and self.Voc:
                 self.Vmpp = self.voc_vmpp_guess_ratio * self.Voc
                 self.lg.warning(f"Inferred that V_mpp =~ {self.Vmpp} [V] from {self.voc_vmpp_guess_ratio:.1f} times V_oc")
+
+        # we must know Vmpp and Voc to continue
+        assert self.Vmpp is not None
+        assert self.Voc is not None
 
         # handle a killer kill
         if self.killer.is_set():
@@ -166,7 +178,7 @@ class mppt:
                 do_snaith = True
             else:
                 do_snaith = False
-            if len(params) == 0:  #  use defaults
+            if len(params) == 0:  # use defaults
                 m += self.gradient_descent(duration, start_voltage=self.Vmpp, snaith_mode=do_snaith, callback=callback)
             else:
                 params = params.split(":")
@@ -179,7 +191,8 @@ class mppt:
 
         run_time = time.time() - self.t0
         self.lg.debug("Final value seen by the max power point tracker after running for {:.1f} seconds is".format(run_time))
-        self.lg.debug("{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA".format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
+        if (self.Vmpp) and (self.Impp):
+            self.lg.debug("{:0.4f} mW @ {:0.2f} mV and {:0.2f} mA".format(self.Vmpp * self.Impp * 1000 * -1, self.Vmpp * 1000, self.Impp * 1000))
         return (m, ssvocs)
 
     def spo(self, duration, callback=lambda x: None):
@@ -194,13 +207,17 @@ class mppt:
 
         return data
 
-    def gradient_descent(self, duration, start_voltage, callback=lambda x: None, alpha=1.5, min_step=0.001, NPLC=10, snaith_mode=False, delay_ms=500, max_step=0.1, momentum=0.1, delta_zero=0.01, jump_percent=10, jump_period=0, time_scale=True):
+    def gradient_descent(self, duration: float, start_voltage: float, callback: typing.Callable[[list[tuple[float, float, float, int]]], None] = lambda x: None, alpha: float = 1.5, min_step: float = 0.001, NPLC: float = 10.0, snaith_mode: bool = False, delay_ms: float = 500.0, max_step: float = 0.1, momentum: float = 0.1, delta_zero: float = 0.01, jump_percent: float = 10.0, jump_period: float = 0.0, time_scale: bool = True):
         """
         gradient descent MPPT algorithm
         alpha is the "learning rate"
         min_step is the minimum voltage step size the algorithm will be allowed to take
         delay is the number of ms to wait between setting the voltage and making a measurement
         """
+
+        # we must know these to continue
+        assert self.t0 is not None
+        assert self.Voc is not None
 
         # snaith mode constants
         snaith_pre_soak_t = 15
@@ -310,7 +327,7 @@ class mppt:
             run_time = time.time() - self.t0
 
             if (run_time > jump_period) and (jump_period > 0) and (jump_percent != 0) and ((run_time - last_jump_time) > jump_period):
-                # force a perturbation
+                # force a perturbation if that's enabled
                 delta = jump_sign * self.Voc * jump_percent / 100
                 jump_sign = jump_sign * -1
                 last_jump_time = run_time
@@ -330,7 +347,7 @@ class mppt:
 
         return q
 
-    def measure(self, setpoint, q, delay_ms=0, callback=lambda x: None):
+    def measure(self, setpoint: float, q: list, delay_ms: float = 0, callback: typing.Callable[[list[tuple[float, float, float, int]]], None] = lambda x: None):
         """changes the smu's setpoint and makes a measurement"""
         # enforce quadrant restrictions to prevent the mppt from erroniously wandering out of the power quadrant
         if (self.quadrant_lock) and (setpoint < 0):
@@ -349,7 +366,7 @@ class mppt:
         q += measurement
         return (v, i, tx)
 
-    def really_dumb_tracker(self, duration, start_voltage, callback=lambda x: None, dAngleMax=7, dwell_time=10, sweep_delay_ms=30):
+    def really_dumb_tracker(self, duration, start_voltage, callback: typing.Callable[[list[tuple[float, float, float, int]]], None] = lambda x: None, dAngleMax: float = 7.0, dwell_time: float = 10.0, sweep_delay_ms: float = 30.0):
         """
         A super dumb maximum power point tracking algorithm that
         alternates between periods of exploration around the mppt and periods of constant voltage dwells
@@ -357,6 +374,11 @@ class mppt:
         dAngleMax, exploration limits, [exploration degrees] (plus and minus)
         dwell_time, dwell period duration in seconds
         """
+
+        # we must know these to continue
+        assert self.t0 is not None
+        assert self.Voc is not None
+
         self.lg.debug("===Starting up dumb maximum power point tracking algorithm===")
         self.lg.debug(f"dAngleMax = {dAngleMax} [deg]")
         self.lg.debug(f"dwell_time = {dwell_time} [s]")
@@ -439,7 +461,7 @@ class mppt:
                         highEdgeTouched = True
                         dV = dV * -1  # switch our voltage walking direction
                         v_set = v_set + dV
-                        self.lg.debugint("WARNING: Reached low voltage edge because we hit 0V")
+                        self.lg.debug("WARNING: Reached low voltage edge because we hit 0V")
 
                     if (lowEdgeTouched == False) and (dV < 0) and v_set <= 0:
                         lowEdgeTouched = True

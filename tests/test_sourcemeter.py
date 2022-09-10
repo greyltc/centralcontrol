@@ -21,9 +21,11 @@ class SourcemeterTestCase(unittest.TestCase):
         """test connect and disconnect calls"""
         smuc = sourcemeter.factory(self.cfg)  # use the factory to set up the class
         sm = smuc(**self.cfg)
-        self.assertEqual(sm.connect(), 0)
+        sm.connect()
+        self.assertEqual(sm.conn_status, 0)
         self.assertIsInstance(sm.idn, str)
-        self.assertEqual(sm.disconnect(), None)
+        sm.disconnect()
+        self.assertEqual(sm.conn_status, -80)
 
     def test_context(self):
         """test context usage"""
