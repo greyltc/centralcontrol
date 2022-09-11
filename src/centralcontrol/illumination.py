@@ -8,8 +8,9 @@ try:
 except:
     from logging import getLogger
 
-import os
-import threading
+from threading import BrokenBarrierError
+from threading import Barrier as tBarrier
+from multiprocessing.synchronize import Barrier as mBarrier
 import typing
 
 
@@ -42,7 +43,7 @@ def factory(cfg: typing.Dict) -> typing.Type["LightAPI"]:
 class LightAPI(object):
     """unified light programming interface"""
 
-    barrier: threading.Barrier
+    barrier: mBarrier | tBarrier
     barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
     _current_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. what we believe the light's intensity is
     requested_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. keeps track of what we want the light's intensity to be
@@ -66,7 +67,7 @@ class LightAPI(object):
             self.on_intensity = int(kwargs["intensity"])  # use this initial intensity for the "on" value
 
         # thing that blocks to ensure sync
-        self.barrier = threading.Barrier(1, action=self.apply_intensity, timeout=self.barrier_timeout)
+        self.barrier = tBarrier(1, action=self.apply_intensity, timeout=self.barrier_timeout)
 
         super(LightAPI, self).__init__(**kwargs)
 
@@ -80,7 +81,7 @@ class LightAPI(object):
         self.disconnect()
         return False
 
-    def connect(self) -> None:
+    def connect(self) -> None | int:
         """connects to and initalizes hardware"""
         if self.conn_status < 0:
             self.conn_status = super(LightAPI, self).connect()  # call the underlying connect method
@@ -135,7 +136,7 @@ class LightAPI(object):
         self.barrier.abort()
 
         # thing that blocks to ensure sync
-        self.barrier = threading.Barrier(value, action=self.apply_intensity, timeout=self.barrier_timeout)
+        self.barrier = tBarrier(value, action=self.apply_intensity, timeout=self.barrier_timeout)
         return None
 
     @property
@@ -159,7 +160,7 @@ class LightAPI(object):
                         self.lg.debug(f"Light intensity synchronization complete!")
                     if value != self.requested_intensity:
                         self.lg.debug(f"Something's fishy. We wanted {value}, but got {self.requested_intensity}")
-                except threading.BrokenBarrierError as e:
+                except BrokenBarrierError as e:
                     # most likely a timeout
                     # could also be if the barrier was reset or aborted during the wait
                     # or if the call to change the light state errored
@@ -170,13 +171,12 @@ class LightAPI(object):
         else:
             self.lg.debug(f"Invalid light intensity request: {value=}")
 
-    def apply_intensity(self, forced_intensity: int = None) -> int:
+    def apply_intensity(self, forced_intensity: int | None = None) -> None:
         """
         set illumination intensity based on self.requested_intensity
         should not be called directly (instead use the barrier-enabled on parameter)
         unless you call it with force_intensity to an int to bypass the barrier-based thread sync interface
         """
-        ret = None
         setpoint = forced_intensity
         if setpoint is None:
             setpoint = self.requested_intensity
@@ -202,342 +202,8 @@ class LightAPI(object):
 
         if (isinstance(on_ret, str) and on_ret.startswith("sn")) and (set_ret == 0) and (off_ret == 0):
             self._current_intensity = setpoint
-            ret = 0
         else:
-            ret = -1
             self.lg.debug(f"failure to set the light's intensity: {off_ret=} and {set_ret=} and {on_ret=}")
-
-        # if setpoint == 0:
-        #    ret = 0  # dummy to always pass check
-        #    off_ret = super(LightAPI, self).off()
-        # else:
-        #    off_ret = 0
-        #    ret = super(LightAPI, self).set_intensity(setpoint)
-        #    toggle_ret = super(LightAPI, self).on()
-
-        # if (ret == 0) and (on_ret == 0) or (isinstance(toggle_ret, str) and toggle_ret.startswith("sn")):
-        #    self._current_intensity = setpoint
-        # else:
-        #    ret = -1
-        #    self.lg.debug(f"failure to set the light's intensity: {ret=} and {toggle_ret=}")
-
-        return ret
-
-
-# class Illumination(object):
-#     """
-#     generic class for handling a light source
-#     only supports wavelabs and newport via USB (ftdi driver)
-#     """
-
-#     light_engine = None
-#     protocol = None
-#     connection_timeout = 10  # s. wait this long for wavelabs comms connection to form
-#     comms_timeout = 1  # s. wait this long for an ack from wavelabs for any communication
-#     barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
-#     _current_state = False  # True if we believe the light is on, False if we believe it's off
-#     requested_state = False  # keeps track of what state we'd like the light to be in
-#     last_temps = None
-#     _current_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. what we believe the light's intensity is
-#     requested_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. keeps track of what we want the light's intensity to be
-
-#     def __init__(self, address="", connection_timeout=10, comms_timeout=1):
-#         """sets up communication to light source"""
-#         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
-
-#         self.connection_timeout = connection_timeout  # s
-#         self.comms_timeout = comms_timeout  # s
-#         self.request_on = False
-#         self.requested_state = False
-#         self.barrier = threading.Barrier(1, action=self.set_state, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
-#         self.barrier2 = threading.Barrier(1, action=self.set_intensity, timeout=self.barrier_timeout)  # thing that blocks threads until they're in sync
-
-#         addr_split = address.split(sep="://", maxsplit=1)
-#         protocol = addr_split[0]
-#         if protocol.lower() == "env":
-#             env_var = addr_split[1]
-#             if env_var in os.environ:
-#                 address = os.environ.get(env_var)
-#             else:
-#                 raise ValueError("Environment Variable {:} could not be found".format(env_var))
-#             addr_split = address.split(sep="://", maxsplit=1)
-#             protocol = addr_split[0]
-
-#         if protocol.lower().startswith("wavelabs"):
-#             location = addr_split[1]
-#             ls = location.split(":")
-#             host = ls[0]
-#             if len(ls) == 1:
-#                 port = None
-#             else:
-#                 port = int(ls[1])
-#             if "relay" in protocol.lower():
-#                 relay = True
-#             else:
-#                 relay = False
-#             self.light_engine = Wavelabs(host=host, port=port, relay=relay, connection_timeout=self.connection_timeout, comms_timeout=self.comms_timeout)
-#         # elif protocol.lower() == ('ftdi'):
-#         #  self.light_engine = Newport(address=address)
-#         self.protocol = protocol
-
-#         self.lg.debug("Initialized.")
-
-#     @property
-#     def n_sync(self):
-#         """how many threads we need to wait for to synchronize"""
-#         return self.barrier.parties
-
-#     @n_sync.setter
-#     def n_sync(self, value):
-#         """
-#         update the number of threads we need to wait for to consider ourselves *NSYNC
-#         setting this while waiting for synchronization will raise a barrier broken error
-#         """
-
-#         self.barrier.abort()
-
-#         # the thing that blocks threads until they're in sync for a light state change
-#         self.barrier = threading.Barrier(value, action=self.set_state, timeout=self.barrier_timeout)
-
-#     @property
-#     def n_sync2(self):
-#         """how many threads we need to wait for to synchronize"""
-#         return self.barrier2.parties
-
-#     @n_sync2.setter
-#     def n_sync2(self, value):
-#         """
-#         update the number of threads we need to wait for to consider ourselves *NSYNC
-#         setting this while waiting for synchronization will raise a barrier broken error
-#         """
-
-#         self.barrier2.abort()
-
-#         # the thing that blocks threads until they're in sync for a light state change
-#         self.barrier2 = threading.Barrier(value, action=self.set_intensity, timeout=self.barrier_timeout)
-
-#     @property
-#     def on(self):
-#         """
-#         query the light's current state
-#         (might differ than requested state)
-#         """
-#         return self._current_state
-
-#     @on.setter
-#     def on(self, value):
-#         """set true when you wish the light to be on and false if you want it to be off"""
-#         if isinstance(value, bool):
-#             if value != self._current_state:
-#                 self.lg.debug(f"Request to change light state to {value}. Waiting for synchronization...")
-#                 self.requested_state = value
-#                 try:
-#                     draw = self.barrier.wait()
-#                     if draw == 0:  # we're the lucky winner!
-#                         self.lg.debug(f"Light state synchronization complete!")
-#                 except threading.BrokenBarrierError as e:
-#                     # most likely a timeout
-#                     # could also be if the barrier was reset or aborted during the wait
-#                     # or if the call to change the light state errored
-#                     raise ValueError(f"The light synchronization barrier was broken! {e}")
-#             else:
-#                 # requested state matches actual state
-#                 self.lg.debug(f"Light output is already {value}")
-#         else:
-#             self.lg.debug(f"Don't understand new light state request: {value=}")
-
-#     @property
-#     def intensity(self):
-#         """
-#         query the light's current intensity
-#         (might differ than requested intensity)
-#         """
-#         return self._current_intensity
-
-#     @intensity.setter
-#     def intensity(self, value: int):
-#         """set the intensity value you wish the light to be"""
-#         if isinstance(value, int):
-#             if value != self._current_intensity:
-#                 self.lg.debug(f"Request to change light intensity to {value}. Waiting for synchronization...")
-#                 self.requested_intensity = value
-#                 try:
-#                     draw = self.barrier.wait()
-#                     if draw == 0:  # we're the lucky winner!
-#                         self.lg.debug(f"Light intensity synchronization complete!")
-#                 except threading.BrokenBarrierError as e:
-#                     # most likely a timeout
-#                     # could also be if the barrier was reset or aborted during the wait
-#                     # or if the call to change the light state errored
-#                     raise ValueError(f"The light synchronization barrier was broken! {e}")
-#             else:
-#                 # requested state matches actual state
-#                 self.lg.debug(f"Light intensity is already {value}")
-#         else:
-#             self.lg.debug(f"Don't understand new light intensity request: {value=}")
-
-#     def set_intensity(self, force_intensity=None):
-#         """
-#         set illumination intensity based on self.requested_intensity
-#         should not be called directly (instead use the barrier-enabled on parameter)
-#         unless you call it with force_intensity to an int to bypass the barrier-based thread sync interface
-#         """
-#         ret = None
-#         setpoint = force_intensity
-#         if setpoint is None:
-#             setpoint = self.requested_intensity
-#         if not isinstance(setpoint, int):
-#             raise ValueError(f"New light intensity setpoint is invalid: {setpoint=}")
-
-#         self.lg.debug(f"set_intensity({self.requested_intensity}) called")
-#         if setpoint == 0:
-#             iret = 0  # no error
-#             oret = self.light_engine.off()
-#         else:
-#             iret = self.light_engine.set_intensity(setpoint)
-#             oret = self.light_engine.on()
-
-#         if ((oret == 0) or ((isinstance(ret, str) and ret.startswith("sn")))) and (iret == 0):
-#             self._current_intensity = setpoint
-#         else:
-#             self.lg.debug(f"failure to set the light's intensity")
-
-#         return ret
-
-#     def set_state(self, force_state: bool = None):
-#         """
-#         set illumination state based on self.requested_state
-#         should not be called directly (instead use the barrier-enabled on parameter)
-#         unless you call it with force_state True or False to bypass the barrier-based thread sync interface
-#         """
-#         ret = None
-#         setpoint = force_state
-#         if setpoint is None:
-#             setpoint = self.requested_state
-#         if not isinstance(setpoint, bool):
-#             raise ValueError(f"New light state setting invalid: {setpoint=}")
-
-#         self.lg.debug(f"set_state({setpoint}) called")
-#         if setpoint:
-#             ret = self.light_engine.on()
-#         else:
-#             ret = self.light_engine.off()
-
-#         if (ret == 0) or ((isinstance(ret, str) and ret.startswith("sn"))):
-#             self._current_state = setpoint
-#         else:
-#             self.lg.debug(f"failure to set the light's state")
-
-#         return ret
-
-#     def connect(self):
-#         """forms connection to light source"""
-#         self.lg.debug("ill connect() called")
-#         ret = self.light_engine.connect()
-#         self.lg.debug("ill connect() compelte")
-#         return ret
-
-#     def get_spectrum(self):
-#         """
-#         fetches a spectrum if the light engine supports it, assumes a recipe has been set
-#         """
-#         self.lg.debug("ill get_spectrum() called")
-#         spec = self.light_engine.get_spectrum()
-#         self.lg.debug("ill get_spectrum() complete")
-#         self.get_temperatures()  # just to trigger the logging
-#         return spec
-
-#     def disconnect(self):
-#         """
-#         clean up connection to light.
-#         this is called by it be called by __del__ so it might not need to be called in addition
-#         """
-#         self.lg.debug("ill disconnect() called")
-#         if hasattr(self, "light_engine"):
-#             self.light_engine.disconnect()
-#             del self.light_engine  # prevents disconnect from being called more than once
-#         self.lg.debug("ill disconnect() complete")
-
-#     def set_recipe(self, recipe_name=None):
-#         """
-#         sets the active recipe, None will use the default recipe
-#         """
-#         self.lg.debug(f"ill set_recipe({recipe_name=}) called")
-#         ret = self.light_engine.activate_recipe(recipe_name)
-#         self.lg.debug("ill set_recipe() complete")
-#         return ret
-
-#     def set_runtime(self, ms):
-#         """
-#         sets the recipe runtime in ms
-#         """
-#         self.lg.debug(f"ill set_runtime({ms=}) called")
-#         ret = self.light_engine.set_runtime(ms)
-#         self.lg.debug("ill set_runtime() complete")
-#         return ret
-
-#     def get_runtime(self):
-#         """
-#         gets the recipe runtime in ms
-#         """
-#         self.lg.debug("ill get_runtime() called")
-#         runtime = self.light_engine.get_runtime()
-#         self.lg.debug(f"ill get_runtime() complete with {runtime=}")
-#         return runtime
-
-#     def set_intensity(self, percent):
-#         """
-#         sets the recipe runtime in ms
-#         """
-#         self.lg.debug(f"ill set_intensity({percent=}) called")
-#         ret = self.light_engine.set_intensity(percent)
-#         self.lg.debug("ill set_intensity() complete")
-#         return ret
-
-#     def get_intensity(self):
-#         """
-#         gets the recipe runtime in ms
-#         """
-#         self.lg.debug("ill get_intensity() called")
-#         intensity = self.light_engine.get_intensity()
-#         self.lg.debug(f"ill get_intensity() complete with {intensity=}")
-#         return intensity
-
-#     def get_run_status(self):
-#         """
-#         gets the light engine's run status, expected to return either "running" or "finished"
-#         also updates on parmater via _current_state
-#         """
-#         self.lg.debug("ill get_run_status() called")
-#         status = self.light_engine.get_run_status()
-#         if status == "running":
-#             self._current_state = True
-#         else:
-#             self._current_state = False
-#         self.lg.debug(f"ill get_run_status() complete with {status=}")
-#         return status
-
-#     def get_temperatures(self):
-#         """
-#         returns a list of light engine temperature measurements
-#         """
-#         self.lg.debug("ill get_temperatures() called")
-#         temp = []
-#         if "wavelabs" in self.protocol:
-#             temp.append(self.light_engine.get_vis_led_temp())
-#             temp.append(self.light_engine.get_ir_led_temp())
-#             self.last_temps = temp
-#         self.lg.debug(f"ill get_temperatures() complete with {temp=}")
-#         return temp
-
-#     def __del__(self):
-#         """
-#         clean up connection to light engine
-#         put this in __del__ to esure it gets called
-#         """
-#         self.lg.debug("ill __del__() called")
-#         self.disconnect()
-#         self.lg.debug("ill __del__() complete")
 
 
 class DisabledLight(object):

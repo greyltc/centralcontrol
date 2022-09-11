@@ -530,12 +530,6 @@ class UtilityHandler(object):
             mqttc.publish(to_send["destination"], to_send["payload"], qos=2).wait_for_publish()
             self.outputq.task_done()
 
-    # thread for the mqtt loop. if that dies, it kills the glib main loop
-    def mqtt_loop(self):
-        time.sleep(1)
-        self.client.loop_forever()
-        self.loop.quit()
-
     # converts RTD resistance to temperature. set r0 to 100 for PT100 and 1000 for PT1000
     def rtd_r_to_t(self, r, r0=1000, poly=None):
         PTCoefficientStandard = collections.namedtuple("PTCoefficientStandard", ["a", "b", "c"])
@@ -582,15 +576,15 @@ class UtilityHandler(object):
         self.client.on_message = self.handle_message
 
         # connect to the mqtt server
-        self.client.connect(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
+        self.client.connect_async(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
 
         # start the sender (publishes messages from worker and manager)
         threading.Thread(target=self.sender, args=(self.client,), daemon=True).start()
 
-        # start the mqtt client loop
-        threading.Thread(target=self.mqtt_loop).start()
-
-        self.loop.run()  # run the glib loop. gets killed only when client.loop_forever dies
+        try:
+            self.client.loop_forever()
+        except Exception as e:
+            self.lg.error(f"Unable to start message broker loop: {e}")
 
 
 def main():
@@ -600,7 +594,7 @@ def main():
     args = parser.parse_args()
 
     u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
-    u.run()  # loops forever
+    u.run()  # blocks forever
 
 
 if __name__ == "__main__":

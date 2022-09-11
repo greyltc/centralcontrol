@@ -1,35 +1,19 @@
 #!/usr/bin/env python3
-"""MQTT Client to facilitate tx/rxing messages from the broker"""
+"""MQTT Client to facilitate tx/rxing messages to/from the broker"""
 
 import sys
-import collections
 import multiprocessing
-import concurrent.futures
 import threading
-import os
 import json
-import queue
-import signal
-import time
-import traceback
 import uuid
-import hmac
-import humanize
-import datetime
-import numpy as np
-import contextlib
-import pandas as pd
-from slothdb.dbsync import SlothDBSync as SlothDB
-from slothdb import enums as en
-
-from threading import Event as tEvent
-from multiprocessing.synchronize import Event as mEvent
-
-from centralcontrol import illumination, mppt, sourcemeter
-from centralcontrol.fabric import Fabric
-
 import logging
 import typing
+import paho.mqtt.client as mqtt
+from threading import Event as tEvent
+from multiprocessing.synchronize import Event as mEvent
+from queue import SimpleQueue as Queue
+from multiprocessing import SimpleQueue as mQueue
+from concurrent.futures import Executor
 
 # for logging directly to systemd journal if we can
 try:
@@ -37,63 +21,23 @@ try:
 except ImportError:
     pass
 
-import paho.mqtt.client as mqtt
-
-# this boilerplate code allows this module to be run directly as a script
-# if (__name__ == "__main__") and (__package__ in [None, ""]):
-#    __package__ = "centralcontrol"
-#    # get the dir that holds __package__ on the front of the search path
-#    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-
-class DataHandler(object):
-    """Handler for measurement data."""
-
-    kind: str = ""
-    sweep: str = ""
-    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], bool | None], None] = None
-
-    def __init__(self, pixel: dict, outq: multiprocessing.Queue):
-        """Construct data handler object.
-
-        Parameters
-        ----------
-        pixel : dict
-            Pixel information.
-        """
-        self.pixel = pixel
-        self.outq = outq
-
-    def handle_data(self, data: list[tuple[float, float, float, int]], dodb: bool = True):
-        """Handle measurement data.
-
-        Parameters
-        ----------
-        data : array-like
-            Measurement data.
-        """
-        payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
-        if self.dbputter and dodb:
-            self.dbputter(data, None)
-        self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
-
 
 class MQTTClient(object):
+    """interfaces with he MQTT message broker server"""
+
     # for outgoing messages
-    outq = multiprocessing.Queue()
+    outq: Queue | mQueue
 
     # for incoming messages
-    msg_queue = queue.Queue()
+    inq: Queue | mQueue
 
     # long tasks get their own process
-    process = multiprocessing.Process()
+    # process = multiprocessing.Process()
 
     # return code
     retcode = 0
 
-    hk = "gosox".encode()
-
-    mqtthost: str
+    host: str
     port: int
 
     client_id: str
@@ -103,12 +47,14 @@ class MQTTClient(object):
     lg: logging.Logger
 
     # listen to this for kill signals
-    killer: tEvent | mEvent = multiprocessing.Event()
+    killer: tEvent | mEvent
+
+    workers: list[threading.Thread] = []  # list of things doing work for us
 
     class Dummy(object):
         pass
 
-    def __init__(self, mqtthost="127.0.0.1", port=1883):
+    def __init__(self, host="127.0.0.1", port=1883, use_threads=True):
         # setup logging
         logname = __name__
         if __package__ in __name__:
@@ -120,6 +66,7 @@ class MQTTClient(object):
         if not self.lg.hasHandlers():
             # set up a logging handler for passing messages to the UI log window
             uih = logging.Handler()
+            uih.name = "remote"
             uih.setLevel(logging.INFO)
             uih.emit = self.send_log_msg
             self.lg.addHandler(uih)
@@ -137,7 +84,7 @@ class MQTTClient(object):
                 ch.setFormatter(logFormat)
                 self.lg.addHandler(ch)
 
-        self.mqtthost = mqtthost
+        self.host = host
         self.port = port
 
         # create mqtt client id
@@ -150,858 +97,38 @@ class MQTTClient(object):
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_disconnect = self.on_disconnect
 
+        if use_threads:
+            self.killer = tEvent()
+            self.inq = Queue()
+            self.outq = Queue()
+        else:  # processes
+            self.killer = multiprocessing.Event()
+            self.inq = mQueue()
+            self.outq = mQueue()
+
         self.lg.debug("Initialized.")
 
-    def start_process(self, target, args):
-        """Start a new process to perform an action if no process is running.
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
+        self.start()
+        return self
 
-        Parameters
-        ----------
-        target : function handle
-            Function to run in child process.
-        args : tuple
-            Arguments required by the function.
-        """
-
-        if self.process.is_alive() == False:
-            self.process = multiprocessing.Process(target=target, args=args, daemon=True)
-            self.process.start()
-            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
-        else:
-            self.lg.warning("Measurement server busy!")
-
-    def stop_process(self):
-        """Stop a running process."""
-
-        if self.process.is_alive():
-            self.lg.debug("Setting killer")
-            self.killer.set()  # ask extremely nicely for the process to come to conclusion
-            self.process.join(5.0)
-            if self.process.is_alive():
-                self.process.terminate()  # politely tell the process to end
-                self.process.join(2.0)
-            if self.process.is_alive():
-                if self.process.pid:
-                    os.kill(self.process.pid, signal.SIGINT)  # forcefully interrupt the process
-                    self.process.join(2.0)
-                    self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGINT")
-            if self.process.is_alive():
-                self.process.kill()  # kill the process
-                self.process.join(2.0)
-                self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGKILL")
-            self.killer.clear()
-            self.lg.debug(f"{self.process.is_alive()=}")
-            self.lg.log(29, "Request to stop completed!")
-            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
-        else:
-            self.lg.warning("Nothing to stop. Measurement server is idle.")
-
-    def _build_q(self, request, experiment):
-        """Generate a queue of pixels to run through.
-
-        Parameters
-        ----------
-        args : types.SimpleNamespace
-            Experiment arguments.
-        experiment : str
-            Name used to look up the experiment centre stage position from the config
-            file.
-
-        Returns
-        -------
-        pixel_q : deque
-            Queue of pixels to measure.
-        """
-        # TODO: return support for inferring layout from pcb adapter resistors
-        config = request["config"]
-        args = request["args"]
-
-        if experiment == "solarsim":
-            stuff = args["IV_stuff"]
-        else:
-            raise (ValueError(f"Unknown experiment: {experiment}"))
-        center = config["stage"]["experiment_positions"][experiment]
-
-        # recreate a dataframe from the dict
-        stuff = pd.DataFrame.from_dict(stuff)
-
-        run_q = collections.deque()
-
-        if "slots" in request:
-            required_cols = ["system_label", "user_label", "layout", "bitmask"]
-            validated = []  # holds validated slot data
-            # the client sent unvalidated slots data
-            # validate it and overwrite the origional slots data
-            try:
-                listlist: list[list[str]] = request["slots"]
-                # NOTE: this validation borrows from that done in runpanel
-                col_names = listlist.pop(0)
-                variables = col_names.copy()
-                for rcol in required_cols:
-                    assert rcol in col_names
-                    variables.remove(rcol)
-                # checkmarks = []  # list of lists of bools that tells us which pixels are selected
-                # user_labels = []  # list of user lables for going into the device picker store
-                # layouts = []  # list of layouts for going into the device picker store
-                # areas = []  # list of layouts for going into the device picker store
-                # pads = []  # list of layouts for going into the device picker store
-                for i, data in enumerate(listlist):
-                    assert len(data) == len(col_names)  # check for missing cells
-                    system_label = data[col_names.index("system_label")]
-                    assert system_label == self  # check system label validity
-                    layout = data[col_names.index("layout")]
-                    assert layout in config["substrates"]["layouts"]  # check layout name validity
-                    bm_val = int(data[col_names.index("bitmask")].removeprefix("0x"), 16)
-                    # li = self.layouts.index(layout)  # layout index
-                    # subs_areas = self.areas[li]  # list of pixel areas for this layout
-                    # assert 2 ** len(subs_areas) >= bm_val  # make sure the bitmask hex isn't too big for this layout
-                    if bm_val == 0:
-                        continue  # nothing's selected so we'll skip this row
-                    # subs_pads = self.pads[li]  # list of pixel areas for this layout
-                    bitmask = bin(bm_val).removeprefix("0b")
-                    # subs_cms = [x == "1" for x in f"{bitmask:{'0'}{'>'}{len(subs_areas)}}"][::-1]  # checkmarks (enabled pixels) for this substrate
-                    user_label = data[col_names.index("user_label")]
-                    # checkmarks.append(subs_cms)
-                    datalist = []
-                    datalist.append(system_label)
-                    datalist.append(user_label)
-                    # user_labels.append(user_label)
-                    datalist.append(layout)
-                    datalist.append(bitmask)
-                    # layouts.append(layout)
-                    # areas.append(subs_areas)
-                    # pads.append(subs_pads)
-
-                    for variable in variables:
-                        datalist.append(data[col_names.index(variable)])
-                    validated.append([str(i), datalist])
-
-            except Exception as e:
-                self.lg.error(f"Failed processing user-crafted slot table data: {e}")
-                return run_q  # send up an empty queue
-            else:
-                # use validated slot data to update stuff
-                pass
-
-        # build pixel/group queue for the run
-        if (len(request["config"]["smu"]) > 1) and (experiment == "solarsim"):  # multismu case
-            for group in request["config"]["substrates"]["device_grouping"]:
-                group_dict = {}
-                for smu_index, device in enumerate(group):
-                    d = device.upper()
-                    if d in stuff.sort_string.values:
-                        pixel_dict = {}
-                        rsel = stuff["sort_string"] == d
-                        # if not stuff.loc[rsel]["activated"].values[0]:
-                        #    continue  # skip devices that are not selected
-                        pixel_dict["label"] = stuff.loc[rsel]["label"].values[0]
-                        pixel_dict["layout"] = stuff.loc[rsel]["layout"].values[0]
-                        pixel_dict["sub_name"] = stuff.loc[rsel]["system_label"].values[0]
-                        pixel_dict["device_label"] = stuff.loc[rsel]["device_label"].values[0]
-                        mux_index = stuff.loc[rsel]["mux_index"].values[0]
-                        assert mux_index is not None  # catch error case
-                        pixel_dict["pixel"] = int(mux_index)
-                        loc = stuff.loc[rsel]["loc"].values[0]
-                        assert loc is not None  # catch error case
-                        pos = [a + b for a, b in zip(center, loc)]
-                        pixel_dict["pos"] = pos
-                        pixel_dict["mux_string"] = stuff.loc[rsel]["mux_string"].values[0]
-
-                        area = stuff.loc[rsel]["area"].values[0]
-                        if area == -1:  # handle custom area
-                            pixel_dict["area"] = args["a_ovr_spin"]
-                        else:
-                            pixel_dict["area"] = area
-
-                        dark_area = stuff.loc[rsel]["dark_area"].values[0]
-                        if dark_area == -1:  # handle custom dark area
-                            pixel_dict["dark_area"] = args["a_ovr_spin"]
-                        else:
-                            pixel_dict["dark_area"] = dark_area
-
-                        group_dict[smu_index] = pixel_dict
-                if len(group_dict) > 0:
-                    run_q.append(group_dict)
-        else:  # single smu case
-            # here we build up the pixel handling queue by iterating
-            # through the rows of a pandas dataframe
-            # that contains one row for each turned on pixel
-            for things in stuff.to_dict(orient="records"):
-                pixel_dict = {}
-                pixel_dict["label"] = things["label"]
-                pixel_dict["layout"] = things["layout"]
-                pixel_dict["sub_name"] = things["system_label"]
-                pixel_dict["device_label"] = things["device_label"]
-                pixel_dict["pixel"] = int(things["mux_index"])
-                loc = things["loc"]
-                pos = [a + b for a, b in zip(center, loc)]
-                pixel_dict["pos"] = pos
-                if things["area"] == -1:  # handle custom area
-                    pixel_dict["area"] = args["a_ovr_spin"]
-                else:
-                    pixel_dict["area"] = things["area"]
-                pixel_dict["mux_string"] = things["mux_string"]
-                run_q.append({0: pixel_dict})
-
-        return run_q
-
-    def _clear_plot(self, kind):
-        """Publish measurement data.
-
-        Parameters
-        ----------
-        kind : str
-            Kind of measurement data. This is used as a sub-channel name.
-        mqttqp : MQTTQueuePublisher
-            MQTT queue publisher object that publishes measurement data.
-        """
-        self.outq.put({"topic": f"plotter/{kind}/clear", "payload": json.dumps(""), "qos": 2})
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        self.disconnect()
+        return False
 
     # send up a log message to the status channel
-    def send_log_msg(self, record):
+    def send_log_msg(self, record: logging.LogRecord):
         payload = {"level": record.levelno, "msg": record.msg}
         self.outq.put({"topic": "measurement/log", "payload": json.dumps(payload), "qos": 2})
 
-    def suns_voc(self, duration: float, light, sm, intensities: typing.List[int], dh):
-        """do a suns-Voc measurement"""
-        step_time = duration / len(intensities)
-        svt = []
-        for intensity_setpoint in intensities:
-            light.intensity = intensity_setpoint
-            sm.intensity = intensity_setpoint / 100  # tell the simulated device how much light it's getting
-            svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
-        return svt
-
-    def do_iv(self, rid, ss, sm, mppt, dh, compliance_i, dark_compliance_i, args, config, calibration, sweeps, area, dark_area):
-        data = []
-        """parallelizable I-V tasks for use in threads"""
-        with SlothDB(db_uri=config["db"]["uri"]) as db:
-            dh.dbputter = db.putsmdat
-            mppt.current_compliance = compliance_i
-
-            # "Voc" if
-            if (args["i_dwell"] > 0) and args["i_dwell_check"]:
-                if self.killer.is_set():
-                    self.lg.debug("Killed by killer.")
-                    return []
-
-                ss_args = {}
-                ss_args["sourceVoltage"] = False
-                if ("ccd" in config) and ("max_voltage" in config["ccd"]):
-                    ss_args["compliance"] = config["ccd"]["max_voltage"]
-                ss_args["setPoint"] = args["i_dwell_value"]
-                # NOTE: "a" (auto range) can possibly cause unknown delays between points
-                # but that's okay here because timing between points isn't
-                # super important with steady state measurements
-                ss_args["senseRange"] = "a"
-
-                sm.setupDC(**ss_args)  # initialize the SMU hardware for a steady state measurement
-
-                svoc_steps = int(abs(args["suns_voc"]))  # number of suns-Voc steps we might take
-                svoc_step_threshold = 2  # must request at least this many steps before the measurement turns on
-                if svoc_steps > svoc_step_threshold:  # suns-Voc is enabled (either up or down)
-                    int_min = 10  # minimum settable intensity
-                    int_max = args["light_recipe_int"]  # the highest intensity we'll go to
-                    int_rng = int_max - int_min  # the magnitude of the range we'll sweep over
-                    int_step_size = int_rng / (svoc_steps - 2)  # how big the intensity steps will be
-                    intensities = [0, 10]  # values for the first two intensity steps
-                    intensities += [round(int_min + (x + 1) * int_step_size) for x in range(svoc_steps - 2)]  # values for the rest of the intensity steps
-                else:
-                    intensities = []
-
-                if args["suns_voc"] < -svoc_step_threshold:  # suns-voc is up
-                    self.lg.debug(f"Doing upwards suns-Voc for {args['i_dwell']} seconds.")
-                    if calibration == False:
-                        kind = "vt_measurement"
-                        dh.kind = kind
-                        self._clear_plot(kind)
-
-                    # db prep
-                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                    deets["fixed"] = en.Fixed.VOLTAGE
-                    deets["setpoint"] = ss_args["setPoint"]
-                    deets["isetpoints"] = intensities
-                    db.upsert(f"{db.schema}.tbl_isweep_events", deets, eid)  # save event details
-                    db.eid = eid  # register event id for datahandler
-                    svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
-                    db.eid = None  # unregister event id
-                    db.complete_event(eid)  # mark light sweep as done
-                    data += svtb  # keep the data
-
-                ss.lit = True  # Voc needs light
-                self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
-                if calibration == False:
-                    kind = "vt_measurement"
-                    dh.kind = kind
-                    self._clear_plot(kind)
-                # db prep
-                eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                deets["fixed"] = en.Fixed.CURRENT
-                deets["setpoint"] = ss_args["setPoint"]
-                db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
-                db.eid = eid  # register event id for datahandler
-                vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
-                db.eid = None  # unregister event id
-                db.complete_event(eid)  # mark ss event as done
-                data += vt
-
-                # if this was at Voc, use the last measurement as estimate of Voc
-                if (args["i_dwell_value"] == 0) and (len(vt) > 1):
-                    ssvoc = vt[-1][0]
-                else:
-                    ssvoc = None
-
-                if args["suns_voc"] > svoc_step_threshold:  # suns-voc is up
-                    self.lg.debug(f"Doing downwards suns-Voc for {args['i_dwell']} seconds.")
-                    if calibration == False:
-                        kind = "vt_measurement"
-                        dh.kind = kind
-                        self._clear_plot(kind)
-                    intensities_reversed = intensities[::-1]
-                    # db prep
-                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                    deets["fixed"] = en.Fixed.VOLTAGE
-                    deets["setpoint"] = ss_args["setPoint"]
-                    deets["isetpoints"] = intensities_reversed
-                    db.upsert(f"{db.schema}.tbl_isweep_events", deets, eid)  # save event details
-                    db.eid = eid  # register event id for datahandler
-                    svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
-                    db.eid = None  # unregister event id
-                    db.complete_event(eid)  # mark light sweep as done
-                    data += svta
-                    sm.intensity = 1  # reset the simulated device's intensity
-            else:
-                ssvoc = None
-
-            # perform sweeps
-            for sweep in sweeps:
-                if self.killer.is_set():
-                    self.lg.debug("Killed by killer.")
-                    return data
-                self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
-                # sweeps may or may not need light
-                if sweep == "dark":
-                    ss.lit = False
-                    sm.dark = True
-                    sweep_current_limit = dark_compliance_i
-                else:
-                    ss.lit = True
-                    sm.dark = False
-                    sweep_current_limit = compliance_i
-
-                if calibration == False:
-                    kind = "iv_measurement/1"
-                    dh.kind = kind
-                    dh.sweep = sweep
-                    self._clear_plot("iv_measurement")
-
-                sweep_args = {}
-                sweep_args["sourceVoltage"] = True
-                sweep_args["senseRange"] = "f"
-                sweep_args["compliance"] = sweep_current_limit
-                sweep_args["nPoints"] = int(args["iv_steps"])
-                sweep_args["stepDelay"] = args["source_delay"] / 1000
-                sweep_args["start"] = args["sweep_start"]
-                sweep_args["end"] = args["sweep_end"]
-                sm.setupSweep(**sweep_args)
-
-                # db prep
-                eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}'}
-                deets["fixed"] = en.Fixed.VOLTAGE
-                deets["n_points"] = sweep_args["nPoints"]
-                deets["from_setpoint"] = sweep_args["start"]
-                deets["to_setpoint"] = sweep_args["end"]
-                deets["area"] = area
-                deets["dark_area"] = dark_area
-                if sweep == "dark":
-                    deets["light"] = False
-                else:
-                    deets["light"] = True
-                db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
-                iv1 = sm.measure(sweep_args["nPoints"])
-                db.putsmdat(iv1, eid)
-                db.complete_event(eid)  # mark event as done
-                dh.handle_data(iv1, dodb=False)
-                data += iv1
-
-                # register this curve with the mppt
-                mppt.register_curve(iv1, light=(sweep == "light"))
-
-                if args["return_switch"] == True:
-                    if self.killer.is_set():
-                        self.lg.debug("Killed by killer.")
-                        return data
-                    self.lg.debug(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
-
-                    if calibration == False:
-                        kind = "iv_measurement/2"
-                        dh.kind = kind
-                        dh.sweep = sweep
-
-                    sweep_args = {}
-                    sweep_args["sourceVoltage"] = True
-                    sweep_args["senseRange"] = "f"
-                    sweep_args["compliance"] = sweep_current_limit
-                    sweep_args["nPoints"] = int(args["iv_steps"])
-                    sweep_args["stepDelay"] = args["source_delay"] / 1000
-                    sweep_args["start"] = args["sweep_end"]
-                    sweep_args["end"] = args["sweep_start"]
-                    sm.setupSweep(**sweep_args)
-
-                    eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}'}
-                    deets["fixed"] = en.Fixed.VOLTAGE
-                    deets["n_points"] = sweep_args["nPoints"]
-                    deets["from_setpoint"] = sweep_args["start"]
-                    deets["to_setpoint"] = sweep_args["end"]
-                    deets["area"] = area
-                    deets["dark_area"] = dark_area
-                    if sweep == "dark":
-                        deets["light"] = False
-                    else:
-                        deets["light"] = True
-                    db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
-                    iv2 = sm.measure(sweep_args["nPoints"])
-                    db.putsmdat(iv2, eid)
-                    db.complete_event(eid)  # mark event as done
-                    dh.handle_data(iv2, dodb=False)
-                    data += iv2
-
-                    mppt.register_curve(iv2, light=(sweep == "light"))
-
-            # TODO: read and interpret parameters for smart mode
-            dh.sweep = ""  # not a sweep
-
-            # mppt if
-            if (args["mppt_check"]) and (args["mppt_dwell"] > 0):
-                if self.killer.is_set():
-                    self.lg.debug("Killed by killer.")
-                    return data
-                self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
-                # mppt needs light
-                ss.lit = True
-
-                if calibration == False:
-                    kind = "mppt_measurement"
-                    dh.kind = kind
-                    self._clear_plot(kind)
-
-                if ssvoc is not None:
-                    # tell the mppt what our measured steady state Voc was
-                    mppt.Voc = ssvoc
-
-                mppt_args = {}
-                mppt_args["duration"] = args["mppt_dwell"]
-                mppt_args["NPLC"] = args["nplc"]
-                mppt_args["extra"] = args["mppt_params"]
-                mppt_args["callback"] = dh.handle_data
-                if ("ccd" in config) and ("max_voltage" in config["ccd"]):
-                    mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
-                mppt_args["i_limit"] = compliance_i
-                mppt_args["area"] = area
-
-                eid = db.new_event(rid, en.Event.MPPT, sm.address)  # register new mppt event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                deets["algorithm"] = args["mppt_params"]
-                db.upsert(f"{db.schema}.tbl_mppt_events", deets, eid)  # save event details
-                db.eid = eid  # register event id for datahandler
-                (mt, vt) = mppt.launch_tracker(**mppt_args)
-                db.eid = None  # unregister event id
-                db.complete_event(eid)  # mark event as done
-                mppt.reset()
-
-                # reset nplc because the mppt can mess with it
-                if args["nplc"] != -1:
-                    sm.setNPLC(args["nplc"])
-
-                # in the case where we had to do a brief Voc in the mppt because we were running it blind,
-                # send that data to the handler
-                if (calibration == False) and (len(vt) > 0):
-                    dh.kind = "vtmppt_measurement"
-                    eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                    deets["fixed"] = en.Fixed.CURRENT
-                    deets["setpoint"] = 0.0
-                    db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
-                    db.eid = eid  # register event id for datahandler
-                    for d in vt:  # simulate the ssvoc measurement from the voc data returned by the mpp tracker
-                        dh.handle_data([d])
-                    db.eid = None  # unregister event id
-                    db.complete_event(eid)  # mark ss event as done
-
-                data += vt
-                data += mt
-
-            # "J_sc" if
-            if (args["v_dwell_check"]) and (args["v_dwell"] > 0):
-                if self.killer.is_set():
-                    self.lg.debug("Killed by killer.")
-                    return data
-                self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
-                # jsc needs light
-                ss.lit = True
-
-                if calibration == False:
-                    kind = "it_measurement"
-                    dh.kind = kind
-                    self._clear_plot(kind)
-
-                ss_args = {}
-                ss_args["sourceVoltage"] = True
-                ss_args["compliance"] = compliance_i
-                ss_args["setPoint"] = args["v_dwell_value"]
-                ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
-
-                sm.setupDC(**ss_args)
-                eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                deets["fixed"] = en.Fixed.VOLTAGE
-                deets["setpoint"] = ss_args["setPoint"]
-                db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
-                db.eid = eid  # register event id for datahandler
-                it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
-                db.eid = None  # unregister event id
-                db.complete_event(eid)  # mark ss event as done
-                data += it
-
-        return data
-
-    def send_spectrum(self, ss):
-        try:
-            intensity_setpoint = int(ss.get_intensity())
-            wls, counts = ss.get_spectrum()
-            data = [[wl, count] for wl, count in zip(wls, counts)]
-            spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
-            self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
-            if intensity_setpoint != 100:
-                # now do it again to make sure we have a record of the 100% baseline
-                ss.set_intensity(100)
-                wls, counts = ss.get_spectrum()
-                data = [[wl, count] for wl, count in zip(wls, counts)]
-                spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
-                self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
-                ss.set_intensity(intensity_setpoint)
-        except Exception as e:
-            self.lg.debug("Failure to collect spectrum data: {e}")
-
-    def _ivt(self, run_queue, request, measurement, calibration=False, rtd=False):
-        """Run through pixel queue of i-v-t measurements.
-
-        Paramters
-        ---------
-        pixel_queue : deque of dict
-            Queue of dictionaries of pixels to measure.
-        request : dict
-            Experiment arguments.
-        measurement : measurement logic object
-            Object controlling instruments and measurements.
-        mqttc : MQTTQueuePublisher
-            MQTT queue publisher client.
-        dummy : bool
-            Flag for dummy mode using virtual instruments.
-        calibration : bool
-            Calibration flag.
-        rtd : bool
-            RTD flag for type of calibration. Used for reporting.
-        """
-
-        if "config" in request:
-            config = request["config"]
-        else:
-            config = {}
-
-        if "args" in request:
-            args = request["args"]
-        else:
-            args = {}
-
-        if self.killer.is_set():
-            self.lg.debug("Killed by killer.")
-            return
-
-        # turbo (multiSMU) mode
-        turbo_mode = True  # by default use all SMUs available
-        if ("turbo_mode" in args) and (args["turbo_mode"] == False):
-            turbo_mode = False
-
-        # connect instruments
-        ci_args = {}  # the following construct lets the below connect_instruments call work even when config has missing fields
-        gp_pcb_is_fake = False
-        gp_pcb_address = None
-        motion_pcb_is_fake = False
-        motion_address = None
-        if "controller" in config:
-            if ("enabled" not in config["controller"]) or (config["controller"]["enabled"] != False):
-                if "virtual" in config["controller"]:
-                    ci_args["pcb_virt"] = config["controller"]["virtual"]
-                    gp_pcb_is_fake = config["controller"]["virtual"]
-                if "address" in config["controller"]:
-                    ci_args["pcb_address"] = config["controller"]["address"]
-                    gp_pcb_address = config["controller"]["address"]
-        if "stage" in config:
-            if ("enabled" not in config["stage"]) or (config["stage"]["enabled"] != False):
-                if "virtual" in config["stage"]:
-                    ci_args["motion_virt"] = config["stage"]["virtual"]
-                    motion_pcb_is_fake = config["stage"]["virtual"]
-                if "uri" in config["stage"]:
-                    ci_args["motion_address"] = config["stage"]["uri"]
-                    motion_address = config["stage"]["uri"]
-
-        # check gui overrides
-        if ("enable_stage" in args) and (args["enable_stage"] == False):
-            motion_address = None
-            motion_pcb_is_fake = False
-            if "motion_address" in ci_args:
-                del ci_args["motion_address"]
-            if "motion_virt" in ci_args:
-                del ci_args["motion_virt"]
-
-        measurement.connect_instruments(**ci_args)  # connect some instruments
-
-        smucfgs = request["config"]["smu"]  # the smu configs
-        for smucfg in smucfgs:
-            smucfg["print_speep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
-        sscfg = request["config"]["solarsim"]  # the solar sim config
-        sscfg["active_recipe"] = request["args"]["light_recipe"]  # throw in recipe
-        sscfg["intensity"] = request["args"]["light_recipe_int"]  # throw in configured intensity
-
-        with contextlib.ExitStack() as stack:  # big context manager
-            # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
-            db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
-
-            # user validation
-            user = request["args"]["user_name"]
-            uidfetch = db.get(f"{db.schema}.tbl_users", ("id",), f"name = '{user}'")
-            # get userid (via new registration if needed)
-            if uidfetch == []:  # user does not exist
-                uid = db.new_user(user)  # register new
-            else:
-                # user exists
-                uid = uidfetch[0][0]
-                active = db.get(f"{db.schema}.tbl_users", ("active",), f"id = {uid}")[0][0]
-                if active is False:
-                    uid = -1
-                    raise ValueError(f"{user} is not a valid user name")
-
-            smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
-            ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
-
-            rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
-            for sm in smus:
-                sm.killer = self.killer  # register the kill signal
-            mppts = [mppt.mppt(sm, killer=self.killer) for sm in smus]  # spin up all the max power point trackers
-
-            self.send_spectrum(ss)  # record spectrum data
-
-            fake_pcb = measurement.fake_pcb
-            inner_pcb = measurement.fake_pcb
-            inner_init_args = {}
-            if gp_pcb_address is not None:
-                if (motion_pcb_is_fake == False) or (gp_pcb_is_fake == False):
-                    inner_pcb = measurement.real_pcb
-                    inner_init_args["timeout"] = 5
-                    inner_init_args["address"] = gp_pcb_address
-                    inner_init_args["expected_muxes"] = config["controller"]["expected_muxes"]
-            with fake_pcb() as fake_p:
-                with inner_pcb(**inner_init_args) as inner_p:
-                    if gp_pcb_is_fake == True:
-                        gp_pcb = fake_p
-                    else:
-                        gp_pcb = inner_p
-
-                    if motion_address is not None:
-                        if motion_pcb_is_fake == gp_pcb_is_fake:
-                            mo = measurement.motion(motion_address, pcb_object=gp_pcb)
-                        elif motion_pcb_is_fake == True:
-                            mo = measurement.motion(motion_address, pcb_object=fake_p)
-                        else:
-                            mo = measurement.motion(motion_address, pcb_object=inner_p)
-                        mo.connect()
-                    else:
-                        mo = None
-
-                    # figure out what the sweeps will be like
-                    sweeps = []
-                    if args["sweep_check"] == True:
-                        # detmine type of sweeps to perform
-                        s = args["lit_sweep"]
-                        if s == 0:
-                            sweeps = ["dark", "light"]
-                        elif s == 1:
-                            sweeps = ["light", "dark"]
-                        elif s == 2:
-                            sweeps = ["dark"]
-                        elif s == 3:
-                            sweeps = ["light"]
-
-                    # set NPLC
-                    if args["nplc"] != -1:
-                        [sm.setNPLC(args["nplc"]) for sm in smus]
-
-                    # deselect all pixels
-                    measurement.select_pixel(mux_string="s", pcb=gp_pcb)
-
-                    if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
-                        # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
-                        unwrapped_run_queue = collections.deque()
-                        for thing in run_queue:
-                            for key, val in thing.items():
-                                unwrapped_run_queue.append({key: val})
-                        run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
-
-                    start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
-                    if args["cycles"] != 0:
-                        run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
-                        p_total = len(run_queue)
-                    else:
-                        p_total = float("inf")
-                    remaining = p_total
-                    n_done = 0
-                    t0 = time.time()
-
-                    while (remaining > 0) and (not self.killer.is_set()):
-                        q_item = run_queue.popleft()
-
-                        dt = time.time() - t0
-                        if (n_done > 0) and (args["cycles"] != 0):
-                            tpp = dt / n_done  # recalc time per pixel
-                            finishtime = time.time() + tpp * remaining
-                            finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                            human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                            fraction = n_done / p_total
-                            text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                            progress_msg = {"text": text, "fraction": fraction}
-                            self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
-
-                        n_parallel = len(q_item)  # how many pixels this group holds
-                        dev_labels = [val["device_label"] for key, val in q_item.items()]
-                        print_label = " + ".join(dev_labels)
-                        theres = np.array([val["pos"] for key, val in q_item.items()])
-                        self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
-                        if n_parallel > 1:
-                            there = tuple(theres.mean(0))  # the average location of the group
-                        else:
-                            there = theres[0]
-
-                        self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {print_label}")
-
-                        # set up light source voting/synchronization (if any)
-                        ss.n_sync = n_parallel
-
-                        # move stage
-                        if mo is not None:
-                            if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
-                                # force light off for motion if configured
-                                if "off_during_motion" in config["solarsim"]:
-                                    if config["solarsim"]["off_during_motion"] is True:
-                                        ss.apply_intensity(0)
-                                mo.goto(there)
-
-                        # select pixel(s)
-                        pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
-                        measurement.select_pixel(mux_string=pix_selection_strings, pcb=gp_pcb)
-
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
-                            futures = {}
-
-                            for smu_index, pixel in q_item.items():
-                                # setup data handler
-                                if calibration == False:
-                                    dh = DataHandler(pixel=pixel, outq=self.outq)
-                                else:
-                                    dh = self.Dummy()
-                                    dh.handle_data = lambda x: None  # type: ignore
-
-                                # get or estimate compliance current
-                                compliance_i = measurement.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
-                                dark_compliance_i = measurement.compliance_current_guess(area=pixel["dark_area"], jmax=args["jmax"], imax=args["imax"])
-
-                                smus[smu_index].area = pixel["area"]  # type: ignore # set virtual smu scaling
-
-                                # submit for processing
-                                futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, dark_compliance_i, args, config, calibration, sweeps, pixel["area"], pixel["dark_area"])
-
-                            # collect the results
-                            for smu_index, future in futures.items():
-                                data = future.result()
-                                smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
-                                measurement.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=gp_pcb)  # disconnect this substrate
-                                if calibration == True:
-                                    diode_dict = {"data": data, "timestamp": time.time(), "diode": f"{q_item[smu_index]['label']}_device_{q_item[smu_index]['pixel']}"}
-                                    if rtd == True:
-                                        self.lg.debug("RTD cal")
-                                        self.outq.put({"topic": "calibration/rtz", "payload": json.dumps(diode_dict), "qos": 2})
-                                    else:
-                                        self.outq.put({"topic": "calibration/solarsim_diode", "payload": json.dumps(diode_dict), "qos": 2})
-
-                        n_done += 1
-                        remaining = len(run_queue)
-                        if (remaining == 0) and (args["cycles"] == 0):
-                            run_queue = start_q.copy()
-                            remaining = len(run_queue)
-                            # refresh the deque to loop forever
-
-                    progress_msg = {"text": "Done!", "fraction": 1}
-                    self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
-                    self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
-
-            db.complete_run(rid)  # mark run as complete
-            db.vac()  # mantain db
-
-            # don't leave the light on!
-            ss.apply_intensity(0)
-
-    def _run(self, request):
-        """Act on command line instructions.
-
-        Parameters
-        ----------
-        request : dict
-            Request dictionary sent to the server.
-        mqtthost : str
-            MQTT broker IP address or hostname.
-        dummy : bool
-            Flag for dummy mode using virtual instruments.
-        """
-        self.lg.debug("Running measurement...")
-
-        user_aborted = False
-
-        args = request["args"]
-
-        if user_aborted == False:
-            try:
-                with Fabric(killer=self.killer) as measurement:
-                    self.lg.log(29, "Starting run...")
-                    try:
-                        i_limits = [x["current_limit"] for x in request["config"]["smu"]]
-                        i_limit = min(i_limits)
-                    except Exception as e:
-                        i_limit = 0.1  # use this default if we can't work out a limit from the configuration
-                    measurement.current_limit = i_limit
-
-                    if "IV_stuff" in args:
-                        q = self._build_q(request, experiment="solarsim")
-                        self._ivt(q, request, measurement)
-
-                    # report complete
-                    self.lg.log(29, "Run complete!")
-
-            except KeyboardInterrupt:
-                pass
-            except Exception as e:
-                traceback.print_exc()
-                self.lg.error(f"RUN ABORTED! " + str(e))
-
-            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
-
     # The callback for when a PUBLISH message is received from the server.
-    def on_message(self, client: mqtt.Client, userdata, msg):
-        self.msg_queue.put_nowait(msg)  # pass this off for msg_handler to deal with
+    def on_message(self, client: mqtt.Client, userdata: typing.Any, msg):
+        """runs when there's a message on"""
+        try:
+            self.inq.put(msg)  # put the message in the incomming queue
+        except Exception as e:
+            self.lg.error(f"Failure handing incomming message: {e}")
 
     # when client connects to broker
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
@@ -1013,77 +140,85 @@ class MQTTClient(object):
     def on_disconnect(self, client: mqtt.Client, userdata, rc):
         self.lg.debug(f"Disconnected from broker with result code {rc}")
 
-    def msg_handler(self):
-        """Handle MQTT messages in the msg queue.
-
-        This function should run in a separate thread, polling the queue for messages.
-
-        Actions that require instrument I/O run in a worker process. Only one action
-        process can run at a time. If an action process is running the server will
-        report that it's busy.
-        """
-        while True:
-            msg = self.msg_queue.get()
-
-            try:
-                request = json.loads(msg.payload.decode())
-                action = msg.topic.split("/")[-1]
-
-                # perform a requested action
-                if action == "run":
-                    if "rundata" in request:
-                        rundata = request["rundata"]
-                        if "digest" in rundata:
-                            remotedigest_str = rundata.pop("digest")
-                            theirdigest = bytes.fromhex(remotedigest_str.removeprefix("0x"))
-                            jrundatab = json.dumps(rundata).encode()
-                            mydigest = hmac.digest(self.hk, jrundatab, "sha1")
-                            if theirdigest == mydigest:
-                                if "args" in rundata:
-                                    args = rundata["args"]
-                                    if "enable_iv" in args:
-                                        if args["enable_iv"] == True:
-                                            try:
-                                                self.lg.setLevel(rundata["config"]["meta"]["internal_loglevel"])
-                                            except:
-                                                self.lg.setLevel(logging.INFO)
-                                            if "slots" in request:  # shoehorn in unvalidated slot info loaded from a tsv file
-                                                rundata["slots"] = request["slots"]
-                                            self.start_process(self._run, (rundata,))
-                elif action == "stop":
-                    self.stop_process()
-                elif action == "quit":
-                    self.msg_queue.task_done()
-                    break
-
-            except Exception as e:
-                self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
-
-            self.msg_queue.task_done()
-
     # relays outgoing messages
     def out_relay(self):
-        while True:
+        """
+        forever gets messages that were put into the output queue and sends them to the broker
+        if this is run as a daemon thread it will be cleaned up when the main process comes to an end
+        """
+        while not self.killer.is_set():
             to_send = self.outq.get()
-            self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
+            try:
+                if to_send == "die":
+                    break
+                else:
+                    self.mqttc.publish(**to_send)
+            except Exception as e:
+                self.lg.error(f"Error publishing message to broker: {e}")
 
-    # starts and maintains mqtt broker connection
-    def mqtt_connector(self, mqttc: mqtt.Client):
-        while True:
-            mqttc.connect(self.mqtthost)
-            mqttc.loop_forever(retry_first_connection=True)
+    def start_loop(self) -> int:
+        """spawn a thread and maintain the mqtt loop in there"""
+        self.mqttc.connect_async(self.host, self.port)
+        try:
+            self.mqttc.loop_start()
+        except Exception as e:
+            self.lg.error(f"Message broker loop start failure: {e}")
+            retcode = -1
+        else:
+            retcode = 0
+        return retcode
+
+    def run_loop(self):
+        """run the blocking mqtt connection maintenance loop"""
+        self.mqttc.connect_async(self.host, self.port)
+        try:
+            self.mqttc.loop_forever()
+        except Exception as e:
+            self.lg.error(f"Message broker loop failure: {e}")
+            self.retcode = -5
+
+    def disconnect(self):
+        """disconnects from the message broker"""
+        self.killer.set()
+        self.outq.put("die")  # ask the out_relay to stop
+        try:
+            self.mqttc.disconnect()
+        except:
+            pass
+        try:
+            self.mqttc.loop_stop()
+        except:
+            pass
+        for worker in self.workers:
+            try:
+                worker.join(1.0)
+            except:
+                pass
 
     def run(self) -> int:
-        # start the mqtt connector thread
-        threading.Thread(target=self.mqtt_connector, args=(self.mqttc,), daemon=True).start()
+        """runs one handler in a thread and the main mqtt loop in the forground.
+        blocks forever (or until .disconnect() is called)"""
 
-        # start the out relay thread
-        threading.Thread(target=self.out_relay, daemon=True).start()
+        # start the outq handler thread (sends messages to the broker)
+        self.workers.append(threading.Thread(target=self.out_relay, daemon=True))
+        self.workers[-1].start()
 
-        # start the message handler
-        self.msg_handler()
+        # begin mqtt loop maintanince (blocks here)
+        self.run_loop()
 
         return self.retcode
+
+    def start(self):
+        """starts the mqtt connection nonblockingly in two threads"""
+        # start the outq handler thread (sends messages to the broker)
+        self.workers.append(threading.Thread(target=self.out_relay, daemon=True))
+        self.workers[-1].start()
+
+        self.start_loop()  # TODO: see if we can find the thread here...
+
+    def execute(self, executer: Executor):
+        """run this via an external Executer"""
+        pass
 
 
 if __name__ == "__main__":

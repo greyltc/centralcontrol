@@ -39,9 +39,9 @@ class mppt:
 
     sm: smapi
 
-    def __init__(self, sm: smapi, absolute_current_limit=0.1, killer: tEvent | mEvent = tEvent()):
+    def __init__(self, sm: smapi, absolute_current_limit=0.1):
         self.sm = sm
-        self.killer = killer
+        self.killer = sm.killer
 
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
         self.absolute_current_limit = abs(absolute_current_limit)

@@ -1,5 +1,4 @@
 """central control package"""
-from centralcontrol.mqtt import MQTTClient
 from centralcontrol.fabric import Fabric
 import argparse
 
@@ -12,6 +11,7 @@ class CentralControl(object):
         pass
 
     def mqtt_cli(self):
+        """gather mqtt specific params from the user"""
         default_mqtt_server_host = "127.0.0.1:1883"
         default_mqtt_server_port = 1883
 
@@ -33,14 +33,21 @@ class CentralControl(object):
             self.run_params["mqttport"] = default_mqtt_server_port
 
     def mqtt_run(self) -> int:
-        mc = MQTTClient(mqtthost=self.run_params["mqtthost"], port=self.run_params["mqttport"])
-        self.exitcode = mc.run()
+        """run the server in mqtt mode"""
+        f = Fabric()
+        # set the connection parameters
+        f.mqttargs["host"] = self.run_params["mqtthost"]
+        f.mqttargs["port"] = self.run_params["mqttport"]
+        # mc = MQTTClient(mqtthost=self.run_params["mqtthost"], port=self.run_params["mqttport"])
+        self.exitcode = f.run()
         return self.exitcode
 
     def cli(self):
+        """gather params from the user via the command line"""
         self.mqtt_cli()
 
     def run(self) -> int:
+        """run the program"""
         self.exitcode = self.mqtt_run()
         return self.exitcode
 
