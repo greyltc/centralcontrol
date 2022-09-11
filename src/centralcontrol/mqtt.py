@@ -103,7 +103,7 @@ class MQTTClient(object):
     lg: logging.Logger
 
     # listen to this for kill signals
-    killer: tEvent | mEvent
+    killer: tEvent | mEvent = multiprocessing.Event()
 
     class Dummy(object):
         pass
