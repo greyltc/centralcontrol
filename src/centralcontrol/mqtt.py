@@ -173,15 +173,22 @@ class MQTTClient(object):
     def stop_process(self):
         """Stop a running process."""
 
-        if self.process.is_alive() == True:
+        if self.process.is_alive():
             self.lg.debug("Setting killer")
-            self.killer.set()
-            join_timeout = 5  # give the killer signal this many seconds to do this gracefully
-            self.process.join(join_timeout)
+            self.killer.set()  # ask extremely nicely for the process to come to conclusion
+            self.process.join(5.0)
+            if self.process.is_alive():
+                self.process.terminate()  # politely tell the process to end
+                self.process.join(2.0)
             if self.process.is_alive():
                 if self.process.pid:
-                    os.kill(self.process.pid, signal.SIGINT)  # go one level up in abrasiveness
+                    os.kill(self.process.pid, signal.SIGINT)  # forcefully interrupt the process
+                    self.process.join(2.0)
                     self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGINT")
+            if self.process.is_alive():
+                self.process.kill()  # kill the process
+                self.process.join(2.0)
+                self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGKILL")
             self.killer.clear()
             self.lg.debug(f"{self.process.is_alive()=}")
             self.lg.log(29, "Request to stop completed!")

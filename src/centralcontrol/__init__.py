@@ -1,5 +1,6 @@
 """central control package"""
 from centralcontrol.mqtt import MQTTClient
+from centralcontrol.fabric import Fabric
 import argparse
 
 
@@ -36,11 +37,18 @@ class CentralControl(object):
         self.exitcode = mc.run()
         return self.exitcode
 
+    def cli(self):
+        self.mqtt_cli()
+
+    def run(self) -> int:
+        self.exitcode = self.mqtt_run()
+        return self.exitcode
+
 
 def main() -> int:
     cc = CentralControl()
-    cc.mqtt_cli()
-    cc.mqtt_run()
+    cc.cli()
+    cc.run()
     return cc.exitcode
 
 
