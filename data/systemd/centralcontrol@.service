@@ -1,9 +1,9 @@
 [Unit]
-Description=The Utility Handler service
+Description=The measurement run handler service
 
 [Service]
 Environment=PYTHONUNBUFFERED=tomato_casserol
-ExecStart=/usr/bin/utility-handler --address %i
+ExecStart=/usr/bin/centralcontrol --mqtthost %i
 Restart=always
 RestartSec=3
 PrivateTmp=true

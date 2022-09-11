@@ -4,16 +4,18 @@
 # wl_port (defaults to 3334) and for connections from solar sim control clients on port coltrol_port (defaults to 3335)
 # communication messages are relayed to/from the control clients and the WaveLabs software
 import socketserver
+import selectors
+import socket
 
 # global selector
-sel = socketserver.selectors.DefaultSelector()
+sel = selectors.DefaultSelector()
 
 
 def accept(sock):
     conn, addr = sock.accept()  # accept the initial connection
     print("Accepted new connection: {:} from ip {:}".format(conn, addr))
     conn.setblocking(False)
-    sel.register(conn, socketserver.selectors.EVENT_READ, get_data)
+    sel.register(conn, selectors.EVENT_READ, get_data)
     return conn
 
 
@@ -46,11 +48,11 @@ def main():
 
     # setup a server for connections from WaveLabs
     wl_server = setupServer(listen_ip, wl_port)
-    sel.register(wl_server.socket, socketserver.selectors.EVENT_READ, accept)
+    sel.register(wl_server.socket, selectors.EVENT_READ, accept)
 
     # setup a server for connections from control client software
     control_server = setupServer(listen_ip, control_port)
-    sel.register(control_server.socket, socketserver.selectors.EVENT_READ, accept)
+    sel.register(control_server.socket, selectors.EVENT_READ, accept)
 
     wl_conn = None
     control_conn = None
@@ -59,7 +61,7 @@ def main():
         for key, mask in events:
             callback = key.data
             callback_return = callback(key.fileobj)
-            if isinstance(callback_return, socketserver.socket.socket):
+            if isinstance(callback_return, socket.socket):
                 # this was a new connection
                 conn = callback_return
                 port = conn.getsockname()[1]
@@ -75,12 +77,14 @@ def main():
                     if port == wl_port and data:
                         # new WaveLabs data to echo to control client
                         try:
+                            assert control_conn is not None
                             control_conn.sendall(data)
                         except:
                             print("WARNING: Unable to relay WaveLabs client data to control client")
                     if port == control_port and data:
                         # new control data to echo to WaveLabs client
                         try:
+                            assert wl_conn is not None
                             wl_conn.sendall(data)
                         except:
                             print("WARNING: Unable to relay control client data to WaveLabs client")

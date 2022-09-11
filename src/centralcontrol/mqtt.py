@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""MQTT Server for interacting with the system."""
+"""MQTT Client to facilitate tx/rxing messages from the broker"""
 
-from pathlib import Path
 import sys
-import argparse
 import collections
 import multiprocessing
 import concurrent.futures
@@ -24,7 +22,11 @@ import pandas as pd
 from slothdb.dbsync import SlothDBSync as SlothDB
 from slothdb import enums as en
 
+from threading import Event as tEvent
+from multiprocessing.synchronize import Event as mEvent
+
 from centralcontrol import illumination, mppt, sourcemeter
+from centralcontrol.fabric import Fabric
 
 import logging
 import typing
@@ -38,12 +40,10 @@ except ImportError:
 import paho.mqtt.client as mqtt
 
 # this boilerplate code allows this module to be run directly as a script
-if (__name__ == "__main__") and (__package__ in [None, ""]):
-    __package__ = "centralcontrol"
-    # get the dir that holds __package__ on the front of the search path
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from .fabric import Fabric
+# if (__name__ == "__main__") and (__package__ in [None, ""]):
+#    __package__ = "centralcontrol"
+#    # get the dir that holds __package__ on the front of the search path
+#    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 class DataHandler(object):
@@ -78,7 +78,7 @@ class DataHandler(object):
         self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
 
 
-class MQTTServer(object):
+class MQTTClient(object):
     # for outgoing messages
     outq = multiprocessing.Queue()
 
@@ -88,16 +88,27 @@ class MQTTServer(object):
     # long tasks get their own process
     process = multiprocessing.Process()
 
-    # signal that tells stuff to die
-    # can be switched to threading.Event()
-    # if we stop using the multiprocessing module
-    killer = multiprocessing.Event()
+    # return code
+    retcode = 0
+
     hk = "gosox".encode()
+
+    mqtthost: str
+    port: int
+
+    client_id: str
+
+    mqttc: mqtt.Client
+
+    lg: logging.Logger
+
+    # listen to this for kill signals
+    killer: tEvent | mEvent
 
     class Dummy(object):
         pass
 
-    def __init__(self, mqtthost="127.0.01"):
+    def __init__(self, mqtthost="127.0.0.1", port=1883):
         # setup logging
         logname = __name__
         if __package__ in __name__:
@@ -127,6 +138,7 @@ class MQTTServer(object):
                 self.lg.addHandler(ch)
 
         self.mqtthost = mqtthost
+        self.port = port
 
         # create mqtt client id
         self.client_id = f"measure-{uuid.uuid4().hex}"
@@ -1049,12 +1061,12 @@ class MQTTServer(object):
             self.mqttc.publish(**to_send).wait_for_publish()  # TODO: test removal of publish wait
 
     # starts and maintains mqtt broker connection
-    def mqtt_connector(self, mqttc):
+    def mqtt_connector(self, mqttc: mqtt.Client):
         while True:
             mqttc.connect(self.mqtthost)
             mqttc.loop_forever(retry_first_connection=True)
 
-    def run(self):
+    def run(self) -> int:
         # start the mqtt connector thread
         threading.Thread(target=self.mqtt_connector, args=(self.mqttc,), daemon=True).start()
 
@@ -1064,16 +1076,8 @@ class MQTTServer(object):
         # start the message handler
         self.msg_handler()
 
-
-def run_cli():
-    """Get arguments parsed from the command line."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mqtthost", default="127.0.0.1", const="127.0.0.1", nargs="?", help="IP address or hostname of MQTT broker.")
-    args = parser.parse_args()
-    ms = MQTTServer(mqtthost=args.mqtthost)
-    ms.run()
+        return self.retcode
 
 
-# required when using multiprocessing in windows, advised on other platforms
 if __name__ == "__main__":
-    run_cli()
+    sys.exit(MQTTClient().run())

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""High level experiment functions."""
 
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
@@ -16,7 +15,7 @@ except:
 
 
 class Fabric(object):
-    """Experiment control logic."""
+    """High level experiment control logic"""
 
     # current_limit = float("inf")
     current_limit = 0.1  # always safe default
