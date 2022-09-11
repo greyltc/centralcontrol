@@ -2,22 +2,22 @@ import unittest
 import collections
 
 from centralcontrol.fabric import Fabric
-from centralcontrol.mqtt_server import MQTTServer
+from centralcontrol.mqtt import MQTTClient
 
 
-class MqttServerTestCase(unittest.TestCase):
-    """testing for centralcontrol mqtt_server"""
+class MqttClientTestCase(unittest.TestCase):
+    """testing for centralcontrol's mqtt.MQTTClient"""
 
     def test_init(self):
-        """test mqtt_server initilization"""
+        """test MQTTClient initilization"""
 
-        m = MQTTServer()
-        self.assertIsInstance(m, MQTTServer)
+        mc = MQTTClient()
+        self.assertIsInstance(mc, MQTTClient)
 
     def test_fake_ivt(self):
         """checks that a fake IV experiment can be run"""
-        m = MQTTServer()
-        with Fabric(killer=m.killer) as f:
+        mc = MQTTClient()
+        with Fabric(killer=mc.killer) as f:
             # form a fake pixel queue
             run_q = collections.deque()
             group_dict = {}
@@ -102,9 +102,9 @@ class MqttServerTestCase(unittest.TestCase):
             request["args"] = args
 
             # run the experiment
-            m._ivt(run_q, request, f)
+            mc._ivt(run_q, request, f)
 
     def test_full_cli_run(self):
         """just start a normal CLI run (runs forever)"""
-        m = MQTTServer()
-        m.run()
+        mc = MQTTClient()
+        mc.run()
