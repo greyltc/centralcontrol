@@ -118,7 +118,7 @@ class Fabric(object):
     @contextlib.contextmanager
     def context(self, comms: MQTTClient):
         # hook up the comms output queue
-        self.outq = comms.outq
+        self.outq = comms.outq  # TODO: fix the screwed up process output queue relay
 
         # hook into the comms logger
         for handler in comms.lg.handlers:
@@ -260,19 +260,18 @@ class Fabric(object):
 
         return ret_val
 
-    def select_pixel(self, mux_string=None, pcb=None):
+    def select_pixel(self, pcb: MC | virt.FakeMC, mux_string=None):
         """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
-        if pcb is not None:
-            if mux_string is None:
-                mux_string = ["s"]  # empty call disconnects everything
+        if mux_string is None:
+            mux_string = ["s"]  # empty call disconnects everything
 
-            # ensure we have a list
-            if isinstance(mux_string, str):
-                selection = [mux_string]
-            else:
-                selection = mux_string
+        # ensure we have a list
+        if isinstance(mux_string, str):
+            selection = [mux_string]
+        else:
+            selection = mux_string
 
-            pcb.set_mux(selection)
+        pcb.set_mux(selection)
 
     def standard_routine(self, run_queue, request):
         """perform the normal measurement routine on a given list of pixels"""
@@ -338,6 +337,12 @@ class Fabric(object):
                     if ("enable_stage" in args) and (args["enable_stage"] == False):
                         mo_enabled = False
 
+        mc_args = {}
+        mc_args["timeout"] = 5
+        mc_args["address"] = mc_address
+        mc_args["expected_muxes"] = mc_expected_muxes
+        mc_args["enabled"] = mc_enabled
+
         smucfgs = request["config"]["smu"]  # the smu configs
         for smucfg in smucfgs:
             smucfg["print_speep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
@@ -363,8 +368,15 @@ class Fabric(object):
                     uid = -1
                     raise ValueError(f"{user} is not a valid user name")
 
+            mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
             smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
             ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
+
+            # setup motion object
+            if fake_mo:
+                mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled)
+            else:
+                mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
 
             rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
             for sm in smus:
@@ -373,131 +385,119 @@ class Fabric(object):
 
             self.send_spectrum(ss)  # record spectrum data
 
-            mc_args = {}
-            mc_args["timeout"] = 5
-            mc_args["address"] = mc_address
-            mc_args["expected_muxes"] = mc_expected_muxes
-            mc_args["enabled"] = mc_enabled
+            # figure out what the sweeps will be like
+            sweeps = []
+            if args["sweep_check"] == True:
+                # detmine type of sweeps to perform
+                s = args["lit_sweep"]
+                if s == 0:
+                    sweeps = ["dark", "light"]
+                elif s == 1:
+                    sweeps = ["light", "dark"]
+                elif s == 2:
+                    sweeps = ["dark"]
+                elif s == 3:
+                    sweeps = ["light"]
 
-            with ThisMC(**mc_args) as mc:
-                if fake_mo:
-                    mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled)
+            # set NPLC
+            if args["nplc"] != -1:
+                [sm.setNPLC(args["nplc"]) for sm in smus]
+
+            # deselect all pixels
+            self.select_pixel(mux_string="s", pcb=mc)
+
+            if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
+                # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
+                unwrapped_run_queue = collections.deque()
+                for thing in run_queue:
+                    for key, val in thing.items():
+                        unwrapped_run_queue.append({key: val})
+                run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
+
+            start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
+            if args["cycles"] != 0:
+                run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
+                p_total = len(run_queue)
+            else:
+                p_total = float("inf")
+            remaining = p_total
+            n_done = 0
+            t0 = time.time()
+
+            while (remaining > 0) and (not self.pkiller.is_set()):
+                q_item = run_queue.popleft()
+
+                dt = time.time() - t0
+                if (n_done > 0) and (args["cycles"] != 0):
+                    tpp = dt / n_done  # recalc time per pixel
+                    finishtime = time.time() + tpp * remaining
+                    finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+                    human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                    fraction = n_done / p_total
+                    text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
+                    progress_msg = {"text": text, "fraction": fraction}
+                    self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+
+                n_parallel = len(q_item)  # how many pixels this group holds
+                dev_labels = [val["device_label"] for key, val in q_item.items()]
+                print_label = " + ".join(dev_labels)
+                theres = np.array([val["pos"] for key, val in q_item.items()])
+                self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
+                if n_parallel > 1:
+                    there = tuple(theres.mean(0))  # the average location of the group
                 else:
-                    mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
+                    there = theres[0]
 
-                # figure out what the sweeps will be like
-                sweeps = []
-                if args["sweep_check"] == True:
-                    # detmine type of sweeps to perform
-                    s = args["lit_sweep"]
-                    if s == 0:
-                        sweeps = ["dark", "light"]
-                    elif s == 1:
-                        sweeps = ["light", "dark"]
-                    elif s == 2:
-                        sweeps = ["dark"]
-                    elif s == 3:
-                        sweeps = ["light"]
+                self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {print_label}")
 
-                # set NPLC
-                if args["nplc"] != -1:
-                    [sm.setNPLC(args["nplc"]) for sm in smus]
+                # set up light source voting/synchronization (if any)
+                ss.n_sync = n_parallel
 
-                # deselect all pixels
-                self.select_pixel(mux_string="s", pcb=mc)
+                # move stage
+                if mo is not None:
+                    if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
+                        # force light off for motion if configured
+                        if "off_during_motion" in config["solarsim"]:
+                            if config["solarsim"]["off_during_motion"] is True:
+                                ss.apply_intensity(0)
+                        mo.goto(there)  # command the stage
 
-                if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
-                    # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
-                    unwrapped_run_queue = collections.deque()
-                    for thing in run_queue:
-                        for key, val in thing.items():
-                            unwrapped_run_queue.append({key: val})
-                    run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
+                # select pixel(s)
+                pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
+                self.select_pixel(mux_string=pix_selection_strings, pcb=mc)
 
-                start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
-                if args["cycles"] != 0:
-                    run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
-                    p_total = len(run_queue)
-                else:
-                    p_total = float("inf")
-                remaining = p_total
-                n_done = 0
-                t0 = time.time()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
+                    futures = {}
 
-                while (remaining > 0) and (not self.pkiller.is_set()):
-                    q_item = run_queue.popleft()
+                    for smu_index, pixel in q_item.items():
+                        # setup data handler
+                        dh = DataHandler(pixel=pixel, outq=self.poutq)
 
-                    dt = time.time() - t0
-                    if (n_done > 0) and (args["cycles"] != 0):
-                        tpp = dt / n_done  # recalc time per pixel
-                        finishtime = time.time() + tpp * remaining
-                        finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                        human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                        fraction = n_done / p_total
-                        text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                        progress_msg = {"text": text, "fraction": fraction}
-                        self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+                        # get or estimate compliance current
+                        compliance_i = self.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
+                        dark_compliance_i = self.compliance_current_guess(area=pixel["dark_area"], jmax=args["jmax"], imax=args["imax"])
 
-                    n_parallel = len(q_item)  # how many pixels this group holds
-                    dev_labels = [val["device_label"] for key, val in q_item.items()]
-                    print_label = " + ".join(dev_labels)
-                    theres = np.array([val["pos"] for key, val in q_item.items()])
-                    self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
-                    if n_parallel > 1:
-                        there = tuple(theres.mean(0))  # the average location of the group
-                    else:
-                        there = theres[0]
+                        smus[smu_index].area = pixel["area"]  # type: ignore # set virtual smu scaling
 
-                    self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {print_label}")
+                        # submit for processing
+                        futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, dark_compliance_i, args, config, sweeps, pixel["area"], pixel["dark_area"])
 
-                    # set up light source voting/synchronization (if any)
-                    ss.n_sync = n_parallel
+                    # collect the results
+                    for smu_index, future in futures.items():
+                        data = future.result()
+                        smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
+                        self.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=mc)  # disconnect this substrate
 
-                    # move stage
-                    if mo is not None:
-                        if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
-                            # force light off for motion if configured
-                            if "off_during_motion" in config["solarsim"]:
-                                if config["solarsim"]["off_during_motion"] is True:
-                                    ss.apply_intensity(0)
-                            mo.goto(there)  # command the stage
-
-                    # select pixel(s)
-                    pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
-                    self.select_pixel(mux_string=pix_selection_strings, pcb=mc)
-
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
-                        futures = {}
-
-                        for smu_index, pixel in q_item.items():
-                            # setup data handler
-                            dh = DataHandler(pixel=pixel, outq=self.poutq)
-
-                            # get or estimate compliance current
-                            compliance_i = self.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
-                            dark_compliance_i = self.compliance_current_guess(area=pixel["dark_area"], jmax=args["jmax"], imax=args["imax"])
-
-                            smus[smu_index].area = pixel["area"]  # type: ignore # set virtual smu scaling
-
-                            # submit for processing
-                            futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, dark_compliance_i, args, config, sweeps, pixel["area"], pixel["dark_area"])
-
-                        # collect the results
-                        for smu_index, future in futures.items():
-                            data = future.result()
-                            smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
-                            self.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=mc)  # disconnect this substrate
-
-                    n_done += 1
+                n_done += 1
+                remaining = len(run_queue)
+                if (remaining == 0) and (args["cycles"] == 0):
+                    run_queue = start_q.copy()
                     remaining = len(run_queue)
-                    if (remaining == 0) and (args["cycles"] == 0):
-                        run_queue = start_q.copy()
-                        remaining = len(run_queue)
-                        # refresh the deque to loop forever
+                    # refresh the deque to loop forever
 
-                progress_msg = {"text": "Done!", "fraction": 1}
-                self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
-                self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
+            progress_msg = {"text": "Done!", "fraction": 1}
+            self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+            self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
 
             db.complete_run(rid)  # mark run as complete
             db.vac()  # mantain db
