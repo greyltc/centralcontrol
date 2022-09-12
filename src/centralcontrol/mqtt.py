@@ -12,7 +12,7 @@ import paho.mqtt.client as mqtt
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 from queue import SimpleQueue as Queue
-from multiprocessing import SimpleQueue as mQueue
+from multiprocessing.queues import SimpleQueue as mQueue
 from concurrent.futures import Executor
 
 # for logging directly to systemd journal if we can
@@ -103,8 +103,8 @@ class MQTTClient(object):
             self.outq = Queue()
         else:  # processes
             self.killer = multiprocessing.Event()
-            self.inq = mQueue()
-            self.outq = mQueue()
+            self.inq = multiprocessing.SimpleQueue()
+            self.outq = multiprocessing.SimpleQueue()
 
         self.lg.debug("Initialized.")
 

@@ -22,7 +22,7 @@ from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 
 from queue import SimpleQueue as Queue
-from multiprocessing import SimpleQueue as mQueue
+from multiprocessing.queues import SimpleQueue as mQueue
 
 from slothdb.dbsync import SlothDBSync as SlothDB
 from slothdb import enums as en
@@ -81,6 +81,9 @@ class Fabric(object):
     # listen to/set this to end everything
     killer: tEvent | mEvent
 
+    # the long running work is done in here
+    process = multiprocessing.Process()
+
     # process killer signal
     pkiller = multiprocessing.Event()
 
@@ -88,7 +91,7 @@ class Fabric(object):
     outq: Queue | mQueue
 
     # special message output queue so that messages can emrge from forked processes
-    poutq: multiprocessing.SimpleQueue
+    poutq = multiprocessing.SimpleQueue()
 
     # mqtt connection details
     # set mqttargs["host"] externally before calling run() to use mqtt comms
@@ -100,7 +103,7 @@ class Fabric(object):
 
     exitcode = 0
 
-    def __init__(self, use_threads=True):
+    def __init__(self, use_threads: bool = True):
         # self.software_revision = __version__
         # print("Software revision: {:s}".format(self.software_revision))
 
@@ -226,8 +229,8 @@ class Fabric(object):
                                     except Exception as e:
                                         i_limit = 0.1  # use this default if we can't work out a limit from the configuration
                                     self.current_limit = i_limit
-                                    things_to_measure = self.get_things_to_measure(request)
-                                    self.standard_routine(things_to_measure, request)
+                                    things_to_measure = self.get_things_to_measure(rundata)
+                                    self.standard_routine(things_to_measure, rundata)
                                     self.lg.log(29, "Run complete!")
         except KeyboardInterrupt:
             pass
