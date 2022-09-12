@@ -14,7 +14,7 @@ except:
 
 
 class FakeLight(object):
-    """virtualized light source class"""
+    """virtualized/simulated light source class which can be used like the real one but without hardware"""
 
     idn: str
     runtime = 60000
@@ -101,13 +101,16 @@ class FakeLight(object):
         return 0
 
 
-class pcb(object):
+class FakeMC(object):
+    """virtualized/simulated MC class which can be used like the real one but without hardware"""
+
     is_virtual = True
     virt_speed = 300  # virtual movement speed in mm per sec
     virt_motion_setup = False  # to track if we're prepared to virtualize motion
     firmware_version = "1.0.0"
     detected_axes = ["1", "2", "3"]
     detected_muxes = ["A"]
+    enabled = True
 
     def __init__(self, *args, **kwargs):
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
@@ -119,34 +122,43 @@ class pcb(object):
 
         if "expected_muxes" in kwargs:
             self.detected_muxes = kwargs["expected_muxes"]
-        pass
+
+        if "enabled" in kwargs:
+            self.enabled = kwargs["enabled"]
+
+        if "address" in kwargs:
+            if kwargs["address"] is None:
+                self.disabled = True
+        else:
+            self.disabled = True
 
     def prepare_virt_motion(self, spm, el):
-        self.spm = spm
-        self.vs = self.virt_speed * spm  # convert to mm/s
-        self.el = el
-        self.ml = {}
-        self.homing = {}
-        self.jogging = {}
-        self.goingto = {}
-        self.pos = {}
-        self.goal = {}
-        self.home_done_time = {}
-        self.jog_done_time = {}
-        self.goto_done_time = {}
-        self.detected_axes = []
-        for key, val in el.items():
-            self.detected_axes.append(key)
-            self.homing[key] = False
-            self.jogging[key] = False
-            self.goingto[key] = False
-            self.ml[key] = round(self.el[key] * spm)
-            self.pos[key] = round(self.ml[key] / 2)
-            self.goal[key] = round(self.ml[key] / 2)
-            self.home_done_time[key] = time.time()
-            self.jog_done_time[key] = time.time()
-            self.goto_done_time[key] = time.time()
-        self.virt_motion_setup = True
+        if self.enabled:
+            self.spm = spm
+            self.vs = self.virt_speed * spm  # convert to mm/s
+            self.el = el
+            self.ml = {}
+            self.homing = {}
+            self.jogging = {}
+            self.goingto = {}
+            self.pos = {}
+            self.goal = {}
+            self.home_done_time = {}
+            self.jog_done_time = {}
+            self.goto_done_time = {}
+            self.detected_axes = []
+            for key, val in el.items():
+                self.detected_axes.append(key)
+                self.homing[key] = False
+                self.jogging[key] = False
+                self.goingto[key] = False
+                self.ml[key] = round(self.el[key] * spm)
+                self.pos[key] = round(self.ml[key] / 2)
+                self.goal[key] = round(self.ml[key] / 2)
+                self.home_done_time[key] = time.time()
+                self.jog_done_time[key] = time.time()
+                self.goto_done_time[key] = time.time()
+            self.virt_motion_setup = True
 
     def __enter__(self):
         return self
@@ -164,109 +176,114 @@ class pcb(object):
         #    self.detected_axes = ["1", "2", "3"]
 
     def set_mux(self, mux_setting):
-        return ""
+        pass
 
     def expect_int(self, cmd, tries=1):
         return int(self.query(cmd))
 
     def query(self, cmd):
-        self.lg.debug(f"Virtual CALL. Class={type(self).__name__}. function={inspect.currentframe().f_code.co_name}. cmd={cmd}")
-        if self.virt_motion_setup == True:
-            # now let's do timing related motion calcs
-            now = time.time()
-            for key, val in self.el.items():
-                if (now > self.home_done_time[key]) and (self.homing[key] == True):  # homing for this axis is done
-                    self.ml[key] = round(self.el[key] * self.spm)
-                    self.homing[key] = False
-                    self.pos[key] = round(0.95 * self.ml[key])
-
-                if self.goingto[key] == True:
-                    if now > self.goto_done_time[key]:
-                        self.pos[key] = round(self.goal[key])
-                        self.goingto[key] = False
-                    else:  # axis is in motion from goto, so we must calculate where we are
-                        time_remaining = self.goto_done_time[key] - now
-                        distance_remaining = time_remaining * self.virt_speed
-                        if self.goal[key] < self.pos[key]:  # moving reverse
-                            self.pos[key] = round(self.goal[key] + distance_remaining)
-                        else:
-                            self.pos[key] = round(self.goal[key] - distance_remaining)
-
-                if (now > self.jog_done_time[key]) and (self.jogging[key] == True):  # jogging for this axis is done
-                    self.ml[key] = 0
-                    self.jogging[key] = False
-
-        # now we're ready to parse the command and respond to it
-        if (len(cmd) == 2) and (cmd[0] == "l"):  # axis length request
-            axi = cmd[1]
-            return str(self.ml[axi])
-        elif (cmd == "iv") or (cmd == "eqe"):  # relay selection (must be before ax driver status byte cmd below)
-            return ""
-        elif cmd[0] == "h":  # axis home request
-            if len(cmd) == 2:
-                operate_on = [cmd[1]]
-            else:
-                operate_on = self.detected_axes
-            for ax in operate_on:
-                axi = ax
-                self.home_done_time[axi] = time.time() + 2 * self.el[axi] * self.spm / self.vs
-                self.ml[axi] = -1
-                self.homing[axi] = True
-            return ""
-        elif (len(cmd) == 3) and (cmd[0] == "j"):  # axis jog request
-            axi = cmd[1]
-            direction = cmd[2]
-            # 'r' command while jogging gives error 102, so we can just set pos now
-            if direction == "a":
-                self.pos[axi] = 0
-            else:
-                self.pos[axi] = round(self.el[axi] * self.spm)
-            self.jog_done_time[axi] = time.time() + self.el[axi] * self.spm / self.vs
-            self.jogging[axi] = True
-            self.ml[axi] = -1
-            return ""
-        elif (len(cmd) == 2) and (cmd[0] == "i"):  # axis driver status byte
-            return "11111111"
-        elif cmd[0] == "g":  # goto command
-            axi = cmd[1]
-            self.goingto[axi] = True
-            self.goal[axi] = round(float(cmd[2::]))
-            self.goto_done_time[axi] = time.time() + abs(self.goal[axi] - self.pos[axi]) / self.vs
-            return ""
-        elif (len(cmd) == 2) and (cmd[0] == "r"):  # axis position request
-            axi = cmd[1]
-            if (self.homing[axi] == True) or (self.jogging[axi] == True):
-                return "ERROR 102"
-            else:
-                return str(self.pos[axi])
-        elif cmd[0] == "b":  # estop
+        if self.enabled:
+            frame = inspect.currentframe()
+            if frame is not None:
+                self.lg.debug(f"Virtual CALL. Class={type(self).__name__}. function={frame.f_code.co_name}. cmd={cmd}")
             if self.virt_motion_setup == True:
+                # now let's do timing related motion calcs
+                now = time.time()
+                for key, val in self.el.items():
+                    if (now > self.home_done_time[key]) and (self.homing[key] == True):  # homing for this axis is done
+                        self.ml[key] = round(self.el[key] * self.spm)
+                        self.homing[key] = False
+                        self.pos[key] = round(0.95 * self.ml[key])
+
+                    if self.goingto[key] == True:
+                        if now > self.goto_done_time[key]:
+                            self.pos[key] = round(self.goal[key])
+                            self.goingto[key] = False
+                        else:  # axis is in motion from goto, so we must calculate where we are
+                            time_remaining = self.goto_done_time[key] - now
+                            distance_remaining = time_remaining * self.virt_speed
+                            if self.goal[key] < self.pos[key]:  # moving reverse
+                                self.pos[key] = round(self.goal[key] + distance_remaining)
+                            else:
+                                self.pos[key] = round(self.goal[key] - distance_remaining)
+
+                    if (now > self.jog_done_time[key]) and (self.jogging[key] == True):  # jogging for this axis is done
+                        self.ml[key] = 0
+                        self.jogging[key] = False
+
+            # now we're ready to parse the command and respond to it
+            if (len(cmd) == 2) and (cmd[0] == "l"):  # axis length request
+                axi = cmd[1]
+                return str(self.ml[axi])
+            elif (cmd == "iv") or (cmd == "eqe"):  # relay selection (must be before ax driver status byte cmd below)
+                return ""
+            elif cmd[0] == "h":  # axis home request
                 if len(cmd) == 2:
-                    to_estop = [cmd[1]]
+                    operate_on = [cmd[1]]
                 else:
-                    to_estop = self.detected_axes
-                for ax in to_estop:
+                    operate_on = self.detected_axes
+                for ax in operate_on:
                     axi = ax
-                    self.ml[axi] = 0
-                    self.goto_done_time[axi] = time.time()
-                    self.goal[axi] = self.pos[axi]
-                    self.home_done_time[axi] = time.time()
-                    self.jog_done_time[axi] = time.time()
-                    self.goto_done_time[axi] = time.time()
-                    self.homing[axi] = False
-                    self.jogging[axi] = False
-                    self.goingto[axi] = False
-            return ""
-        elif cmd[0] == "s":  # pixel selection
-            return ""
-        elif cmd[0] == "w":  # firmware request
-            return "virtual FW version 5"
+                    self.home_done_time[axi] = time.time() + 2 * self.el[axi] * self.spm / self.vs
+                    self.ml[axi] = -1
+                    self.homing[axi] = True
+                return ""
+            elif (len(cmd) == 3) and (cmd[0] == "j"):  # axis jog request
+                axi = cmd[1]
+                direction = cmd[2]
+                # 'r' command while jogging gives error 102, so we can just set pos now
+                if direction == "a":
+                    self.pos[axi] = 0
+                else:
+                    self.pos[axi] = round(self.el[axi] * self.spm)
+                self.jog_done_time[axi] = time.time() + self.el[axi] * self.spm / self.vs
+                self.jogging[axi] = True
+                self.ml[axi] = -1
+                return ""
+            elif (len(cmd) == 2) and (cmd[0] == "i"):  # axis driver status byte
+                return "11111111"
+            elif cmd[0] == "g":  # goto command
+                axi = cmd[1]
+                self.goingto[axi] = True
+                self.goal[axi] = round(float(cmd[2::]))
+                self.goto_done_time[axi] = time.time() + abs(self.goal[axi] - self.pos[axi]) / self.vs
+                return ""
+            elif (len(cmd) == 2) and (cmd[0] == "r"):  # axis position request
+                axi = cmd[1]
+                if (self.homing[axi] == True) or (self.jogging[axi] == True):
+                    return "ERROR 102"
+                else:
+                    return str(self.pos[axi])
+            elif cmd[0] == "b":  # estop
+                if self.virt_motion_setup == True:
+                    if len(cmd) == 2:
+                        to_estop = [cmd[1]]
+                    else:
+                        to_estop = self.detected_axes
+                    for ax in to_estop:
+                        axi = ax
+                        self.ml[axi] = 0
+                        self.goto_done_time[axi] = time.time()
+                        self.goal[axi] = self.pos[axi]
+                        self.home_done_time[axi] = time.time()
+                        self.jog_done_time[axi] = time.time()
+                        self.goto_done_time[axi] = time.time()
+                        self.homing[axi] = False
+                        self.jogging[axi] = False
+                        self.goingto[axi] = False
+                return ""
+            elif cmd[0] == "s":  # pixel selection
+                return ""
+            elif cmd[0] == "w":  # firmware request
+                return "virtual FW version 5"
+            else:
+                return "Command virtually unsupported"
         else:
-            return "Command virtually unsupported"
+            return None
 
 
-class smu(object):
-    """virtual smu class"""
+class FakeSMU(object):
+    """virtualized/simulated smu class which can be used like the real one but without hardware"""
 
     idn: str
     nplc = 1
@@ -411,7 +428,9 @@ class smu(object):
         self.sweepMode = True
         self.sweepStart = start
         self.sweepEnd = end
-        self.dV = abs(float(self.query_values(":source:voltage:step?")))
+        dv = self.query_values(":source:voltage:step?")
+        assert isinstance(dv, float)
+        self.dV = abs(dv)
 
     def setSource(self, outVal):
         self.write(":source:{:s} {:.6f}".format(self.src, outVal))
@@ -461,18 +480,18 @@ class smu(object):
         Vth = self.Vth
         if I == 0:  # Voc case
             if Rsh < float("inf"):  # Rsh is not perfect
-                V = Rsh * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))
+                V = Rsh * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (I0 + Iph) / (Vth * n)) / (Vth * n))  # type: ignore
             else:  # Rsh is perfect (inf ohm)
                 V = Vth * n * mpmath.log((I0 + Iph) / I0)
         else:  # not Voc
             if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
-                V = -I * Rs - I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-I + I0 + Iph) / (Vth * n)) / (Vth * n))
+                V = -I * Rs - I * Rsh + I0 * Rsh + Iph * Rsh - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-I + I0 + Iph) / (Vth * n)) / (Vth * n))  # type: ignore
             elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
-                V = Rsh * (-I + I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-I + I0 + Iph) / (Vth * n)) / (Vth * n))
+                V = Rsh * (-I + I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rsh * mpmath.exp(Rsh * (-I + I0 + Iph) / (Vth * n)) / (Vth * n))  # type: ignore
             elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
-                V = Vth * n * mpmath.log((-I + I0 + Iph) * mpmath.exp(-I * Rs / (Vth * n)) / I0)
+                V = Vth * n * mpmath.log((-I + I0 + Iph) * mpmath.exp(-I * Rs / (Vth * n)) / I0)  # type: ignore
             else:  # no resistive losses
-                V = Vth * n * mpmath.exp((-I + I0 + Iph) / I0)
+                V = Vth * n * mpmath.exp((-I + I0 + Iph) / I0)  # type: ignore
         return float(mpmath.fabs(V)) * float(mpmath.sign(mpmath.re(V)))
 
     def i_from_v(self, V, Rs, Rsh, Iph, I0, n) -> float:
@@ -480,22 +499,22 @@ class smu(object):
         Vth = self.Vth
         if (Rs > 0) and (Rsh < float("inf")):  # both resistors active
             if V != 0:  # not Isc
-                I = (Rs * (I0 * Rsh + Iph * Rsh - V) - self.Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
+                I = (Rs * (I0 * Rsh + Iph * Rsh - V) - self.Vth * n * (Rs + Rsh) * mpmath.lambertw(I0 * Rs * Rsh * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh - V) / (Rs + Rsh) + V) / (Vth * n)) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))  # type: ignore
             else:  # at Isc
-                I = (Rs * (I0 * Rsh + Iph * Rsh) - Vth * n * (Rs + Rsh) * mpmath.lambertw(Rs * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh) + mpmath.log((I0 * Rsh) ** (Vth * n * (Rs + Rsh)))) / (Vth * n * (Rs + Rsh))) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))
+                I = (Rs * (I0 * Rsh + Iph * Rsh) - Vth * n * (Rs + Rsh) * mpmath.lambertw(Rs * mpmath.exp((Rs * (I0 * Rsh + Iph * Rsh) + mpmath.log((I0 * Rsh) ** (Vth * n * (Rs + Rsh)))) / (Vth * n * (Rs + Rsh))) / (Vth * n * (Rs + Rsh)))) / (Rs * (Rs + Rsh))  # type: ignore
         elif (Rs <= 0) and (Rsh < float("inf")):  # Rs is perfect (0 ohm)
             if V != 0:  # not Isc
-                I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph - V / Rsh
+                I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph - V / Rsh  # type: ignore
             else:  # at Isc
                 I = Iph
         elif (Rs > 0) and (Rsh == float("inf")):  # Rsh is perfect (inf ohm)
             if V != 0:  # not Isc
-                I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp((Rs * (I0 + Iph) + V) / (Vth * n)) / (Vth * n))) / Rs
+                I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp((Rs * (I0 + Iph) + V) / (Vth * n)) / (Vth * n))) / Rs  # type: ignore
             else:  # at Isc
-                I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp(Rs * (I0 + Iph) / (Vth * n)) / (Vth * n))) / Rs
+                I = (Rs * (I0 + Iph) - Vth * n * mpmath.lambertw(I0 * Rs * mpmath.exp(Rs * (I0 + Iph) / (Vth * n)) / (Vth * n))) / Rs  # type: ignore
         else:  # no resistive losses
             if V != 0:  # not Isc
-                I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph
+                I = -I0 * mpmath.exp(V / (Vth * n)) + I0 + Iph  # type: ignore
             else:  # at Isc
                 I = Iph
         return float(mpmath.fabs(I)) * float(mpmath.sign(mpmath.re(I)))
@@ -568,8 +587,9 @@ class smu(object):
         q = []
         while (i < measurements) and (time.time() < t_end) and (not self.killer.is_set()):
             i = i + 1
-            cb(measurement := self.measure())
-            q.append(measurement[0])
+            msmt = self.measure()
+            cb(msmt)
+            q.append(msmt)
         return q
 
     def measure(self, nPoints=1):
@@ -578,6 +598,7 @@ class smu(object):
         else:
             m_len = 5
         vals = self.query_values("READ?")
+        assert isinstance(vals, list)
 
         if len(vals) > 1:
             first_element = vals[0]

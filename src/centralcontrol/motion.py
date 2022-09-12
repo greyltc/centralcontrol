@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
 
-# this boilerplate is required to allow this module to be run directly as a script
-if __name__ == "__main__" and __package__ in [None, ""]:
-    __package__ = "centralcontrol"
-    from pathlib import Path
-    import sys
-
-    # get the dir that holds __package__ on the front of the search path
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from .afms import afms
-from .us import Us
+from centralcontrol.afms import AFMS
+from centralcontrol.us import Us
 import json
 from urllib.parse import urlparse, parse_qs
 
@@ -20,10 +11,8 @@ except:
     from logging import getLogger
 
 
-class motion:
-    """
-    generic class for handling substrate movement
-    """
+class Motion(object):
+    """generic class for handling substrate movement"""
 
     motion_engine = None
     home_procedure = "default"
@@ -42,94 +31,102 @@ class motion:
     screw_pitch = 8  # mm/rev
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
 
+    enabled = True
+
     address = "us://controller"
 
-    def __init__(self, address=address, pcb_object=None):
+    def __init__(self, address: str | None = address, pcb_object=None, enabled=True):
         """
         sets up communication to motion controller
         """
         # setup logging
         self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
 
-        parsed = None
-        qparsed = None
-        try:
-            parsed = urlparse(address)
-            qparsed = parse_qs(parsed.query)
-        except Exception:
-            raise ValueError("Incorrect motion controller address format: {address}")
-        self.location = parsed.netloc + parsed.path
-        if "el" in qparsed:
-            splitted = qparsed["el"][0].split(",")
-            for i, els in enumerate(splitted):
-                self.expected_lengths[str(i + 1)] = float(els)
-                self.keepout_zones[str(i + 1)] = self.empty_koz  # ensure default koz works
-        if "spm" in qparsed:
-            self.steps_per_mm = int(qparsed["spm"][0])
-        if "kz" in qparsed:
-            for i, zone in enumerate(json.loads(qparsed["kz"][0])):
-                if zone == []:
-                    zone = self.empty_koz
-                self.keepout_zones[str(i + 1)] = zone
-        if "hto" in qparsed:
-            self.home_timeout = float(qparsed["hto"][0])
-        if "homer" in qparsed:
-            self.home_procedure = qparsed["homer"][0]
-        if "lf" in qparsed:
-            self.allowed_length_deviation = float(qparsed["lf"][0])
-
-        if parsed.scheme == "afms":
-            if pcb_object is not None:
-                if hasattr(pcb_object, "is_virtual"):
-                    if pcb_object.is_virtual == True:
-                        self.lg.warning("afms:// scheme does not support virtual PCBs")
-            afms_setup = {}
-            afms_setup["location"] = self.location
-            afms_setup["spm"] = self.steps_per_mm
-            afms_setup["homer"] = self.home_procedure
-            self.motion_engine = afms(**afms_setup)
-        elif parsed.scheme == "us":
-            us_setup = {}
-            us_setup["spm"] = self.steps_per_mm
-            if (self.location != "controller") or (pcb_object is None):
-                raise ValueError(f"us://controller/ requires requires a pre-existing pcb_object")
-            us_setup["pcb_object"] = pcb_object
-            if hasattr(pcb_object, "is_virtual"):
-                if pcb_object.is_virtual == True:
-                    pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
-            self.motion_engine = Us(**us_setup)
+        self.enabled = enabled
+        if address is None:
+            self.enabled = False
         else:
-            raise ValueError(f"Unexpected motion controller protocol {parsed.scheme} in {address}")
+            parsed = None
+            qparsed = None
+            try:
+                parsed = urlparse(address)
+                qparsed = parse_qs(parsed.query)
+            except Exception:
+                raise ValueError(f"Incorrect motion controller address format: {address}")
+            self.location = parsed.netloc + parsed.path
+            if "el" in qparsed:
+                splitted = qparsed["el"][0].split(",")
+                for i, els in enumerate(splitted):
+                    self.expected_lengths[str(i + 1)] = float(els)
+                    self.keepout_zones[str(i + 1)] = self.empty_koz  # ensure default koz works
+            if "spm" in qparsed:
+                self.steps_per_mm = int(qparsed["spm"][0])
+            if "kz" in qparsed:
+                for i, zone in enumerate(json.loads(qparsed["kz"][0])):
+                    if zone == []:
+                        zone = self.empty_koz
+                    self.keepout_zones[str(i + 1)] = zone
+            if "hto" in qparsed:
+                self.home_timeout = float(qparsed["hto"][0])
+            if "homer" in qparsed:
+                self.home_procedure = qparsed["homer"][0]
+            if "lf" in qparsed:
+                self.allowed_length_deviation = float(qparsed["lf"][0])
+
+                if parsed.scheme == "afms":
+                    if pcb_object is not None:
+                        if hasattr(pcb_object, "is_virtual"):
+                            if pcb_object.is_virtual == True:
+                                self.lg.warning("afms:// scheme does not support virtual PCBs")
+                    afms_setup = {}
+                    afms_setup["location"] = self.location
+                    afms_setup["spm"] = self.steps_per_mm
+                    afms_setup["homer"] = self.home_procedure
+                    self.motion_engine = AFMS(**afms_setup)
+                elif parsed.scheme == "us":
+                    us_setup = {}
+                    us_setup["spm"] = self.steps_per_mm
+                    if (self.location != "controller") or (pcb_object is None):
+                        raise ValueError(f"us://controller/ requires requires a pre-existing pcb_object")
+                    us_setup["pcb_object"] = pcb_object
+                    if hasattr(pcb_object, "is_virtual"):
+                        if pcb_object.is_virtual == True:
+                            pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
+                    self.motion_engine = Us(**us_setup)
+                else:
+                    raise ValueError(f"Unexpected motion controller protocol {parsed.scheme} in {address}")
 
         self.lg.debug(f"{__name__} initialized.")
 
     def connect(self):
-        """
-        makes connection to motion controller and does a light check that the given axes config is correct
-        """
+        """makes connection to motion controller and does a light check that the given axes config is correct"""
         self.lg.debug(f"motion.connect() called")
-        result = self.motion_engine.connect()
-        if result == 0:
-            self.actual_lengths = self.motion_engine.len_axes_mm
-            self.axes = self.motion_engine.axes
+        if self.enabled:
+            assert self.motion_engine is not None
+            result = self.motion_engine.connect()
+            if result == 0:
+                self.actual_lengths = self.motion_engine.len_axes_mm
+                self.axes = self.motion_engine.axes
 
-            naxes = len(self.axes)
-            nlengths = len(self.actual_lengths)
-            nexpect = len(self.expected_lengths)
-            nzones = len(self.keepout_zones)
+                naxes = len(self.axes)
+                nlengths = len(self.actual_lengths)
+                nexpect = len(self.expected_lengths)
+                nzones = len(self.keepout_zones)
 
-            if naxes != nlengths:
-                raise ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes")
-            if naxes != nexpect:
-                raise ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes")
-            if naxes != nzones:
-                raise ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes")
+                if naxes != nlengths:
+                    raise ValueError(f"Error: axis count mismatch. Measured {nlengths} lengths, but the hardware reports {naxes} axes")
+                if naxes != nexpect:
+                    raise ValueError(f"Error: axis count mismatch. Found {nexpect} expected lengths, but the hardware reports {naxes} axes")
+                if naxes != nzones:
+                    raise ValueError(f"Error: axis count mismatch. Found {nexpect} keepout zone lists, but the hardware reports {naxes} axes")
 
-            for ax in self.axes:
-                if self.actual_lengths[ax] <= 0:
-                    self.lg.warning(f"Warning: axis {ax} is not ready for motion. Please press the 'Recalibrate' button (ignore this message if you just did that).")
+                for ax in self.axes:
+                    if self.actual_lengths[int(ax)] <= 0:
+                        self.lg.warning(f"Warning: axis {ax} is not ready for motion. Please press the 'Recalibrate' button (ignore this message if you just did that).")
 
-        self.lg.debug(f"motion connected")
+            self.lg.debug(f"motion connected")
+        else:
+            result = 0
         return result
 
     #  def move(self, mm):
@@ -141,68 +138,74 @@ class motion:
     def goto(self, pos, timeout=300, debug_prints=False):
         """goes to an absolute mm position, blocking"""
         self.lg.debug(f"goto({pos=}) called")
-        if timeout == None:
-            timeout = self.home_timeout * self.motion_timeout_fraction
-        if not hasattr(pos, "__len__"):
-            pos = [pos]
-        naxes = len(self.axes)
-        npos = len(pos)
-        if naxes != npos:
-            raise ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes")
-        gti = {}
-        for i, ax in enumerate(self.axes):
-            el = self.expected_lengths[ax]
-            al = self.actual_lengths[ax]
-            ko_lower = self.keepout_zones[ax][0]
-            ko_upper = self.keepout_zones[ax][1]
-            lower_lim = 0 + self.motion_engine.end_buffers
-            upper_lim = al - self.motion_engine.end_buffers
-            goal = pos[i]
-            if el < float("inf"):  # length check is enabled
-                delta = el - al
-                if abs(delta) > self.allowed_length_deviation:
-                    raise ValueError(f"Error: Unexpected axis {ax} length. Found {al} [mm] but expected {el} [mm]")
-            if (goal >= ko_lower) and (goal <= ko_upper):
-                raise ValueError(f"Error: Axis {ax} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
-            if goal < lower_lim:
-                raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
-            if goal > upper_lim:
-                raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
-            gti[ax] = goal
-        self.motion_engine.goto(gti, timeout=timeout, debug_prints=debug_prints)
+        if self.enabled:
+            assert self.motion_engine is not None
+            if timeout == None:
+                timeout = self.home_timeout * self.motion_timeout_fraction
+            if not hasattr(pos, "__len__"):
+                pos = [pos]
+            naxes = len(self.axes)
+            npos = len(pos)
+            if naxes != npos:
+                raise ValueError(f"Error: axis count mismatch. Found {npos} commanded positions, but the hardware reports {naxes} axes")
+            gti = {}
+            for i, ax in enumerate(self.axes):
+                el = self.expected_lengths[ax]
+                al = self.actual_lengths[int(ax)]
+                ko_lower = self.keepout_zones[ax][0]
+                ko_upper = self.keepout_zones[ax][1]
+                lower_lim = 0 + self.motion_engine.end_buffers
+                upper_lim = al - self.motion_engine.end_buffers
+                goal = pos[i]
+                if el < float("inf"):  # length check is enabled
+                    delta = el - al
+                    if abs(delta) > self.allowed_length_deviation:
+                        raise ValueError(f"Error: Unexpected axis {ax} length. Found {al} [mm] but expected {el} [mm]")
+                if (goal >= ko_lower) and (goal <= ko_upper):
+                    raise ValueError(f"Error: Axis {ax} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
+                if goal < lower_lim:
+                    raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
+                if goal > upper_lim:
+                    raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
+                gti[ax] = goal
+            self.motion_engine.goto(gti, timeout=timeout, debug_prints=debug_prints)
         self.lg.debug(f"goto() complete")
 
-    def home(self, timeout=300):
-        """
-        homes to a limit switch, blocking, reuturns 0 on success
-        """
+    def home(self, timeout=300.0):
+        """homes to a limit switch, blocking, reuturns 0 on success"""
         self.lg.debug(f"home() called")
-        if timeout is None:
-            timeout = self.home_timeout
-        home_setup = {}
-        home_setup["procedure"] = self.home_procedure
-        home_setup["timeout"] = timeout
-        home_setup["expected_lengths"] = self.expected_lengths
-        home_setup["allowed_deviation"] = self.allowed_length_deviation
-        home_result = self.motion_engine.home(**home_setup)
-        self.actual_lengths = self.motion_engine.len_axes_mm
+        if self.enabled:
+            assert self.motion_engine is not None
+            if timeout is None:
+                timeout = self.home_timeout
+            home_setup = {}
+            home_setup["procedure"] = self.home_procedure
+            home_setup["timeout"] = timeout
+            home_setup["expected_lengths"] = self.expected_lengths
+            home_setup["allowed_deviation"] = self.allowed_length_deviation
+            home_result = self.motion_engine.home(**home_setup)
+            self.actual_lengths = self.motion_engine.len_axes_mm
         self.lg.debug(f"home() complete")
 
     def estop(self):
-        """
-        emergency stop of the driver
-        """
+        """emergency stop of the driver"""
         self.lg.debug("motion estop() called")
-        ret = self.motion_engine.estop()
+        if self.enabled:
+            assert self.motion_engine is not None
+            ret = self.motion_engine.estop()
+        else:
+            ret = 0
         self.lg.debug("motion estop() complete")
         return ret
 
     def get_position(self):
-        """
-        returns the current stage location in mm
-        """
+        """returns the current stage location in mm"""
         self.lg.debug("motion get_position() called")
-        pos = self.motion_engine.get_position()
+        if self.enabled:
+            assert self.motion_engine is not None
+            pos = self.motion_engine.get_position()
+        else:
+            pos = [0] * len(self.axes)
         self.lg.debug(f"motion get_position() complete with {pos=}")
         return pos
 
@@ -213,11 +216,11 @@ def main():
 
     fake_hardware = False
     if fake_hardware == True:
-        from .virt import pcb as pcbclass
+        from .virt import FakeMC as pcbclass
 
         pcbobj_init_args = {}
     else:
-        from .pcb import pcb as pcbclass
+        from .mc import MC as pcbclass
 
         pcbobj_init_args = {}
         office_ip = "10.46.0.239"
@@ -229,7 +232,7 @@ def main():
 
     print(f'Connecting to a {"fake" if fake_hardware == True else "real"} stage with URI-->{stage_config_uri}')
     with pcbclass(**pcbobj_init_args) as p:
-        mo = motion(address=stage_config_uri, pcb_object=p)
+        mo = Motion(address=stage_config_uri, pcb_object=p)
         mo.connect()
         print(f"Connected.")
         print(f"Measured lengths: {mo.actual_lengths}")
@@ -252,7 +255,7 @@ def main():
         # choose how long the dance should last
         # goto_dance_duration = float("inf")
         goto_dance_duration = 60
-        dance_axis = "1"  # which axis to dance
+        dance_axis = 0  # which axis to dance
         print(f"Now doing goto dance for {goto_dance_duration} seconds...")
 
         dance_width_mm = 5

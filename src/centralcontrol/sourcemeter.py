@@ -1,7 +1,7 @@
 import typing
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
-from centralcontrol.virt import smu as vsmu
+from centralcontrol.virt import FakeSMU as vsmu
 from centralcontrol.k2400 import k2400
 
 try:

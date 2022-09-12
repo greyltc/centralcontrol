@@ -3,7 +3,7 @@
 from __future__ import division
 
 import time
-from collections import deque
+from centralcontrol.mc import MC
 
 try:
     from centralcontrol.logstuff import get_logger as getLogger
@@ -29,7 +29,7 @@ class Us(object):
     screw_pitch = 8  # mm/rev
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
     home_procedure = "default"
-    pcb = None
+    pcb: MC
     len_axes_mm = {}  # dict of axis names = keys, lengths = values
     axes = [1]
     poll_delay = 0.25  # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
@@ -99,7 +99,7 @@ class Us(object):
     TMC5130_ENCM_CTRL = 0x72
     TMC5130_LOST_STEPS = 0x73
 
-    def __init__(self, pcb_object, spm=steps_per_mm, homer=home_procedure):
+    def __init__(self, pcb_object: MC, spm=steps_per_mm, homer=home_procedure):
         """sets up the microstepper object, needs handle to active PCB class object"""
         self.pcb = pcb_object
         self.steps_per_mm = spm
@@ -116,7 +116,7 @@ class Us(object):
         answer = self.pcb.query(cmd)
         intans = 0
         try:
-            intans = int(answer)
+            intans = int(answer)  # type: ignore
         except ValueError:
             raise ValueError(f"Expecting integer response to {cmd}, but got {answer}")
         return intans
@@ -194,7 +194,7 @@ class Us(object):
                     elif action == "g":
                         self.goto({ax: goal}, timeout=timeout - (time.time() - t0), debug_prints=False)
 
-    def _wait_for_home_or_jog(self, ax, timeout=300, debug_prints=False):
+    def _wait_for_home_or_jog(self, ax, timeout=300.0, debug_prints=False):
         t0 = time.time()
         poll_cmd = f"l{ax}"
         self.len_axes_mm[ax] = None
@@ -211,15 +211,16 @@ class Us(object):
 
     # lower level (step based) position request function
     def _get_pos(self, ax):
+        pcb_ans = None
         try:
             pcb_ans = self.pcb.query(f"r{ax}")
-            rslt_pos = int(pcb_ans)
+            rslt_pos = int(pcb_ans)  # type: ignore
         except Exception:
             self.lg.debug(f"Warning: got unexpected _get_pos result: {pcb_ans}")
             rslt_pos = -1
         return rslt_pos
 
-    def goto(self, targets_mm, timeout=300, debug_prints=False, blocking=True):
+    def goto(self, targets_mm, timeout=300.0, debug_prints=False, blocking=True):
         """sends the stage some place. targets_mm is a dict with keys for axis numbers and vals for target mms"""
         t0 = time.time()
 
@@ -235,6 +236,7 @@ class Us(object):
         if blocking == True:  # wait for motion to complete
             time.sleep(self.poll_delay)
             for ax, target_step in targets_step.items():
+                loc = None
                 while et := time.time() - t0 <= timeout:
                     loc = self.send_g(ax, target_step)
                     if loc == target_step:
@@ -342,7 +344,7 @@ class Us(object):
 
 
 if __name__ == "__main__":
-    from .pcb import pcb
+    from centralcontrol.mc import MC as pcb
 
     # motion test
     pcb_address = "10.46.0.239"

@@ -10,7 +10,7 @@ import sys
 
 class put_ftp:
     verbose = False
-    remote_path = None
+    remote_path = "/"
 
     # need __enter__ and exit for use with "with"
     def __enter__(self):
@@ -27,8 +27,6 @@ class put_ftp:
         host = host_path_split[0]
         if len(host_path_split) == 2:
             self.remote_path = "/" + host_path_split[1]
-        else:
-            self.remote_path = "/"
         host_split = host.split(":")
         host = host_split[0]
         port = 21

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 import socket
-import xml.etree.cElementTree as ET
+import xml.etree.ElementTree as ET
 import time
-import xml.etree as elT
 
 try:
     from centralcontrol.logstuff import get_logger as getLogger
@@ -20,7 +19,7 @@ class Wavelabs(object):
     spectrum_ms = 1002
     okay_message_codes = [0, -4001]
     retry_codes = [9997, 9998, 9999]  # response codes of these code types should result in a comms retry
-    active_recipe = None
+    active_recipe = ""
     active_intensity = 100
     last_temps = (0.0, 0.0)
     address = None
@@ -81,7 +80,7 @@ class Wavelabs(object):
         def close(self):
             pass
 
-    def __init__(self, kind="wavelabs", address="0.0.0.0:3334", connection_timeout=10, comms_timeout=1, active_recipe=None, intensity=100, **kwargs):
+    def __init__(self, kind="wavelabs", address="0.0.0.0:3334", connection_timeout=10, comms_timeout=1, active_recipe="", intensity=100, **kwargs):
         """
         sets up the wavelabs comms object
         timeouts are in seconds
@@ -253,7 +252,7 @@ class Wavelabs(object):
                 self.idn = "wavelabs-relay"
             else:
                 self.idn = "wavelabs"
-            if self.active_recipe is not None:
+            if self.active_recipe != "":
                 ret = self.activate_recipe(self.active_recipe)
                 if ret == 0:
                     ret = self.set_intensity(self.active_intensity)
@@ -270,8 +269,11 @@ class Wavelabs(object):
         """perform a wavelabs query"""
 
         n_tries = 3
+        # response = type("OC", (object,), {"error": 4})()
+        response = None
         for attempt in range(n_tries):
             tree = ET.ElementTree(root)
+            response = None
             try:
                 tree.write(self.sock_file)
             except Exception as e:
@@ -288,9 +290,10 @@ class Wavelabs(object):
         else:
             self.lg.warning("Wavelabs comms retry limit exceeded.")
 
-        if response.error not in self.okay_message_codes:
-            self.lg.error(f"Got error number {response.error} from WaveLabs software: {response.error_message}")
-            raise ValueError(f"Error {response.error}: {response.error_message}")
+        if (response is not None) and hasattr(response, "error") and hasattr(response, "error_message"):
+            if response.error not in self.okay_message_codes:
+                self.lg.error(f"Got error number {response.error} from WaveLabs software: {response.error_message}")
+                raise ValueError(f"Error {response.error}: {response.error_message}")
 
         return response
 
@@ -307,11 +310,11 @@ class Wavelabs(object):
             self.lg.debug("Wavelabs FreeFloat command could not be handled")
         return response.error
 
-    def activate_recipe(self, recipe_name=None):
+    def activate_recipe(self, recipe_name=""):
         """activate a solar sim recipe by name"""
-        if recipe_name is None:
+        if recipe_name == "":
             recipe_name = self.active_recipe
-        if recipe_name is not None:
+        if recipe_name != "":
             root = ET.Element("WLRC")
             ET.SubElement(root, "ActivateRecipe", iSeq=str(self.iseq), sRecipe=recipe_name)
             self.iseq = self.iseq + 1
@@ -392,8 +395,8 @@ class Wavelabs(object):
             self.lg.debug("Failed to wait for wavelabs run to finish")
         return response.error
 
-    def getRecipeParam(self, recipe_name=None, step=1, device="Light", param="Intensity"):
-        if recipe_name is None:
+    def getRecipeParam(self, recipe_name="", step=1, device="Light", param="Intensity"):
+        if recipe_name == "":
             recipe_name = self.active_recipe
         ret = None
         root = ET.Element("WLRC")
@@ -418,7 +421,7 @@ class Wavelabs(object):
         self.iseq = self.iseq + 1
         response = self.query(root)
         if response.error != 0:
-            self.lg.debug(f"Failed to getResult from wavelabs. Raw Request: {elT.ElementTree.tostring(root, method='xml')}")
+            self.lg.debug(f"Failed to getResult from wavelabs. Raw Request: {ET.tostring(root, method='xml')}")
             ret = None
         else:
             ret = response.paramVal
@@ -448,8 +451,8 @@ class Wavelabs(object):
                 ret.append(series)
         return ret
 
-    def setRecipeParam(self, recipe_name=None, step=1, device="Light", param="Intensity", value=100.0):
-        if recipe_name is None:
+    def setRecipeParam(self, recipe_name="", step=1, device="Light", param="Intensity", value=100.0):
+        if recipe_name == "":
             recipe_name = self.active_recipe
         root = ET.Element("WLRC")
         ET.SubElement(root, "SetRecipeParam", iSeq=str(self.iseq), sRecipe=recipe_name, iStep=str(step), sDevice=device, sParam=param, sVal=str(value))
@@ -510,12 +513,18 @@ class Wavelabs(object):
         return ret
 
     def get_ir_led_temp(self, run_ID=None):
-        str_tmp = self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID)
-        return float(str_tmp)
+        try:
+            temp = float(self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID))  # type: ignore
+        except:
+            temp = float("inf")
+        return temp
 
     def get_vis_led_temp(self, run_ID=None):
-        str_tmp = self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID)
-        return float(str_tmp)
+        try:
+            temp = float(self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID))  # type: ignore
+        except:
+            temp = float("inf")
+        return temp
 
     def get_temperatures(self):
         """
