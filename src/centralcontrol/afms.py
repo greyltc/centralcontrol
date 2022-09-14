@@ -10,8 +10,8 @@ class AFMS(object):
     current_position = 50 / steps_per_mm  #  in mm
     home_procedure = "default"
 
-    len_axes_mm = {0: float("inf")}  # list of mm for how long the firmware thinks each axis is
-    axes = [1]  # list of connected axis indicies
+    len_axes_mm = {"0": float("inf")}  # list of mm for how long the firmware thinks each axis is
+    axes = ["1"]  # list of connected axis indicies
 
     end_buffers = 1  # disallow movement to closer than this many mm from an end (prevents home issues)
 
@@ -36,7 +36,7 @@ class AFMS(object):
         else:
             ret = -1
             raise (ValueError(f"Unable to open port {self.com_port}"))
-        self.axes = [1]
+        self.axes = ["1"]
         return ret
 
     def home(self, timeout=300.0, procedure=home_procedure, expected_lengths=None, allowed_deviation=None):
@@ -47,7 +47,7 @@ class AFMS(object):
             ret = self.move(50 / self.steps_per_mm)  # move away from the edge by 50 steps
         else:
             print(f"WARNING: homing failure: {ret}")
-        self.len_axes_mm = {0: float("inf")}  # length measurement unsupported here now
+        self.len_axes_mm = {"0": float("inf")}  # length measurement unsupported here now
         return ret
 
     def move(self, mm, timeout=300.0):

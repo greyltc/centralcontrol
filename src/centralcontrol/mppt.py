@@ -136,8 +136,8 @@ class mppt:
                 self.lg.warning(f"Inferred that V_mpp =~ {self.Vmpp} [V] from {self.voc_vmpp_guess_ratio:.1f} times V_oc")
 
         # we must know Vmpp and Voc to continue
-        assert self.Vmpp is not None
-        assert self.Voc is not None
+        assert self.Vmpp is not None, f"{self.Vmpp is not None=}"
+        assert self.Voc is not None, f"{self.Voc is not None=}"
 
         # handle a killer kill
         if self.killer.is_set():
@@ -214,8 +214,8 @@ class mppt:
         """
 
         # we must know these to continue
-        assert self.t0 is not None
-        assert self.Voc is not None
+        assert self.t0 is not None, f"{self.t0 is not None=}"
+        assert self.Voc is not None, f"{self.Voc is not None=}"
 
         # snaith mode constants
         snaith_pre_soak_t = 15
@@ -374,8 +374,8 @@ class mppt:
         """
 
         # we must know these to continue
-        assert self.t0 is not None
-        assert self.Voc is not None
+        assert self.t0 is not None, f"{self.t0 is not None=}"
+        assert self.Voc is not None, f"{self.Voc is not None=}"
 
         self.lg.debug("===Starting up dumb maximum power point tracking algorithm===")
         self.lg.debug(f"dAngleMax = {dAngleMax} [deg]")

@@ -26,7 +26,7 @@ class Us(object):
     home_procedure = "default"
     pcb: MC
     len_axes_mm = {}  # dict of axis names = keys, lengths = values
-    axes = [1]
+    axes = ["1"]
     poll_delay = 0.25  # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
 
     end_buffers = 4  # disallow movement to closer than this many mm from an end (prevents home issues)
@@ -331,7 +331,7 @@ class Us(object):
                         self.write_reg(ax, self.TMC5130_XENC, 677)  # test/verify register programming
                         # self.write_reg(ax, self.TMC5130_V1, 0, check=False)  # disable some ramp generator stages
                         self.write_reg(ax, self.TMC5130_XENC, 678)  # test/verify register programming
-                        break
+                    break
             else:  # no break
                 success = False
                 self.lg.warning(f"Stage axis {ax} took too long to complete reset")

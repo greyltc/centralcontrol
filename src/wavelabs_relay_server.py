@@ -77,14 +77,14 @@ def main():
                     if port == wl_port and data:
                         # new WaveLabs data to echo to control client
                         try:
-                            assert control_conn is not None
+                            assert control_conn is not None, f"{control_conn is not None=}"
                             control_conn.sendall(data)
                         except:
                             print("WARNING: Unable to relay WaveLabs client data to control client")
                     if port == control_port and data:
                         # new control data to echo to WaveLabs client
                         try:
-                            assert wl_conn is not None
+                            assert wl_conn is not None, f"{wl_conn is not None=}"
                             wl_conn.sendall(data)
                         except:
                             print("WARNING: Unable to relay control client data to WaveLabs client")

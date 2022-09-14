@@ -107,8 +107,8 @@ class Fabric(object):
             commcls = MQTTClient
             comms_args = self.mqttargs
             comms_args["parent_outq"] = self.outq
-        assert commcls is not None
-        assert comms_args is not None
+        assert commcls is not None, f"{commcls is not None=}"
+        assert comms_args is not None, f"{comms_args is not None=}"
         with commcls(**comms_args) as comms:
             # handle SIGTERM gracefully by asking the main loop to break
             signal.signal(signal.SIGTERM, lambda _, __: comms.inq.put("die"))
@@ -121,9 +121,10 @@ class Fabric(object):
 
     def on_future_done(self, future: concurrent.futures.Future):
         """callback for when the future's execution has concluded"""
-        future_exception = future.exception()
+        self.pkiller.clear()  # unset the process killer signal since it just ended
+        future_exception = future.exception()  # check if the process died because of an exception
         if future_exception:
-            self.lg.error(f"Process failed: {future_exception}")
+            self.lg.error(f"Process failed: {repr(future_exception)}")
             # log the exception's whole call stack for debugging
             tb = traceback.TracebackException.from_exception(future_exception)
             self.lg.debug("".join(tb.format()))
@@ -164,13 +165,15 @@ class Fabric(object):
                                         future = self.submit_for_execution(exicuter, self.do_run, request)
                                 elif rootchan == "cmd":
                                     if channel == ["util"]:  # previously utility handler territory
-                                        assert request is not None
+                                        assert request is not None, f"{request is not None=}"
                                         if "cmd" in request:
                                             if request["cmd"] == "estop":
-                                                self.estop(request)
+                                                self.estop(request)  # this gets done now instead of
+                                            else:
+                                                future = self.submit_for_execution(exicuter, self.utility_handler, request)
 
                     except Exception as e:
-                        self.lg.error(f"Runtime exception: {e}")
+                        self.lg.error(f"Runtime exception: {repr(e)}")
                         # log the exception's whole call stack for debugging
                         tb = traceback.TracebackException.from_exception(e)
                         self.lg.debug("".join(tb.format()))
@@ -186,15 +189,84 @@ class Fabric(object):
             self.stop_process(future)
         self.lg.debug("Message handler stopped")
 
-    def estop(self, request):
-        """emergency stop of the stage"""
-        if request["pcb_virt"]:
-            ThisMC = virt.FakeMC
-        else:
-            ThisMC = MC
-        with ThisMC(request["pcb"]) as mc:
-            mc.query("b")
-        self.lg.warning("Emergency stop command issued. Re-Homing required before any further movements.")
+    def utility_handler(self, task: dict):
+        """handles various utility requests"""
+        # catch all the virtual cases right here
+        ThisStageMC = MC
+        ThisMC = MC
+        if "stage_virt" in task:
+            if task["stage_virt"] == True:
+                ThisStageMC = virt.FakeMC
+        if "pcb_virt" in task:
+            if task["pcb_virt"] == True:
+                ThisMC = virt.FakeMC
+
+        if "cmd" in task:
+            cmd = task["cmd"]
+            self.lg.debug(f"Starting on {cmd=}")
+            if cmd == "home":
+                self.home_stage(task, ThisStageMC)
+            elif cmd == "goto":
+                self.util_goto(task, ThisStageMC)
+            elif cmd == "read_stage":
+                self.util_read_stage(task, ThisStageMC)
+            elif cmd == "for_pcb":
+                self.util_mc_cmd(task, ThisMC)
+
+            self.lg.debug(f"{cmd=} complete!")
+
+    def util_mc_cmd(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
+        """utility function for mc direct interaction"""
+        with AnMC(task["pcb"], timeout=5) as mc:
+            # special case for pixel selection to avoid parallel connections
+            if task["pcb_cmd"].startswith("s") and ("stream" not in task["pcb_cmd"]) and (len(task["pcb_cmd"]) != 1):
+                mc.query("s")  # deselect all before selecting one
+            result = mc.query(task["pcb_cmd"])
+            if result == "":
+                self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
+            else:
+                self.lg.warning(f"Command {task['pcb_cmd']} not acknowleged with {result}")
+
+    def util_goto(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
+        """utility function to send the stage somewhere"""
+        with AnMC(task["pcb"], timeout=5) as mc:
+            mo = Motion(address=task["stage_uri"], pcb_object=mc)
+            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+            mo.goto(task["pos"])
+            self.send_pos(mo)
+
+    def util_read_stage(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
+        """utility function to send the stage's position up to the front end"""
+        with AnMC(task["pcb"], timeout=5) as mc:
+            mo = Motion(address=task["stage_uri"], pcb_object=mc)
+            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+            self.send_pos(mo)
+
+    def home_stage(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
+        """homes the stage"""
+        with AnMC(task["pcb"], timeout=5) as mc:
+            mo = Motion(address=task["stage_uri"], pcb_object=mc)
+            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+            if task["force"] == True:
+                needs_home = True
+            else:
+                needs_home = False
+                for ax in ["1", "2", "3"]:
+                    len_ret = mc.query(f"l{ax}")
+                    if len_ret == "0":
+                        needs_home = True
+                        break
+            if needs_home == True:
+                mo.home()
+                self.lg.log(29, "Stage calibration procedure complete.")
+                self.send_pos(mo)
+            else:
+                self.lg.log(29, "The stage is already calibrated.")
+
+    def send_pos(self, mo: Motion):
+        """asks the motion controller for the current stage position and sends it up to the frontend"""
+        pos = mo.get_position()
+        self.outq.put({"topic": "status", "payload": json.dumps({"pos": pos}), "qos": 2})
 
     def submit_for_execution(self, exicuter: concurrent.futures.Executor, callabale: typing.Callable, /, *args, **kwargs) -> concurrent.futures.Future:
         """submits a task for execution by an executor, sets up a callback for when it's done and updates status for front end"""
@@ -252,7 +324,7 @@ class Fabric(object):
                                 try:
                                     i_limits = [x["current_limit"] for x in request["config"]["smu"]]
                                     i_limit = min(i_limits)
-                                except Exception as e:
+                                except:
                                     i_limit = 0.1  # use this default if we can't work out a limit from the configuration
                                 self.current_limit = i_limit
                                 things_to_measure = self.get_things_to_measure(rundata)
@@ -365,6 +437,7 @@ class Fabric(object):
                 mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled)
             else:
                 mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
+            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
             rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
             for sm in smus:
@@ -794,7 +867,7 @@ class Fabric(object):
                 self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
                 ss.set_intensity(intensity_setpoint)
         except Exception as e:
-            self.lg.debug("Failure to collect spectrum data: {e}")
+            self.lg.debug(f"Failure to collect spectrum data: {repr(e)}")
 
     def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
@@ -910,7 +983,7 @@ class Fabric(object):
                     validated.append([str(i), datalist])
 
             except Exception as e:
-                raise ValueError(f"Failed processing user-crafted slot table data: {e}")
+                raise ValueError(f"Failed processing user-crafted slot table data: {repr(e)}")
             else:
                 # use validated slot data to update stuff
                 pass
@@ -931,10 +1004,10 @@ class Fabric(object):
                         pixel_dict["sub_name"] = stuff.loc[rsel]["system_label"].values[0]
                         pixel_dict["device_label"] = stuff.loc[rsel]["device_label"].values[0]
                         mux_index = stuff.loc[rsel]["mux_index"].values[0]
-                        assert mux_index is not None  # catch error case
+                        assert mux_index is not None, f"{mux_index is not None=}"  # catch error case
                         pixel_dict["pixel"] = int(mux_index)
                         loc = stuff.loc[rsel]["loc"].values[0]
-                        assert loc is not None  # catch error case
+                        assert loc is not None, f"{loc is not None=}"  # catch error case
                         pos = [a + b for a, b in zip(center, loc)]
                         pixel_dict["pos"] = pos
                         pixel_dict["mux_string"] = stuff.loc[rsel]["mux_string"].values[0]
@@ -977,7 +1050,18 @@ class Fabric(object):
 
         return run_q
 
-    def rtd_r_to_t(self, r: float, r0: float = 1000.0, poly=None):
+    def estop(self, request):
+        """emergency stop of the stage"""
+        if request["pcb_virt"]:
+            ThisMC = virt.FakeMC
+        else:
+            ThisMC = MC
+        with ThisMC(request["pcb"]) as mc:
+            mc.query("b")  # TODO: check return code
+        self.lg.warning("Emergency stop command issued. Re-Homing required before any further movements.")
+
+    @staticmethod
+    def rtd_r_to_t(r: float, r0: float = 1000.0, poly=None) -> float:
         """converts RTD resistance to temperature. set r0 to 100 for PT100 and 1000 for PT1000"""
         PTCoefficientStandard = collections.namedtuple("PTCoefficientStandard", ["a", "b", "c"])
         # Source: http://www.code10.info/index.php%3Foption%3Dcom_content%26view%3Darticle%26id%3D82:measuring-temperature-platinum-resistance-thermometers%26catid%3D60:temperature%26Itemid%3D83

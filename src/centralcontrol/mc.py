@@ -218,7 +218,7 @@ class MC(object):
                 pcb_ans = None
                 try:
                     pcb_ans = self.query(cmd)
-                    assert pcb_ans is not None
+                    assert pcb_ans is not None, f"{pcb_ans is not None=}"
                     rslt = int(pcb_ans)
                     break
                 except Exception as e:

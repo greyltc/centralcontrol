@@ -107,6 +107,7 @@ class FakeMC(object):
     detected_axes = ["1", "2", "3"]
     detected_muxes = ["A"]
     enabled = True
+    ax_registers = {}
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -177,6 +178,13 @@ class FakeMC(object):
     def expect_int(self, cmd, tries=1):
         return int(self.query(cmd))
 
+    def expect_empty(self, cmd, tries=1):
+        self.query(cmd)
+        return True
+
+    def query_nocheck(self, cmd):
+        return (self.query(cmd), True)
+
     def query(self, cmd):
         if self.enabled:
             frame = inspect.currentframe()
@@ -210,7 +218,11 @@ class FakeMC(object):
             # now we're ready to parse the command and respond to it
             if (len(cmd) == 2) and (cmd[0] == "l"):  # axis length request
                 axi = cmd[1]
-                return str(self.ml[axi])
+                if axi in self.ml:
+                    ret = str(self.ml[axi])
+                else:
+                    ret = ""
+                return ret
             elif (cmd == "iv") or (cmd == "eqe"):  # relay selection (must be before ax driver status byte cmd below)
                 return ""
             elif cmd[0] == "h":  # axis home request
@@ -270,8 +282,18 @@ class FakeMC(object):
                 return ""
             elif cmd[0] == "s":  # pixel selection
                 return ""
+            elif cmd[0] == "y":  # write reg
+                ax = cmd[1]
+                reg, val = cmd[2::].split(",")
+                self.ax_registers[f"{ax}{reg}"] = val
+            elif cmd[0] == "x":  # read reg
+                if cmd[1::] in self.ax_registers:
+                    ret = self.ax_registers[cmd[1::]]
+                else:
+                    ret = ""
+                return ret
             elif cmd[0] == "w":  # firmware request
-                return "virtual FW version 5"
+                return "virtual FW version 5+"
             else:
                 return "Command virtually unsupported"
         else:
@@ -425,7 +447,7 @@ class FakeSMU(object):
         self.sweepStart = start
         self.sweepEnd = end
         dv = self.query_values(":source:voltage:step?")
-        assert isinstance(dv, float)
+        assert isinstance(dv, float), f"{isinstance(dv, float)=}"
         self.dV = abs(dv)
 
     def setSource(self, outVal):
@@ -594,7 +616,7 @@ class FakeSMU(object):
         else:
             m_len = 5
         vals = self.query_values("READ?")
-        assert isinstance(vals, list)
+        assert isinstance(vals, list), f"{isinstance(vals, list)=}"
 
         if len(vals) > 1:
             first_element = vals[0]

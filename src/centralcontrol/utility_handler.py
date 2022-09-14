@@ -141,84 +141,84 @@ class UtilityHandler(object):
             self.cmdq.task_done()
 
     # asks for the current stage position and sends it up to /response
-    def send_pos(self, mo):
-        pos = mo.get_position()
-        payload = {"pos": pos}
-        payload = json.dumps(payload)
-        self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
+    # def send_pos(self, mo):
+    #     pos = mo.get_position()
+    #     payload = {"pos": pos}
+    #     payload = json.dumps(payload)
+    #     self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
         # output = {"destination": "response", "payload": payload}  # post the position to the response channel
         # self.outputq.put(output)
 
     # work gets done here so that we don't do any processing on the mqtt network thread
     # can block and be slow. new commands that come in while this is working will just be rejected
-    def worker(self):
-        while True:
-            task = self.taskq.get()
-            self.lg.debug(f"New task: {task['cmd']} (queue size = {self.taskq.unfinished_tasks})")
-            # handle pcb and stage virtualization
-            stage_pcb_class = Pcb
-            pcb_class = Pcb
-            if "stage_virt" in task:
-                if task["stage_virt"] == True:
-                    stage_pcb_class = virt.pcb
-            if "pcb_virt" in task:
-                if task["pcb_virt"] == True:
-                    pcb_class = virt.pcb
-            try:  # attempt to do the task
-                if task["cmd"] == "home":
-                    self.lg.debug(f"Starting on {task['cmd']=}")
-                    with stage_pcb_class(task["pcb"], timeout=5) as p:
-                        mo = motion(address=task["stage_uri"], pcb_object=p)
-                        mo.connect()
-                        if task["force"] == True:
-                            needs_home = True
-                        else:
-                            needs_home = False
-                            for ax in ["1", "2", "3"]:
-                                len_ret = p.query(f"l{ax}")
-                                if len_ret == "0":
-                                    needs_home = True
-                                    break
-                        if needs_home == True:
-                            mo.home()
-                            self.lg.log(29, "Stage calibration procedure complete.")
-                            self.send_pos(mo)
-                        else:
-                            self.lg.log(29, "The stage is already calibrated.")
-                    del mo
-                    self.lg.debug(f"{task['cmd']=} complete!")
+    #def worker(self):
+    #    while True:
+            # task = self.taskq.get()
+            # self.lg.debug(f"New task: {task['cmd']} (queue size = {self.taskq.unfinished_tasks})")
+            # # handle pcb and stage virtualization
+            # stage_pcb_class = Pcb
+            # pcb_class = Pcb
+            # if "stage_virt" in task:
+            #     if task["stage_virt"] == True:
+            #         stage_pcb_class = virt.pcb
+            # if "pcb_virt" in task:
+            #     if task["pcb_virt"] == True:
+            #         pcb_class = virt.pcb
+            # try:  # attempt to do the task
+            #     if task["cmd"] == "home":
+            #         self.lg.debug(f"Starting on {task['cmd']=}")
+            #         with stage_pcb_class(task["pcb"], timeout=5) as p:
+            #             mo = motion(address=task["stage_uri"], pcb_object=p)
+            #             mo.connect()
+            #             if task["force"] == True:
+            #                 needs_home = True
+            #             else:
+            #                 needs_home = False
+            #                 for ax in ["1", "2", "3"]:
+            #                     len_ret = p.query(f"l{ax}")
+            #                     if len_ret == "0":
+            #                         needs_home = True
+            #                         break
+            #             if needs_home == True:
+            #                 mo.home()
+            #                 self.lg.log(29, "Stage calibration procedure complete.")
+            #                 self.send_pos(mo)
+            #             else:
+            #                 self.lg.log(29, "The stage is already calibrated.")
+            #         del mo
+            #         self.lg.debug(f"{task['cmd']=} complete!")
 
-                # send the stage some place
-                elif task["cmd"] == "goto":
-                    with stage_pcb_class(task["pcb"], timeout=5) as p:
-                        mo = motion(address=task["stage_uri"], pcb_object=p)
-                        mo.connect()
-                        mo.goto(task["pos"])
-                        self.send_pos(mo)
-                    del mo
-                    self.lg.debug(f"{task['cmd']=} complete!")
+                # # send the stage some place
+                # elif task["cmd"] == "goto":
+                #     with stage_pcb_class(task["pcb"], timeout=5) as p:
+                #         mo = motion(address=task["stage_uri"], pcb_object=p)
+                #         mo.connect()
+                #         mo.goto(task["pos"])
+                #         self.send_pos(mo)
+                #     del mo
+                #     self.lg.debug(f"{task['cmd']=} complete!")
 
                 # handle any generic PCB command that has an empty return on success
-                elif task["cmd"] == "for_pcb":
-                    with pcb_class(task["pcb"], timeout=5) as p:
-                        # special case for pixel selection to avoid parallel connections
-                        if task["pcb_cmd"].startswith("s") and ("stream" not in task["pcb_cmd"]) and (len(task["pcb_cmd"]) != 1):
-                            p.query("s")  # deselect all before selecting one
-                        result = p.query(task["pcb_cmd"])
-                    if result == "":
-                        self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
-                    else:
-                        self.lg.warning(f"Command {task['pcb_cmd']} not acknowleged with {result}")
-                    self.lg.debug(f"{task['cmd']=} complete!")
+                # elif task["cmd"] == "for_pcb":
+                #     with pcb_class(task["pcb"], timeout=5) as p:
+                #         # special case for pixel selection to avoid parallel connections
+                #         if task["pcb_cmd"].startswith("s") and ("stream" not in task["pcb_cmd"]) and (len(task["pcb_cmd"]) != 1):
+                #             p.query("s")  # deselect all before selecting one
+                #         result = p.query(task["pcb_cmd"])
+                #     if result == "":
+                #         self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
+                #     else:
+                #         self.lg.warning(f"Command {task['pcb_cmd']} not acknowleged with {result}")
+                #     self.lg.debug(f"{task['cmd']=} complete!")
 
-                # get the stage location
-                elif task["cmd"] == "read_stage":
-                    with stage_pcb_class(task["pcb"], timeout=5) as p:
-                        mo = motion(address=task["stage_uri"], pcb_object=p)
-                        mo.connect()
-                        self.send_pos(mo)
-                    del mo
-                    self.lg.debug(f"{task['cmd']=} complete!")
+                # # get the stage location
+                # elif task["cmd"] == "read_stage":
+                #     with stage_pcb_class(task["pcb"], timeout=5) as p:
+                #         mo = motion(address=task["stage_uri"], pcb_object=p)
+                #         mo.connect()
+                #         self.send_pos(mo)
+                #     del mo
+                #     self.lg.debug(f"{task['cmd']=} complete!")
 
                 # zero the mono
                 elif task["cmd"] == "mono_zero":
@@ -533,43 +533,43 @@ class UtilityHandler(object):
     #        mqttc.publish(to_send["destination"], to_send["payload"], qos=2).wait_for_publish()
     #         self.outputq.task_done()
 
-    def run(self):
-        self.loop = GLib.MainLoop.new(None, False)
+#     def run(self):
+#         self.loop = GLib.MainLoop.new(None, False)
 
-        # start the manager (decides what to do with commands from mqtt)
-        threading.Thread(target=self.manager, daemon=True).start()
+#         # start the manager (decides what to do with commands from mqtt)
+#         threading.Thread(target=self.manager, daemon=True).start()
 
-        # start the worker (does tasks the manger tells it to)
-        threading.Thread(target=self.worker, daemon=True).start()
+#         # start the worker (does tasks the manger tells it to)
+#         threading.Thread(target=self.worker, daemon=True).start()
 
-        # create mqtt client id
-        self.client_id = f"utility-{uuid.uuid4().hex}"
+#         # create mqtt client id
+#         self.client_id = f"utility-{uuid.uuid4().hex}"
 
-        self.client = mqtt.Client(client_id=self.client_id)
-        self.client.on_connect = self.on_connect
-        self.client.on_message = self.handle_message
+#         self.client = mqtt.Client(client_id=self.client_id)
+#         self.client.on_connect = self.on_connect
+#         self.client.on_message = self.handle_message
 
-        # connect to the mqtt server
-        self.client.connect_async(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
+#         # connect to the mqtt server
+#         self.client.connect_async(self.mqtt_server_address, port=self.mqtt_server_port, keepalive=60)
 
-        # start the sender (publishes messages from worker and manager)
-        threading.Thread(target=self.sender, args=(self.client,), daemon=True).start()
+#         # start the sender (publishes messages from worker and manager)
+#         threading.Thread(target=self.sender, args=(self.client,), daemon=True).start()
 
-        try:
-            self.client.loop_forever()
-        except Exception as e:
-            self.lg.error(f"Unable to start message broker loop: {e}")
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Utility handler")
-    parser.add_argument("-a", "--address", type=str, default="127.0.0.1", const="127.0.0.1", nargs="?", help="ip address/hostname of the mqtt server")
-    parser.add_argument("-p", "--port", type=int, default=1883, help="MQTT server port")
-    args = parser.parse_args()
-
-    u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
-    u.run()  # blocks forever
+#         try:
+#             self.client.loop_forever()
+#         except Exception as e:
+#             self.lg.error(f"Unable to start message broker loop: {e}")
 
 
-if __name__ == "__main__":
-    main()
+# def main():
+#     parser = argparse.ArgumentParser(description="Utility handler")
+#     parser.add_argument("-a", "--address", type=str, default="127.0.0.1", const="127.0.0.1", nargs="?", help="ip address/hostname of the mqtt server")
+#     parser.add_argument("-p", "--port", type=int, default=1883, help="MQTT server port")
+#     args = parser.parse_args()
+
+#     u = UtilityHandler(mqtt_server_address=args.address, mqtt_server_port=args.port)
+#     u.run()  # blocks forever
+
+
+# if __name__ == "__main__":
+#     main()
