@@ -2,8 +2,6 @@
 
 import collections
 import concurrent.futures
-import os
-import signal
 import time
 import traceback
 import hmac
@@ -34,11 +32,7 @@ from centralcontrol import virt
 from centralcontrol.mc import MC
 from centralcontrol.motion import Motion
 
-
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class DataHandler(object):
@@ -79,19 +73,15 @@ class Fabric(object):
     current_limit = 0.1  # always safe default
 
     # listen to/set this to end everything
-    killer: tEvent | mEvent
-
-    # the long running work is done in here
-    process = multiprocessing.Process()
+    # killer: tEvent | mEvent
+    killer = multiprocessing.Event()
 
     # process killer signal
     pkiller = multiprocessing.Event()
 
-    # for outgoing messages
-    outq: Queue | mQueue
-
     # special message output queue so that messages can emrge from forked processes
-    poutq = multiprocessing.SimpleQueue()
+    # poutq = multiprocessing.SimpleQueue()
+    outq = multiprocessing.SimpleQueue()
 
     # mqtt connection details
     # set mqttargs["host"] externally before calling run() to use mqtt comms
@@ -107,40 +97,15 @@ class Fabric(object):
         # self.software_revision = __version__
         # print("Software revision: {:s}".format(self.software_revision))
 
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
-        if use_threads:
-            self.killer = tEvent()
-        else:  # processes
-            self.killer = multiprocessing.Event()
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.lg.debug("Initialized.")
 
     @contextlib.contextmanager
     def context(self, comms: MQTTClient):
-        # hook up the comms output queue
-        self.outq = comms.outq  # TODO: fix the screwed up process output queue relay
-
-        # hook into the comms logger
-        for handler in comms.lg.handlers:
-            if handler.name == "remote":
-                self.lg.addHandler(handler)
-                break
-
-        if isinstance(self.killer, tEvent):  # use threads
-            # launch message handler
-            self.workers.append(threading.Thread(target=self.msg_handler, args=(comms.inq,), daemon=False))  # TODO: check if false here causes hangs
-            self.workers[-1].start()
-
-            # launch output queue translator
-            self.workers.append(threading.Thread(target=self.translate_outqs, daemon=True))
-            self.workers[-1].start()
-        else:  # use processes
-            # TODO: handle running with processes
-            self.pkiller.set()
-            self.killer.set()
 
         try:
-            yield self
+            yield comms
         finally:
             # invoke the killers (if not already done)
             self.pkiller.set()
@@ -149,7 +114,7 @@ class Fabric(object):
             if isinstance(self.killer, tEvent):  # use threads
                 # clean up threads
                 comms.inq.put("die")  # ask msg_handler thread to die
-                self.poutq.put("die")  # ask queue translater to die
+                self.outq.put("die")  # ask queue translater to die
                 for worker in self.workers:
                     worker.join(1.0)
             self.workers = []
@@ -159,50 +124,64 @@ class Fabric(object):
         commcls = None
         comms_args = None
         if self.mqttargs["host"] is not None:
-            comms_args = self.mqttargs
             commcls = MQTTClient
+            comms_args = self.mqttargs
+            comms_args["parent_outq"] = self.outq
         assert commcls is not None
         assert comms_args is not None
         with commcls(**comms_args) as comms:
             with self.context(comms) as ctx:
-                ctx.killer.wait()  # wait here until somebody kills us
+                try:
+                    self.msg_handler(comms.inq)
+                except KeyboardInterrupt:
+                    self.killer.set()
+                    self.pkiller.set()
+                    self.lg.debug("Ending because of SIGINT-like signal.")
+                except Exception as e:
+                    self.killer.set()
+                    self.pkiller.set()
+                    self.lg.debug(f"Exiting: {e}")
+                # ctx.killer.wait()  # wait here until somebody kills us
         return self.exitcode
 
-    def translate_outqs(self):
-        """bridges process queue output messages to comms threading queue messages"""
-        while not self.killer.is_set():
-            msg = self.poutq.get()
-            if msg == "die":
-                break
-            else:
-                self.outq.put(msg)
+    def on_future_done(self, future: concurrent.futures.Future):
+        xcptn = future.exception()
+        if xcptn:
+            self.lg.warning(f"Process failed: {xcptn}")
+        self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
     def msg_handler(self, inq: mQueue | Queue):
         """handle new messages as they come in from comms"""
-        while not self.killer.is_set():
-            msg = inq.get()
-            if msg == "die":
-                break
-            else:
-                try:
-                    request = json.loads(msg.payload.decode())
-                    action = msg.topic.split("/")[-1]
+        future = None
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as exicuter:
+            while not self.killer.is_set():
+                msg = inq.get()
+                if msg == "die":
+                    break
+                else:
+                    try:
+                        request = json.loads(msg.payload.decode())
+                        action = msg.topic.split("/")[-1]
 
-                    # perform a requested action
-                    if action == "run":
-                        self.start_process(self.do_run, (request,))
-                    elif action == "stop":
-                        self.stop_process()
-                    elif action == "quit":
-                        self.pkiller.set()
-                        self.killer.set()
-                        break
+                        # perform a requested action
+                        if action == "run":
+                            future = exicuter.submit(self.do_run, request)
+                            future.add_done_callback(self.on_future_done)
+                            if future.running():
+                                self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
+                        elif action == "stop":
+                            self.stop_process(future)
+                        elif action == "quit":
+                            self.pkiller.set()
+                            self.killer.set()
+                            break
 
-                except Exception as e:
-                    self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
+                    except Exception as e:
+                        self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
 
     def do_run(self, request):
         """handle a request published to the 'run' topic"""
+        # self.outq = self.poutq  # use the process capable output queue in here
         try:
             if "rundata" in request:
                 rundata = request["rundata"]
@@ -238,7 +217,7 @@ class Fabric(object):
             self.lg.error(f"Exception encountered during run: {e}")
             traceback.print_exc()
 
-        self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
+        # self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
     def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
@@ -439,8 +418,8 @@ class Fabric(object):
                     self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
                 n_parallel = len(q_item)  # how many pixels this group holds
-                dev_labels = [val["device_label"] for key, val in q_item.items()]
-                print_label = " + ".join(dev_labels)
+                dev_labels = [f'({val["device_label"]})' for key, val in q_item.items()]
+                print_label = f'[{",".join(dev_labels)}]'
                 theres = np.array([val["pos"] for key, val in q_item.items()])
                 self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
                 if n_parallel > 1:
@@ -448,7 +427,7 @@ class Fabric(object):
                 else:
                     there = theres[0]
 
-                self.lg.log(29, f"[{n_done+1}/{p_total}] Operating on {print_label}")
+                self.lg.log(29, f"Step {n_done+1}/{p_total}→{print_label}")
 
                 # set up light source voting/synchronization (if any)
                 ss.n_sync = n_parallel
@@ -471,7 +450,7 @@ class Fabric(object):
 
                     for smu_index, pixel in q_item.items():
                         # setup data handler
-                        dh = DataHandler(pixel=pixel, outq=self.poutq)
+                        dh = DataHandler(pixel=pixel, outq=self.outq)
 
                         # get or estimate compliance current
                         compliance_i = self.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
@@ -960,62 +939,21 @@ class Fabric(object):
 
         return run_q
 
-    def stop_process(self):
+    def stop_process(self, future: concurrent.futures.Future | None):
         """Abort the running process with increasing meanness until success"""
 
-        if self.process.is_alive():
+        if isinstance(future, concurrent.futures.Future) and future.running():
             self.lg.debug("Setting killer")
             self.pkiller.set()  # ask extremely nicely for the process to come to conclusion
-            self.process.join(5.0)  # give it this long to comply
-
-            # up one level in intesnity
-            try:
-                if self.process.is_alive():
-                    self.process.terminate()  # politely tell the process to end
-                    self.process.join(2.0)
-            except:
-                pass
-
-            # up one level in intesnity
-            try:
-                if self.process.is_alive():
-                    if self.process.pid:
-                        os.kill(self.process.pid, signal.SIGINT)  # forcefully interrupt the process
-                        self.process.join(2.0)
-                        self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGINT")
-            except:
-                pass
-
-            # up one level in intesnity
-            try:
-                if self.process.is_alive():
-                    self.process.kill()  # kill the process
-                    self.process.join(2.0)
-                    self.lg.debug(f"Had to try to kill {self.process.pid=} via SIGKILL")
-            except:
-                pass
-
-            self.pkiller.clear()
-            self.lg.debug(f"{self.process.is_alive()=}")
-            self.lg.log(29, "Request to stop completed!")
-            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
+            concurrent.futures.wait([future], timeout=5)
+            if not future.running():
+                self.lg.log(29, "Request to stop completed!")
+            else:
+                future.cancel()  # politely tell the process to end
+                concurrent.futures.wait([future], timeout=5)
+                if not future.running():
+                    self.lg.log(29, "Forceful request to stop completed!")
+                else:
+                    self.lg.warning("Unable to stop the process!")
         else:
-            self.lg.warning("Nothing to stop. Measurement server is idle.")
-
-    def start_process(self, target, args):
-        """Start a new process to perform an action if no process is running.
-
-        Parameters
-        ----------
-        target : function handle
-            Function to run in child process.
-        args : tuple
-            Arguments required by the function.
-        """
-
-        if self.process.is_alive():
-            self.lg.warning("Measurement server busy!")
-        else:
-            self.process = multiprocessing.Process(target=target, args=args, daemon=False)  # TODO: check if false here causes hangs
-            self.process.start()
-            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
+            self.lg.log(29, "Nothing to stop. Measurement server is idle.")

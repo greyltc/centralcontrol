@@ -2,11 +2,7 @@
 import socket
 import xml.etree.ElementTree as ET
 import time
-
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class Wavelabs(object):
@@ -85,7 +81,7 @@ class Wavelabs(object):
         sets up the wavelabs comms object
         timeouts are in seconds
         """
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         if "relay" in kind:
             self.relay = True

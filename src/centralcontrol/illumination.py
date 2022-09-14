@@ -3,22 +3,19 @@ from centralcontrol.virt import FakeLight
 
 # from centralcontrol.newport import Newport
 
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
-
 from threading import BrokenBarrierError
 from threading import Barrier as tBarrier
 from multiprocessing.synchronize import Barrier as mBarrier
 import typing
+
+from centralcontrol.logstuff import get_logger
 
 
 def factory(cfg: typing.Dict) -> typing.Type["LightAPI"]:
     """light class factory
     give it a light source configuration dictionary and it will return the correct class to use
     """
-    lg = getLogger(__name__)  # setup logging
+    lg = get_logger(__name__)  # setup logging
     if "kind" in cfg:
         kind = cfg["kind"]
     else:
@@ -57,7 +54,7 @@ class LightAPI(object):
 
     def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         # store away the init args and kwargs
         self.init_args = args

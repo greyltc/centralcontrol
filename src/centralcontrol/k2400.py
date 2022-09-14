@@ -7,10 +7,7 @@ from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 import socket
 
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class k2400(object):
@@ -43,7 +40,7 @@ class k2400(object):
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
 
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.killer = killer
         self.quiet = quiet

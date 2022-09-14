@@ -5,10 +5,7 @@ import json
 import pathlib
 import numpy as np
 
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class Xdac(object):
@@ -31,7 +28,7 @@ class Xdac(object):
     cal_data = None
 
     def __init__(self, context, ip="169.254.38.99"):
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.req_socket = context.socket(zmq.REQ)
         self.req_socket.connect(f"tcp://{ip}:{self.req_port}")

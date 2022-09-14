@@ -2,15 +2,12 @@ import numpy
 import time
 import random
 import typing
+import logging
 from collections import deque
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 from centralcontrol.sourcemeter import SourcemeterAPI as smapi
-
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class mppt:
@@ -30,7 +27,7 @@ class mppt:
     area: float | None = None
 
     # under no circumstances should we violate this
-    absolute_current_limit = 0.1  # always safe default
+    absolute_current_limit: float  # always safe default
 
     t0: float | None = None  # the time we started the mppt algorithm
 
@@ -43,7 +40,8 @@ class mppt:
         self.sm = sm
         self.killer = sm.killer
 
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]), level=logging.INFO)
+
         self.absolute_current_limit = abs(absolute_current_limit)
         self.lg.debug(f"Initialized.")
 

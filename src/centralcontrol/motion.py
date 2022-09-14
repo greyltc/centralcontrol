@@ -4,11 +4,7 @@ from centralcontrol.afms import AFMS
 from centralcontrol.us import Us
 import json
 from urllib.parse import urlparse, parse_qs
-
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class Motion(object):
@@ -40,7 +36,7 @@ class Motion(object):
         sets up communication to motion controller
         """
         # setup logging
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.enabled = enabled
         if address is None:

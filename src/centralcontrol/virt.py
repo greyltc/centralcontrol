@@ -6,11 +6,7 @@ import inspect
 import collections
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
-
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class FakeLight(object):
@@ -29,7 +25,7 @@ class FakeLight(object):
     address = None
 
     def __init__(self, *args, **kwargs):
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         if "active_recipe" in kwargs:
             self.active_recipe = kwargs["active_recipe"]
@@ -113,7 +109,7 @@ class FakeMC(object):
     enabled = True
 
     def __init__(self, *args, **kwargs):
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         self._votes_needed = 1
         self.on_votes = collections.deque([], maxlen=self._votes_needed)
@@ -296,7 +292,7 @@ class FakeSMU(object):
     area: float
 
     def __init__(self, *args, **kwargs):
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         self._votes_needed = 1
         self.on_votes = collections.deque([], maxlen=self._votes_needed)

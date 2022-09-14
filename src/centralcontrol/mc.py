@@ -5,10 +5,7 @@ import socket
 import time
 import os
 
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 class MC(object):
@@ -50,7 +47,8 @@ class MC(object):
     def __init__(self, address: None | str = None, timeout: float = comms_timeout, expected_muxes: list[str] = [], enabled=True):
         self.comms_timeout = timeout  # pcb has this many seconds to respond
 
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         if address is None:
             # passing a None address makes everything in this class a noop

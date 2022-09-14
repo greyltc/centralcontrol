@@ -2,7 +2,6 @@
 """MQTT Client to facilitate tx/rxing messages to/from the broker"""
 
 import sys
-import multiprocessing
 import threading
 import json
 import uuid
@@ -15,11 +14,8 @@ from queue import SimpleQueue as Queue
 from multiprocessing.queues import SimpleQueue as mQueue
 from concurrent.futures import Executor
 
-# for logging directly to systemd journal if we can
-try:
-    import systemd.journal
-except ImportError:
-    pass
+from centralcontrol.logstuff import get_logger
+from centralcontrol.logstuff import NewHandler
 
 
 class MQTTClient(object):
@@ -29,10 +25,7 @@ class MQTTClient(object):
     outq: Queue | mQueue
 
     # for incoming messages
-    inq: Queue | mQueue
-
-    # long tasks get their own process
-    # process = multiprocessing.Process()
+    inq = Queue()
 
     # return code
     retcode = 0
@@ -51,38 +44,24 @@ class MQTTClient(object):
 
     workers: list[threading.Thread] = []  # list of things doing work for us
 
-    class Dummy(object):
-        pass
-
-    def __init__(self, host="127.0.0.1", port=1883, use_threads=True):
+    def __init__(self, host="127.0.0.1", port=1883, parent_outq: None | Queue | mQueue = None, parent_killer: tEvent | mEvent | None = None):
+        if parent_outq:
+            self.outq = parent_outq
+        else:
+            self.outq = Queue()
+        if parent_killer:
+            self.killer = parent_killer
+        else:
+            self.killer = tEvent()
         # setup logging
-        logname = __name__
-        if __package__ in __name__:
-            # log at the package level if the imports are all correct
-            logname = __package__
-        self.lg = logging.getLogger(logname)
-        self.lg.setLevel(logging.DEBUG)
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
-        if not self.lg.hasHandlers():
-            # set up a logging handler for passing messages to the UI log window
-            uih = logging.Handler()
-            uih.name = "remote"
-            uih.setLevel(logging.INFO)
-            uih.emit = self.send_log_msg
-            self.lg.addHandler(uih)
-
-            # set up logging to systemd's journal if it's there
-            if "systemd" in sys.modules:
-                sysdl = systemd.journal.JournalHandler(SYSLOG_IDENTIFIER=self.lg.name)
-                sysLogFormat = logging.Formatter(("%(levelname)s|%(message)s"))
-                sysdl.setFormatter(sysLogFormat)
-                self.lg.addHandler(sysdl)
-            else:
-                # for logging to stdout & stderr
-                ch = logging.StreamHandler()
-                logFormat = logging.Formatter(("%(asctime)s|%(name)s|%(levelname)s|%(message)s"))
-                ch.setFormatter(logFormat)
-                self.lg.addHandler(ch)
+        # add the ability for some log messages to be sent to the broker
+        # add the handler for that at the package level so everyone can use it
+        pkglg = logging.getLogger(__package__)
+        lh = NewHandler(self.send_log_msg)
+        lh.setLevel(29)  # special level for filtering messages to the broker
+        pkglg.addHandler(lh)
 
         self.host = host
         self.port = port
@@ -90,26 +69,16 @@ class MQTTClient(object):
         # create mqtt client id
         self.client_id = f"measure-{uuid.uuid4().hex}"
 
+        self.lg.debug("Initialized.")
+
+    def __enter__(self):
+        """Enter the runtime context related to this object."""
         # setup mqtt subscriber client
         self.mqttc = mqtt.Client(client_id=self.client_id)
         self.mqttc.will_set("measurement/status", json.dumps("Offline"), 2, retain=True)
         self.mqttc.on_message = self.on_message
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_disconnect = self.on_disconnect
-
-        if use_threads:
-            self.killer = tEvent()
-            self.inq = Queue()
-            self.outq = Queue()
-        else:  # processes
-            self.killer = multiprocessing.Event()
-            self.inq = multiprocessing.SimpleQueue()
-            self.outq = multiprocessing.SimpleQueue()
-
-        self.lg.debug("Initialized.")
-
-    def __enter__(self):
-        """Enter the runtime context related to this object."""
         self.start()
         return self
 
@@ -119,12 +88,12 @@ class MQTTClient(object):
 
     # send up a log message to the status channel
     def send_log_msg(self, record: logging.LogRecord):
-        payload = {"level": record.levelno, "msg": record.msg}
+        payload = {"level": record.levelno, "msg": record.msg}  # TODO: consider sending up the unmodified record
+        # payload = record
         self.outq.put({"topic": "measurement/log", "payload": json.dumps(payload), "qos": 2})
 
-    # The callback for when a PUBLISH message is received from the server.
     def on_message(self, client: mqtt.Client, userdata: typing.Any, msg):
-        """runs when there's a message on"""
+        """The callback for when a message appears in a channel we're subscribed to"""
         try:
             self.inq.put(msg)  # put the message in the incomming queue
         except Exception as e:
@@ -160,7 +129,8 @@ class MQTTClient(object):
         """spawn a thread and maintain the mqtt loop in there"""
         self.mqttc.connect_async(self.host, self.port)
         try:
-            self.mqttc.loop_start()
+            self.mqttc.loop_start()  #  the thread created here is self.mqttc._thread_main
+            # self.workers.append(self.mqttc._thread)  # type: ignore
         except Exception as e:
             self.lg.error(f"Message broker loop start failure: {e}")
             retcode = -1
@@ -214,7 +184,7 @@ class MQTTClient(object):
         self.workers.append(threading.Thread(target=self.out_relay, daemon=True))
         self.workers[-1].start()
 
-        self.start_loop()  # TODO: see if we can find the thread here...
+        self.start_loop()  # start the client-broker mainintance loop in a background thread
 
     def execute(self, executer: Executor):
         """run this via an external Executer"""

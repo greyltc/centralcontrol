@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 
-from __future__ import division
-
 import time
 from centralcontrol.mc import MC
+from centralcontrol.logstuff import get_logger
 
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
 
 # this boilerplate is required to allow this module to be run directly as a script
 if __name__ == "__main__" and __package__ in [None, ""]:
@@ -107,7 +102,7 @@ class Us(object):
         self.stage_firmwares = {}
 
         # setup logging
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         self.lg.debug("Initialized.")
 

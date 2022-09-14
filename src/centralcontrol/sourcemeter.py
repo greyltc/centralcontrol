@@ -3,18 +3,14 @@ from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 from centralcontrol.virt import FakeSMU as vsmu
 from centralcontrol.k2400 import k2400
-
-try:
-    from centralcontrol.logstuff import get_logger as getLogger
-except:
-    from logging import getLogger
+from centralcontrol.logstuff import get_logger
 
 
 def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
     """sourcemeter class factory
     give it a smu configuration dictionary and it will return the correct smu class to use
     """
-    lg = getLogger(__name__)  # setup logging
+    lg = get_logger(__name__)  # setup logging
     if "kind" in cfg:
         kind = cfg["kind"]
     else:
@@ -50,7 +46,7 @@ class SourcemeterAPI(object):
 
     def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
-        self.lg = getLogger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
         # store away the init args and kwargs
         self.init_args = args
