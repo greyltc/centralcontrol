@@ -10,11 +10,11 @@ import datetime
 import typing
 import contextlib
 import json
-import logging
 import numpy as np
 import pandas as pd
 import multiprocessing
 import threading
+import signal
 
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
@@ -72,10 +72,6 @@ class Fabric(object):
 
     current_limit = 0.1  # always safe default
 
-    # listen to/set this to end everything
-    # killer: tEvent | mEvent
-    killer = multiprocessing.Event()
-
     # process killer signal
     pkiller = multiprocessing.Event()
 
@@ -93,31 +89,13 @@ class Fabric(object):
 
     exitcode = 0
 
-    def __init__(self, use_threads: bool = True):
+    def __init__(self):
         # self.software_revision = __version__
         # print("Software revision: {:s}".format(self.software_revision))
 
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         self.lg.debug("Initialized.")
-
-    @contextlib.contextmanager
-    def context(self, comms: MQTTClient):
-
-        try:
-            yield comms
-        finally:
-            # invoke the killers (if not already done)
-            self.pkiller.set()
-            self.killer.set()
-
-            if isinstance(self.killer, tEvent):  # use threads
-                # clean up threads
-                comms.inq.put("die")  # ask msg_handler thread to die
-                self.outq.put("die")  # ask queue translater to die
-                for worker in self.workers:
-                    worker.join(1.0)
-            self.workers = []
 
     def run(self) -> int:
         """runs the measurement server. blocks forever"""
@@ -130,130 +108,132 @@ class Fabric(object):
         assert commcls is not None
         assert comms_args is not None
         with commcls(**comms_args) as comms:
-            with self.context(comms) as ctx:
-                try:
-                    self.msg_handler(comms.inq)
-                except KeyboardInterrupt:
-                    self.killer.set()
-                    self.pkiller.set()
-                    self.lg.debug("Ending because of SIGINT-like signal.")
-                except Exception as e:
-                    self.killer.set()
-                    self.pkiller.set()
-                    self.lg.debug(f"Exiting: {e}")
-                # ctx.killer.wait()  # wait here until somebody kills us
+            # handle SIGTERM gracefully by asking the main loop to break
+            signal.signal(signal.SIGTERM, lambda _, __: comms.inq.put("die"))
+
+            # run the message handler, blocking forever
+            self.msg_handler(comms.inq)
+
+        self.lg.debug("Graceful exit achieved")
         return self.exitcode
 
     def on_future_done(self, future: concurrent.futures.Future):
-        xcptn = future.exception()
-        if xcptn:
-            self.lg.warning(f"Process failed: {xcptn}")
+        """callback for when the future's execution has concluded"""
+        future_exception = future.exception()
+        if future_exception:
+            self.lg.error(f"Process failed: {future_exception}")
+            # log the exception's whole call stack for debugging
+            tb = traceback.TracebackException.from_exception(future_exception)
+            self.lg.debug("".join(tb.format()))
         self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
     def msg_handler(self, inq: mQueue | Queue):
-        """handle new messages as they come in from comms"""
-        future = None
+        """handle new messages as they come in from comms, the main program loop lives here"""
+        future = None  # represents a long-running task
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as exicuter:
-            while not self.killer.is_set():
-                msg = inq.get()
-                if msg == "die":
-                    break
-                else:
-                    try:
-                        request = json.loads(msg.payload.decode())
-                        action = msg.topic.split("/")[-1]
-
-                        # perform a requested action
-                        if action == "run":
-                            future = exicuter.submit(self.do_run, request)
-                            future.add_done_callback(self.on_future_done)
-                            if future.running():
-                                self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
-                        elif action == "stop":
-                            self.stop_process(future)
-                        elif action == "quit":
-                            self.pkiller.set()
-                            self.killer.set()
+            try:  # this try/except block is for catching keyboard interrupts and then asking the main loop to break
+                while True:  # main program loop
+                    try:  # this try/except block lets the main loop keep running through programming errors
+                        msg = inq.get()  # mostly execution sits right here waiting to be told what to do
+                        if msg == "die":
                             break
+                        else:
+                            request = json.loads(msg.payload.decode())
+                            action = msg.topic.split("/")[-1]
+
+                            # perform or schedule requested action
+                            if action == "run":
+                                future = self.submit_for_execution(exicuter, self.do_run, request)
+                            elif action == "stop":
+                                self.stop_process(future)
+                            elif action == "quit":
+                                self.lg.debug("Ending because of quit message")
+                                break
 
                     except Exception as e:
-                        self.lg.debug(f"Caught a high level exception while handling a request message: {e}")
+                        self.lg.error(f"Runtime exception: {e}")
+                        # log the exception's whole call stack for debugging
+                        tb = traceback.TracebackException.from_exception(e)
+                        self.lg.debug("".join(tb.format()))
+
+                        # tell the front end we're ready again after the crash
+                        self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
+            except KeyboardInterrupt:
+                self.lg.debug("Ending gracefully because of SIGINT-like signal")
+                inq.put("die")  # ask the main loop to break
+
+            # the main program loop as exited, clean things up
+            self.outq.put("die")  # end the output queuq handler
+            self.stop_process(future)
+        self.lg.debug("Message handler stopped")
+
+    def submit_for_execution(self, exicuter: concurrent.futures.Executor, callabale: typing.Callable, /, *args, **kwargs) -> concurrent.futures.Future:
+        """submits a task for execution by an executor, sets up a callback for when it's done and updates status for front end"""
+        future = exicuter.submit(self.future_wrapper, callabale, *args, **kwargs)
+        future.add_done_callback(self.on_future_done)
+        if future.running():
+            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
+        return future
+
+    def future_wrapper(self, callable: typing.Callable, /, *args, **kwargs) -> typing.Any:
+        """wraps a function call that will be scheduled for execution"""
+        # signal handlers needed here because this runs in a forked process
+        # which seems to get signals independantly from the main one
+        signal.signal(signal.SIGTERM, lambda _, __: self.pkiller.set())
+        signal.signal(signal.SIGINT, lambda _, __: self.pkiller.set())
+        return callable(*args, **kwargs)
+
+    def stop_process(self, future: concurrent.futures.Future | None):
+        """Abort the running process with increasing meanness until success"""
+        self.lg.debug("Stopping process")
+
+        if isinstance(future, concurrent.futures.Future) and future.running():
+            self.lg.debug("Setting process killer")
+            self.pkiller.set()  # ask extremely nicely for the process to come to conclusion
+            concurrent.futures.wait([future], timeout=5)
+            if not future.running():
+                self.lg.log(29, "Request to stop completed!")
+            else:
+                future.cancel()  # politely tell the process to end
+                concurrent.futures.wait([future], timeout=5)
+                if not future.running():
+                    self.lg.log(29, "Forceful request to stop completed!")
+                else:
+                    self.lg.warning("Unable to stop the process!")
+        else:
+            self.lg.log(29, "Nothing to stop. Measurement server is idle.")
 
     def do_run(self, request):
         """handle a request published to the 'run' topic"""
-        # self.outq = self.poutq  # use the process capable output queue in here
-        try:
-            if "rundata" in request:
-                rundata = request["rundata"]
-                if "digest" in rundata:
-                    remotedigest_str: str = rundata.pop("digest")
-                    theirdigest = bytes.fromhex(remotedigest_str.removeprefix("0x"))
-                    jrundatab = json.dumps(rundata).encode()
-                    mydigest = hmac.digest(self.hk, jrundatab, "sha1")
-                    if theirdigest == mydigest:
-                        if "args" in rundata:
-                            args = rundata["args"]
-                            if "enable_iv" in args:
-                                if args["enable_iv"] == True:
-                                    try:
-                                        self.lg.setLevel(rundata["config"]["meta"]["internal_loglevel"])
-                                    except:
-                                        self.lg.setLevel(logging.INFO)
-                                    if "slots" in request:  # shoehorn in unvalidated slot info loaded from a tsv file
-                                        rundata["slots"] = request["slots"]
-                                    self.lg.log(29, "Starting run...")
-                                    try:
-                                        i_limits = [x["current_limit"] for x in request["config"]["smu"]]
-                                        i_limit = min(i_limits)
-                                    except Exception as e:
-                                        i_limit = 0.1  # use this default if we can't work out a limit from the configuration
-                                    self.current_limit = i_limit
-                                    things_to_measure = self.get_things_to_measure(rundata)
-                                    self.standard_routine(things_to_measure, rundata)
-                                    self.lg.log(29, "Run complete!")
-        except KeyboardInterrupt:
-            pass
-        except Exception as e:
-            self.lg.error(f"Exception encountered during run: {e}")
-            traceback.print_exc()
-
-        # self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
-
-    def compliance_current_guess(self, area=None, jmax=None, imax=None):
-        """Guess what the compliance current should be for i-v-t measurements.
-        area in cm^2
-        jmax in mA/cm^2
-        imax in A (overrides jmax/area calc)
-        returns value in A (defaults to 0.025A = 0.5cm^2 * 50 mA/cm^2)
-        """
-        ret_val = 0.5 * 0.05  # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
-        if imax is not None:
-            ret_val = imax
-        elif (area is not None) and (jmax is not None):
-            ret_val = jmax * area / 1000  # scale mA to A
-
-        # enforce the global current limit
-        if ret_val > self.current_limit:
-            self.lg.warning("Overcurrent protection kicked in")
-            ret_val = self.current_limit
-
-        return ret_val
-
-    def select_pixel(self, pcb: MC | virt.FakeMC, mux_string=None):
-        """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
-        if mux_string is None:
-            mux_string = ["s"]  # empty call disconnects everything
-
-        # ensure we have a list
-        if isinstance(mux_string, str):
-            selection = [mux_string]
-        else:
-            selection = mux_string
-
-        pcb.set_mux(selection)
+        if "rundata" in request:
+            rundata = request["rundata"]
+            if "digest" in rundata:
+                remotedigest_str: str = rundata.pop("digest")
+                theirdigest = bytes.fromhex(remotedigest_str.removeprefix("0x"))
+                jrundatab = json.dumps(rundata).encode()
+                mydigest = hmac.digest(self.hk, jrundatab, "sha1")
+                if theirdigest == mydigest:
+                    if "args" in rundata:
+                        args = rundata["args"]
+                        if "enable_iv" in args:
+                            if args["enable_iv"] == True:
+                                if "slots" in request:  # shoehorn in unvalidated slot info loaded from a tsv file
+                                    rundata["slots"] = request["slots"]
+                                self.lg.log(29, "Starting run...")
+                                try:
+                                    i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+                                    i_limit = min(i_limits)
+                                except Exception as e:
+                                    i_limit = 0.1  # use this default if we can't work out a limit from the configuration
+                                self.current_limit = i_limit
+                                things_to_measure = self.get_things_to_measure(rundata)
+                                self.standard_routine(things_to_measure, rundata)
+                                self.lg.log(29, "Run complete!")
 
     def standard_routine(self, run_queue, request):
         """perform the normal measurement routine on a given list of pixels"""
+
+        # int("checkerberrycheddarchew")  # force crash for testing
 
         if "config" in request:
             config = request["config"]
@@ -359,7 +339,7 @@ class Fabric(object):
 
             rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
             for sm in smus:
-                sm.killer = self.pkiller  # register the kill signal
+                sm.killer = self.pkiller  # register the kill signal with the smu object
             mppts = [mppt.mppt(sm) for sm in smus]  # spin up all the max power point trackers
 
             self.send_spectrum(ss)  # record spectrum data
@@ -418,8 +398,9 @@ class Fabric(object):
                     self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
                 n_parallel = len(q_item)  # how many pixels this group holds
-                dev_labels = [f'({val["device_label"]})' for key, val in q_item.items()]
-                print_label = f'[{",".join(dev_labels)}]'
+                dev_labels = [val["device_label"] for key, val in q_item.items()]
+                dev_labp = [f"[{l}]" for l in dev_labels]
+                print_label = f'{", ".join(dev_labp)}'
                 theres = np.array([val["pos"] for key, val in q_item.items()])
                 self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
                 if n_parallel > 1:
@@ -427,7 +408,7 @@ class Fabric(object):
                 else:
                     there = theres[0]
 
-                self.lg.log(29, f"Step {n_done+1}/{p_total}→{print_label}")
+                self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
 
                 # set up light source voting/synchronization (if any)
                 ss.n_sync = n_parallel
@@ -484,27 +465,9 @@ class Fabric(object):
             # don't leave the light on!
             ss.apply_intensity(0)
 
-    def send_spectrum(self, ss):
-        try:
-            intensity_setpoint = int(ss.get_intensity())
-            wls, counts = ss.get_spectrum()
-            data = [[wl, count] for wl, count in zip(wls, counts)]
-            spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
-            self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
-            if intensity_setpoint != 100:
-                # now do it again to make sure we have a record of the 100% baseline
-                ss.set_intensity(100)
-                wls, counts = ss.get_spectrum()
-                data = [[wl, count] for wl, count in zip(wls, counts)]
-                spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
-                self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
-                ss.set_intensity(intensity_setpoint)
-        except Exception as e:
-            self.lg.debug("Failure to collect spectrum data: {e}")
-
     def do_iv(self, rid, ss, sm, mppt, dh, compliance_i, dark_compliance_i, args, config, sweeps, area, dark_area):
+        """parallelizable I-V tasks for use in threads where multiple devices are going at the same time"""
         data = []
-        """parallelizable I-V tasks for use in threads"""
         with SlothDB(db_uri=config["db"]["uri"]) as db:
             dh.dbputter = db.putsmdat
             mppt.current_compliance = compliance_i
@@ -542,7 +505,7 @@ class Fabric(object):
                 if args["suns_voc"] < -svoc_step_threshold:  # suns-voc is up
                     self.lg.debug(f"Doing upwards suns-Voc for {args['i_dwell']} seconds.")
                     dh.kind = "vt_measurement"
-                    self._clear_plot("vt_measurement")
+                    self.clear_plot("vt_measurement")
 
                     # db prep
                     eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
@@ -560,7 +523,7 @@ class Fabric(object):
                 ss.lit = True  # Voc needs light
                 self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
                 dh.kind = "vt_measurement"
-                self._clear_plot("vt_measurement")
+                self.clear_plot("vt_measurement")
                 # db prep
                 eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
@@ -582,7 +545,7 @@ class Fabric(object):
                 if args["suns_voc"] > svoc_step_threshold:  # suns-voc is up
                     self.lg.debug(f"Doing downwards suns-Voc for {args['i_dwell']} seconds.")
                     dh.kind = "vt_measurement"
-                    self._clear_plot("vt_measurement")
+                    self.clear_plot("vt_measurement")
                     intensities_reversed = intensities[::-1]
                     # db prep
                     eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
@@ -601,6 +564,7 @@ class Fabric(object):
                 ssvoc = None
 
             # perform sweeps
+            self.clear_plot("iv_measurement")
             for sweep in sweeps:
                 if self.pkiller.is_set():
                     self.lg.debug("Killed by killer.")
@@ -615,9 +579,9 @@ class Fabric(object):
                     ss.lit = True
                     sm.dark = False
                     sweep_current_limit = compliance_i
-                    dh.kind = "iv_measurement/1"  # TODO: check if this /1 is still needed
-                    dh.sweep = sweep
-                    self._clear_plot("iv_measurement")
+
+                dh.kind = "iv_measurement/1"  # TODO: check if this /1 is still needed
+                dh.sweep = sweep
 
                 sweep_args = {}
                 sweep_args["sourceVoltage"] = True
@@ -705,7 +669,7 @@ class Fabric(object):
                 ss.lit = True
 
                 dh.kind = "mppt_measurement"
-                self._clear_plot("mppt_measurement")
+                self.clear_plot("mppt_measurement")
 
                 if ssvoc is not None:
                     # tell the mppt what our measured steady state Voc was
@@ -763,7 +727,7 @@ class Fabric(object):
                 ss.lit = True
 
                 dh.kind = "it_measurement"
-                self._clear_plot("it_measurement")
+                self.clear_plot("it_measurement")
 
                 ss_args = {}
                 ss_args["sourceVoltage"] = True
@@ -785,6 +749,57 @@ class Fabric(object):
 
         return data
 
+    def send_spectrum(self, ss):
+        try:
+            intensity_setpoint = int(ss.get_intensity())
+            wls, counts = ss.get_spectrum()
+            data = [[wl, count] for wl, count in zip(wls, counts)]
+            spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
+            self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
+            if intensity_setpoint != 100:
+                # now do it again to make sure we have a record of the 100% baseline
+                ss.set_intensity(100)
+                wls, counts = ss.get_spectrum()
+                data = [[wl, count] for wl, count in zip(wls, counts)]
+                spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
+                self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
+                ss.set_intensity(intensity_setpoint)
+        except Exception as e:
+            self.lg.debug("Failure to collect spectrum data: {e}")
+
+    def compliance_current_guess(self, area=None, jmax=None, imax=None):
+        """Guess what the compliance current should be for i-v-t measurements.
+        area in cm^2
+        jmax in mA/cm^2
+        imax in A (overrides jmax/area calc)
+        returns value in A (defaults to 0.025A = 0.5cm^2 * 50 mA/cm^2)
+        """
+        ret_val = 0.5 * 0.05  # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
+        if imax is not None:
+            ret_val = imax
+        elif (area is not None) and (jmax is not None):
+            ret_val = jmax * area / 1000  # scale mA to A
+
+        # enforce the global current limit
+        if ret_val > self.current_limit:
+            self.lg.warning("Overcurrent protection kicked in")
+            ret_val = self.current_limit
+
+        return ret_val
+
+    def select_pixel(self, pcb: MC | virt.FakeMC, mux_string=None):
+        """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
+        if mux_string is None:
+            mux_string = ["s"]  # empty call disconnects everything
+
+        # ensure we have a list
+        if isinstance(mux_string, str):
+            selection = [mux_string]
+        else:
+            selection = mux_string
+
+        pcb.set_mux(selection)
+
     def suns_voc(self, duration: float, light, sm, intensities: typing.List[int], dh):
         """do a suns-Voc measurement"""
         step_time = duration / len(intensities)
@@ -795,21 +810,16 @@ class Fabric(object):
             svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
         return svt
 
-    def _clear_plot(self, kind):
-        """Publish measurement data.
-
-        Parameters
-        ----------
-        kind : str
-            Kind of measurement data. This is used as a sub-channel name.
-        mqttqp : MQTTQueuePublisher
-            MQTT queue publisher object that publishes measurement data.
-        """
+    def clear_plot(self, kind: str):
+        """send a message asking a plot to clear its data"""
         self.outq.put({"topic": f"plotter/{kind}/clear", "payload": json.dumps(""), "qos": 2})
 
     def get_things_to_measure(self, request):
         """tabulate a list of items to loop through during the measurement"""
         # TODO: return support for inferring layout from pcb adapter resistors
+
+        # int("checkerberrycheddarchew")  # force crash for testing
+
         config = request["config"]
         args = request["args"]
 
@@ -871,8 +881,7 @@ class Fabric(object):
                     validated.append([str(i), datalist])
 
             except Exception as e:
-                self.lg.error(f"Failed processing user-crafted slot table data: {e}")
-                return run_q  # send up an empty queue
+                raise ValueError(f"Failed processing user-crafted slot table data: {e}")
             else:
                 # use validated slot data to update stuff
                 pass
@@ -938,22 +947,3 @@ class Fabric(object):
                 run_q.append({0: pixel_dict})
 
         return run_q
-
-    def stop_process(self, future: concurrent.futures.Future | None):
-        """Abort the running process with increasing meanness until success"""
-
-        if isinstance(future, concurrent.futures.Future) and future.running():
-            self.lg.debug("Setting killer")
-            self.pkiller.set()  # ask extremely nicely for the process to come to conclusion
-            concurrent.futures.wait([future], timeout=5)
-            if not future.running():
-                self.lg.log(29, "Request to stop completed!")
-            else:
-                future.cancel()  # politely tell the process to end
-                concurrent.futures.wait([future], timeout=5)
-                if not future.running():
-                    self.lg.log(29, "Forceful request to stop completed!")
-                else:
-                    self.lg.warning("Unable to stop the process!")
-        else:
-            self.lg.log(29, "Nothing to stop. Measurement server is idle.")

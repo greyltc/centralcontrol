@@ -34,7 +34,7 @@ class CentralControl(object):
 
     def mqtt_run(self) -> int:
         """run the server in mqtt mode"""
-        f = Fabric(use_threads=False)
+        f = Fabric()
         # set the connection parameters
         f.mqttargs["host"] = self.run_params["mqtthost"]
         f.mqttargs["port"] = self.run_params["mqttport"]

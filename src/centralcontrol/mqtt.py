@@ -39,21 +39,14 @@ class MQTTClient(object):
 
     lg: logging.Logger
 
-    # listen to this for kill signals
-    killer: tEvent | mEvent
-
     workers: list[threading.Thread] = []  # list of things doing work for us
 
-    def __init__(self, host="127.0.0.1", port=1883, parent_outq: None | Queue | mQueue = None, parent_killer: tEvent | mEvent | None = None):
+    def __init__(self, host="127.0.0.1", port=1883, parent_outq: None | Queue | mQueue = None):
         if parent_outq:
             self.outq = parent_outq
         else:
             self.outq = Queue()
-        if parent_killer:
-            self.killer = parent_killer
-        else:
-            self.killer = tEvent()
-        # setup logging
+
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         # add the ability for some log messages to be sent to the broker
@@ -75,10 +68,15 @@ class MQTTClient(object):
         """Enter the runtime context related to this object."""
         # setup mqtt subscriber client
         self.mqttc = mqtt.Client(client_id=self.client_id)
+
+        # sticky an Offline message in the status channel if we disconnect unexpectedly
         self.mqttc.will_set("measurement/status", json.dumps("Offline"), 2, retain=True)
+
+        # register some callbacks
         self.mqttc.on_message = self.on_message
         self.mqttc.on_connect = self.on_connect
         self.mqttc.on_disconnect = self.on_disconnect
+
         self.start()
         return self
 
@@ -115,7 +113,7 @@ class MQTTClient(object):
         forever gets messages that were put into the output queue and sends them to the broker
         if this is run as a daemon thread it will be cleaned up when the main process comes to an end
         """
-        while not self.killer.is_set():
+        while True:
             to_send = self.outq.get()
             try:
                 if to_send == "die":
@@ -124,6 +122,7 @@ class MQTTClient(object):
                     self.mqttc.publish(**to_send)
             except Exception as e:
                 self.lg.error(f"Error publishing message to broker: {e}")
+        self.lg.debug("Out queue relay stopped")
 
     def start_loop(self) -> int:
         """spawn a thread and maintain the mqtt loop in there"""
@@ -149,8 +148,13 @@ class MQTTClient(object):
 
     def disconnect(self):
         """disconnects from the message broker"""
-        self.killer.set()
-        self.outq.put("die")  # ask the out_relay to stop
+
+        # sticky an offline message in the status channel. blocking send because we're about to shut down
+        self.mqttc.publish("measurement/status", json.dumps("Offline"), qos=2, retain=True).wait_for_publish()
+
+        # ask the out_relay to stop
+        self.outq.put("die")
+
         try:
             self.mqttc.disconnect()
         except:
@@ -170,7 +174,7 @@ class MQTTClient(object):
         blocks forever (or until .disconnect() is called)"""
 
         # start the outq handler thread (sends messages to the broker)
-        self.workers.append(threading.Thread(target=self.out_relay, daemon=True))
+        self.workers.append(threading.Thread(target=self.out_relay, daemon=False))
         self.workers[-1].start()
 
         # begin mqtt loop maintanince (blocks here)
@@ -181,7 +185,7 @@ class MQTTClient(object):
     def start(self):
         """starts the mqtt connection nonblockingly in two threads"""
         # start the outq handler thread (sends messages to the broker)
-        self.workers.append(threading.Thread(target=self.out_relay, daemon=True))
+        self.workers.append(threading.Thread(target=self.out_relay, daemon=False))
         self.workers[-1].start()
 
         self.start_loop()  # start the client-broker mainintance loop in a background thread
