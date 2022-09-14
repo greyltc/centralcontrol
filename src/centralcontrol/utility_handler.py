@@ -145,8 +145,9 @@ class UtilityHandler(object):
         pos = mo.get_position()
         payload = {"pos": pos}
         payload = json.dumps(payload)
-        output = {"destination": "response", "payload": payload}  # post the position to the response channel
-        self.outputq.put(output)
+        self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
+        # output = {"destination": "response", "payload": payload}  # post the position to the response channel
+        # self.outputq.put(output)
 
     # work gets done here so that we don't do any processing on the mqtt network thread
     # can block and be slow. new commands that come in while this is working will just be rejected
@@ -265,8 +266,9 @@ class UtilityHandler(object):
                         response = {}
                         response["data"] = data
                         response["timestamp"] = time.time()
-                        output = {"destination": "calibration/spectrum", "payload": json.dumps(response)}
-                        self.outputq.put(output)
+                        self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(response), "qos": 2})
+                        # output = {"destination": "calibration/spectrum", "payload": json.dumps(response)}
+                        # self.outputq.put(output)
                         self.lg.log(29, "🟢 Spectrum fetched sucessfully!")
                         self.lg.log(29, f"Found light source temperatures: {temps}")
                     self.lg.debug(f"{task['cmd']=} complete!")
@@ -517,47 +519,19 @@ class UtilityHandler(object):
             self.taskq.task_done()
 
     # send up a log message to the status channel
-    def send_log_msg(self, record):
-        payload = {"log": {"level": record.levelno, "text": str(record.msg)}}
-        payload = json.dumps(payload)
-        output = {"destination": "status", "payload": payload}
-        self.outputq.put(output)
+    # def send_log_msg(self, record):
+    #    payload = {"log": {"level": record.levelno, "text": str(record.msg)}}
+    #    payload = json.dumps(payload)
+    #    output = {"destination": "status", "payload": payload}
+    #    self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
+    #    self.outputq.put(output)
 
     # thread that publishes mqtt messages on behalf of the worker and manager
-    def sender(self, mqttc):
-        while True:
-            to_send = self.outputq.get()
-            mqttc.publish(to_send["destination"], to_send["payload"], qos=2).wait_for_publish()
-            self.outputq.task_done()
-
-    # converts RTD resistance to temperature. set r0 to 100 for PT100 and 1000 for PT1000
-    def rtd_r_to_t(self, r, r0=1000, poly=None):
-        PTCoefficientStandard = collections.namedtuple("PTCoefficientStandard", ["a", "b", "c"])
-        # Source: http://www.code10.info/index.php%3Foption%3Dcom_content%26view%3Darticle%26id%3D82:measuring-temperature-platinum-resistance-thermometers%26catid%3D60:temperature%26Itemid%3D83
-        ptxIPTS68 = PTCoefficientStandard(+3.90802e-03, -5.80195e-07, -4.27350e-12)
-        ptxITS90 = PTCoefficientStandard(+3.9083e-03, -5.7750e-07, -4.1830e-12)
-        standard = ptxITS90  # pick an RTD standard
-
-        noCorrection = np.poly1d([])
-        pt1000Correction = np.poly1d([1.51892983e-15, -2.85842067e-12, -5.34227299e-09, 1.80282972e-05, -1.61875985e-02, 4.84112370e00])
-        pt100Correction = np.poly1d([1.51892983e-10, -2.85842067e-08, -5.34227299e-06, 1.80282972e-03, -1.61875985e-01, 4.84112370e00])
-
-        A, B = standard.a, standard.b
-
-        if poly is None:
-            if abs(r0 - 1000.0) < 1e-3:
-                poly = pt1000Correction
-            elif abs(r0 - 100.0) < 1e-3:
-                poly = pt100Correction
-            else:
-                poly = noCorrection
-
-        t = (-r0 * A + np.sqrt(r0 * r0 * A * A - 4 * r0 * B * (r0 - r))) / (2.0 * r0 * B)
-
-        # For subzero-temperature refine the computation by the correction polynomial
-        if r < r0:
-            t += poly(r)
-        return t
+    # def sender(self, mqttc):
+    #    while True:
+    #        to_send = self.outputq.get()
+    #        mqttc.publish(to_send["destination"], to_send["payload"], qos=2).wait_for_publish()
+    #         self.outputq.task_done()
 
     def run(self):
         self.loop = GLib.MainLoop.new(None, False)

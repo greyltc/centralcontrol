@@ -16,6 +16,8 @@ import multiprocessing
 import threading
 import signal
 
+from paho.mqtt.client import MQTTMessage
+
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 
@@ -127,28 +129,45 @@ class Fabric(object):
             self.lg.debug("".join(tb.format()))
         self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
-    def msg_handler(self, inq: mQueue | Queue):
+    def msg_handler(self, inq: Queue[str | MQTTMessage]):
         """handle new messages as they come in from comms, the main program loop lives here"""
         future = None  # represents a long-running task
+        # decode_topics = ["measurement/run", "util"]  # messages posted to these channels need their payloads decoded
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as exicuter:
             try:  # this try/except block is for catching keyboard interrupts and then asking the main loop to break
                 while True:  # main program loop
                     try:  # this try/except block lets the main loop keep running through programming errors
                         msg = inq.get()  # mostly execution sits right here waiting to be told what to do
-                        if msg == "die":
-                            break
-                        else:
-                            request = json.loads(msg.payload.decode())
-                            action = msg.topic.split("/")[-1]
-
-                            # perform or schedule requested action
-                            if action == "run":
-                                future = self.submit_for_execution(exicuter, self.do_run, request)
-                            elif action == "stop":
-                                self.stop_process(future)
-                            elif action == "quit":
-                                self.lg.debug("Ending because of quit message")
+                        if isinstance(msg, str):
+                            if msg == "die":
                                 break
+                        else:
+                            topic = msg.topic
+                            if isinstance(topic, str):
+                                channel = topic.split("/")
+                                rootchan = channel.pop(0)
+
+                                # unpack json payloads
+                                if (topic == "measurement/run") or (rootchan == "cmd"):
+                                    request = json.loads(msg.payload.decode())
+                                else:
+                                    request = None
+
+                                # do something
+                                if rootchan == "measurement":
+                                    if channel == ["quit"]:
+                                        self.lg.debug("Ending because of quit message")
+                                        break
+                                    elif channel == ["stop"]:
+                                        self.stop_process(future)
+                                    elif channel == ["run"]:
+                                        future = self.submit_for_execution(exicuter, self.do_run, request)
+                                elif rootchan == "cmd":
+                                    if channel == ["util"]:  # previously utility handler territory
+                                        assert request is not None
+                                        if "cmd" in request:
+                                            if request["cmd"] == "estop":
+                                                self.estop(request)
 
                     except Exception as e:
                         self.lg.error(f"Runtime exception: {e}")
@@ -166,6 +185,16 @@ class Fabric(object):
             self.outq.put("die")  # end the output queuq handler
             self.stop_process(future)
         self.lg.debug("Message handler stopped")
+
+    def estop(self, request):
+        """emergency stop of the stage"""
+        if request["pcb_virt"]:
+            ThisMC = virt.FakeMC
+        else:
+            ThisMC = MC
+        with ThisMC(request["pcb"]) as mc:
+            mc.query("b")
+        self.lg.warning("Emergency stop command issued. Re-Homing required before any further movements.")
 
     def submit_for_execution(self, exicuter: concurrent.futures.Executor, callabale: typing.Callable, /, *args, **kwargs) -> concurrent.futures.Future:
         """submits a task for execution by an executor, sets up a callback for when it's done and updates status for front end"""
@@ -947,3 +976,32 @@ class Fabric(object):
                 run_q.append({0: pixel_dict})
 
         return run_q
+
+    def rtd_r_to_t(self, r: float, r0: float = 1000.0, poly=None):
+        """converts RTD resistance to temperature. set r0 to 100 for PT100 and 1000 for PT1000"""
+        PTCoefficientStandard = collections.namedtuple("PTCoefficientStandard", ["a", "b", "c"])
+        # Source: http://www.code10.info/index.php%3Foption%3Dcom_content%26view%3Darticle%26id%3D82:measuring-temperature-platinum-resistance-thermometers%26catid%3D60:temperature%26Itemid%3D83
+        ptxIPTS68 = PTCoefficientStandard(+3.90802e-03, -5.80195e-07, -4.27350e-12)
+        ptxITS90 = PTCoefficientStandard(+3.9083e-03, -5.7750e-07, -4.1830e-12)
+        standard = ptxITS90  # pick an RTD standard
+
+        noCorrection = np.poly1d([])
+        pt1000Correction = np.poly1d([1.51892983e-15, -2.85842067e-12, -5.34227299e-09, 1.80282972e-05, -1.61875985e-02, 4.84112370e00])
+        pt100Correction = np.poly1d([1.51892983e-10, -2.85842067e-08, -5.34227299e-06, 1.80282972e-03, -1.61875985e-01, 4.84112370e00])
+
+        A, B = standard.a, standard.b
+
+        if poly is None:
+            if abs(r0 - 1000.0) < 1e-3:
+                poly = pt1000Correction
+            elif abs(r0 - 100.0) < 1e-3:
+                poly = pt100Correction
+            else:
+                poly = noCorrection
+
+        t = (-r0 * A + np.sqrt(r0 * r0 * A * A - 4 * r0 * B * (r0 - r))) / (2.0 * r0 * B)
+
+        # For subzero-temperature refine the computation by the correction polynomial
+        if r < r0:
+            t += poly(r)
+        return t

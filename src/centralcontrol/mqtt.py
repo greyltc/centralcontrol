@@ -8,8 +8,6 @@ import uuid
 import logging
 import typing
 import paho.mqtt.client as mqtt
-from threading import Event as tEvent
-from multiprocessing.synchronize import Event as mEvent
 from queue import SimpleQueue as Queue
 from multiprocessing.queues import SimpleQueue as mQueue
 from concurrent.futures import Executor
@@ -25,7 +23,7 @@ class MQTTClient(object):
     outq: Queue | mQueue
 
     # for incoming messages
-    inq = Queue()
+    inq: Queue[str | mqtt.MQTTMessage] = Queue()
 
     # return code
     retcode = 0
@@ -90,7 +88,7 @@ class MQTTClient(object):
         # payload = record
         self.outq.put({"topic": "measurement/log", "payload": json.dumps(payload), "qos": 2})
 
-    def on_message(self, client: mqtt.Client, userdata: typing.Any, msg):
+    def on_message(self, client: mqtt.Client, userdata: typing.Any, msg: mqtt.MQTTMessage):
         """The callback for when a message appears in a channel we're subscribed to"""
         try:
             self.inq.put(msg)  # put the message in the incomming queue
@@ -100,7 +98,8 @@ class MQTTClient(object):
     # when client connects to broker
     def on_connect(self, client: mqtt.Client, userdata, flags, rc):
         self.lg.debug(f"mqtt_server connected to broker with result code {rc}")
-        client.subscribe("measurement/#", qos=2)
+        client.subscribe("measurement/#", qos=2)  # for measurement messages
+        client.subscribe("cmd/#", qos=2)  # for utility messages
         client.publish("measurement/status", json.dumps("Ready"), qos=2, retain=True)
 
     # when client disconnects from broker
