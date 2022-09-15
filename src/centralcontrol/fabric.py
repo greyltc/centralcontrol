@@ -211,6 +211,7 @@ class Fabric(object):
         if "cmd" in task:
             cmd = task["cmd"]
             self.lg.debug(f"Starting on {cmd=}")
+
             if cmd == "home":
                 self.home_stage(task, ThisStageMC)
             elif cmd == "goto":
@@ -223,8 +224,168 @@ class Fabric(object):
                 self.util_spectrum(task)
             elif cmd == "check_health":
                 self.util_check_health(task, ThisMC, ThisStageMC)
+            elif cmd == "round_robin":
+                self.util_round_robin(task, ThisMC)
 
             self.lg.debug(f"{cmd=} complete!")
+
+    @staticmethod
+    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], device_grouping: list[list[str]]) -> dict[str, dict[str, float]]:
+        """get a list of resistance values for all the connection pads of a given device list"""
+        rs = {}  # holds the resistance values of the device pads
+        if len(slots) > 0:
+            Fabric.select_pixel(mc)  # ensure we start with devices all deselected
+            for sm in sms:
+                sm.enable_cc_mode(True)  # ccmode setup leaves us in hi-side checking mode, so we do that first
+
+            lo_side_mux_strings = [("Top", f"{(1<<0):05}"), ("Bot", f"{(1<<1):05}")]  # = [TOP, BOT] = [0x01, 0x02] = ["close to 5&6", "close to 1&2"]
+            last_slot = None
+            last_lspl = None
+
+            for side_b, side_str in [(False, "Hi-Side    "), (True, "Lo-Side")]:
+                for slot, pad in zip(slots, pads):
+                    lspl = f"{slot}{pad}".lower()
+                    if lspl == "nonenone":
+                        lspl = "OFF"
+                        smi = 0
+                    else:
+                        smi = SourcemeterAPI.which_smu(device_grouping, lspl)
+                    assert smi is not None, f"{smi is not None=}"
+                    sm = sms[smi]
+                    # leave previous slot disconnected if we're going on to a new one
+                    if last_slot != slot:
+                        if last_slot and (last_slot != "OFF"):
+                            # don't leave anything from last slot connected
+                            Fabric.select_pixel(mc, [f"s{last_slot}0"])
+                    else:
+                        if side_b:
+                            for tb in ["Top", "Bot"]:
+                                if last_lspl:
+                                    rs[lspl][f"{side_str} {tb}"] = rs[last_lspl][f"{side_str} {tb}"]  # store the reisitance vals
+                            last_lspl = lspl
+                            continue  # lo side, skip slots we've already done
+                    if side_b:
+                        for side, lo_side_mux_string in lo_side_mux_strings:
+                            if lspl == "OFF":
+                                Fabric.select_pixel(mc)
+                            else:
+                                Fabric.select_pixel(mc, [f"s{slot}{lo_side_mux_string}"])
+                            good_contact, r_val = sm.do_contact_check(True)  # lo-side
+                            if lspl != "OFF":
+                                Fabric.select_pixel(mc, [f"s{slot}0"])
+                            rs[lspl][f"{side_str} {side}"] = r_val  # store the reisitance vals
+                    else:  # hi side
+                        if lspl == "OFF":
+                            Fabric.select_pixel(mc)
+                        else:
+                            shift = 7 + pad
+                            pad_string = f"{(1<<shift):05}"
+                            Fabric.select_pixel(mc, [f"s{slot}{pad_string}"])
+                        good_contact, r_val = sm.do_contact_check(False)  # hi-side
+                        rs[lspl] = {side_str: r_val}  # store the reisitance vals
+                    last_slot = slot
+                    last_lspl = lspl
+                final_slot = slots[-1]
+                if final_slot == "OFF":
+                    Fabric.select_pixel(mc)
+                else:
+                    Fabric.select_pixel(mc, [f"s{final_slot}{0}"])
+            for sm in sms:
+                sm.enable_cc_mode(False)
+        return rs
+
+        # u_slots = list(set(slots))  # unique slots
+
+        # for slot in u_slots:
+        #    for lo_side_mux_string in lo_side_mux_strings:
+        #        Fabric.select_pixel(mc, [f"s{slot}{lo_side_mux_string}"])
+        #        good_contact, r_val = sm.do_contact_check(True)  # lo-side
+        #        Fabric.select_pixel(mc, [f"s{slot}0"])
+
+    def util_round_robin(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
+        """handles message from the frontend requesting a round robin-type thing"""
+        # inject the no connect case
+        task["slots"].insert(0, "none")
+        task["pads"].insert(0, "none")
+        task["mux_strings"].insert(0, "s")
+
+        slots = task["slots"]
+        pads = task["pads"]
+        ms = task["mux_strings"]
+        dev_grp = task["device_grouping"]
+
+        if len(slots) > 0:
+            with contextlib.ExitStack() as stack:  # handles the proper cleanup of the hardware
+                mc = stack.enter_context(AnMC(task["pcb"], timeout=5))
+                # ss = stack.enter_context(ill_fac(task["solarsim"])(**task["solarsim"]))
+                smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smu"]]
+                Fabric.select_pixel(mc)  # ensure we start with devices all deselected
+                if task["type"] == "connectivity":
+                    rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
+                    for dev, rslt in rs.items():
+                        for pad, r in rslt.items():
+                            if r > smus[0].threshold_ohm:
+                                filler = " "
+                                width = 3
+                                self.lg.log(29, f"🔴 {dev:{filler}<{width}} has a bad {pad} 4-wire connection")
+                else:
+                    for sm in smus:
+                        if task["type"] == "current":
+                            if "current_limit" in sm.init_kwargs:
+                                i_lim = sm.init_kwargs["current_limit"]
+                            else:
+                                i_lim = 0.15
+                            sm.setupDC(sourceVoltage=True, compliance=i_lim, setPoint=0.0, senseRange="a", ohms=False)
+                        if task["type"] == "voltage":
+                            sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.0, senseRange="a", ohms=False)
+                        elif task["type"] == "rtd":
+                            sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
+                    for i, slot in enumerate(slots):
+                        dev = pads[i]
+                        if slot == "none":
+                            slot_words = "[Everything disconnected]"
+                        else:
+                            slot_words = f"[{slot}{dev:n}]"
+                        mux_string = ms[i]
+                        Fabric.select_pixel(mc, [mux_string])  # select the device
+                        if slot == "none":
+                            smu_index = 0  # I guess we should just use smu[0] for the all switches open case
+                        else:
+                            smu_index = SourcemeterAPI.which_smu(dev_grp, f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                        if smu_index is None:
+                            smu_index = 0
+                            self.lg.warning("Assuming the first SMU is the right one")
+                        if smus[smu_index].idn != "disabled":
+                            if task["type"] == "current":
+                                m = smus[smu_index].measure()[0]
+                                status = int(m[3])
+                                in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
+                                A = m[1]
+                                if in_compliance:
+                                    self.lg.log(29, f"{slot_words} was in compliance")
+                                else:
+                                    self.lg.log(29, f"{slot_words} shows {A:.8f} A")
+                            elif task["type"] == "voltage":
+                                m = smus[smu_index].measure()[0]
+                                status = int(m[3])
+                                in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
+                                V = m[0]
+                                if in_compliance:
+                                    self.lg.log(29, f"{slot_words} was in compliance")
+                                else:
+                                    self.lg.log(29, f"{slot_words} shows {V:.6f} V")
+                            elif task["type"] == "rtd":
+                                m = smus[smu_index].measure()[0]
+                                ohm = m[2]
+                                status = int(m[4])  # type: ignore
+                                in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
+                                if not (in_compliance) and (ohm < 3000) and (ohm > 500):
+                                    self.lg.log(29, f"{slot_words} could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
+                        Fabric.select_pixel(mc, [f"s{slot}0"])  # disconnect the slot
+                    for sm in smus:
+                        sm.enable_cc_mode(False)
+                Fabric.select_pixel(mc)  # disconnect everyone
+        self.lg.log(29, "Round robin task complete.")
 
     def util_check_health(self, task: dict, AnMC: type[MC] | type[virt.FakeMC], AStageMC: type[MC] | type[virt.FakeMC]):
         """handles message from the frontend requesting a utility health check"""
@@ -553,7 +714,7 @@ class Fabric(object):
 
         smucfgs = request["config"]["smu"]  # the smu configs
         for smucfg in smucfgs:
-            smucfg["print_speep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
+            smucfg["print_sweep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
         sscfg = request["config"]["solarsim"]  # the solar sim config
         sscfg["active_recipe"] = request["args"]["light_recipe"]  # throw in recipe
         sscfg["intensity"] = request["args"]["light_recipe_int"]  # throw in configured intensity
@@ -678,10 +839,11 @@ class Fabric(object):
 
                     # select pixel(s)
                     pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
-                    Fabric.select_pixel(mux_string=pix_selection_strings, pcb=mc)
+                    pix_deselection_strings = [f"{x[:-5]}0" for x in pix_selection_strings]
+                    Fabric.select_pixel(mc, mux_string=pix_selection_strings)
 
                     # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus), thread_name_prefix="device_") as executor:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus), thread_name_prefix="device") as executor:
 
                         # keeps track of the parallelized objects
                         futures: list[concurrent.futures.Future] = []
@@ -699,7 +861,7 @@ class Fabric(object):
                             compliance_i = self.compliance_current_guess(area=light_area, jmax=args["jmax"], imax=args["imax"])
                             dark_compliance_i = self.compliance_current_guess(area=dark_area, jmax=args["jmax"], imax=args["imax"])
 
-                            # set virtual smu scaling (just so )
+                            # set virtual smu scaling (just so it knows how much current to produce)
                             if isinstance(this_smu, virt.FakeSMU):
                                 this_smu.area = light_area
 
@@ -708,11 +870,20 @@ class Fabric(object):
                             futures[-1].add_done_callback(self.on_device_routine_done)
 
                         # wait for the futures to come back
-                        max_future_time = None  # TODO: try to figure this out
+                        max_future_time = None  # TODO: try to calculate an upper limit for this
                         (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
 
                         for futrue in not_done:
                             self.lg.warning(f"{repr(futrue)} didn't finish in time!")
+                            if not futrue.cancel():
+                                self.lg.warning("and we couldn't cancel it.")
+
+                    # deselect what we had just selected
+                    Fabric.select_pixel(mc, mux_string=pix_selection_strings)
+
+                    # turn off the SMUs
+                    for sm in smus:
+                        sm.outOn(False)
 
                     n_done += 1
                     remaining = len(run_queue)
@@ -844,12 +1015,12 @@ class Fabric(object):
                 if sweep == "dark":
                     ss.lit = False
                     if isinstance(sm, virt.FakeSMU):
-                        sm.intensity = 0
+                        sm.intensity = 0  # tell the simulated device how much light it's getting
                     sweep_current_limit = dark_compliance_i
                 else:
                     ss.lit = True
                     if isinstance(sm, virt.FakeSMU):
-                        sm.intensity = ss.intensity
+                        sm.intensity = ss.intensity / 100  # tell the simulated device how much light it's getting
                     sweep_current_limit = compliance_i
 
                 dh.kind = "iv_measurement/1"  # TODO: check if this /1 is still needed

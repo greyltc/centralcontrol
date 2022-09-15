@@ -37,6 +37,7 @@ class k2400(object):
     is_2450: bool | None = None
     killer: tEvent | mEvent
     address: str = ""
+    threshold_ohm = 33.3  # resistance values below this give passing tests
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
@@ -713,7 +714,7 @@ class k2400(object):
             v_end = last_element[0]
             self.last_sweep_time = t_end - t_start
             n_vals = len(vals)
-            stats_string = f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/n_vals*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/n_vals*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
+            stats_string = f"sweep duration={self.last_sweep_time:0.2f}s|mean voltage step={(v_start-v_end)/n_vals*1000:0.2f}mV|mean sample period={self.last_sweep_time/n_vals*1000:0.0f}ms|mean sweep rate={(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
             if self.print_sweep_deets:
                 self.lg.log(29, stats_string)
             else:
@@ -793,7 +794,7 @@ class k2400(object):
         else:
             self.lg.warning("The contact check feature is not configured.")
 
-    def do_contact_check(self, lo_side=False) -> tuple[bool, float]:
+    def do_contact_check(self, lo_side: bool = False) -> tuple[bool, float]:
         """
         call enable_cc_mode(True) before calling this
         and enable_cc_mode(False) after you're done checking contacts
@@ -813,7 +814,6 @@ class k2400(object):
                     good_contact = True  # if INIT didn't trip the output off, then we're connected
         elif self.cc_mode == "external":
             # TODO: add a potential check
-            threshold_ohm = 33.3  # resistance values below this give passing tests
             if lo_side is None:
                 self.lg.debug("Contact check has not been set up.")
             else:
@@ -836,11 +836,11 @@ class k2400(object):
                         status = int(m[4])
                         in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                         if not in_compliance:
-                            if abs(r_val) < threshold_ohm:
+                            if abs(r_val) < self.threshold_ohm:
                                 good_contact = True
-                                self.lg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {threshold_ohm}Ω")
+                                self.lg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {self.threshold_ohm}Ω")
                             else:
-                                self.lg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {threshold_ohm}Ω")
+                                self.lg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {self.threshold_ohm}Ω")
                         else:
                             self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
         elif self.cc_mode == "none":

@@ -312,6 +312,7 @@ class FakeSMU(object):
     area: float = 1.0
     _intensity: float = 1.0  # scale Iph by this (simulates variable intensity)
     current_compliance: float = 1.0
+    threshold_ohm: float = 33.3
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -632,7 +633,8 @@ class FakeSMU(object):
             v_start = first_element[0]
             v_end = last_element[0]
             self.last_sweep_time = t_end - t_start
-            stats_string = f"Sweep stats: avg. step voltage|duration|avg. point time|avg. rate-->{(v_start-v_end)/len(vals)*1000:0.2f}mV|{self.last_sweep_time:0.2f}s|{self.last_sweep_time/len(vals)*1000:0.0f}ms|{(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
+            n_vals = len(vals)
+            stats_string = f"sweep duration={self.last_sweep_time:0.2f}s|mean voltage step={(v_start-v_end)/n_vals*1000:+0.2f}mV|mean sample period={self.last_sweep_time/n_vals*1000:0.0f}ms|mean sweep rate={(v_start-v_end)/self.last_sweep_time:+0.3f}V/s"
             if self.print_sweep_deets == True:
                 self.lg.log(29, stats_string)
             else:
@@ -657,7 +659,7 @@ class FakeSMU(object):
             else:
                 check_pass = True
 
-        return (check_pass, rand)
+        return (check_pass, rand * self.threshold_ohm * 2)
 
     def close(self):
         self.lg.debug(f"{self.__class__} closed.")

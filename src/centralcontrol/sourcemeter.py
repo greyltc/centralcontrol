@@ -48,6 +48,9 @@ class SourcemeterAPI(object):
     setupSweep: Callable[..., None]
     setupDC: Callable[..., None]
     measure_until: Callable[..., list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
+    enable_cc_mode: Callable[[bool], None]
+    do_contact_check: Callable[[bool], tuple[bool, float]]
+    threshold_ohm: float
 
     # measure: Callable[[int | None], list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
     # setupSweep: Callable[[bool | None, float | None, int | None, float | None, float | None, str | None], None]
@@ -93,12 +96,13 @@ class SourcemeterAPI(object):
             self.lg.debug(f"Unclean disconnect: {e}")
         return None
 
-    def which_smu(self, devaddr: str) -> None | int:
-        """given a device address, returns the index of the SMU connected to it
-        you must register device_grouping before this will work"""
+    @staticmethod
+    def which_smu(device_grouping: list[list[str]], devaddr: str) -> None | int:
+        """given a device address, and device_grouping,
+        returns the index of the SMU connected to it"""
         ret = None
-        if self.device_grouping is not None:
-            for group in self.device_grouping:
+        if device_grouping is not None:
+            for group in device_grouping:
                 if devaddr in group:
                     ret = group.index(devaddr)
                     break
