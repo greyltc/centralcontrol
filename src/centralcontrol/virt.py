@@ -14,15 +14,15 @@ class FakeLight(object):
 
     idn: str
     runtime = 60000
-    _intensity = 0  # the current value this is set for
-    _previous_inetensity = 0  # used to keep track for on and off
-    _on_intensity = 100
+    _intensity: float = 0.0  # the current value this is set for
+    _previous_inetensity: float = 0.0  # used to keep track for on and off
+    _on_intensity: float = 100.0
     # barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
     # _current_state = False  # True if we believe the light is on, False if we believe it's off
     # requested_state = False  # keeps track of what state we'd like the light to be in
-    last_temps = (0.0, 0.0)
-    active_recipe = None
-    address = None
+    last_temps = [25.3, 17.3]
+    active_recipe: None | str = None
+    address: None | str = None
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -86,9 +86,7 @@ class FakeLight(object):
         return self._intensity
 
     def get_temperatures(self, *args, **kwargs):
-        temp = [25.3, 17.3]
-        self.last_temps = temp
-        return temp
+        return self.last_temps
 
     def activate_recipe(self, recipe_name=None):
         if recipe_name is not None:
@@ -101,13 +99,13 @@ class FakeMC(object):
     """virtualized/simulated MC class which can be used like the real one but without hardware"""
 
     is_virtual = True
-    virt_speed = 300  # virtual movement speed in mm per sec
+    virt_speed: float = 300.0  # virtual movement speed in mm per sec
     virt_motion_setup = False  # to track if we're prepared to virtualize motion
     firmware_version = "1.0.0"
     detected_axes = ["1", "2", "3"]
     detected_muxes = ["A"]
     enabled = True
-    ax_registers = {}
+    ax_registers: dict[str, str] = {}
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -303,15 +301,17 @@ class FakeMC(object):
 class FakeSMU(object):
     """virtualized/simulated smu class which can be used like the real one but without hardware"""
 
-    idn: str
-    nplc = 1
-    ccheck = False
+    idn: str = ""
+    nplc: float = 1.0
+    ccheck: bool = False
     killer: tEvent | mEvent = tEvent()
     print_sweep_deets: bool = False
-    address = None
+    address: str | None = None
     cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
     cc_mode = "none"  # contact check mode
-    area: float
+    area: float = 1.0
+    _intensity: float = 1.0  # scale Iph by this (simulates variable intensity)
+    current_compliance: float = 1.0
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -335,11 +335,10 @@ class FakeSMU(object):
         self.resistor_connected = 0
 
         # these will get updated externally as needed
-        self.area: float = 1.0  # cm^2
+        self.area = 1.0  # cm^2
         # TODO: add dark area
-        self.compliance: float = 1.0  # A
-        self.dark = False  # if we're in the dark, do computations with Iph = 0
-        self._intensity = 1  # scale Iph by this (simulates variable intensity)
+        self.current_compliance = 1.0  # A
+        # self.dark = False  # if we're in the dark, do computations with Iph = 0
 
         # here we choose some numbers for our simulated solar cell model
         self.Iphd = 23  # photocurrent density, in mA/cm^2 (where cm^2 is for illuminated area)
@@ -412,8 +411,9 @@ class FakeSMU(object):
     def updateSweepStop(self, stopVal):
         self.sweepEnd = stopVal
 
-    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint=0, senseRange="f", ohms=False):
-        self.compliance = compliance
+    def setupDC(self, sourceVoltage: bool = True, compliance: float = 0.04, setPoint: float = 0.0, senseRange: str = "f", ohms: bool | str = False):
+        if sourceVoltage:
+            self.current_compliance = compliance
         self.ohms = ohms
         self.sweepMode = False
         if sourceVoltage:
@@ -431,9 +431,10 @@ class FakeSMU(object):
             self.write(f":source:{self.src} {setPoint:0.8f}")
         return
 
-    def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=-1, start=0, end=1, senseRange="f"):
+    def setupSweep(self, sourceVoltage: bool = True, compliance: float = 0.04, nPoints: int = 101, stepDelay: float = -1.0, start: float = 0.0, end: float = 1.0, senseRange="f"):
         """setup for a sweep operation"""
-        self.compliance = compliance
+        if sourceVoltage:
+            self.current_compliance = compliance
         # sm = self.sm
         if sourceVoltage:
             src = "voltage"
@@ -473,18 +474,16 @@ class FakeSMU(object):
             n = self.n
             I0 = self.I0d * self.area / 1000
             iph_scale = self._intensity
-            if self.dark == True:
-                iph_scale = 0
             Iph = self.Iphd * self.area / 1000 * iph_scale
             if current:  # we're updating current from a known voltage
                 I = self.i_from_v(self.V, Rs, Rsh, Iph, I0, n)
                 # simulate the SMU hitting compliance
-                if abs(I) > abs(self.compliance):  # check if we're over the current limit
+                if abs(I) > abs(self.current_compliance):  # check if we're over the current limit
                     # set I to correct compliance limit
                     if I >= 0:
-                        I = abs(self.compliance)
+                        I = abs(self.current_compliance)
                     else:
-                        I = -1 * abs(self.compliance)
+                        I = -1 * abs(self.current_compliance)
                     # then figure out what V should be there, due to compliance
                     self.V = self.v_from_i(I, Rs, Rsh, Iph, I0, n)
                 self.I = I * -1  # change from cell's POV to SMU's POV
@@ -595,7 +594,7 @@ class FakeSMU(object):
         else:
             raise ValueError("What?")
 
-    def measureUntil(self, t_dwell=float("Infinity"), measurements=float("Infinity"), cb=lambda x: None):
+    def measure_until(self, t_dwell=float("Infinity"), measurements=float("Infinity"), cb=lambda x: None):
         """Meakes measurements until termination conditions are met
         supports a callback after every measurement
         returns a queqe of measurements
@@ -610,7 +609,7 @@ class FakeSMU(object):
             q.append(msmt)
         return q
 
-    def measure(self, nPoints=1):
+    def measure(self, nPoints=1) -> list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]:
         if isinstance(self.ohms, bool) and (not self.ohms):
             m_len = 4
         else:
@@ -639,7 +638,7 @@ class FakeSMU(object):
             else:
                 self.lg.debug(stats_string)
 
-        return vals
+        return vals  # type: ignore
 
     def enable_cc_mode(self, value: bool = True):
         if self.cc_mode != "none":

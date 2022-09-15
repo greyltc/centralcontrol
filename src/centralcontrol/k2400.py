@@ -36,6 +36,7 @@ class k2400(object):
     cc_mode = "none"  # contact check mode
     is_2450: bool | None = None
     killer: tEvent | mEvent
+    address: str = ""
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
@@ -516,7 +517,7 @@ class k2400(object):
         else:
             self.write("display:digits 7")
 
-    def setupDC(self, sourceVoltage=True, compliance=0.04, setPoint: float = 0.0, senseRange="f", ohms=False):
+    def setupDC(self, sourceVoltage: bool = True, compliance: float = 0.04, setPoint: float = 0.0, senseRange: str = "f", ohms: str | bool = False):
         """setup DC measurement operation
         if senseRange == 'a' the instrument will auto range for both current and voltage measurements
         if senseRange == 'f' then the sense range will follow the compliance setting
@@ -581,7 +582,7 @@ class k2400(object):
 
         self.do_azer()
 
-    def setupSweep(self, sourceVoltage=True, compliance=0.04, nPoints=101, stepDelay=-1, start=0, end=1, senseRange="f"):
+    def setupSweep(self, sourceVoltage: bool = True, compliance: float = 0.04, nPoints: int = 101, stepDelay: float = -1, start: float = 0.0, end: float = 1.0, senseRange: str = "f"):
         """setup for a sweep operation
         if senseRange == 'a' the instrument will auto range for both current and voltage measurements
         if senseRange == 'f' then the sense range will follow the compliance setting
@@ -718,13 +719,14 @@ class k2400(object):
             else:
                 self.lg.debug(stats_string)
             # reset comms timeout to default value after sweep
-            self.ser.timeout = self.timeout
+            if self.ser:
+                self.ser.timeout = self.timeout
 
         # update the status byte
         self.status = vals[-1][-1]
         return vals
 
-    def measureUntil(self, t_dwell=float("Infinity"), measurements=float("Infinity"), cb=lambda x: None):
+    def measure_until(self, t_dwell: float = float("Infinity"), n_measurements=float("Infinity"), cb=lambda x: None) -> list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]:
         """Makes a series of single dc measurements
         until termination conditions are met
         supports a callback after every measurement
@@ -736,7 +738,7 @@ class k2400(object):
         t_end = time.time() + t_dwell
         q = []
         # self.opc() # before we start reading, ensure the device is ready
-        while (i < measurements) and (time.time() < t_end) and (not self.killer.is_set()):
+        while (i < n_measurements) and (time.time() < t_end) and (not self.killer.is_set()):
             i = i + 1
             measurement = self.measure()
             q.append(measurement[0])

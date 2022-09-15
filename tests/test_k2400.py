@@ -59,7 +59,7 @@ class K2400TestCase(unittest.TestCase):
         with k2400.k2400(*self.args, **self.kwargs) as sm:
             sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
             sm.setNPLC(1)
-            rslt = sm.measureUntil(t_dwell=seconds)
+            rslt = sm.measure_until(t_dwell=seconds)
             self.assertIsInstance(rslt, list)
             self.assertIsInstance(rslt[-1], tuple)
 

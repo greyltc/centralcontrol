@@ -10,7 +10,7 @@ from centralcontrol.sourcemeter import SourcemeterAPI as smapi
 from centralcontrol.logstuff import get_logger
 
 
-class mppt:
+class MPPT:
     """
     Maximum power point tracker class
     """
@@ -124,7 +124,7 @@ class mppt:
             if len(dunnos) == 2:  # we don't know anything so we have to measure Voc
                 voc_dwell_time = 1.0  # amount of time to wait for Voc to settle
                 self.sm.setupDC(sourceVoltage=False, compliance=voc_compliance, setPoint=0, senseRange="a")
-                ssvocs = self.sm.measureUntil(t_dwell=voc_dwell_time)
+                ssvocs = self.sm.measure_until(t_dwell=voc_dwell_time)
                 self.Voc = ssvocs[-1][0]  # take the last value as Voc
                 self.lg.warning(f"Discovered that V_oc =~ {self.Voc} [V] via a {voc_dwell_time:.1f}s voltage measurement")
                 dunnos.remove("V_oc")
@@ -197,7 +197,7 @@ class mppt:
         """just runs with a fixed start voltage"""
         self.lg.warning("spo:// does not attempt to hold maximum power point")
 
-        data = self.sm.measureUntil(t_dwell=duration, cb=callback)
+        data = self.sm.measure_until(t_dwell=duration, cb=callback)
 
         # take whatever the most recent readings were to be the mppt
         self.Vmpp = data[0][0]
@@ -247,7 +247,7 @@ class mppt:
             duration = duration - snaith_pre_soak_t - snaith_post_soak_t
             this_soak_t = snaith_pre_soak_t
             self.lg.debug("Snaith Pre Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
-            spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
+            spos = self.sm.measure_until(t_dwell=this_soak_t, cb=callback)
             q += spos
 
             if self.killer.is_set():
@@ -336,7 +336,7 @@ class mppt:
         if snaith_mode == True:
             this_soak_t = snaith_post_soak_t
             self.lg.debug("Snaith Post Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(start_voltage * 1000, this_soak_t))
-            spos = self.sm.measureUntil(t_dwell=this_soak_t, cb=callback)
+            spos = self.sm.measure_until(t_dwell=this_soak_t, cb=callback)
             q += spos
 
         # take whatever the most recent readings were to be the mppt
@@ -395,7 +395,7 @@ class mppt:
             initial_soak = dwell_time
 
         self.lg.debug("Soaking @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp * 1000, initial_soak))
-        ssmpps = self.sm.measureUntil(t_dwell=initial_soak, cb=callback)
+        ssmpps = self.sm.measure_until(t_dwell=initial_soak, cb=callback)
         self.Impp = ssmpps[-1][1]  # use most recent current measurement as Impp
         if self.Isc is None:
             # if nobody told us otherwise, just assume Isc is 10% higher than Impp
@@ -495,7 +495,7 @@ class mppt:
             dwell = dwell_time
 
             self.lg.debug("Dwelling @ Mpp (V={:0.2f}[mV]) for {:0.1f} seconds...".format(Vmpp * 1000, dwell))
-            dq = self.sm.measureUntil(t_dwell=dwell, cb=callback)
+            dq = self.sm.measure_until(t_dwell=dwell, cb=callback)
             Impp = dq[-1][1]
             q += dq
 

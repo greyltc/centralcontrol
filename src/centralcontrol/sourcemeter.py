@@ -1,4 +1,4 @@
-import typing
+from typing import Callable, Type, Optional
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 from centralcontrol.virt import FakeSMU as vsmu
@@ -6,7 +6,7 @@ from centralcontrol.k2400 import k2400
 from centralcontrol.logstuff import get_logger
 
 
-def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
+def factory(cfg: dict) -> Type["SourcemeterAPI"]:
     """sourcemeter class factory
     give it a smu configuration dictionary and it will return the correct smu class to use
     """
@@ -35,14 +35,24 @@ def factory(cfg: typing.Dict) -> typing.Type["SourcemeterAPI"]:
 class SourcemeterAPI(object):
     """unified sourcemeter programming interface"""
 
+    address: str
     device_grouping: list[list[str]]
     conn_status: int = -99  # connection status
     idn: str
     init_args: tuple = ()
     init_kwargs: dict = {}
     killer: mEvent | tEvent
-    setNPLC: typing.Callable[[float], None]
-    outOn: typing.Callable[[bool], None]
+    setNPLC: Callable[[float], None]
+    outOn: Callable[[bool], None]
+    measure: Callable[..., list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
+    setupSweep: Callable[..., None]
+    setupDC: Callable[..., None]
+    measure_until: Callable[..., list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
+
+    # measure: Callable[[int | None], list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
+    # setupSweep: Callable[[bool | None, float | None, int | None, float | None, float | None, str | None], None]
+    # setupDC: Callable[[bool | None, float | None, float | None, str | None, str | None | bool], None]
+    # measure_until: Callable[[Optional[float], Optional[float], Optional[Callable]], list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
 
     def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""

@@ -15,11 +15,10 @@ import pandas as pd
 import multiprocessing
 import threading
 import signal
+from contextlib import contextmanager
+from logging import Logger
 
 from paho.mqtt.client import MQTTMessage
-
-from threading import Event as tEvent
-from multiprocessing.synchronize import Event as mEvent
 
 from queue import SimpleQueue as Queue
 from multiprocessing.queues import SimpleQueue as mQueue
@@ -27,8 +26,14 @@ from multiprocessing.queues import SimpleQueue as mQueue
 from slothdb.dbsync import SlothDBSync as SlothDB
 from slothdb import enums as en
 
-from centralcontrol import illumination, mppt, sourcemeter
+from centralcontrol.illumination import LightAPI
+from centralcontrol.illumination import factory as ill_fac
+
+from centralcontrol.sourcemeter import SourcemeterAPI
+from centralcontrol.sourcemeter import factory as smu_fac
+
 from centralcontrol.mqtt import MQTTClient
+from centralcontrol.mppt import MPPT
 
 from centralcontrol import virt
 from centralcontrol.mc import MC
@@ -40,9 +45,9 @@ from centralcontrol.logstuff import get_logger
 class DataHandler(object):
     """Handler for measurement data."""
 
-    kind = ""
-    sweep = ""
-    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], bool | None], None] = None
+    kind: str = ""
+    sweep: str = ""
+    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], None | int], int] = None
 
     def __init__(self, pixel: dict, outq: mQueue):
         """Construct data handler object.
@@ -55,7 +60,7 @@ class DataHandler(object):
         self.pixel = pixel
         self.outq = outq
 
-    def handle_data(self, data: list[tuple[float, float, float, int]], dodb: bool = True):
+    def handle_data(self, data: list[tuple[float, float, float, int]], dodb: bool = True) -> int:
         """Handle measurement data.
 
         Parameters
@@ -63,10 +68,12 @@ class DataHandler(object):
         data : array-like
             Measurement data.
         """
+        result = 0
         payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
         if self.dbputter and dodb:
-            self.dbputter(data, None)
+            result = self.dbputter(data, None)
         self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
+        return result
 
 
 class Fabric(object):
@@ -77,7 +84,7 @@ class Fabric(object):
     # process killer signal
     pkiller = multiprocessing.Event()
 
-    # special message output queue so that messages can emrge from forked processes
+    # special message output queue so that messages can be sent from other processes
     # poutq = multiprocessing.SimpleQueue()
     outq = multiprocessing.SimpleQueue()
 
@@ -162,15 +169,15 @@ class Fabric(object):
                                     elif channel == ["stop"]:
                                         self.stop_process(future)
                                     elif channel == ["run"]:
-                                        future = self.submit_for_execution(exicuter, self.do_run, request)
+                                        future = self.submit_for_execution(exicuter, future, self.do_run, request)
                                 elif rootchan == "cmd":
                                     if channel == ["util"]:  # previously utility handler territory
                                         assert request is not None, f"{request is not None=}"
                                         if "cmd" in request:
                                             if request["cmd"] == "estop":
-                                                self.estop(request)  # this gets done now instead of
+                                                self.estop(request)  # this gets done now instead of being done in a new process
                                             else:
-                                                future = self.submit_for_execution(exicuter, self.utility_handler, request)
+                                                future = self.submit_for_execution(exicuter, future, self.utility_handler, request)
 
                     except Exception as e:
                         self.lg.error(f"Runtime exception: {repr(e)}")
@@ -212,8 +219,111 @@ class Fabric(object):
                 self.util_read_stage(task, ThisStageMC)
             elif cmd == "for_pcb":
                 self.util_mc_cmd(task, ThisMC)
+            elif cmd == "spec":
+                self.util_spectrum(task)
+            elif cmd == "check_health":
+                self.util_check_health(task, ThisMC, ThisStageMC)
 
             self.lg.debug(f"{cmd=} complete!")
+
+    def util_check_health(self, task: dict, AnMC: type[MC] | type[virt.FakeMC], AStageMC: type[MC] | type[virt.FakeMC]):
+        """handles message from the frontend requesting a utility health check"""
+        if "pcb" in task:
+            self.lg.log(29, f'Checking MC@{task["pcb"]}...')
+            try:
+                with AnMC(task["pcb"], timeout=5) as mc:
+                    self.lg.debug(f"MC firmware version: {mc.firmware_version}")
+                    self.lg.debug(f"MC axes: {mc.detected_axes}")
+                    self.lg.debug(f"MC muxes: {mc.detected_muxes}")
+                    self.lg.log(29, f"🟢 PASS!")
+            except Exception as e:
+                self.lg.warning(f"🔴 FAIL: {repr(e)}")
+                # log the exception's whole call stack trace for debugging
+                tb = traceback.TracebackException.from_exception(e)
+                self.lg.debug("".join(tb.format()))
+        if "smu" in task:
+            smucfgs = task["smu"]  # a list of sourcemeter configurations
+            for smucfg in smucfgs:  # loop through the list of SMU configurations
+                address = smucfg["address"]
+                self.lg.log(29, f"Checking SMU@{address}...")
+                try:
+                    with smu_fac(smucfg)(**smucfg) as sm:
+                        smuidn = sm.idn
+                        conn_status = sm.conn_status
+                        if smuidn and (conn_status >= 0):
+                            self.lg.log(29, f"🟢 PASS!")
+                        else:
+                            self.lg.warning(f"🔴 FAIL!")
+                            self.lg.debug(f"{smuidn=}")
+                            self.lg.debug(f"{conn_status=}")
+                except Exception as e:
+                    self.lg.warning(f"🔴 FAIL: {repr(e)}")
+                    # log the exception's whole call stack trace for debugging
+                    tb = traceback.TracebackException.from_exception(e)
+                    self.lg.debug("".join(tb.format()))
+        if "solarsim" in task:
+            self.lg.log(29, f'Checking Solar Sim @{task["solarsim"]["address"]}...')
+            try:
+                with ill_fac(task["solarsim"])(**task["solarsim"]) as ss:
+                    conn_status = ss.conn_status
+                    run_status = ss.get_run_status()
+                    if (run_status in ("running", "finished")) and (conn_status >= 0):
+                        self.lg.log(29, f"🟢 PASS!")
+                    else:
+                        self.lg.warning(f"🔴 FAIL!")
+                        self.lg.debug(f"{run_status=}")
+                        self.lg.debug(f"{conn_status=}")
+            except Exception as e:
+                self.lg.warning(f"🔴 FAIL: {repr(e)}")
+                # log the exception's whole call stack trace for debugging
+                tb = traceback.TracebackException.from_exception(e)
+                self.lg.debug("".join(tb.format()))
+        # TODO: stage: check axes, lengths and homing
+
+    def util_spectrum(self, task):
+        """handles message from the frontend requesting a utility spectrum fetch"""
+        sscfg = task["solarsim"]  # the solar sim configuration
+        sscfg["active_recipe"] = task["recipe"]
+        sscfg["intensity"] = task["intensity"]
+        self.lg.log(29, "Fetching solar sim spectrum...")
+        emsg = []
+        data = None
+        temps = None
+        try:
+            with ill_fac(sscfg)(**sscfg) as ss:  # init and connect to solar sim
+                conn_status = ss.conn_status
+                if conn_status >= 0:
+                    ss.intensity = 0  # let's make sure it's off
+                    data = ss.get_spectrum()
+                    temps = ss.last_temps
+                    if not isinstance(data, tuple) or len(data) != 2:  # check data shape
+                        data = None
+                        emsg.append(f"🔴 Spectrum data was malformed.")
+                else:
+                    emsg.append(f"🔴 Unable to complete connection to solar sim: {conn_status=}")
+        except Exception as e:
+            self.lg.warning(f"🔴 Solar sim comms failure: {repr(e)}")
+            # log the exception's whole call stack trace for debugging
+            tb = traceback.TracebackException.from_exception(e)
+            self.lg.debug("".join(tb.format()))
+        else:  # no exception, check the disconnection status number
+            if ss.conn_status != -80:  # check for unclean disconnection
+                emsg.append(f"🔴 Unclean disconnection from solar sim")
+
+        # notify user of anything strange
+        for badmsg in emsg:
+            self.lg.warning(badmsg)
+
+        # send up spectrum
+        if data:
+            self.lg.log(29, "🟢 Spectrum fetched sucessfully!")
+            response = {}
+            response["data"] = data
+            response["timestamp"] = time.time()
+            self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(response), "qos": 2})
+
+        if temps:
+            self.lg.log(29, f"Light source temperatures: {temps}")
 
     def util_mc_cmd(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """utility function for mc direct interaction"""
@@ -268,17 +378,22 @@ class Fabric(object):
         pos = mo.get_position()
         self.outq.put({"topic": "status", "payload": json.dumps({"pos": pos}), "qos": 2})
 
-    def submit_for_execution(self, exicuter: concurrent.futures.Executor, callabale: typing.Callable, /, *args, **kwargs) -> concurrent.futures.Future:
+    def submit_for_execution(self, exicuter: concurrent.futures.Executor, future_past: None | concurrent.futures.Future, callabale: typing.Callable, /, *args, **kwargs) -> concurrent.futures.Future:
         """submits a task for execution by an executor, sets up a callback for when it's done and updates status for front end"""
-        future = exicuter.submit(self.future_wrapper, callabale, *args, **kwargs)
-        future.add_done_callback(self.on_future_done)
-        if future.running():
-            self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
-        return future
+        if future_past and future_past.running():
+            self.lg.warning("Request denied. The backend is currently busy.")
+            ret = future_past
+        else:
+            future = exicuter.submit(self.future_wrapper, callabale, *args, **kwargs)
+            future.add_done_callback(self.on_future_done)
+            if future.running():
+                self.outq.put({"topic": "measurement/status", "payload": json.dumps("Busy"), "qos": 2, "retain": True})
+            ret = future
+        return ret
 
     def future_wrapper(self, callable: typing.Callable, /, *args, **kwargs) -> typing.Any:
         """wraps a function call that will be scheduled for execution"""
-        # signal handlers needed here because this runs in a forked process
+        # signal handlers needed here because this runs as its own process
         # which seems to get signals independantly from the main one
         signal.signal(signal.SIGTERM, lambda _, __: self.pkiller.set())
         signal.signal(signal.SIGINT, lambda _, __: self.pkiller.set())
@@ -331,7 +446,40 @@ class Fabric(object):
                                 self.standard_routine(things_to_measure, rundata)
                                 self.lg.log(29, "Run complete!")
 
-    def standard_routine(self, run_queue, request):
+    @staticmethod
+    @contextmanager
+    def measurement_context(mc: MC | virt.FakeMC, ss: LightAPI, smus: list[SourcemeterAPI], outq: Queue | mQueue, db: SlothDB, rid: int):
+        """context to ensure we're properly set up and then properly cleaned up"""
+        # ensure we start with the light off
+        ss.apply_intensity(0)  # overrides barrier
+
+        # ensure we start with the outputs off
+        for smu in smus:
+            smu.outOn(False)
+
+        # ensure we start with devices all deselected
+        Fabric.select_pixel(mc)
+
+        try:
+            yield None
+        finally:
+            # ensure we leave the light off
+            ss.apply_intensity(0)  # overrides barrier
+
+            # ensure we leave the outputs off
+            for smu in smus:
+                smu.outOn(False)
+
+            # ensure we don't leave any devices connected
+            Fabric.select_pixel(mc)
+
+            outq.put({"topic": "progress", "payload": json.dumps({"text": "Done!", "fraction": 1}), "qos": 2})
+            outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
+
+            db.complete_run(rid)  # mark run as complete
+            # db.vac()  # mantain db
+
+    def standard_routine(self, run_queue, request: dict) -> None:
         """perform the normal measurement routine on a given list of pixels"""
 
         # int("checkerberrycheddarchew")  # force crash for testing
@@ -410,6 +558,35 @@ class Fabric(object):
         sscfg["active_recipe"] = request["args"]["light_recipe"]  # throw in recipe
         sscfg["intensity"] = request["args"]["light_recipe_int"]  # throw in configured intensity
 
+        # figure out what the sweeps will be like
+        sweeps = []
+        if args["sweep_check"] == True:
+            # detmine type of sweeps to perform
+            s = args["lit_sweep"]
+            if s == 0:
+                sweeps = ["dark", "light"]
+            elif s == 1:
+                sweeps = ["light", "dark"]
+            elif s == 2:
+                sweeps = ["dark"]
+            elif s == 3:
+                sweeps = ["light"]
+
+        if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
+            # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
+            unwrapped_run_queue = collections.deque()
+            for thing in run_queue:
+                for key, val in thing.items():
+                    unwrapped_run_queue.append({key: val})
+            run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
+
+        start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
+        if args["cycles"] != 0:
+            run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
+            p_total = len(run_queue)
+        else:
+            p_total = float("inf")
+
         with contextlib.ExitStack() as stack:  # big context manager
             # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
             db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
@@ -429,8 +606,8 @@ class Fabric(object):
                     raise ValueError(f"{user} is not a valid user name")
 
             mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
-            smus = [stack.enter_context(sourcemeter.factory(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
-            ss = stack.enter_context(illumination.factory(sscfg)(**sscfg))  # init and connect to solar sim
+            smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
+            ss = stack.enter_context(ill_fac(sscfg)(**sscfg))  # init and connect to solar sim
 
             # setup motion object
             if fake_mo:
@@ -442,137 +619,127 @@ class Fabric(object):
             rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
             for sm in smus:
                 sm.killer = self.pkiller  # register the kill signal with the smu object
-            mppts = [mppt.mppt(sm) for sm in smus]  # spin up all the max power point trackers
+            mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
 
-            self.send_spectrum(ss)  # record spectrum data
+            # ====== the hardware and configuration is all set up now so the actual run logic begins here ======
 
-            # figure out what the sweeps will be like
-            sweeps = []
-            if args["sweep_check"] == True:
-                # detmine type of sweeps to perform
-                s = args["lit_sweep"]
-                if s == 0:
-                    sweeps = ["dark", "light"]
-                elif s == 1:
-                    sweeps = ["light", "dark"]
-                elif s == 2:
-                    sweeps = ["dark"]
-                elif s == 3:
-                    sweeps = ["light"]
+            # here's a context manager that ensures the hardware is in the right state at the start and end
+            with Fabric.measurement_context(mc, ss, smus, self.outq, db, rid):
+                # make sure we have a record of spectral data
+                Fabric.record_spectrum(ss, self.outq, self.lg)
 
-            # set NPLC
-            if args["nplc"] != -1:
-                [sm.setNPLC(args["nplc"]) for sm in smus]
+                # set NPLC
+                if args["nplc"] != -1:
+                    [sm.setNPLC(args["nplc"]) for sm in smus]
 
-            # deselect all pixels
-            self.select_pixel(mux_string="s", pcb=mc)
+                remaining = p_total  # number of steps in the routine that still need to be done
+                n_done = 0  # number of steps in the routine that we've completed so far
+                t0 = time.time()  # run start time snapshot
 
-            if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
-                # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
-                unwrapped_run_queue = collections.deque()
-                for thing in run_queue:
-                    for key, val in thing.items():
-                        unwrapped_run_queue.append({key: val})
-                run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
+                while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
+                    q_item = run_queue.popleft()  # pop off the queue item that we'll be working on in this loop
 
-            start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
-            if args["cycles"] != 0:
-                run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
-                p_total = len(run_queue)
-            else:
-                p_total = float("inf")
-            remaining = p_total
-            n_done = 0
-            t0 = time.time()
+                    dt = time.time() - t0  # seconds since run start
+                    if (n_done > 0) and (args["cycles"] != 0):
+                        tpp = dt / n_done  # average time per step
+                        finishtime = time.time() + tpp * remaining
+                        finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+                        human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                        fraction = n_done / p_total
+                        text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
+                        self.lg.debug(f'{text} for {args["run_name_prefix"]} by {user}')
+                        progress_msg = {"text": text, "fraction": fraction}
+                        self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-            while (remaining > 0) and (not self.pkiller.is_set()):
-                q_item = run_queue.popleft()
+                    n_parallel = len(q_item)  # how many pixels this group holds
+                    dev_labels = [val["device_label"] for key, val in q_item.items()]
+                    dev_labp = [f"[{l}]" for l in dev_labels]
+                    print_label = f'{", ".join(dev_labp)}'
+                    theres = np.array([val["pos"] for key, val in q_item.items()])
+                    self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
+                    if n_parallel > 1:
+                        there = tuple(theres.mean(0))  # the average location of the group
+                    else:
+                        there = theres[0]
 
-                dt = time.time() - t0
-                if (n_done > 0) and (args["cycles"] != 0):
-                    tpp = dt / n_done  # recalc time per pixel
-                    finishtime = time.time() + tpp * remaining
-                    finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                    human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                    fraction = n_done / p_total
-                    text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                    progress_msg = {"text": text, "fraction": fraction}
-                    self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+                    # send a progress message for the frontend's log window
+                    self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
 
-                n_parallel = len(q_item)  # how many pixels this group holds
-                dev_labels = [val["device_label"] for key, val in q_item.items()]
-                dev_labp = [f"[{l}]" for l in dev_labels]
-                print_label = f'{", ".join(dev_labp)}'
-                theres = np.array([val["pos"] for key, val in q_item.items()])
-                self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
-                if n_parallel > 1:
-                    there = tuple(theres.mean(0))  # the average location of the group
-                else:
-                    there = theres[0]
+                    # set up light source voting/synchronization (if any)
+                    ss.n_sync = n_parallel
 
-                self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
-
-                # set up light source voting/synchronization (if any)
-                ss.n_sync = n_parallel
-
-                # move stage
-                if mo is not None:
+                    # move stage
                     if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
                         # force light off for motion if configured
                         if "off_during_motion" in config["solarsim"]:
                             if config["solarsim"]["off_during_motion"] is True:
-                                ss.apply_intensity(0)
+                                ss.apply_intensity(0)  # overrides barrier
                         mo.goto(there)  # command the stage
 
-                # select pixel(s)
-                pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
-                self.select_pixel(mux_string=pix_selection_strings, pcb=mc)
+                    # select pixel(s)
+                    pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
+                    Fabric.select_pixel(mux_string=pix_selection_strings, pcb=mc)
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus)) as executor:
-                    futures = {}
+                    # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus), thread_name_prefix="device_") as executor:
 
-                    for smu_index, pixel in q_item.items():
-                        # setup data handler
-                        dh = DataHandler(pixel=pixel, outq=self.outq)
+                        # keeps track of the parallelized objects
+                        futures: list[concurrent.futures.Future] = []
 
-                        # get or estimate compliance current
-                        compliance_i = self.compliance_current_guess(area=pixel["area"], jmax=args["jmax"], imax=args["imax"])
-                        dark_compliance_i = self.compliance_current_guess(area=pixel["dark_area"], jmax=args["jmax"], imax=args["imax"])
+                        for smu_index, pixel in q_item.items():
+                            this_smu = smus[smu_index]
+                            this_mppt = mppts[smu_index]
+                            light_area = pixel["area"]
+                            dark_area = pixel["dark_area"]
 
-                        smus[smu_index].area = pixel["area"]  # type: ignore # set virtual smu scaling
+                            # setup data handler for this device
+                            dh = DataHandler(pixel=pixel, outq=self.outq)
 
-                        # submit for processing
-                        futures[smu_index] = executor.submit(self.do_iv, rid, ss, smus[smu_index], mppts[smu_index], dh, compliance_i, dark_compliance_i, args, config, sweeps, pixel["area"], pixel["dark_area"])
+                            # get or estimate compliance current values for this device
+                            compliance_i = self.compliance_current_guess(area=light_area, jmax=args["jmax"], imax=args["imax"])
+                            dark_compliance_i = self.compliance_current_guess(area=dark_area, jmax=args["jmax"], imax=args["imax"])
 
-                    # collect the results
-                    for smu_index, future in futures.items():
-                        data = future.result()
-                        smus[smu_index].outOn(False)  # it's probably wise to shut off the smu after every pixel
-                        self.select_pixel(mux_string=f's{q_item[smu_index]["sub_name"]}0', pcb=mc)  # disconnect this substrate
+                            # set virtual smu scaling (just so )
+                            if isinstance(this_smu, virt.FakeSMU):
+                                this_smu.area = light_area
 
-                n_done += 1
-                remaining = len(run_queue)
-                if (remaining == 0) and (args["cycles"] == 0):
-                    run_queue = start_q.copy()
+                            # submit for processing
+                            futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, compliance_i, dark_compliance_i, args, config, sweeps, light_area, dark_area))
+                            futures[-1].add_done_callback(self.on_device_routine_done)
+
+                        # wait for the futures to come back
+                        max_future_time = None  # TODO: try to figure this out
+                        (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
+
+                        for futrue in not_done:
+                            self.lg.warning(f"{repr(futrue)} didn't finish in time!")
+
+                    n_done += 1
                     remaining = len(run_queue)
-                    # refresh the deque to loop forever
 
-            progress_msg = {"text": "Done!", "fraction": 1}
-            self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
-            self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
+                    if (remaining == 0) and (args["cycles"] == 0):
+                        # refresh the deque to loop forever
+                        run_queue = start_q.copy()
+                        remaining = len(run_queue)
 
-            db.complete_run(rid)  # mark run as complete
-            db.vac()  # mantain db
+    def on_device_routine_done(self, future: concurrent.futures.Future):
+        """callback function for when a device routine future completes"""
+        future_exception = future.exception()  # check if the process died because of an exception
+        if future_exception:
+            self.lg.error(f"Future failed: {repr(future_exception)}")
+            # log the exception's whole call stack for debugging
+            tb = traceback.TracebackException.from_exception(future_exception)
+            self.lg.debug("".join(tb.format()))
 
-            # don't leave the light on!
-            ss.apply_intensity(0)
-
-    def do_iv(self, rid, ss, sm, mppt, dh, compliance_i, dark_compliance_i, args, config, sweeps, area, dark_area):
-        """parallelizable I-V tasks for use in threads where multiple devices are going at the same time"""
+    def device_routine(self, rid: int, ss: LightAPI, sm: SourcemeterAPI, mppt: MPPT, dh: DataHandler, compliance_i: float, dark_compliance_i: float, args: dict, config: dict, sweeps: list, area: float, dark_area: float):
+        """
+        parallelizable. this contains the logic for what a single device experiences during the measurement routine.
+        several of these can get scheduled to run concurrently if there are enough SMUs for that.
+        """
         data = []
         with SlothDB(db_uri=config["db"]["uri"]) as db:
             dh.dbputter = db.putsmdat
-            mppt.current_compliance = compliance_i
+            mppt.absolute_current_limit = compliance_i
 
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
@@ -590,7 +757,7 @@ class Fabric(object):
                 # super important with steady state measurements
                 ss_args["senseRange"] = "a"
 
-                sm.setupDC(**ss_args)  # initialize the SMU hardware for a steady state measurement
+                sm.setupDC(**ss_args)  # type: ignore # initialize the SMU hardware for a steady state measurement
 
                 svoc_steps = int(abs(args["suns_voc"]))  # number of suns-Voc steps we might take
                 svoc_step_threshold = 2  # must request at least this many steps before the measurement turns on
@@ -633,7 +800,7 @@ class Fabric(object):
                 deets["setpoint"] = ss_args["setPoint"]
                 db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
                 db.eid = eid  # register event id for datahandler
-                vt = sm.measureUntil(t_dwell=args["i_dwell"], cb=dh.handle_data)
+                vt = sm.measure_until(t_dwell=args["i_dwell"], cb=dh.handle_data)
                 db.eid = None  # unregister event id
                 db.complete_event(eid)  # mark ss event as done
                 data += vt
@@ -661,7 +828,8 @@ class Fabric(object):
                     db.eid = None  # unregister event id
                     db.complete_event(eid)  # mark light sweep as done
                     data += svta
-                    sm.intensity = 1  # reset the simulated device's intensity
+                    if isinstance(sm, virt.FakeSMU):
+                        sm.intensity = 1.0  # reset the simulated device's intensity
             else:
                 ssvoc = None
 
@@ -675,11 +843,13 @@ class Fabric(object):
                 # sweeps may or may not need light
                 if sweep == "dark":
                     ss.lit = False
-                    sm.dark = True
+                    if isinstance(sm, virt.FakeSMU):
+                        sm.intensity = 0
                     sweep_current_limit = dark_compliance_i
                 else:
                     ss.lit = True
-                    sm.dark = False
+                    if isinstance(sm, virt.FakeSMU):
+                        sm.intensity = ss.intensity
                     sweep_current_limit = compliance_i
 
                 dh.kind = "iv_measurement/1"  # TODO: check if this /1 is still needed
@@ -691,8 +861,8 @@ class Fabric(object):
                 sweep_args["compliance"] = sweep_current_limit
                 sweep_args["nPoints"] = int(args["iv_steps"])
                 sweep_args["stepDelay"] = args["source_delay"] / 1000
-                sweep_args["start"] = args["sweep_start"]
-                sweep_args["end"] = args["sweep_end"]
+                sweep_args["start"] = float(args["sweep_start"])
+                sweep_args["end"] = float(args["sweep_end"])
                 sm.setupSweep(**sweep_args)
 
                 # db prep
@@ -710,9 +880,9 @@ class Fabric(object):
                     deets["light"] = True
                 db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                 iv1 = sm.measure(sweep_args["nPoints"])
-                db.putsmdat(iv1, eid)
+                db.putsmdat(iv1, eid)  # type: ignore
                 db.complete_event(eid)  # mark event as done
-                dh.handle_data(iv1, dodb=False)
+                dh.handle_data(iv1, dodb=False)  # type: ignore
                 data += iv1
 
                 # register this curve with the mppt
@@ -751,9 +921,9 @@ class Fabric(object):
                         deets["light"] = True
                     db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
                     iv2 = sm.measure(sweep_args["nPoints"])
-                    db.putsmdat(iv2, eid)
+                    db.putsmdat(iv2, eid)  # type: ignore
                     db.complete_event(eid)  # mark event as done
-                    dh.handle_data(iv2, dodb=False)
+                    dh.handle_data(iv2, dodb=False)  # type: ignore
                     data += iv2
 
                     mppt.register_curve(iv2, light=(sweep == "light"))
@@ -812,7 +982,7 @@ class Fabric(object):
                     db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
                     db.eid = eid  # register event id for datahandler
                     for d in vt:  # simulate the ssvoc measurement from the voc data returned by the mpp tracker
-                        dh.handle_data([d])
+                        dh.handle_data([d])  # type: ignore
                     db.eid = None  # unregister event id
                     db.complete_event(eid)  # mark ss event as done
 
@@ -836,38 +1006,47 @@ class Fabric(object):
                 ss_args["compliance"] = compliance_i
                 ss_args["setPoint"] = args["v_dwell_value"]
                 ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
-
                 sm.setupDC(**ss_args)
+
                 eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
                 deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
                 deets["fixed"] = en.Fixed.VOLTAGE
                 deets["setpoint"] = ss_args["setPoint"]
                 db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
                 db.eid = eid  # register event id for datahandler
-                it = sm.measureUntil(t_dwell=args["v_dwell"], cb=dh.handle_data)
+                it = sm.measure_until(t_dwell=args["v_dwell"], cb=dh.handle_data)
                 db.eid = None  # unregister event id
                 db.complete_event(eid)  # mark ss event as done
                 data += it
 
+        sm.outOn(False)  # it's probably wise to shut off the smu after every pixel
+        pass
+        # Fabric.select_pixel(mc, mux_string=f's{q_item[smu_index]["sub_name"]}0')  # disconnect this substrate
+
         return data
 
-    def send_spectrum(self, ss):
+    @staticmethod
+    def record_spectrum(ss: LightAPI, outq: Queue | mQueue, lg: Logger):
+        """does spectrum fetching at the start of the standard routine"""
         try:
-            intensity_setpoint = int(ss.get_intensity())
+            intensity_setpoint = ss.intensity
             wls, counts = ss.get_spectrum()
             data = [[wl, count] for wl, count in zip(wls, counts)]
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
-            self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
+            outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
             if intensity_setpoint != 100:
                 # now do it again to make sure we have a record of the 100% baseline
-                ss.set_intensity(100)
+                ss.apply_intensity(100)
                 wls, counts = ss.get_spectrum()
                 data = [[wl, count] for wl, count in zip(wls, counts)]
                 spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
-                self.outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
-                ss.set_intensity(intensity_setpoint)
+                outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
+                ss.apply_intensity(intensity_setpoint)
         except Exception as e:
-            self.lg.debug(f"Failure to collect spectrum data: {repr(e)}")
+            lg.debug(f"Failure to collect spectrum data: {repr(e)}")
+            # log the exception's whole call stack for debugging
+            tb = traceback.TracebackException.from_exception(e)
+            lg.debug("".join(tb.format()))
 
     def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
@@ -889,7 +1068,8 @@ class Fabric(object):
 
         return ret_val
 
-    def select_pixel(self, pcb: MC | virt.FakeMC, mux_string=None):
+    @staticmethod
+    def select_pixel(pcb: MC | virt.FakeMC, mux_string: list[str] | None = None):
         """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
         if mux_string is None:
             mux_string = ["s"]  # empty call disconnects everything
@@ -902,14 +1082,15 @@ class Fabric(object):
 
         pcb.set_mux(selection)
 
-    def suns_voc(self, duration: float, light, sm, intensities: typing.List[int], dh):
+    def suns_voc(self, duration: float, light: LightAPI, sm: SourcemeterAPI, intensities: typing.List[int], dh):
         """do a suns-Voc measurement"""
         step_time = duration / len(intensities)
         svt = []
         for intensity_setpoint in intensities:
             light.intensity = intensity_setpoint
-            sm.intensity = intensity_setpoint / 100  # tell the simulated device how much light it's getting
-            svt += sm.measureUntil(t_dwell=step_time, cb=dh.handle_data)
+            if isinstance(sm, virt.FakeSMU):
+                sm.intensity = intensity_setpoint / 100  # tell the simulated device how much light it's getting
+            svt += sm.measure_until(t_dwell=step_time, cb=dh.handle_data)
         return svt
 
     def clear_plot(self, kind: str):
@@ -934,6 +1115,7 @@ class Fabric(object):
         run_q = collections.deque()  # TODO: check if this could just be a list
 
         if "slots" in request:
+            # int("checkerberrycheddarchew")  # force crash for testing
             required_cols = ["system_label", "user_label", "layout", "bitmask"]
             validated = []  # holds validated slot data
             # the client sent unvalidated slots data
@@ -983,7 +1165,11 @@ class Fabric(object):
                     validated.append([str(i), datalist])
 
             except Exception as e:
-                raise ValueError(f"Failed processing user-crafted slot table data: {repr(e)}")
+                # raise ValueError(f"Failed processing user-crafted slot table data: {repr(e)}")
+                self.lg.error(f"Failed processing user-crafted slot table data: {repr(e)}")
+                # log the exception's whole call stack for debugging
+                tb = traceback.TracebackException.from_exception(e)
+                self.lg.debug("".join(tb.format()))
             else:
                 # use validated slot data to update stuff
                 pass
@@ -1057,7 +1243,7 @@ class Fabric(object):
         else:
             ThisMC = MC
         with ThisMC(request["pcb"]) as mc:
-            mc.query("b")  # TODO: check return code
+            mc.query("b")  # TODO: consider checking return value
         self.lg.warning("Emergency stop command issued. Re-Homing required before any further movements.")
 
     @staticmethod

@@ -6,12 +6,12 @@ from centralcontrol.virt import FakeLight
 from threading import BrokenBarrierError
 from threading import Barrier as tBarrier
 from multiprocessing.synchronize import Barrier as mBarrier
-import typing
+from typing import Type, Callable
 
 from centralcontrol.logstuff import get_logger
 
 
-def factory(cfg: typing.Dict) -> typing.Type["LightAPI"]:
+def factory(cfg: dict) -> Type["LightAPI"]:
     """light class factory
     give it a light source configuration dictionary and it will return the correct class to use
     """
@@ -45,6 +45,10 @@ class LightAPI(object):
     _current_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. what we believe the light's intensity is
     requested_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. keeps track of what we want the light's intensity to be
     on_intensity = None  # the intensity value the hardware was initalized with. used in "on"
+    get_spectrum: Callable[[], tuple[list[float], list[float]]]
+    get_stemperatures: Callable[[], list[float]]
+    last_temps: list[float]
+    get_run_status: Callable[[], str]
 
     conn_status: int = -99  # connection status
     idn: str  # identification string
@@ -99,7 +103,7 @@ class LightAPI(object):
             self.conn_status = -80  # clean disconnection
         except Exception as e:
             self.conn_status = -89  # unclean disconnection
-            self.lg.debug(f"Unclean disconnect: {e}")
+            self.lg.debug(f"Unclean disconnect: {repr(e)}")
         return None
 
     @property
