@@ -650,16 +650,16 @@ class FakeSMU(object):
 
     def do_contact_check(self, *args, **kwargs) -> tuple[bool, float]:
         """simulates a contact check"""
-        rand = random.random()
+        r = random.random() * self.threshold_ohm * 2
         if self.cc_mode == "none":
             check_pass = True
         else:
-            if rand < self.cc_fail_probability:
-                check_pass = False
-            else:
+            if r < self.threshold_ohm:
                 check_pass = True
+            else:
+                check_pass = False
 
-        return (check_pass, rand * self.threshold_ohm * 2)
+        return (check_pass, r)
 
     def close(self):
         self.lg.debug(f"{self.__class__} closed.")

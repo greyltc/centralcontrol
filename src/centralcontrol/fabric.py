@@ -84,6 +84,9 @@ class Fabric(object):
     # process killer signal
     pkiller = multiprocessing.Event()
 
+    # bad connections ask blocker
+    bc_response = multiprocessing.Event()
+
     # special message output queue so that messages can be sent from other processes
     # poutq = multiprocessing.SimpleQueue()
     outq = multiprocessing.SimpleQueue()
@@ -230,83 +233,71 @@ class Fabric(object):
             self.lg.debug(f"{cmd=} complete!")
 
     @staticmethod
-    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], device_grouping: list[list[str]]) -> dict[str, dict[str, float]]:
+    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], device_grouping: list[list[str]]) -> list[dict]:
         """get a list of resistance values for all the connection pads of a given device list"""
-        rs = {}  # holds the resistance values of the device pads
+        conns = []  # holds the connection info
         if len(slots) > 0:
+            hconns = []
+            for slot, pad in zip(slots, pads):  # hi-side lines
+                line = {}
+                line["slot"] = slot
+                if slot == "OFF":
+                    pad = "HI"
+                    selstr = "s"
+                    smi = 0
+                else:
+                    selstr = f"s{slot}{(1<<(7+pad)):05}"
+                    smi = SourcemeterAPI.which_smu(device_grouping, f"{slot}{pad}".lower())
+                line["pad"] = pad
+                line["selstr"] = selstr
+                line["smi"] = smi
+                hconns.append(line)
+
+            # lo side stuff
+            lconns = []  # holds the connection info
+            uslots = list(set(slots))  # unique substrates
+            lo_side_mux_strings = [("TOP", f"{(1<<0):05}"), ("BOT", f"{(1<<1):05}")]
+            for uslot in uslots:
+                for pad, sel in lo_side_mux_strings:
+                    line = {}
+                    line["slot"] = uslot
+                    if uslot == "OFF":
+                        line["pad"] = "LO"
+                        line["selstr"] = "s"
+                        line["smi"] = 0
+                        lconns.append(line)
+                        break
+                    else:
+                        line["pad"] = pad
+                        line["selstr"] = f"s{uslot}{sel}"
+                        line["smi"] = SourcemeterAPI.which_smu(device_grouping, f"{uslot}1".lower())
+                        lconns.append(line)
+
             Fabric.select_pixel(mc)  # ensure we start with devices all deselected
             for sm in sms:
                 sm.enable_cc_mode(True)  # ccmode setup leaves us in hi-side checking mode, so we do that first
 
-            lo_side_mux_strings = [(" Top", f"{(1<<0):05}"), (" Bot", f"{(1<<1):05}")]  # = [TOP, BOT] = [0x01, 0x02] = ["close to 5&6", "close to 1&2"]
             last_slot = None
-            last_lspl = None
+            for line in hconns:
+                if last_slot and (last_slot != line["slot"]) and (last_slot != "OFF"):
+                    Fabric.select_pixel(mc, [f"s{last_slot}0"])  # make sure the last slot is cleaned up
+                Fabric.select_pixel(mc, [line["selstr"]])
+                line["data"] = sms[line["smi"]].do_contact_check(False)
+            conns += hconns
 
-            for side_b, side_str in [(False, "Hi-Side"), (True, "Lo-Side")]:
-                for slot, pad in zip(slots, pads):
-                    lspl = f"{slot}{pad}".lower()
-                    if lspl == "nonenone":
-                        lspl = "OFF"
-                        smi = 0
-                    else:
-                        smi = SourcemeterAPI.which_smu(device_grouping, lspl)
-                    assert smi is not None, f"{smi is not None=}"
-                    sm = sms[smi]
-                    # leave previous slot disconnected if we're going on to a new one
-                    if last_slot != slot:
-                        if last_slot and (last_slot != "none"):
-                            # don't leave anything from last slot connected
-                            Fabric.select_pixel(mc, [f"s{last_slot}0"])
-                    else:
-                        if side_b:
-                            for tb in [" Top", " Bot", " Top pass", " Bot pass"]:
-                                if last_lspl:
-                                    rs[lspl][f"{side_str}{tb}"] = rs[last_lspl][f"{side_str}{tb}"]  # store the reisitance vals
-                            last_lspl = lspl
-                            continue  # lo side, skip slots we've already done
-                    if side_b:
-                        for side, lo_side_mux_string in lo_side_mux_strings:
-                            if lspl == "OFF":
-                                side = ""
-                                Fabric.select_pixel(mc)
-                            else:
-                                Fabric.select_pixel(mc, [f"s{slot}{lo_side_mux_string}"])
-                            good_contact, r_val = sm.do_contact_check(True)  # lo-side
-                            if lspl != "OFF":
-                                Fabric.select_pixel(mc, [f"s{slot}0"])
-                            rs[lspl][f"{side_str}{side}"] = r_val  # store the reisitance vals
-                            rs[lspl][f"{side_str}{side} pass"] = good_contact  # store the reisitance vals
-                            rs[lspl]["slot"] = slot
-                            rs[lspl]["pad"] = pad
-                            if lspl == "OFF":
-                                break
-                    else:  # hi side
-                        if lspl == "OFF":
-                            Fabric.select_pixel(mc)
-                        else:
-                            shift = 7 + pad
-                            pad_string = f"{(1<<shift):05}"
-                            Fabric.select_pixel(mc, [f"s{slot}{pad_string}"])
-                        good_contact, r_val = sm.do_contact_check(False)  # hi-side
-                        rs[lspl] = {side_str: r_val, f"{side_str} pass": good_contact}  # store the reisitance vals
-                        rs[lspl]["slot"] = slot
-                        rs[lspl]["pad"] = pad
-                    last_slot = slot
-                    last_lspl = lspl
-                final_slot = slots[-1]
-                if final_slot == "OFF":
-                    Fabric.select_pixel(mc)
-                else:
-                    Fabric.select_pixel(mc, [f"s{final_slot}{0}"])
-            for sm in sms:
-                sm.enable_cc_mode(False)
-        return rs
+            for line in lconns:
+                if last_slot and (last_slot != line["selstr"]) and (last_slot != "OFF"):
+                    Fabric.select_pixel(mc, [f"s{last_slot}0"])  # make sure the last slot is cleaned up
+                Fabric.select_pixel(mc, [line["selstr"]])
+                line["data"] = sms[line["smi"]].do_contact_check(True)
+            conns += lconns
+        return conns
 
     def util_round_robin(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """handles message from the frontend requesting a round robin-type thing"""
         # inject the no connect case
-        task["slots"].insert(0, "none")
-        task["pads"].insert(0, "none")
+        task["slots"].insert(0, "OFF")
+        task["pads"].insert(0, "OFF")
         task["mux_strings"].insert(0, "s")
 
         slots = task["slots"]
@@ -321,12 +312,11 @@ class Fabric(object):
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
                     rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
-                    for dev, rslt in rs.items():
-                        for key, val in rslt.items():
-                            if key not in ["slot", "pad"]:
-                                if abs(val) > smus[0].threshold_ohm:
-                                    filler = " "
-                                    self.lg.log(29, f"🔴 {dev.upper():{filler}<3} has a bad {key:{filler}<11} 4-wire connection")
+                    for line in rs:
+                        if not line["data"][0]:
+                            name = f'{line["slot"]}-{line["pad"]}'
+                            filler = " "
+                            self.lg.log(29, f"🔴 The {name:{filler}<6} pad has a connection fault")
                 else:
                     for sm in smus:
                         if task["type"] == "current":
@@ -769,6 +759,43 @@ class Fabric(object):
 
             mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
             smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
+
+            # check connectivity
+            self.lg.log(29, f"Checking device connectivity...")
+            slot_pad = []
+            for key, slot in args["IV_stuff"]["system_label"].items():
+                slot_pad.append((slot, args["IV_stuff"]["mux_index"][key]))
+            slot_pad.sort(key=lambda x: x[0])
+            pads = [x[1] for x in slot_pad]
+            slots = [x[0] for x in slot_pad]
+            rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["device_grouping"])
+            fails = [line for line in rs if not line["data"][0]]
+            if any(fails):
+                headline = f'{len(fails)} independent device connection issue(s) detected in the following slot(s): {", ".join(set([x["slot"] for x in fails]))}'
+                self.lg.warning(headline)
+                if config["UI"]["bad_connections"] == "abort":  # abort mode
+                    return
+                body = ["Ignoring poor connections can result in the collection of misleading data."]
+                if config["UI"]["bad_connections"] == "ignore":  # ignore mode
+                    pass
+                else:  # "ask" mode: generate warning dialog for user to decide
+                    body.append("Pads with connection faults:")
+                    for line in fails:
+                        body.append(f'{line["slot"]}-{line["pad"]}')
+
+                    payload = {"warn_dialog": {"headline": headline, "body": "\n".join(body), "buttons": ("Ignore and Continue", "Abort the Run")}}
+                    self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
+                    self.lg.log(29, "Waiting for user input on what to do...")
+                    self.bc_response.wait()
+                    self.bc_response.clear()
+                    if self.pkiller.is_set():
+                        self.lg.debug("Killed by killer.")
+                        return
+                self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
+                self.lg.warning("Continuting anyway...")
+            else:
+                self.lg.log(29, "🟢 All good!")
+
             ss = stack.enter_context(ill_fac(sscfg)(**sscfg))  # init and connect to solar sim
 
             # setup motion object
@@ -788,15 +815,9 @@ class Fabric(object):
             # here's a context manager that ensures the hardware is in the right state at the start and end
             with Fabric.measurement_context(mc, ss, smus, self.outq, db, rid):
 
-                # check connectivity
-                self.lg.log(29, f"Checking device connectivity...")
-                slot_pad = []
-                for key, slot in args["IV_stuff"]["system_label"].items():
-                    slot_pad.append((slot, args["IV_stuff"]["mux_index"][key]))
-                slot_pad.sort(key=lambda x: x[0])
-                pads = [x[1] for x in slot_pad]
-                slots = [x[0] for x in slot_pad]
-                rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["device_grouping"])
+                if self.pkiller.is_set():
+                    self.lg.debug("Killed by killer.")
+                    return
 
                 # make sure we have a record of spectral data
                 Fabric.record_spectrum(ss, self.outq, self.lg)
