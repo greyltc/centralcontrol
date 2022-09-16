@@ -179,6 +179,8 @@ class Fabric(object):
                                         if "cmd" in request:
                                             if request["cmd"] == "estop":
                                                 self.estop(request)  # this gets done now instead of being done in a new process
+                                            elif request == "unblock":
+                                                self.bc_response.set()  # unblock waiting for a response from the frontend
                                             else:
                                                 future = self.submit_for_execution(exicuter, future, self.utility_handler, request)
 
