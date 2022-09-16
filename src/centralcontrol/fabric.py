@@ -254,7 +254,7 @@ class Fabric(object):
                     sm = sms[smi]
                     # leave previous slot disconnected if we're going on to a new one
                     if last_slot != slot:
-                        if last_slot and (last_slot != "OFF"):
+                        if last_slot and (last_slot != "none"):
                             # don't leave anything from last slot connected
                             Fabric.select_pixel(mc, [f"s{last_slot}0"])
                     else:
@@ -267,6 +267,7 @@ class Fabric(object):
                     if side_b:
                         for side, lo_side_mux_string in lo_side_mux_strings:
                             if lspl == "OFF":
+                                side = "   "
                                 Fabric.select_pixel(mc)
                             else:
                                 Fabric.select_pixel(mc, [f"s{slot}{lo_side_mux_string}"])
@@ -274,6 +275,8 @@ class Fabric(object):
                             if lspl != "OFF":
                                 Fabric.select_pixel(mc, [f"s{slot}0"])
                             rs[lspl][f"{side_str} {side}"] = r_val  # store the reisitance vals
+                            if lspl == "OFF":
+                                break
                     else:  # hi side
                         if lspl == "OFF":
                             Fabric.select_pixel(mc)
@@ -324,7 +327,7 @@ class Fabric(object):
                     rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
                     for dev, rslt in rs.items():
                         for pad, r in rslt.items():
-                            if r > smus[0].threshold_ohm:
+                            if abs(r) > smus[0].threshold_ohm:
                                 filler = " "
                                 width = 3
                                 self.lg.log(29, f"🔴 {dev:{filler}<{width}} has a bad {pad} 4-wire connection")
@@ -612,7 +615,7 @@ class Fabric(object):
     def measurement_context(mc: MC | virt.FakeMC, ss: LightAPI, smus: list[SourcemeterAPI], outq: Queue | mQueue, db: SlothDB, rid: int):
         """context to ensure we're properly set up and then properly cleaned up"""
         # ensure we start with the light off
-        ss.apply_intensity(0)  # overrides barrier
+        # ss.apply_intensity(0)  # overrides barrier
 
         # ensure we start with the outputs off
         for smu in smus:
@@ -696,8 +699,8 @@ class Fabric(object):
             if "virtual" in config["stage"]:
                 fake_mo = config["stage"]["virtual"] == True
             # get the motion controller's address
-            if "address" in config["stage"]:
-                mo_address = config["stage"]["address"]
+            if "uri" in config["stage"]:
+                mo_address = config["stage"]["uri"]
             # check if the motion controlller is enabled
             if "enabled" in config["stage"]:
                 if config["stage"]["enabled"] == True:
@@ -834,7 +837,8 @@ class Fabric(object):
                         # force light off for motion if configured
                         if "off_during_motion" in config["solarsim"]:
                             if config["solarsim"]["off_during_motion"] is True:
-                                ss.apply_intensity(0)  # overrides barrier
+                                ss.set_intensity(0)  # type: ignore # TODO: bypasses the API, fix that
+                                # ss.apply_intensity(0)  # overrides barrier
                         mo.goto(there)  # command the stage
 
                     # select pixel(s)
@@ -879,7 +883,7 @@ class Fabric(object):
                                 self.lg.warning("and we couldn't cancel it.")
 
                     # deselect what we had just selected
-                    Fabric.select_pixel(mc, mux_string=pix_selection_strings)
+                    Fabric.select_pixel(mc, mux_string=pix_deselection_strings)
 
                     # turn off the SMUs
                     for sm in smus:
@@ -1200,19 +1204,22 @@ class Fabric(object):
     def record_spectrum(ss: LightAPI, outq: Queue | mQueue, lg: Logger):
         """does spectrum fetching at the start of the standard routine"""
         try:
-            intensity_setpoint = ss.intensity
+            # intensity_setpoint = ss.intensity
+            intensity_setpoint = ss.active_intensity
             wls, counts = ss.get_spectrum()
             data = [[wl, count] for wl, count in zip(wls, counts)]
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
             outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
             if intensity_setpoint != 100:
                 # now do it again to make sure we have a record of the 100% baseline
-                ss.apply_intensity(100)
+                # ss.apply_intensity(100)
+                ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
                 wls, counts = ss.get_spectrum()
                 data = [[wl, count] for wl, count in zip(wls, counts)]
                 spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
                 outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
-                ss.apply_intensity(intensity_setpoint)
+                # ss.apply_intensity(intensity_setpoint)
+                ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
         except Exception as e:
             lg.debug(f"Failure to collect spectrum data: {repr(e)}")
             # log the exception's whole call stack for debugging

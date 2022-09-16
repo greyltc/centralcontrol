@@ -44,7 +44,7 @@ class LightAPI(object):
     barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
     _current_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. what we believe the light's intensity is
     requested_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. keeps track of what we want the light's intensity to be
-    on_intensity = None  # the intensity value the hardware was initalized with. used in "on"
+    active_intensity: int  # the intensity value the hardware was initalized with. used in "on"
     get_spectrum: Callable[[], tuple[list[float], list[float]]]
     get_stemperatures: Callable[[], list[float]]
     last_temps: list[float]
@@ -65,7 +65,7 @@ class LightAPI(object):
         self.init_kwargs = kwargs
 
         if "intensity" in kwargs:
-            self.on_intensity = int(kwargs["intensity"])  # use this initial intensity for the "on" value
+            self.active_intensity = int(kwargs["intensity"])  # use this initial intensity for the "on" value
 
         # thing that blocks to ensure sync
         self.barrier = tBarrier(1, action=self.apply_intensity, timeout=self.barrier_timeout)
@@ -113,8 +113,8 @@ class LightAPI(object):
     @lit.setter
     def lit(self, value: bool):
         if value:
-            if self.on_intensity is not None:
-                setpoint = self.on_intensity
+            if self.active_intensity is not None:
+                setpoint = self.active_intensity
             else:
                 setpoint = 100  # assume 100% if we don't know better
             self.intensity = setpoint

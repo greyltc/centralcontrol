@@ -138,7 +138,7 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, dead_socket_port))
-                s.settimeout(0.1)
+                s.settimeout(0.5)
                 s.sendall(b"goodbye")
                 s.shutdown(socket.SHUT_RDWR)
                 self.hard_input_buffer_reset(s)
@@ -151,7 +151,7 @@ class k2400(object):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.connect((host, port))
-                s.settimeout(0.1)
+                s.settimeout(0.5)
                 s.shutdown(socket.SHUT_RDWR)
                 self.hard_input_buffer_reset(s)
         except Exception as e:
@@ -161,7 +161,7 @@ class k2400(object):
         """brute force input buffer discard with failure check"""
         if isinstance(s, socket.socket):
             oto = s.gettimeout()
-            s.settimeout(0.1)
+            s.settimeout(0.5)
             fetcher = lambda: s.recv(16)
         elif self.ser is not None:
             oto = self.ser.timeout  # save timeout value
@@ -201,6 +201,7 @@ class k2400(object):
                 self.socket_cleanup(self.host, int(self.port))
                 self.dead_socket_cleanup(self.host)
                 self.socket_cleanup(self.host, int(self.port))
+                # time.sleep(0.5)  # TODO: remove this hack
             else:
                 kwargs = {}
 
@@ -209,6 +210,7 @@ class k2400(object):
                 if "socket" in self.address:
                     # set the initial timeout to something long for setup
                     self.ser._socket.settimeout(5.0)
+                    # time.sleep(0.5)  # TODO: remove this hack
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
