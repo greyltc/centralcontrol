@@ -384,7 +384,8 @@ class Fabric(object):
                                 in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                                 if not (in_compliance) and (ohm < 3000) and (ohm > 500):
                                     self.lg.log(29, f"{slot_words} could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
-                        Fabric.select_pixel(mc, [f"s{slot}0"])  # disconnect the slot
+                        if slot != "none":
+                            Fabric.select_pixel(mc, [f"s{slot}0"])  # disconnect the slot
                     for sm in smus:
                         sm.enable_cc_mode(False)
                 Fabric.select_pixel(mc)  # disconnect everyone
