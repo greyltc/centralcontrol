@@ -294,6 +294,11 @@ class Fabric(object):
                 Fabric.select_pixel(mc, [line["selstr"]])
                 line["data"] = sms[line["smi"]].do_contact_check(True)
             conns += lconns
+
+            for sm in sms:
+                sm.enable_cc_mode(False)  # disable cc mode
+            Fabric.select_pixel(mc)  # ensure we end with devices all deselected
+
         return conns
 
     def util_round_robin(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):

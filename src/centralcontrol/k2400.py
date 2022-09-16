@@ -201,7 +201,7 @@ class k2400(object):
                 self.socket_cleanup(self.host, int(self.port))
                 self.dead_socket_cleanup(self.host)
                 self.socket_cleanup(self.host, int(self.port))
-                # time.sleep(0.5)  # TODO: remove this hack
+                time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
             else:
                 kwargs = {}
 
@@ -210,7 +210,7 @@ class k2400(object):
                 if "socket" in self.address:
                     # set the initial timeout to something long for setup
                     self.ser._socket.settimeout(5.0)
-                    # time.sleep(0.5)  # TODO: remove this hack
+                    time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
