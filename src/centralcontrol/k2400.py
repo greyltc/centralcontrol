@@ -840,11 +840,11 @@ class k2400(object):
                         if not in_compliance:
                             if abs(r_val) < self.threshold_ohm:
                                 good_contact = True
-                                self.lg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {self.threshold_ohm}Ω")
-                            else:
-                                self.lg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {self.threshold_ohm}Ω")
-                        else:
-                            self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
+                        #         self.lg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {self.threshold_ohm}Ω")
+                        #     else:
+                        #         self.lg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {self.threshold_ohm}Ω")
+                        # else:
+                        #     self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
         elif self.cc_mode == "none":
             good_contact = True
         return (good_contact, r_val)

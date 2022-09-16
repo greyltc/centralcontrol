@@ -282,17 +282,21 @@ class Fabric(object):
 
             last_slot = None
             for line in hconns:
-                if last_slot and (last_slot != line["slot"]) and (last_slot != "OFF"):
+                this_slot = line["slot"]
+                if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
                     Fabric.select_pixel(mc, [f"s{last_slot}0"])  # make sure the last slot is cleaned up
                 Fabric.select_pixel(mc, [line["selstr"]])
                 line["data"] = sms[line["smi"]].do_contact_check(False)
+                last_slot = this_slot
             conns += hconns
 
             for line in lconns:
-                if last_slot and (last_slot != line["selstr"]) and (last_slot != "OFF"):
+                this_slot = line["slot"]
+                if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
                     Fabric.select_pixel(mc, [f"s{last_slot}0"])  # make sure the last slot is cleaned up
                 Fabric.select_pixel(mc, [line["selstr"]])
                 line["data"] = sms[line["smi"]].do_contact_check(True)
+                last_slot = this_slot
             conns += lconns
 
             for sm in sms:
@@ -320,6 +324,7 @@ class Fabric(object):
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
                     rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
+                    self.lg.debug(repr(rs))
                     for line in rs:
                         if not line["data"][0]:
                             name = f'{line["slot"]}-{line["pad"]}'
@@ -778,6 +783,7 @@ class Fabric(object):
             pads = [x[1] for x in slot_pad]
             slots = [x[0] for x in slot_pad]
             rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["device_grouping"])
+            self.lg.debug(repr(rs))
             fails = [line for line in rs if not line["data"][0]]
             if any(fails):
                 headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
