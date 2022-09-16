@@ -331,7 +331,9 @@ class Us(object):
                         self.write_reg(ax, self.TMC5130_XENC, 677)  # test/verify register programming
                         # self.write_reg(ax, self.TMC5130_V1, 0, check=False)  # disable some ramp generator stages
                         self.write_reg(ax, self.TMC5130_XENC, 678)  # test/verify register programming
-                    break
+                        break
+                    elif "ERROR" not in stage_fw:
+                        break
             else:  # no break
                 success = False
                 self.lg.warning(f"Stage axis {ax} took too long to complete reset")

@@ -716,7 +716,7 @@ class k2400(object):
             v_end = last_element[0]
             self.last_sweep_time = t_end - t_start
             n_vals = len(vals)
-            stats_string = f"sweep duration={self.last_sweep_time:0.2f}s|mean voltage step={(v_start-v_end)/n_vals*1000:0.2f}mV|mean sample period={self.last_sweep_time/n_vals*1000:0.0f}ms|mean sweep rate={(v_start-v_end)/self.last_sweep_time:0.3f}V/s"
+            stats_string = f"sweep duration={self.last_sweep_time:0.2f}s|mean voltage step={(v_start-v_end)/n_vals*1000:+0.2f}mV|mean sample period={self.last_sweep_time/n_vals*1000:0.0f}ms|mean sweep rate={(v_start-v_end)/self.last_sweep_time:+0.3f}V/s"
             if self.print_sweep_deets:
                 self.lg.log(29, stats_string)
             else:

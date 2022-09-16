@@ -443,6 +443,7 @@ class Fabric(object):
                 tb = traceback.TracebackException.from_exception(e)
                 self.lg.debug("".join(tb.format()))
         # TODO: stage: check axes, lengths and homing
+        self.lg.log(29, "Health check complete")
 
     def util_spectrum(self, task):
         """handles message from the frontend requesting a utility spectrum fetch"""
@@ -570,12 +571,12 @@ class Fabric(object):
         if isinstance(future, concurrent.futures.Future) and future.running():
             self.lg.debug("Setting process killer")
             self.pkiller.set()  # ask extremely nicely for the process to come to conclusion
-            concurrent.futures.wait([future], timeout=5)
+            concurrent.futures.wait([future], timeout=10)
             if not future.running():
                 self.lg.log(29, "Request to stop completed!")
             else:
                 future.cancel()  # politely tell the process to end
-                concurrent.futures.wait([future], timeout=5)
+                concurrent.futures.wait([future], timeout=10)
                 if not future.running():
                     self.lg.log(29, "Forceful request to stop completed!")
                 else:
@@ -837,8 +838,7 @@ class Fabric(object):
                         # force light off for motion if configured
                         if "off_during_motion" in config["solarsim"]:
                             if config["solarsim"]["off_during_motion"] is True:
-                                ss.set_intensity(0)  # type: ignore # TODO: bypasses the API, fix that
-                                # ss.apply_intensity(0)  # overrides barrier
+                                ss.apply_intensity(0)
                         mo.goto(there)  # command the stage
 
                     # select pixel(s)
@@ -1009,8 +1009,8 @@ class Fabric(object):
                 ssvoc = None
 
             # perform sweeps
-            self.clear_plot("iv_measurement")
             for sweep in sweeps:
+                self.clear_plot("iv_measurement")
                 if self.pkiller.is_set():
                     self.lg.debug("Killed by killer.")
                     return data
