@@ -132,6 +132,7 @@ class Fabric(object):
     def on_future_done(self, future: concurrent.futures.Future):
         """callback for when the future's execution has concluded"""
         self.pkiller.clear()  # unset the process killer signal since it just ended
+        self.bc_response.clear()  # make sure this is reset too
         future_exception = future.exception()  # check if the process died because of an exception
         if future_exception:
             self.lg.error(f"Process failed: {repr(future_exception)}")
@@ -179,10 +180,10 @@ class Fabric(object):
                                         if "cmd" in request:
                                             if request["cmd"] == "estop":
                                                 self.estop(request)  # this gets done now instead of being done in a new process
-                                            elif request == "unblock":
-                                                self.bc_response.set()  # unblock waiting for a response from the frontend
                                             else:
                                                 future = self.submit_for_execution(exicuter, future, self.utility_handler, request)
+                                        elif request == "unblock":
+                                            self.bc_response.set()  # unblock waiting for a response from the frontend
 
                     except Exception as e:
                         self.lg.error(f"Runtime exception: {repr(e)}")
@@ -559,6 +560,7 @@ class Fabric(object):
 
         if isinstance(future, concurrent.futures.Future) and future.running():
             self.lg.debug("Setting process killer")
+            self.bc_response.set()  # unblock if we're waiting for a bad connection response
             self.pkiller.set()  # ask extremely nicely for the process to come to conclusion
             concurrent.futures.wait([future], timeout=10)
             if not future.running():
