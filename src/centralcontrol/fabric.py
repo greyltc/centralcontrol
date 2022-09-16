@@ -771,7 +771,7 @@ class Fabric(object):
             rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["device_grouping"])
             fails = [line for line in rs if not line["data"][0]]
             if any(fails):
-                headline = f'{len(fails)} independent device connection issue(s) detected in the following slot(s): {", ".join(set([x["slot"] for x in fails]))}'
+                headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
                 self.lg.warning(headline)
                 if config["UI"]["bad_connections"] == "abort":  # abort mode
                     return
