@@ -238,11 +238,11 @@ class Fabric(object):
             for sm in sms:
                 sm.enable_cc_mode(True)  # ccmode setup leaves us in hi-side checking mode, so we do that first
 
-            lo_side_mux_strings = [("Top", f"{(1<<0):05}"), ("Bot", f"{(1<<1):05}")]  # = [TOP, BOT] = [0x01, 0x02] = ["close to 5&6", "close to 1&2"]
+            lo_side_mux_strings = [(" Top", f"{(1<<0):05}"), (" Bot", f"{(1<<1):05}")]  # = [TOP, BOT] = [0x01, 0x02] = ["close to 5&6", "close to 1&2"]
             last_slot = None
             last_lspl = None
 
-            for side_b, side_str in [(False, "Hi-Side    "), (True, "Lo-Side")]:
+            for side_b, side_str in [(False, "Hi-Side"), (True, "Lo-Side")]:
                 for slot, pad in zip(slots, pads):
                     lspl = f"{slot}{pad}".lower()
                     if lspl == "nonenone":
@@ -259,22 +259,25 @@ class Fabric(object):
                             Fabric.select_pixel(mc, [f"s{last_slot}0"])
                     else:
                         if side_b:
-                            for tb in ["Top", "Bot"]:
+                            for tb in [" Top", " Bot", " Top pass", " Bot pass"]:
                                 if last_lspl:
-                                    rs[lspl][f"{side_str} {tb}"] = rs[last_lspl][f"{side_str} {tb}"]  # store the reisitance vals
+                                    rs[lspl][f"{side_str}{tb}"] = rs[last_lspl][f"{side_str}{tb}"]  # store the reisitance vals
                             last_lspl = lspl
                             continue  # lo side, skip slots we've already done
                     if side_b:
                         for side, lo_side_mux_string in lo_side_mux_strings:
                             if lspl == "OFF":
-                                side = "   "
+                                side = ""
                                 Fabric.select_pixel(mc)
                             else:
                                 Fabric.select_pixel(mc, [f"s{slot}{lo_side_mux_string}"])
                             good_contact, r_val = sm.do_contact_check(True)  # lo-side
                             if lspl != "OFF":
                                 Fabric.select_pixel(mc, [f"s{slot}0"])
-                            rs[lspl][f"{side_str} {side}"] = r_val  # store the reisitance vals
+                            rs[lspl][f"{side_str}{side}"] = r_val  # store the reisitance vals
+                            rs[lspl][f"{side_str}{side} pass"] = good_contact  # store the reisitance vals
+                            rs[lspl]["slot"] = slot
+                            rs[lspl]["pad"] = pad
                             if lspl == "OFF":
                                 break
                     else:  # hi side
@@ -285,7 +288,9 @@ class Fabric(object):
                             pad_string = f"{(1<<shift):05}"
                             Fabric.select_pixel(mc, [f"s{slot}{pad_string}"])
                         good_contact, r_val = sm.do_contact_check(False)  # hi-side
-                        rs[lspl] = {side_str: r_val}  # store the reisitance vals
+                        rs[lspl] = {side_str: r_val, f"{side_str} pass": good_contact}  # store the reisitance vals
+                        rs[lspl]["slot"] = slot
+                        rs[lspl]["pad"] = pad
                     last_slot = slot
                     last_lspl = lspl
                 final_slot = slots[-1]
@@ -296,14 +301,6 @@ class Fabric(object):
             for sm in sms:
                 sm.enable_cc_mode(False)
         return rs
-
-        # u_slots = list(set(slots))  # unique slots
-
-        # for slot in u_slots:
-        #    for lo_side_mux_string in lo_side_mux_strings:
-        #        Fabric.select_pixel(mc, [f"s{slot}{lo_side_mux_string}"])
-        #        good_contact, r_val = sm.do_contact_check(True)  # lo-side
-        #        Fabric.select_pixel(mc, [f"s{slot}0"])
 
     def util_round_robin(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """handles message from the frontend requesting a round robin-type thing"""
@@ -320,17 +317,16 @@ class Fabric(object):
         if len(slots) > 0:
             with contextlib.ExitStack() as stack:  # handles the proper cleanup of the hardware
                 mc = stack.enter_context(AnMC(task["pcb"], timeout=5))
-                # ss = stack.enter_context(ill_fac(task["solarsim"])(**task["solarsim"]))
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smu"]]
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
                     rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
                     for dev, rslt in rs.items():
-                        for pad, r in rslt.items():
-                            if abs(r) > smus[0].threshold_ohm:
-                                filler = " "
-                                width = 3
-                                self.lg.log(29, f"🔴 {dev:{filler}<{width}} has a bad {pad} 4-wire connection")
+                        for key, val in rslt.items():
+                            if key not in ["slot", "pad"]:
+                                if abs(val) > smus[0].threshold_ohm:
+                                    filler = " "
+                                    self.lg.log(29, f"🔴 {dev.upper():{filler}<3} has a bad {key:{filler}<11} 4-wire connection")
                 else:
                     for sm in smus:
                         if task["type"] == "current":
@@ -753,7 +749,7 @@ class Fabric(object):
         else:
             p_total = float("inf")
 
-        with contextlib.ExitStack() as stack:  # big context manager
+        with contextlib.ExitStack() as stack:  # big context manager to manage equipemnt connections
             # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
             db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
 
@@ -791,6 +787,17 @@ class Fabric(object):
 
             # here's a context manager that ensures the hardware is in the right state at the start and end
             with Fabric.measurement_context(mc, ss, smus, self.outq, db, rid):
+
+                # check connectivity
+                self.lg.log(29, f"Checking device connectivity...")
+                slot_pad = []
+                for key, slot in args["IV_stuff"]["system_label"].items():
+                    slot_pad.append((slot, args["IV_stuff"]["mux_index"][key]))
+                slot_pad.sort(key=lambda x: x[0])
+                pads = [x[1] for x in slot_pad]
+                slots = [x[0] for x in slot_pad]
+                rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["device_grouping"])
+
                 # make sure we have a record of spectral data
                 Fabric.record_spectrum(ss, self.outq, self.lg)
 
