@@ -512,14 +512,14 @@ class Wavelabs(object):
         try:
             temp = float(self.getResult(param="Temperature_LedBox_IR", run_ID=run_ID))  # type: ignore
         except:
-            temp = float("inf")
+            temp = 1000000.0
         return temp
 
     def get_vis_led_temp(self, run_ID=None):
         try:
             temp = float(self.getResult(param="Temperature_LedBox_Vis", run_ID=run_ID))  # type: ignore
         except:
-            temp = float("inf")
+            temp = 1000000.0
         return temp
 
     def get_temperatures(self) -> list[float]:
