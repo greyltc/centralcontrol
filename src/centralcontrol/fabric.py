@@ -820,7 +820,7 @@ class Fabric(object):
                 mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
             assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
-            rid = db.new_run(uid, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
+            rid = db.new_run(uid, params={"args": args, "config": config}, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
             for sm in smus:
                 sm.killer = self.pkiller  # register the kill signal with the smu object
             mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
