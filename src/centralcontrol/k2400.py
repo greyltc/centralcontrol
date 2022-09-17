@@ -7,6 +7,7 @@ from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 import socket
 
+import logging
 from centralcontrol.logstuff import get_logger
 
 
@@ -42,7 +43,7 @@ class k2400(object):
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
 
-        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]), logging.INFO)  # setup logging
 
         self.killer = killer
         self.quiet = quiet
@@ -198,9 +199,9 @@ class k2400(object):
                 kwargs = {}
                 hostport = self.address.removeprefix("socket://")
                 [self.host, self.port] = hostport.split(":", 1)
-                self.socket_cleanup(self.host, int(self.port))
-                self.dead_socket_cleanup(self.host)
-                self.socket_cleanup(self.host, int(self.port))
+                self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
+                self.dead_socket_cleanup(self.host)  # NOTE: this might cause trouble
+                self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
                 time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
             else:
                 kwargs = {}
@@ -806,7 +807,7 @@ class k2400(object):
         """
         # cc_mode can be "none", "external" or "internal" (internal is for -c model 24XXs only)
         good_contact = False
-        r_val = float("inf")
+        r_val = 1000000.0
         if self.cc_mode == "internal":
             self.outOn()  # try to turn on the output
             if self.query(":output?") == "1":  # check if that worked

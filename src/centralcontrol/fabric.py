@@ -750,7 +750,7 @@ class Fabric(object):
         if args["cycles"] != 0:
             run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
             p_total = len(run_queue)
-        else:
+        else:  # cycle forever
             p_total = float("inf")
 
         with contextlib.ExitStack() as stack:  # big context manager to manage equipemnt connections
