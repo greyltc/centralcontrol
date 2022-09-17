@@ -878,7 +878,7 @@ class Fabric(object):
                     ss.n_sync = n_parallel
 
                     # move stage
-                    if (there is not None) and (float("inf") not in there) and (float("-inf") not in there):
+                    if there and (float("nan") not in there):
                         # force light off for motion if configured
                         if "off_during_motion" in config["solarsim"]:
                             if config["solarsim"]["off_during_motion"] is True:
@@ -1414,8 +1414,9 @@ class Fabric(object):
                         mux_index = stuff.loc[rsel]["mux_index"].values[0]
                         assert mux_index is not None, f"{mux_index is not None=}"  # catch error case
                         pixel_dict["pixel"] = int(mux_index)
-                        loc = stuff.loc[rsel]["loc"].values[0]
-                        assert loc is not None, f"{loc is not None=}"  # catch error case
+                        locf = stuff.loc[rsel]["loc"].values[0]
+                        assert locf is not None, f"{locf is not None=}"  # catch error case
+                        loc = [float("nan") if x is None else x for x in locf]
                         pos = [a + b for a, b in zip(center, loc)]
                         pixel_dict["pos"] = pos
                         pixel_dict["mux_string"] = stuff.loc[rsel]["mux_string"].values[0]
