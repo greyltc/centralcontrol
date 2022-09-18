@@ -821,6 +821,7 @@ class Fabric(object):
             assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
             rid = db.new_run(uid, params={"args": args, "config": config}, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
+            assert rid > 0, f"Saving run config failed"
             for sm in smus:
                 sm.killer = self.pkiller  # register the kill signal with the smu object
             mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
@@ -835,7 +836,8 @@ class Fabric(object):
                     return
 
                 # make sure we have a record of spectral data
-                Fabric.record_spectrum(ss, self.outq, self.lg)
+                datas = Fabric.record_spectrum(ss, self.outq, self.lg)
+                self.log_light_cal(datas, config, db, rid)
 
                 # set NPLC
                 if args["nplc"] != -1:
@@ -1245,13 +1247,16 @@ class Fabric(object):
         return data
 
     @staticmethod
-    def record_spectrum(ss: LightAPI, outq: Queue | mQueue, lg: Logger):
+    def record_spectrum(ss: LightAPI, outq: Queue | mQueue, lg: Logger) -> list[dict[str, float | list[tuple[float, float]]]]:
         """does spectrum fetching at the start of the standard routine"""
+        datas = []
         try:
             # intensity_setpoint = ss.intensity
             intensity_setpoint = ss.active_intensity
             wls, counts = ss.get_spectrum()
-            data = [[wl, count] for wl, count in zip(wls, counts)]
+            data = [(wl, count) for wl, count in zip(wls, counts)]
+            spec = {"data": data, "temps": ss.last_temps, "intensity": intensity_setpoint}
+            datas.append(spec)
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
             outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
             if intensity_setpoint != 100:
@@ -1259,7 +1264,9 @@ class Fabric(object):
                 # ss.apply_intensity(100)
                 ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
                 wls, counts = ss.get_spectrum()
-                data = [[wl, count] for wl, count in zip(wls, counts)]
+                data = [(wl, count) for wl, count in zip(wls, counts)]
+                spec = {"data": data, "temps": ss.last_temps, "intensity": 100.0}
+                datas.append(spec)
                 spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
                 outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
                 # ss.apply_intensity(intensity_setpoint)
@@ -1269,6 +1276,24 @@ class Fabric(object):
             # log the exception's whole call stack for debugging
             tb = traceback.TracebackException.from_exception(e)
             lg.debug("".join(tb.format()))
+        return datas
+
+    def log_light_cal(self, datas: list[dict[str, float | list[tuple[float, float]]]], args: dict, rid: int, config: dict, db: SlothDB):
+        """stores away light calibration data"""
+        for data in datas:
+            ary = np.array(data["data"])
+            area = np.trapz(ary[:, 1], ary[:, 0])
+            cal_args = {}
+            cal_args["site"] = config["setup"]["site"]
+            cal_args["setup"] = config["setup"]["name"]
+            cal_args["rid"] = rid
+            cal_args["tmps"] = data["temps"]
+            cal_args["raw_spec"] = data["data"]
+            cal_args["raw_int_spec"] = area
+            cal_args["setpoint"] = data["intensity"]
+            cal_args["recipe"] = args["light_recipe"]
+
+            db.new_light_cal(**cal_args)
 
     def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
