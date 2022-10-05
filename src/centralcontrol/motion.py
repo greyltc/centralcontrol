@@ -83,7 +83,7 @@ class Motion(object):
             elif parsed.scheme == "us":
                 us_setup = {}
                 us_setup["spm"] = self.steps_per_mm
-                if (self.location != "controller") or (pcb_object is None):
+                if (self.location != "mc") or (pcb_object is None):
                     raise ValueError(f"us://controller/ requires requires a pre-existing pcb_object")
                 us_setup["pcb_object"] = pcb_object
                 if hasattr(pcb_object, "is_virtual"):

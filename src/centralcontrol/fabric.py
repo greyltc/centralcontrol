@@ -674,19 +674,19 @@ class Fabric(object):
         mc_address = None
         mc_enabled = False
         mc_expected_muxes = [""]
-        if "controller" in config:
+        if "mc" in config:
             # check if we'll be virtualizing the MC
-            if "virtual" in config["controller"]:
-                fake_mc = config["controller"]["virtual"] == True
+            if "virtual" in config["mc"]:
+                fake_mc = config["mc"]["virtual"] == True
             # get the MC's address
-            if "address" in config["controller"]:
-                mc_address = config["controller"]["address"]
+            if "address" in config["mc"]:
+                mc_address = config["mc"]["address"]
             # check if the MC is enabled
-            if "enabled" in config["controller"]:
-                mc_enabled = config["controller"]["enabled"] == True
+            if "enabled" in config["mc"]:
+                mc_enabled = config["mc"]["enabled"] == True
             # check what muxes we expect
-            if "expected_muxes" in config["controller"]:
-                mc_expected_muxes = config["controller"]["expected_muxes"]
+            if "expected_muxes" in config["mc"]:
+                mc_expected_muxes = config["mc"]["expected_muxes"]
         if fake_mc:
             ThisMC = virt.FakeMC
         else:

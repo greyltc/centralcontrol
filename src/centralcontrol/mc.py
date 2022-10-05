@@ -289,7 +289,7 @@ class MC(object):
 if __name__ == "__main__":
     pcb_address = "10.46.0.239"
     with MC(pcb_address, timeout=1) as p:
-        print("Controller connection initiated")
-        print(f"Controller firmware version: {p.firmware_version}")
-        print(f"Controller axes: {p.detected_axes}")
-        print(f"Controller muxes: {p.detected_muxes}")
+        print("MC connection initiated")
+        print(f"MC firmware version: {p.firmware_version}")
+        print(f"MC axes: {p.detected_axes}")
+        print(f"MC muxes: {p.detected_muxes}")
