@@ -11,7 +11,6 @@ import typing
 import contextlib
 import json
 import numpy as np
-import pandas as pd
 import multiprocessing
 import threading
 import signal
@@ -839,11 +838,16 @@ class Fabric(object):
                 where
                     tbl_conf_as.id = {conf_a_id}
                 """
-                spid = db.ask(sql)[0][0]
+                code, rslt = db.ask(sql)
+                if (code == 0) and rslt:
+                    suid = rslt[0][0]
+                else:
+                    suid = 0
+                assert suid > 0, f"Fetching setup id failed"
 
                 # make sure we have a record of spectral data
                 datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                self.log_light_cal(datas, args, rid, config, rid)
+                self.log_light_cal(datas, suid, db, "config", rid)
 
                 # set NPLC
                 if args["nplc"] != -1:
@@ -1356,9 +1360,6 @@ class Fabric(object):
 
         center = config["motion"]["centers"]["solarsim"]
         stuff = args["IV_stuff"]  # dict from dataframe
-
-        # recreate a dataframe from the dict
-        stuff = pd.DataFrame.from_dict(stuff)
 
         run_q = collections.deque()  # TODO: check if this could just be a list
 
