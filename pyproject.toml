@@ -1,28 +1,68 @@
-[metadata]
-name = centralcontrol
-version = 0.0.1
+[build-system]
+requires = ["hatchling>=1.10.0", "hatch-vcs>=0.2.0"]
+build-backend = "hatchling.build"
 
-[options]
-packages = find:
-include_package_data = True
-install_requires =
-    numpy
-    paho-mqtt
-    mpmath
-python_requires = >=3.6
-package_dir =
-    =src
+[project]
+name = "centracontrol"
+description = "instrument control backend"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.10"
+keywords = [
+  "automation",
+  "data",
+  "science",
+]
+authors = [
+  { name="Greyson Christoforo", email="grey@christoforo.net" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+  "numpy",
+  "mpmath",
+  "paho-mqtt",
+  "psycopg",
+]
+dynamic = ["version"]
 
-[options.packages.find]
-where = src
+[project.urls]
+Homepage = "https://github.com/greyltc/centralcontrol"
+Tracker = "https://github.com/greyltc/centralcontrol/issues"
+Source = "https://github.com/greyltc/centralcontrol"
 
-[options.entry_points]
-console_scripts =
-    centralcontrol = centralcontrol:main
-    wavelabs-relay-server = wavelabs_relay_server:main
+[tool.hatch.version]
+source = "vcs"
 
-[options.data_files]
-lib/systemd/user = 
-    data/systemd/centralcontrol@.service
-lib/systemd/system = 
-    data/systemd/wavelabs-relay.service
+[project.scripts]
+centralcontrol = "centralcontrol.__main__:main"
+wavelabs-relay-server = "wavelabs_relay_server:main"
+
+[tool.hatch.build]
+ignore-vcs = true
+include = [
+  "src/*.py",
+  "data/*.json",
+  "data/systemd"
+]
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src"]
+sources = ["src"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"data" = "share/centralcontrol"
+"data/systemd/centralcontrol@.service" = "lib/systemd/user/centralcontrol@.service"
+"data/systemd/wavelabs-relay.service" = "lib/systemd/system/wavelabs-relay.service"
+
+[tool.black]
+line-length = 999999
+
+# could format like this in case black isn't doing its job: `python -m yapf --recursive --in-place .`
+#[tool.yapf]
+#column_limit = 999999
