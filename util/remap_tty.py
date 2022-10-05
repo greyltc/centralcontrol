@@ -11,7 +11,7 @@ import time
 # config sections to rewrite
 sections = []
 sections.append({"name": "lia", "dev": "/dev/null", "address": "ASRL{0}::INSTR", "match": "Stanfor".encode()})
-sections.append({"name": "smu", "dev": "/dev/null", "address": "ASRL{0}::INSTR", "match": "KEITHLE".encode()})
+sections.append({"name": "smus", "dev": "/dev/null", "address": "ASRL{0}::INSTR", "match": "KEITHLE".encode()})
 sections.append({"name": "monochromator", "dev": "/dev/null", "address": "ASRL{0}::INSTR", "match": "*IDN? ?".encode()})
 config_key_to_change = "address"
 

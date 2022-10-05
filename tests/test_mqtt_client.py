@@ -53,7 +53,7 @@ class MqttClientTestCase(unittest.TestCase):
             smu = []
             smu.append({"virtual": True, "address": "hw:///dev/ttyS0?baudrate=57600&bytesize=EIGHTBITS&parity=PARITY_NONE&stopbits=STOPBITS_ONE&timeout=1&xonxoff=True&rtscts=False&dsrdtr=False&write_timeout=1&inter_byte_timeout=1"})
             smu.append({"virtual": True, "address": "hw:///dev/ttyS1?baudrate=57600&bytesize=EIGHTBITS&parity=PARITY_NONE&stopbits=STOPBITS_ONE&timeout=1&xonxoff=True&rtscts=False&dsrdtr=False&write_timeout=1&inter_byte_timeout=1"})
-            config["smu"] = smu
+            config["smus"] = smu
             config["mc"] = {"virtual": True}
             config["motion"] = {"virtual": True, "uri": "us://controller?el=375&spm=6400&hto=60"}
             config["solarsim"] = {"virtual": True}

@@ -315,12 +315,12 @@ class Fabric(object):
         slots = task["slots"]
         pads = task["pads"]
         ms = task["mux_strings"]
-        dev_grp = task["device_grouping"]
+        dev_grp = task["group_order"]
 
         if len(slots) > 0:
             with contextlib.ExitStack() as stack:  # handles the proper cleanup of the hardware
                 mc = stack.enter_context(AnMC(task["pcb"], timeout=5))
-                smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smu"]]
+                smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smus"]]
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
                     rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
@@ -405,8 +405,8 @@ class Fabric(object):
                 # log the exception's whole call stack trace for debugging
                 tb = traceback.TracebackException.from_exception(e)
                 self.lg.debug("".join(tb.format()))
-        if "smu" in task:
-            smucfgs = task["smu"]  # a list of sourcemeter configurations
+        if "smus" in task:
+            smucfgs = task["smus"]  # a list of sourcemeter configurations
             for smucfg in smucfgs:  # loop through the list of SMU configurations
                 address = smucfg["address"]
                 self.lg.log(29, f"Checking SMU@{address}...")
@@ -603,7 +603,7 @@ class Fabric(object):
                                     rundata["slots"] = request["slots"]
                                 self.lg.log(29, "Starting run...")
                                 try:
-                                    i_limits = [x["current_limit"] for x in request["config"]["smu"]]
+                                    i_limits = [x["current_limit"] for x in request["config"]["smus"]]
                                     i_limit = min(i_limits)
                                 except:
                                     i_limit = 0.1  # use this default if we can't work out a limit from the configuration
@@ -717,7 +717,7 @@ class Fabric(object):
         mc_args["expected_muxes"] = mc_expected_muxes
         mc_args["enabled"] = mc_enabled
 
-        smucfgs = request["config"]["smu"]  # the smu configs
+        smucfgs = request["config"]["smus"]  # the smu configs
         for smucfg in smucfgs:
             smucfg["print_sweep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
         sscfg = request["config"]["solarsim"]  # the solar sim config
@@ -762,7 +762,7 @@ class Fabric(object):
             uidfetch = db.get(f"{db.schema}.tbl_users", ("id",), f"name = '{user}'")
             # get userid (via new registration if needed)
             if uidfetch == []:  # user does not exist
-                uid = db.new_user(user)  # register new
+                uid = db.register_user(user)  # register new
             else:
                 # user exists
                 uid = uidfetch[0][0]
@@ -777,12 +777,12 @@ class Fabric(object):
             # check connectivity
             self.lg.log(29, f"Checking device connectivity...")
             slot_pad = []
-            for key, slot in args["IV_stuff"]["system_label"].items():
-                slot_pad.append((slot, args["IV_stuff"]["mux_index"][key]))
+            for key, slot in args["IV_stuff"]["slot"].items():
+                slot_pad.append((slot, args["IV_stuff"]["pad"][key]))
             slot_pad.sort(key=lambda x: x[0])
             pads = [x[1] for x in slot_pad]
             slots = [x[0] for x in slot_pad]
-            rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["device_grouping"])
+            rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["group_order"])
             self.lg.debug(repr(rs))
             fails = [line for line in rs if not line["data"][0]]
             if any(fails):
@@ -1346,8 +1346,6 @@ class Fabric(object):
 
     def get_things_to_measure(self, request):
         """tabulate a list of items to loop through during the measurement"""
-        # TODO: return support for inferring layout from pcb adapter resistors
-
         # int("checkerberrycheddarchew")  # force crash for testing
 
         config = request["config"]
@@ -1363,7 +1361,7 @@ class Fabric(object):
 
         if "slots" in request:
             # int("checkerberrycheddarchew")  # force crash for testing
-            required_cols = ["system_label", "user_label", "layout", "bitmask"]
+            required_cols = ["slot", "user_label", "layout", "bitmask"]
             validated = []  # holds validated slot data
             # the client sent unvalidated slots data
             # validate it and overwrite the origional slots data
@@ -1382,8 +1380,8 @@ class Fabric(object):
                 # pads = []  # list of layouts for going into the device picker store
                 for i, data in enumerate(listlist):
                     assert len(data) == len(col_names)  # check for missing cells
-                    system_label = data[col_names.index("system_label")]
-                    assert system_label == self  # check system label validity
+                    slot = data[col_names.index("slot")]
+                    assert slot == list(config["slots"].keys())[i]  # check system label validity
                     layout = data[col_names.index("layout")]
                     assert layout in config["substrates"]["layouts"]  # check layout name validity
                     bm_val = int(data[col_names.index("bitmask")].removeprefix("0x"), 16)
@@ -1398,7 +1396,7 @@ class Fabric(object):
                     user_label = data[col_names.index("user_label")]
                     # checkmarks.append(subs_cms)
                     datalist = []
-                    datalist.append(system_label)
+                    datalist.append(slot)
                     datalist.append(user_label)
                     # user_labels.append(user_label)
                     datalist.append(layout)
@@ -1418,14 +1416,16 @@ class Fabric(object):
                 tb = traceback.TracebackException.from_exception(e)
                 self.lg.debug("".join(tb.format()))
             else:
-                # use validated slot data to update stuff
+                # TODO: use validated slot data to update stuff
                 pass
 
         # build pixel/group queue for the run
-        if len(request["config"]["smu"]) > 1:  # multismu case
-            for group in request["config"]["substrates"]["device_grouping"]:
+        if len(request["config"]["smus"]) > 1:  # multismu case
+            grouping = request["config"]["slots"]["group_order"]
+            for group in grouping:
                 group_dict = {}
                 for smu_index, device in enumerate(group):
+                    # for slot, pad in group:
                     d = device.upper()
                     if d in stuff.sort_string.values:
                         pixel_dict = {}
@@ -1434,17 +1434,17 @@ class Fabric(object):
                         #    continue  # skip devices that are not selected
                         pixel_dict["label"] = stuff.loc[rsel]["label"].values[0]
                         pixel_dict["layout"] = stuff.loc[rsel]["layout"].values[0]
-                        pixel_dict["sub_name"] = stuff.loc[rsel]["system_label"].values[0]
+                        pixel_dict["slot"] = stuff.loc[rsel]["slot"].values[0]
                         pixel_dict["device_label"] = stuff.loc[rsel]["device_label"].values[0]
-                        mux_index = stuff.loc[rsel]["mux_index"].values[0]
-                        assert mux_index is not None, f"{mux_index is not None=}"  # catch error case
-                        pixel_dict["pixel"] = int(mux_index)
+                        pad_str = stuff.loc[rsel]["mux_index"].values[0]
+                        assert pad_str is not None, f"{pad_str is not None=}"  # catch error case
+                        pixel_dict["pad"] = int(pad_str)
                         locf = stuff.loc[rsel]["loc"].values[0]
                         assert locf is not None, f"{locf is not None=}"  # catch error case
                         loc = [float("nan") if x is None else x for x in locf]
                         pos = [a + b for a, b in zip(center, loc)]
                         pixel_dict["pos"] = pos
-                        pixel_dict["mux_string"] = stuff.loc[rsel]["mux_string"].values[0]
+                        pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
 
                         area = stuff.loc[rsel]["area"].values[0]
                         if area == -1:  # handle custom area
@@ -1469,9 +1469,9 @@ class Fabric(object):
                 pixel_dict = {}
                 pixel_dict["label"] = things["label"]
                 pixel_dict["layout"] = things["layout"]
-                pixel_dict["sub_name"] = things["system_label"]
+                pixel_dict["slot"] = things["slot"]
                 pixel_dict["device_label"] = things["device_label"]
-                pixel_dict["pixel"] = int(things["mux_index"])
+                pixel_dict["pad"] = int(things["pad"])
                 loc = things["loc"]
                 pos = [a + b for a, b in zip(center, loc)]
                 pixel_dict["pos"] = pos
@@ -1479,7 +1479,7 @@ class Fabric(object):
                     pixel_dict["area"] = args["a_ovr_spin"]
                 else:
                     pixel_dict["area"] = things["area"]
-                pixel_dict["mux_string"] = things["mux_string"]
+                pixel_dict["mux_sel"] = (things["slot"], int(things["pad"]))
                 run_q.append({0: pixel_dict})
 
         return run_q
