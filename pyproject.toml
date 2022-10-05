@@ -1,13 +1,28 @@
-[build-system]
-requires = [
-  "setuptools >= 40.9.0",
-  "wheel",
-]
-build-backend = "setuptools.build_meta"
+[metadata]
+name = centralcontrol
+version = 0.0.1
 
-[tool.black]
-line-length = 999999
+[options]
+packages = find:
+include_package_data = True
+install_requires =
+    numpy
+    paho-mqtt
+    mpmath
+python_requires = >=3.6
+package_dir =
+    =src
 
-# could format like this in case black isn't doing its job: `python -m yapf --recursive --in-place .`
-#[tool.yapf]
-#column_limit = 999999
+[options.packages.find]
+where = src
+
+[options.entry_points]
+console_scripts =
+    centralcontrol = centralcontrol:main
+    wavelabs-relay-server = wavelabs_relay_server:main
+
+[options.data_files]
+lib/systemd/user = 
+    data/systemd/centralcontrol@.service
+lib/systemd/system = 
+    data/systemd/wavelabs-relay.service

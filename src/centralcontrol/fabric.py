@@ -696,16 +696,16 @@ class Fabric(object):
         fake_mo = True
         mo_address = None
         mo_enabled = False
-        if "stage" in config:
+        if "motion" in config:
             # check if we'll be virtualizing the motion controller
-            if "virtual" in config["stage"]:
-                fake_mo = config["stage"]["virtual"] == True
+            if "virtual" in config["motion"]:
+                fake_mo = config["motion"]["virtual"] == True
             # get the motion controller's address
-            if "uri" in config["stage"]:
-                mo_address = config["stage"]["uri"]
+            if "uri" in config["motion"]:
+                mo_address = config["motion"]["uri"]
             # check if the motion controlller is enabled
-            if "enabled" in config["stage"]:
-                if config["stage"]["enabled"] == True:
+            if "enabled" in config["motion"]:
+                if config["motion"]["enabled"] == True:
                     mo_enabled = True
                     # check args for override of stage enable
                     if ("enable_stage" in args) and (args["enable_stage"] == False):
@@ -1353,7 +1353,7 @@ class Fabric(object):
         config = request["config"]
         args = request["args"]
 
-        center = config["stage"]["experiment_positions"]["solarsim"]
+        center = config["motion"]["centers"]["solarsim"]
         stuff = args["IV_stuff"]  # dict from dataframe
 
         # recreate a dataframe from the dict

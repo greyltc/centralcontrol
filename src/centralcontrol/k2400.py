@@ -31,7 +31,7 @@ class k2400(object):
     connected = False
     ser: serial.Serial | None = None
     timeout: float | None = None  # default comms timeout
-    do_r: bool = False  # include resistance in measurement
+    do_r: str | bool = False  # include resistance in measurement
     t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode

@@ -1,4 +1,10 @@
 import sys
-from centralcontrol import main
+from centralcontrol import main as ccmain
 
-sys.exit(main())
+
+def main():
+    sys.exit(ccmain())
+
+
+if __name__ == "__main__":
+    main()
