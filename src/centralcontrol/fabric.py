@@ -99,7 +99,10 @@ class Fabric(object):
     # threads/processes
     workers: list[threading.Thread | multiprocessing.Process] = []
 
-    exitcode = 0
+    exitcode: int = 0
+
+    conf_a_id: int = 0  # db id# for the set of things that tend change less often ("config")
+    conf_b_id: int = 0  # db id# for the set of things that tend to change more often ("args")
 
     def __init__(self):
         # self.software_revision = __version__
@@ -284,7 +287,7 @@ class Fabric(object):
             for line in hconns:
                 this_slot = line["slot"]
                 if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
-                    Fabric.select_pixel(mc, [f"s{last_slot}0"])  # make sure the last slot is cleaned up
+                    Fabric.select_pixel(mc, [(last_slot, 0)])  # make sure the last slot is cleaned up
                 Fabric.select_pixel(mc, [line["selstr"]])
                 line["data"] = sms[line["smi"]].do_contact_check(False)
                 last_slot = this_slot
@@ -293,7 +296,7 @@ class Fabric(object):
             for line in lconns:
                 this_slot = line["slot"]
                 if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
-                    Fabric.select_pixel(mc, [f"s{last_slot}0"])  # make sure the last slot is cleaned up
+                    Fabric.select_pixel(mc, [(last_slot, 0)])  # make sure the last slot is cleaned up
                 Fabric.select_pixel(mc, [line["selstr"]])
                 line["data"] = sms[line["smi"]].do_contact_check(True)
                 last_slot = this_slot
@@ -307,15 +310,15 @@ class Fabric(object):
 
     def util_round_robin(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """handles message from the frontend requesting a round robin-type thing"""
-        # inject the no connect case
-        task["slots"].insert(0, "OFF")
-        task["pads"].insert(0, "OFF")
-        task["mux_strings"].insert(0, "s")
-
         slots = task["slots"]
         pads = task["pads"]
-        ms = task["mux_strings"]
+        ms = [(slot, pad) for slot, pad in zip(slots, pads)]
         dev_grp = task["group_order"]
+
+        # inject the no connect case
+        slots.insert(0, "OFF")
+        pads.insert(0, 0)
+        ms.insert(0, ("OFF", 0))
 
         if len(slots) > 0:
             with contextlib.ExitStack() as stack:  # handles the proper cleanup of the hardware
@@ -343,17 +346,16 @@ class Fabric(object):
                         elif task["type"] == "rtd":
                             sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
                     for i, slot in enumerate(slots):
-                        dev = pads[i]
+                        pad = pads[i]
                         if slot == "none":
                             slot_words = "[Everything disconnected]"
                         else:
-                            slot_words = f"[{slot}{dev:n}]"
-                        mux_string = ms[i]
-                        Fabric.select_pixel(mc, [mux_string])  # select the device
+                            slot_words = f"[{slot}{pad:n}]"
+                        Fabric.select_pixel(mc, [ms[i]])  # select the device
                         if slot == "none":
                             smu_index = 0  # I guess we should just use smu[0] for the all switches open case
                         else:
-                            smu_index = SourcemeterAPI.which_smu(dev_grp, f"{slot}{int(dev)}".lower())  # figure out which smu owns the device
+                            smu_index = SourcemeterAPI.which_smu(dev_grp, f"{slot}{int(pad)}".lower())  # figure out which smu owns the device
                         if smu_index is None:
                             smu_index = 0
                             self.lg.warning("Assuming the first SMU is the right one")
@@ -384,7 +386,7 @@ class Fabric(object):
                                 if not (in_compliance) and (ohm < 3000) and (ohm > 500):
                                     self.lg.log(29, f"{slot_words} could be a PT1000 RTD at {self.rtd_r_to_t(ohm):.1f} °C")
                         if slot != "none":
-                            Fabric.select_pixel(mc, [f"s{slot}0"])  # disconnect the slot
+                            Fabric.select_pixel(mc, [(slot, 0)])  # disconnect the slot
                     for sm in smus:
                         sm.enable_cc_mode(False)
                 Fabric.select_pixel(mc)  # disconnect everyone
@@ -609,7 +611,7 @@ class Fabric(object):
                                     i_limit = 0.1  # use this default if we can't work out a limit from the configuration
                                 self.current_limit = i_limit
                                 things_to_measure = self.get_things_to_measure(rundata)
-                                self.standard_routine(things_to_measure, rundata)
+                                self.standard_routine(things_to_measure, rundata, request["conf_a_id"], request["conf_b_id"])
                                 self.lg.log(29, "Run complete!")
 
     @staticmethod
@@ -645,7 +647,7 @@ class Fabric(object):
             db.complete_run(rid)  # mark run as complete
             # db.vac()  # mantain db
 
-    def standard_routine(self, run_queue, request: dict) -> None:
+    def standard_routine(self, run_queue: collections.deque, request: dict, conf_a_id: int, conf_b_id: int) -> None:
         """perform the normal measurement routine on a given list of pixels"""
 
         # int("checkerberrycheddarchew")  # force crash for testing
@@ -757,19 +759,8 @@ class Fabric(object):
             # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
             db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
 
-            # user validation
-            user = request["args"]["user_name"]
-            uidfetch = db.get(f"{db.schema}.tbl_users", ("id",), f"name = '{user}'")
-            # get userid (via new registration if needed)
-            if uidfetch == []:  # user does not exist
-                uid = db.register_user(user)  # register new
-            else:
-                # user exists
-                uid = uidfetch[0][0]
-                active = db.get(f"{db.schema}.tbl_users", ("active",), f"id = {uid}")[0][0]
-                if active is False:
-                    uid = -1
-                    raise ValueError(f"{user} is not a valid user name")
+            # user registration
+            uid = db.register_user(request["args"]["user_name"])
 
             mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
             smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
@@ -820,7 +811,7 @@ class Fabric(object):
                 mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
             assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
-            rid = db.new_run(uid, params={"args": args, "config": config}, site=config["setup"]["site"], setup=config["setup"]["name"], name=args["run_name_prefix"])  # register a new run
+            rid = db.register_run(uid, self.conf_a_id, self.conf_b_id, name=args["run_name_prefix"])  # register a new run
             assert rid > 0, f"Saving run config failed"
             for sm in smus:
                 sm.killer = self.pkiller  # register the kill signal with the smu object
@@ -835,9 +826,24 @@ class Fabric(object):
                     self.lg.debug("Killed by killer.")
                     return
 
+                # query the db for this setup id
+                sql = f"""
+                select
+                    setup_id
+                from
+                    tbl_conf_as
+                join tbl_mux on
+                    mux_set_hash_id = tbl_mux.id
+                join tbl_setup_slots on
+                    tbl_mux.slot_id = tbl_setup_slots.id
+                where
+                    tbl_conf_as.id = {conf_a_id}
+                """
+                spid = db.ask(sql)[0][0]
+
                 # make sure we have a record of spectral data
                 datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                self.log_light_cal(datas, config, db, rid)
+                self.log_light_cal(datas, args, rid, config, rid)
 
                 # set NPLC
                 if args["nplc"] != -1:
@@ -888,9 +894,9 @@ class Fabric(object):
                         mo.goto(there)  # command the stage
 
                     # select pixel(s)
-                    pix_selection_strings = [val["mux_string"] for key, val in q_item.items()]
-                    pix_deselection_strings = [f"{x[:-5]}0" for x in pix_selection_strings]
-                    Fabric.select_pixel(mc, mux_string=pix_selection_strings)
+                    pix_selections = [val["mux_sel"] for key, val in q_item.items()]
+                    pix_deselections = [(slot, 0) for slot, pad in pix_selections]
+                    Fabric.select_pixel(mc, mux_sels=pix_selections)
 
                     # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
                     with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus), thread_name_prefix="device") as executor:
@@ -929,7 +935,7 @@ class Fabric(object):
                                 self.lg.warning("and we couldn't cancel it.")
 
                     # deselect what we had just selected
-                    Fabric.select_pixel(mc, mux_string=pix_deselection_strings)
+                    Fabric.select_pixel(mc, mux_sels=pix_deselections)
 
                     # turn off the SMUs
                     for sm in smus:
@@ -1278,20 +1284,19 @@ class Fabric(object):
             lg.debug("".join(tb.format()))
         return datas
 
-    def log_light_cal(self, datas: list[dict[str, float | list[tuple[float, float]]]], args: dict, rid: int, config: dict, db: SlothDB):
+    def log_light_cal(self, datas: list[dict[str, float | list[tuple[float, float]]]], setup_id: int, db: SlothDB, recipe: str | None = None, run_id: int | None = None):
         """stores away light calibration data"""
         for data in datas:
             ary = np.array(data["data"])
             area = np.trapz(ary[:, 1], ary[:, 0])
             cal_args = {}
-            cal_args["site"] = config["setup"]["site"]
-            cal_args["setup"] = config["setup"]["name"]
-            cal_args["rid"] = rid
+            cal_args["sid"] = setup_id
+            cal_args["rid"] = run_id
             cal_args["tmps"] = data["temps"]
             cal_args["raw_spec"] = data["data"]
             cal_args["raw_int_spec"] = area
             cal_args["setpoint"] = data["intensity"]
-            cal_args["recipe"] = args["light_recipe"]
+            cal_args["recipe"] = recipe
 
             db.new_light_cal(**cal_args)
 
@@ -1316,18 +1321,16 @@ class Fabric(object):
         return ret_val
 
     @staticmethod
-    def select_pixel(pcb: MC | virt.FakeMC, mux_string: list[str] | None = None):
+    def select_pixel(pcb: MC | virt.FakeMC, mux_sels: list[tuple[str, int]] | None = None):
         """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
-        if mux_string is None:
-            mux_string = ["s"]  # empty call disconnects everything
+        if mux_sels is None:
+            mux_sels = [("OFF", 0)]  # empty call disconnects everything
 
         # ensure we have a list
-        if isinstance(mux_string, str):
-            selection = [mux_string]
-        else:
-            selection = mux_string
+        if not isinstance(mux_sels, list):
+            mux_sels = [mux_sels]
 
-        pcb.set_mux(selection)
+        pcb.set_mux(mux_sels)
 
     def suns_voc(self, duration: float, light: LightAPI, sm: SourcemeterAPI, intensities: typing.List[int], dh):
         """do a suns-Voc measurement"""
@@ -1344,7 +1347,7 @@ class Fabric(object):
         """send a message asking a plot to clear its data"""
         self.outq.put({"topic": f"plotter/{kind}/clear", "payload": json.dumps(""), "qos": 2})
 
-    def get_things_to_measure(self, request):
+    def get_things_to_measure(self, request: dict) -> collections.deque:
         """tabulate a list of items to loop through during the measurement"""
         # int("checkerberrycheddarchew")  # force crash for testing
 

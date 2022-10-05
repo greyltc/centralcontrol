@@ -26,6 +26,8 @@ class MC(object):
     expected_muxes: list[str] = []
     welcome_message = None
     enabled = True  # if this is false, everything here is a noop
+    snaith_mux_pixel_lookup: dict[int, str] = {}
+    otter_mux_pixel_lookup: dict[int, str] = {}
 
     class MyTelnet(Telnet):
         def read_response(self, timeout=None):
@@ -49,6 +51,28 @@ class MC(object):
 
         # setup logging
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
+
+        # mux command lookup tables for direct latch programming mode
+        self.snaith_mux_pixel_lookup = {
+            0: "0",
+            1: f"{(1<<8)+(1<<1)+(1<<0):05}",
+            2: f"{(1<<9)+(1<<1)+(1<<0):05}",
+            3: f"{(1<<10)+(1<<1)+(1<<0):05}",
+            4: f"{(1<<11)+(1<<1)+(1<<0):05}",
+            5: f"{(1<<12)+(1<<1)+(1<<0):05}",
+            6: f"{(1<<13)+(1<<1)+(1<<0):05}",
+            7: f"{(1<<14)+(1<<1)+(1<<0):05}",
+            8: f"{(1<<15)+(1<<1)+(1<<0):05}",
+        }
+        self.otter_mux_pixel_lookup = {
+            0: "0",
+            1: f"{(1<<6)+(1<<7)+(1<<0):03}",
+            2: f"{(1<<6)+(1<<7)+(1<<2):03}",
+            3: f"{(1<<6)+(1<<7)+(1<<4):03}",
+            4: f"{(1<<6)+(1<<7)+(1<<1):03}",
+            5: f"{(1<<6)+(1<<7)+(1<<3):03}",
+            6: f"{(1<<6)+(1<<7)+(1<<5):03}",
+        }
 
         if address is None:
             # passing a None address makes everything in this class a noop
@@ -228,10 +252,10 @@ class MC(object):
                 self.lg.warning(f"Failed to get intiger response from PCB: {cmd=} --> {pcb_ans=} (after {tries} attempts)")
         return rslt
 
-    def set_mux(self, mux_setting):
+    def set_mux(self, mux_settings: list[tuple[str, int]]):
         """program mux with failure recovery logic. returns nothing but raises a value error on failure"""
         if self.enabled:
-            if not self.set_mux_attempt(mux_setting):
+            if not self.set_mux_attempt(mux_settings):
                 self.lg.debug("Trying to recover from mux set error")
                 got_muxes = self.probe_muxes()  # run the mux probe code that will reset the hardware and check for individual mux IC comms
                 if not self.expect_empty("s", tries=3):  # deselect everything
@@ -239,19 +263,26 @@ class MC(object):
                     self.lg.error(err_msg)
                     raise ValueError(err_msg)
                 else:
-                    if self.set_mux_attempt(mux_setting):
+                    if self.set_mux_attempt(mux_settings):
                         self.lg.debug("Sucessful recovery from mux set error")
                     else:
                         self.expect_empty("s", tries=3)
-                        err_msg = f'Unable to set MUX. MUX presence: "{got_muxes}", expected "{self.expected_muxes}". Attempt: "{mux_setting}"'
+                        err_msg = f'Unable to set MUX. MUX presence: "{got_muxes}", expected "{self.expected_muxes}". Attempt: "{mux_settings}"'
                         self.lg.error(err_msg)
                         raise ValueError(err_msg)
 
-    def set_mux_attempt(self, mux_setting):
+    def set_mux_attempt(self, mux_settings: list[tuple[str, int]]):
         """attempts to program mux, returns success bool"""
         success = False
         if self.enabled:
-            for mux_string in mux_setting:
+            for mux_setting in mux_settings:
+                # TODO: take into account the configured mux type here (from address)
+                slot, pad = mux_setting
+                if slot.startswith("EXT"):
+                    # TODO: consider mux terminals
+                    mux_string = "s"
+                else:
+                    mux_string = f"s{slot}{self.snaith_mux_pixel_lookup[pad]}"
                 if not self.expect_empty(mux_string, tries=3):
                     break  # abort on failure
             else:

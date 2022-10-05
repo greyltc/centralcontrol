@@ -24,24 +24,24 @@ class MqttClientTestCase(unittest.TestCase):
             pixel_dict = {}
             pixel_dict["label"] = "dog"
             pixel_dict["layout"] = "cat"
-            pixel_dict["sub_name"] = "a"
+            pixel_dict["slot"] = "a"
             pixel_dict["device_label"] = "a1"
-            pixel_dict["pixel"] = 1
+            pixel_dict["pad"] = 1
             pixel_dict["pos"] = [30]
             pixel_dict["area"] = 1.0
             pixel_dict["dark_area"] = 1.1
-            pixel_dict["mux_string"] = f"s{pixel_dict['sub_name']}{(1<< 8)+(1<<1)+(1<<0):05}"
+            pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
             group_dict[0] = pixel_dict
             pixel_dict = {}
             pixel_dict["label"] = "bat"
             pixel_dict["layout"] = "bird"
-            pixel_dict["sub_name"] = "b"
+            pixel_dict["slot"] = "b"
             pixel_dict["device_label"] = "b1"
-            pixel_dict["pixel"] = 1
+            pixel_dict["pad"] = 1
             pixel_dict["pos"] = [40]
             pixel_dict["area"] = 1.0
             pixel_dict["dark_area"] = 1.1
-            pixel_dict["mux_string"] = f"s{pixel_dict['sub_name']}{(1<< 8)+(1<<1)+(1<<0):05}"
+            pixel_dict["mux_string"] = (pixel_dict["slot"], pixel_dict["pad"])
             group_dict[1] = pixel_dict
             run_q.append(group_dict)
 
