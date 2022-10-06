@@ -38,7 +38,8 @@ class SourcemeterAPI(object):
     address: str
     device_grouping: list[list[str]]
     conn_status: int = -99  # connection status
-    idn: str
+    idn: str | None = None  # identification string
+    id: int = 0  # id from db
     init_args: tuple = ()
     init_kwargs: dict = {}
     killer: mEvent | tEvent
@@ -97,7 +98,7 @@ class SourcemeterAPI(object):
         return None
 
     @staticmethod
-    def which_smu(device_grouping: list[list[str]], devaddr: str) -> None | int:
+    def which_smu(device_grouping: list[list[list]], devaddr: list) -> None | int:
         """given a device address, and device_grouping,
         returns the index of the SMU connected to it"""
         ret = None

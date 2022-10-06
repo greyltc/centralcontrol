@@ -100,9 +100,6 @@ class Fabric(object):
 
     exitcode: int = 0
 
-    conf_a_id: int = 0  # db id# for the set of things that tend change less often ("config")
-    conf_b_id: int = 0  # db id# for the set of things that tend to change more often ("args")
-
     def __init__(self):
         # self.software_revision = __version__
         # print("Software revision: {:s}".format(self.software_revision))
@@ -238,7 +235,7 @@ class Fabric(object):
             self.lg.debug(f"{cmd=} complete!")
 
     @staticmethod
-    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], device_grouping: list[list[str]]) -> list[dict]:
+    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], device_grouping: list[list[list]]) -> list[dict]:
         """get a list of resistance values for all the connection pads of a given device list"""
         conns = []  # holds the connection info
         if len(slots) > 0:
@@ -252,7 +249,7 @@ class Fabric(object):
                     smi = 0
                 else:
                     selstr = f"s{slot}{(1<<(7+pad)):05}"
-                    smi = SourcemeterAPI.which_smu(device_grouping, f"{slot}{pad}".lower())
+                    smi = SourcemeterAPI.which_smu(device_grouping, [slot, pad])
                 line["pad"] = pad
                 line["selstr"] = selstr
                 line["smi"] = smi
@@ -275,7 +272,7 @@ class Fabric(object):
                     else:
                         line["pad"] = pad
                         line["selstr"] = f"s{uslot}{sel}"
-                        line["smi"] = SourcemeterAPI.which_smu(device_grouping, f"{uslot}1".lower())
+                        line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
                         lconns.append(line)
 
             Fabric.select_pixel(mc)  # ensure we start with devices all deselected
@@ -352,15 +349,15 @@ class Fabric(object):
                             slot_words = f"[{slot}{pad:n}]"
                         Fabric.select_pixel(mc, [ms[i]])  # select the device
                         if slot == "none":
-                            smu_index = 0  # I guess we should just use smu[0] for the all switches open case
+                            smui = 0  # I guess we should just use smu[0] for the all switches open case
                         else:
-                            smu_index = SourcemeterAPI.which_smu(dev_grp, f"{slot}{int(pad)}".lower())  # figure out which smu owns the device
-                        if smu_index is None:
-                            smu_index = 0
+                            smui = SourcemeterAPI.which_smu(dev_grp, [slot, pad])  # figure out which smu owns the device
+                        if smui is None:
+                            smui = 0
                             self.lg.warning("Assuming the first SMU is the right one")
-                        if smus[smu_index].idn != "disabled":
+                        if smus[smui].idn != "disabled":
                             if task["type"] == "current":
-                                m = smus[smu_index].measure()[0]
+                                m = smus[smui].measure()[0]
                                 status = int(m[3])
                                 in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                                 A = m[1]
@@ -369,7 +366,7 @@ class Fabric(object):
                                 else:
                                     self.lg.log(29, f"{slot_words} shows {A:.8f} A")
                             elif task["type"] == "voltage":
-                                m = smus[smu_index].measure()[0]
+                                m = smus[smui].measure()[0]
                                 status = int(m[3])
                                 in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
                                 V = m[0]
@@ -378,7 +375,7 @@ class Fabric(object):
                                 else:
                                     self.lg.log(29, f"{slot_words} shows {V:.6f} V")
                             elif task["type"] == "rtd":
-                                m = smus[smu_index].measure()[0]
+                                m = smus[smui].measure()[0]
                                 ohm = m[2]
                                 status = int(m[4])  # type: ignore
                                 in_compliance = (1 << 3) & status  # check compliance bit (3) in status word
@@ -665,11 +662,6 @@ class Fabric(object):
             self.lg.debug("Killed by killer.")
             return
 
-        # turbo (multiSMU) mode
-        turbo_mode = True  # by default use all SMUs available
-        if ("turbo_mode" in args) and (args["turbo_mode"] == False):
-            turbo_mode = False
-
         # check the MC configs
         fake_mc = True
         mc_address = None
@@ -739,14 +731,6 @@ class Fabric(object):
             elif s == 3:
                 sweeps = ["light"]
 
-        if turbo_mode == False:  # the user has explicitly asked not to use turbo mode
-            # we'll unwrap the run queue here so that we get ungrouped queue itemsrtd
-            unwrapped_run_queue = collections.deque()
-            for thing in run_queue:
-                for key, val in thing.items():
-                    unwrapped_run_queue.append({key: val})
-            run_queue = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
-
         start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
         if args["cycles"] != 0:
             run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
@@ -764,15 +748,63 @@ class Fabric(object):
             mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
             smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
 
+            # query the db for this setup id
+            sql = f"""
+            select
+                setup_id
+            from
+                {db.schema}.tbl_conf_as
+            join {db.schema}.tbl_mux on
+                mux_set_hash_id = tbl_mux.id
+            join {db.schema}.tbl_setup_slots on
+                tbl_mux.slot_id = tbl_setup_slots.id
+            where
+                tbl_conf_as.id = {conf_a_id}
+            """
+            code, rslt = db.ask(sql)
+            if (code == 0) and rslt:
+                suid = rslt[0][0]
+            else:
+                suid = 0
+            assert suid > 0, "Fetching setup id failed"
+
+            # register substrates, devices, layouts, layout devices, smus, setup slots
+            for group in run_queue:
+                for smui, pixel in group.items():
+                    smus[smui].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[smui].address, "idn": smus[smui].idn})
+                    assert smus[smui].id > 0, "Registering smu failed"
+
+                    pixel["slid"] = db.upsert("tbl_setup_slots", {"name": pixel["slot"], "setup_id": suid})
+                    assert pixel["slid"] > 0, "Registering slot failed"
+
+                    layout_name = pixel["layout"]
+                    # get layout version
+                    layout_version = None
+                    for layout in request["config"]["substrates"]["layouts"]:
+                        if layout["name"] == layout_name:
+                            layout_version = layout["version"]
+                    pixel["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
+                    assert pixel["loid"] > 0, "Registering layout failed"
+
+                    pixel["sbid"] = db.upsert("tbl_substrates", {"name": pixel["user_label"], "layout_id": pixel["loid"], "idn": smus[smui].idn})
+                    assert pixel["sbid"] > 0, "Registering substrate failed"
+
+                    pixel["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": pixel["loid"], "pad_no": pixel["pad"]})
+                    assert pixel["ldid"] > 0, "Registering layout device failed"
+
+                    pixel["did"] = db.upsert("tbl_devices", {"substrate_id": pixel["sbid"], "layout_device_id": pixel["ldid"]})
+                    assert pixel["did"] > 0, "Registering device failed"
+
             # check connectivity
             self.lg.log(29, f"Checking device connectivity...")
             slot_pad = []
-            for key, slot in args["IV_stuff"]["slot"].items():
-                slot_pad.append((slot, args["IV_stuff"]["pad"][key]))
-            slot_pad.sort(key=lambda x: x[0])
+            for group in run_queue:
+                for smui, pixel in group.items():
+                    slot_pad.append((pixel["slot"], pixel["pad"]))
+            slot_pad.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
             pads = [x[1] for x in slot_pad]
             slots = [x[0] for x in slot_pad]
-            rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["substrates"]["group_order"])
+            rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["slots"]["group_order"])
             self.lg.debug(repr(rs))
             fails = [line for line in rs if not line["data"][0]]
             if any(fails):
@@ -810,7 +842,7 @@ class Fabric(object):
                 mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
             assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
-            rid = db.register_run(uid, self.conf_a_id, self.conf_b_id, name=args["run_name_prefix"])  # register a new run
+            rid = db.register_run(uid, conf_a_id, conf_b_id, name=args["run_name_prefix"])  # register a new run
             assert rid > 0, f"Saving run config failed"
             for sm in smus:
                 sm.killer = self.pkiller  # register the kill signal with the smu object
@@ -824,26 +856,6 @@ class Fabric(object):
                 if self.pkiller.is_set():
                     self.lg.debug("Killed by killer.")
                     return
-
-                # query the db for this setup id
-                sql = f"""
-                select
-                    setup_id
-                from
-                    tbl_conf_as
-                join tbl_mux on
-                    mux_set_hash_id = tbl_mux.id
-                join tbl_setup_slots on
-                    tbl_mux.slot_id = tbl_setup_slots.id
-                where
-                    tbl_conf_as.id = {conf_a_id}
-                """
-                code, rslt = db.ask(sql)
-                if (code == 0) and rslt:
-                    suid = rslt[0][0]
-                else:
-                    suid = 0
-                assert suid > 0, f"Fetching setup id failed"
 
                 # make sure we have a record of spectral data
                 datas = Fabric.record_spectrum(ss, self.outq, self.lg)
@@ -1325,7 +1337,7 @@ class Fabric(object):
         return ret_val
 
     @staticmethod
-    def select_pixel(pcb: MC | virt.FakeMC, mux_sels: list[tuple[str, int]] | None = None):
+    def select_pixel(pcb: MC | virt.FakeMC, mux_sels: list[tuple[str, int]] | list[str] | None = None):
         """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
         if mux_sels is None:
             mux_sels = [("OFF", 0)]  # empty call disconnects everything
@@ -1360,6 +1372,8 @@ class Fabric(object):
 
         center = config["motion"]["centers"]["solarsim"]
         stuff = args["IV_stuff"]  # dict from dataframe
+        stuff_name = list(stuff.keys())[0]
+        bd = stuff[stuff_name]
 
         run_q = collections.deque()  # TODO: check if this could just be a list
 
@@ -1429,62 +1443,82 @@ class Fabric(object):
             for group in grouping:
                 group_dict = {}
                 for smu_index, device in enumerate(group):
-                    # for slot, pad in group:
-                    d = device.upper()
-                    if d in stuff.sort_string.values:
-                        pixel_dict = {}
-                        rsel = stuff["sort_string"] == d
-                        # if not stuff.loc[rsel]["activated"].values[0]:
-                        #    continue  # skip devices that are not selected
-                        pixel_dict["label"] = stuff.loc[rsel]["label"].values[0]
-                        pixel_dict["layout"] = stuff.loc[rsel]["layout"].values[0]
-                        pixel_dict["slot"] = stuff.loc[rsel]["slot"].values[0]
-                        pixel_dict["device_label"] = stuff.loc[rsel]["device_label"].values[0]
-                        pad_str = stuff.loc[rsel]["mux_index"].values[0]
-                        assert pad_str is not None, f"{pad_str is not None=}"  # catch error case
-                        pixel_dict["pad"] = int(pad_str)
-                        locf = stuff.loc[rsel]["loc"].values[0]
-                        assert locf is not None, f"{locf is not None=}"  # catch error case
-                        loc = [float("nan") if x is None else x for x in locf]
-                        pos = [a + b for a, b in zip(center, loc)]
-                        pixel_dict["pos"] = pos
-                        pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
+                    sort_slot, sort_pad = device  # the slot, pad to sort on
 
-                        area = stuff.loc[rsel]["area"].values[0]
-                        if area == -1:  # handle custom area
-                            pixel_dict["area"] = args["a_ovr_spin"]
-                        else:
+                    for i, slot in enumerate(bd["slot"]):
+                        if (slot, bd["pad"][i]) == (sort_slot, sort_pad):  # we have a match
+                            pixel_dict = {}
+                            pixel_dict["layout"] = bd["layout"][i]
+                            pixel_dict["slot"] = bd["slot"][i]
+                            pixel_dict["device_label"] = bd["device_label"][i]
+                            pixel_dict["user_label"] = bd["user_label"][i]
+                            pixel_dict["pad"] = bd["pad"][i]
+                            loc_raw = bd["loc_raw"][i]
+                            assert loc_raw is not None, f"{loc_raw is not None=}"  # catch error case
+                            loc = [float("nan") if x is None else x for x in loc_raw]
+                            pos = [a + b for a, b in zip(center, loc)]
+                            pixel_dict["pos"] = pos
+                            pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
+
+                            area = bd["area"][i]
+                            if area == -1:  # handle custom area
+                                headings = list(bd.keys())
+                                headings.remove("area")
+                                headings.remove("dark_area")
+                                for heading in headings:
+                                    if "area" in heading.lower():
+                                        if "dark" not in heading.lower():
+                                            try:
+                                                area = float(bd[heading])
+                                                self.lg.log(29, f'Using area = {area} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                                            except:
+                                                self.lg.warning(f'Unable to parse custom area entry for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                            if area == -1:
+                                area = 1.0
+                                self.lg.warning(f'Assuming area = {pixel_dict["area"]} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
                             pixel_dict["area"] = area
 
-                        dark_area = stuff.loc[rsel]["dark_area"].values[0]
-                        if dark_area == -1:  # handle custom dark area
-                            pixel_dict["dark_area"] = args["a_ovr_spin"]
-                        else:
+                            dark_area = bd["dark_area"][i]
+                            if dark_area == -1:  # handle custom dark area
+                                headings = list(bd.keys())
+                                headings.remove("area")
+                                headings.remove("dark_area")
+                                for heading in headings:
+                                    if "area" in heading.lower():
+                                        if "dark" in heading.lower():
+                                            try:
+                                                dark_area = float(bd[heading])
+                                                self.lg.log(29, f'Using dark area = {area} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                                            except:
+                                                self.lg.warning(f'Unable to parse custom dark area entry for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                            if dark_area == -1:
+                                dark_area = 1.0
+                                self.lg.warning(f'Assuming dark area = {pixel_dict["area"]} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
                             pixel_dict["dark_area"] = dark_area
 
-                        group_dict[smu_index] = pixel_dict
+                            group_dict[smu_index] = pixel_dict
                 if len(group_dict) > 0:
                     run_q.append(group_dict)
-        else:  # single smu case
-            # here we build up the pixel handling queue by iterating
-            # through the rows of a pandas dataframe
-            # that contains one row for each turned on pixel
-            for things in stuff.to_dict(orient="records"):
-                pixel_dict = {}
-                pixel_dict["label"] = things["label"]
-                pixel_dict["layout"] = things["layout"]
-                pixel_dict["slot"] = things["slot"]
-                pixel_dict["device_label"] = things["device_label"]
-                pixel_dict["pad"] = int(things["pad"])
-                loc = things["loc"]
-                pos = [a + b for a, b in zip(center, loc)]
-                pixel_dict["pos"] = pos
-                if things["area"] == -1:  # handle custom area
-                    pixel_dict["area"] = args["a_ovr_spin"]
-                else:
-                    pixel_dict["area"] = things["area"]
-                pixel_dict["mux_sel"] = (things["slot"], int(things["pad"]))
-                run_q.append({0: pixel_dict})
+        # else:  # single smu case
+        #    pass
+        # # here we build up the pixel handling queue by iterating
+        # # through the rows of a pandas dataframe
+        # # that contains one row for each turned on pixel
+        # for things in stuff.to_dict(orient="records"):
+        #     pixel_dict = {}
+        #     pixel_dict["layout"] = things["layout"]
+        #     pixel_dict["slot"] = things["slot"]
+        #     pixel_dict["device_label"] = things["device_label"]
+        #     pixel_dict["pad"] = int(things["pad"])
+        #     loc = things["loc"]
+        #     pos = [a + b for a, b in zip(center, loc)]
+        #     pixel_dict["pos"] = pos
+        #     if things["area"] == -1:  # handle custom area
+        #         pixel_dict["area"] = args["a_ovr_spin"]
+        #     else:
+        #         pixel_dict["area"] = things["area"]
+        #     pixel_dict["mux_sel"] = (things["slot"], int(things["pad"]))
+        #     run_q.append({0: pixel_dict})
 
         return run_q
 

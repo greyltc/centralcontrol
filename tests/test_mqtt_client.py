@@ -22,7 +22,6 @@ class MqttClientTestCase(unittest.TestCase):
             run_q = collections.deque()
             group_dict = {}
             pixel_dict = {}
-            pixel_dict["label"] = "dog"
             pixel_dict["layout"] = "cat"
             pixel_dict["slot"] = "a"
             pixel_dict["device_label"] = "a1"
@@ -33,7 +32,6 @@ class MqttClientTestCase(unittest.TestCase):
             pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
             group_dict[0] = pixel_dict
             pixel_dict = {}
-            pixel_dict["label"] = "bat"
             pixel_dict["layout"] = "bird"
             pixel_dict["slot"] = "b"
             pixel_dict["device_label"] = "b1"
