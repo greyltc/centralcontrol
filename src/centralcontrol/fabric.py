@@ -768,14 +768,34 @@ class Fabric(object):
                 suid = 0
             assert suid > 0, "Fetching setup id failed"
 
+            # lookup construct to make looking things up later easier
+            lu = {}
+            lu["slots"] = []
+            lu["slot_ids"] = []
+            lu["pads"] = []
+            lu["slot_pad"] = []
+            lu["user_labels"] = []
+            lu["substrate_ids"] = []
+            lu["layouts"] = []
+            lu["layout_ids"] = []
+            lu["layout_pad_ids"] = []
+            lu["device_ids"] = []
+
             # register substrates, devices, layouts, layout devices, smus, setup slots
             for group in run_queue:
                 for smui, pixel in group.items():
+                    lu["slots"].append(pixel["slot"])
+                    lu["pads"].append(pixel["pad"])
+                    lu["slot_pad"].append((pixel["slot"], pixel["pad"]))
+                    lu["user_labels"].append(pixel["user_label"])
+                    lu["layouts"].append(pixel["layout"])
+
                     smus[smui].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[smui].address, "idn": smus[smui].idn})
                     assert smus[smui].id > 0, "Registering smu failed"
 
                     pixel["slid"] = db.upsert("tbl_setup_slots", {"name": pixel["slot"], "setup_id": suid})
                     assert pixel["slid"] > 0, "Registering slot failed"
+                    lu["slot_ids"].append(pixel["slid"])
 
                     layout_name = pixel["layout"]
                     # get layout version
@@ -785,15 +805,19 @@ class Fabric(object):
                             layout_version = layout["version"]
                     pixel["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
                     assert pixel["loid"] > 0, "Registering layout failed"
+                    lu["layout_ids"].append(pixel["loid"])
 
-                    pixel["sbid"] = db.upsert("tbl_substrates", {"name": pixel["user_label"], "layout_id": pixel["loid"], "idn": smus[smui].idn})
+                    pixel["sbid"] = db.upsert("tbl_substrates", {"name": pixel["user_label"], "layout_id": pixel["loid"]})
                     assert pixel["sbid"] > 0, "Registering substrate failed"
+                    lu["substrate_ids"].append(pixel["sbid"])
 
                     pixel["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": pixel["loid"], "pad_no": pixel["pad"]})
                     assert pixel["ldid"] > 0, "Registering layout device failed"
+                    lu["layout_pad_ids"].append(pixel["ldid"])
 
                     pixel["did"] = db.upsert("tbl_devices", {"substrate_id": pixel["sbid"], "layout_device_id": pixel["ldid"]})
                     assert pixel["did"] > 0, "Registering device failed"
+                    lu["device_ids"].append(pixel["did"])
 
             # check connectivity
             self.lg.log(29, f"Checking device connectivity...")
@@ -805,7 +829,16 @@ class Fabric(object):
             pads = [x[1] for x in slot_pad]
             slots = [x[0] for x in slot_pad]
             rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["slots"]["group_order"])
-            self.lg.debug(repr(rs))
+            for r in rs:
+                to_upsert = {}
+                to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
+                to_upsert["setup_slot_id"] = lu["slot_ids"][lu["slots"].index(r["slot"])]
+                to_upsert["pad_name"] = str(r["pad"])
+                to_upsert["pass"] = r["data"][0]
+                to_upsert["r"] = r["data"][1]
+                r["ccid"] = db.upsert("tbl_contact_checks", to_upsert)
+                assert r["ccid"] > 0, "Registering contact check result failed"
+            # self.lg.debug(repr(rs))
             fails = [line for line in rs if not line["data"][0]]
             if any(fails):
                 headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
@@ -843,7 +876,12 @@ class Fabric(object):
             assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
             rid = db.register_run(uid, conf_a_id, conf_b_id, name=args["run_name_prefix"])  # register a new run
-            assert rid > 0, f"Saving run config failed"
+            assert rid > 0, "Saving run config failed"
+
+            for r in rs:  # now go back and attach this run id to the contact check results that go with it
+                id = db.upsert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
+                assert id > 0, "Updating contact check failed"
+
             for sm in smus:
                 sm.killer = self.pkiller  # register the kill signal with the smu object
             mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
@@ -859,7 +897,8 @@ class Fabric(object):
 
                 # make sure we have a record of spectral data
                 datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                self.log_light_cal(datas, suid, db, "config", rid)
+                lcid = self.log_light_cal(datas, suid, db, "config", rid)
+                assert lcid > 0, "Failure registering the light calibration"
 
                 # set NPLC
                 if args["nplc"] != -1:
@@ -1277,7 +1316,7 @@ class Fabric(object):
             intensity_setpoint = ss.active_intensity
             wls, counts = ss.get_spectrum()
             data = [(wl, count) for wl, count in zip(wls, counts)]
-            spec = {"data": data, "temps": ss.last_temps, "intensity": intensity_setpoint}
+            spec = {"data": data, "temps": ss.last_temps, "intensity": [intensity_setpoint]}
             datas.append(spec)
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
             outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
@@ -1287,7 +1326,7 @@ class Fabric(object):
                 ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
                 wls, counts = ss.get_spectrum()
                 data = [(wl, count) for wl, count in zip(wls, counts)]
-                spec = {"data": data, "temps": ss.last_temps, "intensity": 100.0}
+                spec = {"data": data, "temps": ss.last_temps, "intensity": [100.0]}
                 datas.append(spec)
                 spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
                 outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
@@ -1300,7 +1339,7 @@ class Fabric(object):
             lg.debug("".join(tb.format()))
         return datas
 
-    def log_light_cal(self, datas: list[dict[str, float | list[tuple[float, float]]]], setup_id: int, db: SlothDB, recipe: str | None = None, run_id: int | None = None):
+    def log_light_cal(self, datas: list[dict[str, float | list[tuple[float, float]]]], setup_id: int, db: SlothDB, recipe: str | None = None, run_id: int | None = None) -> int:
         """stores away light calibration data"""
         for data in datas:
             ary = np.array(data["data"])
@@ -1308,13 +1347,13 @@ class Fabric(object):
             cal_args = {}
             cal_args["sid"] = setup_id
             cal_args["rid"] = run_id
-            cal_args["tmps"] = data["temps"]
+            cal_args["temps"] = data["temps"]
             cal_args["raw_spec"] = data["data"]
             cal_args["raw_int_spec"] = area
             cal_args["setpoint"] = data["intensity"]
             cal_args["recipe"] = recipe
 
-            db.new_light_cal(**cal_args)
+            return db.new_light_cal(**cal_args)
 
     def compliance_current_guess(self, area=None, jmax=None, imax=None):
         """Guess what the compliance current should be for i-v-t measurements.
