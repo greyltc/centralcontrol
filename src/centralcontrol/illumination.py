@@ -47,7 +47,7 @@ class LightAPI(object):
     active_intensity: int  # the intensity value the hardware was initalized with. used in "on"
     get_spectrum: Callable[[], tuple[list[float], list[float]]]
     get_stemperatures: Callable[[], list[float]]
-    last_temps: list[float]
+    last_temps: tuple[float]
     get_run_status: Callable[[], str]
 
     conn_status: int = -99  # connection status

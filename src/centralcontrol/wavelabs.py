@@ -17,7 +17,7 @@ class Wavelabs(object):
     retry_codes = [9997, 9998, 9999]  # response codes of these code types should result in a comms retry
     active_recipe = ""
     active_intensity = 100
-    last_temps = [0.0, 0.0]
+    last_temps: tuple[float, float] = (0.0, 0.0)
     address = None
 
     class XMLHandler:
@@ -522,15 +522,11 @@ class Wavelabs(object):
             temp = 1000000.0
         return temp
 
-    def get_temperatures(self) -> list[float]:
+    def get_temperatures(self) -> tuple[float, float]:
         """
         returns a list of light engine temperature measurements
         """
-        temp = []
-        temp.append(self.get_vis_led_temp())
-        temp.append(self.get_ir_led_temp())
-        self.last_temps = temp
-        return temp
+        return (self.get_vis_led_temp(), self.get_ir_led_temp())
 
     def get_spectrum(self) -> tuple[list[float], list[float]]:
         """ "assumes a recipe has been set"""

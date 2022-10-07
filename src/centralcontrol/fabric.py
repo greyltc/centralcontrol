@@ -1359,6 +1359,7 @@ class Fabric(object):
             cal_args["raw_int_spec"] = area
             cal_args["setpoint"] = data["intensity"]
             cal_args["recipe"] = recipe
+            cal_args["idn"] = data["idn"]
 
             return db.new_light_cal(**cal_args)
 
