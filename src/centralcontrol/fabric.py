@@ -1316,7 +1316,7 @@ class Fabric(object):
             intensity_setpoint = ss.active_intensity
             wls, counts = ss.get_spectrum()
             data = [(wl, count) for wl, count in zip(wls, counts)]
-            spec = {"data": data, "temps": ss.last_temps, "intensity": (intensity_setpoint,)}
+            spec = {"data": data, "temps": ss.last_temps, "intensity": (intensity_setpoint,), "idn": ss.idn}
             datas.append(spec)
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
             outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
