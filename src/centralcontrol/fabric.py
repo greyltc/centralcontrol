@@ -897,7 +897,7 @@ class Fabric(object):
 
                 # make sure we have a record of spectral data
                 datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                lcid = self.log_light_cal(datas, suid, db, "config", rid)
+                lcid = self.log_light_cal(datas, suid, db, args["light_recipe"], rid)
                 assert lcid > 0, "Failure registering the light calibration"
 
                 # set NPLC
@@ -1316,7 +1316,7 @@ class Fabric(object):
             intensity_setpoint = ss.active_intensity
             wls, counts = ss.get_spectrum()
             data = [(wl, count) for wl, count in zip(wls, counts)]
-            spec = {"data": data, "temps": ss.last_temps, "intensity": [intensity_setpoint]}
+            spec = {"data": data, "temps": ss.last_temps, "intensity": (intensity_setpoint,)}
             datas.append(spec)
             spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
             outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
@@ -1326,7 +1326,7 @@ class Fabric(object):
                 ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
                 wls, counts = ss.get_spectrum()
                 data = [(wl, count) for wl, count in zip(wls, counts)]
-                spec = {"data": data, "temps": ss.last_temps, "intensity": [100.0]}
+                spec = {"data": data, "temps": ss.last_temps, "intensity": (100.0,)}
                 datas.append(spec)
                 spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
                 outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
@@ -1339,7 +1339,14 @@ class Fabric(object):
             lg.debug("".join(tb.format()))
         return datas
 
-    def log_light_cal(self, datas: list[dict[str, float | list[tuple[float, float]]]], setup_id: int, db: SlothDB, recipe: str | None = None, run_id: int | None = None) -> int:
+    def log_light_cal(
+        self,
+        datas: list[dict[str, float | list[tuple[float, float]]]],
+        setup_id: int,
+        db: SlothDB,
+        recipe: str | None = None,
+        run_id: int | None = None,
+    ) -> int:
         """stores away light calibration data"""
         for data in datas:
             ary = np.array(data["data"])
@@ -1355,7 +1362,7 @@ class Fabric(object):
 
             return db.new_light_cal(**cal_args)
 
-    def compliance_current_guess(self, area=None, jmax=None, imax=None):
+    def compliance_current_guess(self, area=None, jmax=None, imax=None) -> float:
         """Guess what the compliance current should be for i-v-t measurements.
         area in cm^2
         jmax in mA/cm^2
