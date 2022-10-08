@@ -47,11 +47,13 @@ class SourcemeterAPI(object):
     outOn: Callable[[bool], None]
     measure: Callable[..., list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
     setupSweep: Callable[..., None]
-    setupDC: Callable[..., None]
+    # setupDC: Callable[..., None]
     measure_until: Callable[..., list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
     enable_cc_mode: Callable[[bool], None]
     do_contact_check: Callable[[bool], tuple[bool, float]]
     threshold_ohm: float
+    voltage_limit: float = 3
+    current_limit: float = 0.150
 
     # measure: Callable[[int | None], list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]]
     # setupSweep: Callable[[bool | None, float | None, int | None, float | None, float | None, str | None], None]
@@ -65,6 +67,10 @@ class SourcemeterAPI(object):
         # store away the init args and kwargs
         self.init_args = args
         self.init_kwargs = kwargs
+        if "voltage_limit" in kwargs:
+            self.voltage_limit = kwargs["voltage_limit"]
+        if "current_limit" in kwargs:
+            self.current_limit = kwargs["current_limit"]
 
         super(SourcemeterAPI, self).__init__(**kwargs)
         return None
@@ -108,6 +114,15 @@ class SourcemeterAPI(object):
                     ret = group.index(devaddr)
                     break
         return ret
+
+    def setupDC(self, sourceVoltage: bool = True, compliance: float = 0.04, setPoint: float = 0.0, senseRange: str = "f", ohms: str | bool = False):
+        if sourceVoltage:
+            assert abs(setPoint) < self.voltage_limit, "Voltage setpoint over limit"
+            compliance = min(compliance, self.current_limit)
+        else:
+            assert abs(setPoint) < self.current_limit, "Current setpoint over limit"
+            compliance = min(compliance, self.voltage_limit)
+        return super(SourcemeterAPI, self).setupDC(sourceVoltage=sourceVoltage, compliance=compliance, setPoint=setPoint, senseRange=senseRange, ohms=ohms)
 
     # TODO: add more API!
 

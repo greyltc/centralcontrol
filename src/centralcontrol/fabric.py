@@ -45,30 +45,22 @@ class DataHandler(object):
     """Handler for measurement data."""
 
     kind: str = ""
-    sweep: str = ""
+    illuminated_sweep: bool | None = None
     dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], None | int], int] = None
 
     def __init__(self, pixel: dict, outq: mQueue):
-        """Construct data handler object.
-
-        Parameters
-        ----------
-        pixel : dict
-            Pixel information.
-        """
         self.pixel = pixel
         self.outq = outq
 
     def handle_data(self, data: list[tuple[float, float, float, int]], dodb: bool = True) -> int:
-        """Handle measurement data.
-
-        Parameters
-        ----------
-        data : array-like
-            Measurement data.
-        """
         result = 0
-        payload = {"data": data, "pixel": self.pixel, "sweep": self.sweep}
+        if self.illuminated_sweep is None:
+            sweep_string = ""
+        elif self.illuminated_sweep:
+            sweep_string = "light"
+        else:
+            sweep_string = "dark"
+        payload = {"data": data, "pixel": self.pixel, "sweep": sweep_string}
         if self.dbputter and dodb:
             result = self.dbputter(data, None)
         self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
@@ -77,8 +69,6 @@ class DataHandler(object):
 
 class Fabric(object):
     """High level experiment control logic"""
-
-    current_limit = 0.1  # always safe default
 
     # process killer signal
     pkiller = multiprocessing.Event()
@@ -600,12 +590,6 @@ class Fabric(object):
                                 if "slots" in request:  # shoehorn in unvalidated slot info loaded from a tsv file
                                     rundata["slots"] = request["slots"]
                                 self.lg.log(29, "Starting run...")
-                                try:
-                                    i_limits = [x["current_limit"] for x in request["config"]["smus"]]
-                                    i_limit = min(i_limits)
-                                except:
-                                    i_limit = 0.1  # use this default if we can't work out a limit from the configuration
-                                self.current_limit = i_limit
                                 things_to_measure = self.get_things_to_measure(rundata)
                                 self.standard_routine(things_to_measure, rundata, request["conf_a_id"], request["conf_b_id"])
                                 self.lg.log(29, "Run complete!")
@@ -720,16 +704,27 @@ class Fabric(object):
         # figure out what the sweeps will be like
         sweeps = []
         if args["sweep_check"] == True:
-            # detmine type of sweeps to perform
-            s = args["lit_sweep"]
-            if s == 0:
-                sweeps = ["dark", "light"]
-            elif s == 1:
-                sweeps = ["light", "dark"]
-            elif s == 2:
-                sweeps = ["dark"]
-            elif s == 3:
-                sweeps = ["light"]
+            if args["lit_sweep"] == 0:
+                sweeps.append({"light_on": False, "forward": True})
+                sweeps.append({"light_on": True, "forward": True})
+                # sweeps = ["dark", "light"]
+            elif args["lit_sweep"] == 1:
+                sweeps.append({"light_on": True, "forward": True})
+                sweeps.append({"light_on": False, "forward": True})
+                # sweeps = ["light", "dark"]
+            elif args["lit_sweep"] == 2:
+                sweeps.append({"light_on": False, "forward": True})
+                # sweeps = ["dark"]
+            elif args["lit_sweep"] == 3:
+                sweeps.append({"light_on": True, "forward": True})
+                # sweeps = ["light"]
+
+            # insert the reverse ones if we're doing that
+            for i in range(len(sweeps)):
+                if args["return_switch"]:
+                    rev_sweep = sweeps[i * 2].copy()
+                    rev_sweep["forward"] = False
+                    sweeps.insert(i * 2 + 1, rev_sweep)
 
         start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
         if args["cycles"] != 0:
@@ -770,6 +765,7 @@ class Fabric(object):
 
             # lookup construct to make looking things up later easier
             lu = {}
+            lu["setup_id"] = suid
             lu["slots"] = []
             lu["slot_ids"] = []
             lu["pads"] = []
@@ -919,7 +915,7 @@ class Fabric(object):
                         human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
                         fraction = n_done / p_total
                         text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                        self.lg.debug(f'{text} for {args["run_name_prefix"]} by {user}')
+                        self.lg.debug(f'{text} for {args["run_name_prefix"]} by {request["args"]["user_name"]}')
                         progress_msg = {"text": text, "fraction": fraction}
                         self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
@@ -962,22 +958,17 @@ class Fabric(object):
                         for smu_index, pixel in q_item.items():
                             this_smu = smus[smu_index]
                             this_mppt = mppts[smu_index]
-                            light_area = pixel["area"]
-                            dark_area = pixel["dark_area"]
 
                             # setup data handler for this device
                             dh = DataHandler(pixel=pixel, outq=self.outq)
 
-                            # get or estimate compliance current values for this device
-                            compliance_i = self.compliance_current_guess(area=light_area, jmax=args["jmax"], imax=args["imax"])
-                            dark_compliance_i = self.compliance_current_guess(area=dark_area, jmax=args["jmax"], imax=args["imax"])
-
                             # set virtual smu scaling (just so it knows how much current to produce)
                             if isinstance(this_smu, virt.FakeSMU):
-                                this_smu.area = light_area
+                                this_smu.area = pixel["area"]
+                                this_smu.dark_area = pixel["dark_area"]
 
                             # submit for processing
-                            futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, compliance_i, dark_compliance_i, args, config, sweeps, light_area, dark_area))
+                            futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, pixel, suid))
                             futures[-1].add_done_callback(self.on_device_routine_done)
 
                         # wait for the futures to come back
@@ -1013,16 +1004,14 @@ class Fabric(object):
             tb = traceback.TracebackException.from_exception(future_exception)
             self.lg.debug("".join(tb.format()))
 
-    def device_routine(self, rid: int, ss: LightAPI, sm: SourcemeterAPI, mppt: MPPT, dh: DataHandler, compliance_i: float, dark_compliance_i: float, args: dict, config: dict, sweeps: list, area: float, dark_area: float):
+    def device_routine(self, rid: int, ss: LightAPI, sm: SourcemeterAPI, mppt: MPPT, dh: DataHandler, args: dict, config: dict, sweeps: list, pix: dict, suid: int):
         """
         parallelizable. this contains the logic for what a single device experiences during the measurement routine.
         several of these can get scheduled to run concurrently if there are enough SMUs for that.
         """
         data = []
+        mppt_enabled = (args["mppt_check"]) and (args["mppt_dwell"] > 0)  # will we do mppt here?
         with SlothDB(db_uri=config["db"]["uri"]) as db:
-            dh.dbputter = db.putsmdat
-            mppt.absolute_current_limit = compliance_i
-
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
                 if self.pkiller.is_set():
@@ -1031,14 +1020,12 @@ class Fabric(object):
 
                 ss_args = {}
                 ss_args["sourceVoltage"] = False
-                if ("ccd" in config) and ("max_voltage" in config["ccd"]):
-                    ss_args["compliance"] = config["ccd"]["max_voltage"]
+                ss_args["compliance"] = sm.init_kwargs["voltage_limit"]
                 ss_args["setPoint"] = args["i_dwell_value"]
                 # NOTE: "a" (auto range) can possibly cause unknown delays between points
                 # but that's okay here because timing between points isn't
                 # super important with steady state measurements
                 ss_args["senseRange"] = "a"
-
                 sm.setupDC(**ss_args)  # type: ignore # initialize the SMU hardware for a steady state measurement
 
                 svoc_steps = int(abs(args["suns_voc"]))  # number of suns-Voc steps we might take
@@ -1059,32 +1046,45 @@ class Fabric(object):
                     self.clear_plot("vt_measurement")
 
                     # db prep
-                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                    deets["fixed"] = en.Fixed.VOLTAGE
-                    deets["setpoint"] = ss_args["setPoint"]
-                    deets["isetpoints"] = intensities
-                    db.upsert(f"{db.schema}.tbl_isweep_events", deets, eid)  # save event details
-                    db.eid = eid  # register event id for datahandler
-                    svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, dh)  # do the experiment
-                    db.eid = None  # unregister event id
-                    db.complete_event(eid)  # mark light sweep as done
-                    data += svtb  # keep the data
+                    isweep_event = {}
+                    isweep_event["run_id"] = rid
+                    isweep_event["device_id"] = pix["did"]
+                    isweep_event["fixed"] = en.Fixed.CURRENT
+                    isweep_event["setpoint"] = args["i_dwell_value"]
+                    isweep_event["isetpoints"] = intensities
+                    isweepeid = db.upsert("tbl_isweep_events", isweep_event)
+                    assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
+                    # data collection prep
+                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, False))
+                    # do the experiment
+                    svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, datcb)
+                    # mark it as done
+                    isweepeid = db.upsert("tbl_isweep_events", {"complete": True}, id=isweepeid)
+                    assert isweepeid > 0, "Marking intensity sweep event complete failed"
+                    # keep the data
+                    data += svtb
 
                 ss.lit = True  # Voc needs light
                 self.lg.debug(f"Measuring voltage at constant current for {args['i_dwell']} seconds.")
                 dh.kind = "vt_measurement"
                 self.clear_plot("vt_measurement")
+
                 # db prep
-                eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                deets["fixed"] = en.Fixed.CURRENT
-                deets["setpoint"] = ss_args["setPoint"]
-                db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
-                db.eid = eid  # register event id for datahandler
-                vt = sm.measure_until(t_dwell=args["i_dwell"], cb=dh.handle_data)
-                db.eid = None  # unregister event id
-                db.complete_event(eid)  # mark ss event as done
+                ss_event = {}
+                ss_event["run_id"] = rid
+                ss_event["device_id"] = pix["did"]
+                ss_event["fixed"] = en.Fixed.CURRENT
+                ss_event["setpoint"] = args["i_dwell_value"]
+                sseid = db.upsert("tbl_ss_events", ss_event)
+                assert sseid > 0, "Registering new steady state measurement event failed"
+                # data collection prep
+                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                # do the experiment
+                vt = sm.measure_until(t_dwell=args["i_dwell"], cb=datcb)
+                # mark it as done
+                sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
+                assert sseid > 0, "Marking steady state measurement event complete failed"
+                # keep the data
                 data += vt
 
                 # if this was at Voc, use the last measurement as estimate of Voc
@@ -1098,129 +1098,113 @@ class Fabric(object):
                     dh.kind = "vt_measurement"
                     self.clear_plot("vt_measurement")
                     intensities_reversed = intensities[::-1]
+
                     # db prep
-                    eid = db.new_event(rid, en.Event.LIGHT_SWEEP, sm.address)  # register new light sweep
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                    deets["fixed"] = en.Fixed.VOLTAGE
-                    deets["setpoint"] = ss_args["setPoint"]
-                    deets["isetpoints"] = intensities_reversed
-                    db.upsert(f"{db.schema}.tbl_isweep_events", deets, eid)  # save event details
-                    db.eid = eid  # register event id for datahandler
-                    svta = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, dh)  # do the experiment
-                    db.eid = None  # unregister event id
-                    db.complete_event(eid)  # mark light sweep as done
-                    data += svta
-                    if isinstance(sm, virt.FakeSMU):
-                        sm.intensity = 1.0  # reset the simulated device's intensity
+                    isweep_event = {}
+                    isweep_event["run_id"] = rid
+                    isweep_event["device_id"] = pix["did"]
+                    isweep_event["fixed"] = en.Fixed.CURRENT
+                    isweep_event["setpoint"] = args["i_dwell_value"]
+                    isweep_event["isetpoints"] = intensities_reversed
+                    isweepeid = db.upsert("tbl_isweep_events", isweep_event)
+                    assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
+                    # data collection prep
+                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
+                    # do the experiment
+                    svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, datcb)
+                    # mark it as done
+                    isweepeid = db.upsert("tbl_isweep_events", {"complete": True}, id=isweepeid)
+                    assert isweepeid > 0, "Marking intensity sweep event complete failed"
+                    # keep the data
+                    data += svtb
             else:
                 ssvoc = None
 
             # perform sweeps
             for sweep in sweeps:
-                self.clear_plot("iv_measurement")
+                if sweep["forward"]:
+                    start_setpoint = args["sweep_start"]
+                    end_setpoint = args["sweep_end"]
+                    self.clear_plot("iv_measurement")
+                    sweep_index = 1
+                else:
+                    start_setpoint = args["sweep_end"]
+                    end_setpoint = args["sweep_start"]
+                    sweep_index = 2
+
                 if self.pkiller.is_set():
                     self.lg.debug("Killed by killer.")
                     return data
-                self.lg.debug(f"Performing first {sweep} sweep (from {args['sweep_start']}V to {args['sweep_end']}V)")
+                self.lg.debug(f"Performing {sweep} sweep (from {start_setpoint}V to {end_setpoint}V)")
                 # sweeps may or may not need light
-                if sweep == "dark":
-                    ss.lit = False
-                    if isinstance(sm, virt.FakeSMU):
-                        sm.intensity = 0  # tell the simulated device how much light it's getting
-                    sweep_current_limit = dark_compliance_i
-                else:
+                if sweep["light_on"]:
                     ss.lit = True
                     if isinstance(sm, virt.FakeSMU):
                         sm.intensity = ss.intensity / 100  # tell the simulated device how much light it's getting
-                    sweep_current_limit = compliance_i
+                    compliance_area = pix["area"]
+                else:
+                    ss.lit = False
+                    if isinstance(sm, virt.FakeSMU):
+                        sm.intensity = 0  # tell the simulated device how much light it's getting
+                    compliance_area = pix["dark_area"]
 
-                dh.kind = "iv_measurement/1"  # TODO: check if this /1 is still needed
-                dh.sweep = sweep
+                dh.kind = f"iv_measurement/{sweep_index}"  # TODO: check if this /1 is still needed
+                dh.illuminated_sweep = sweep["light_on"]
 
                 sweep_args = {}
                 sweep_args["sourceVoltage"] = True
                 sweep_args["senseRange"] = "f"
-                sweep_args["compliance"] = sweep_current_limit
+                sweep_args["compliance"] = min((sm.init_kwargs["current_limit"], Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
                 sweep_args["nPoints"] = int(args["iv_steps"])
                 sweep_args["stepDelay"] = args["source_delay"] / 1000
-                sweep_args["start"] = float(args["sweep_start"])
-                sweep_args["end"] = float(args["sweep_end"])
+                sweep_args["start"] = start_setpoint
+                sweep_args["end"] = end_setpoint
                 sm.setupSweep(**sweep_args)
 
                 # db prep
-                eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}'}
-                deets["fixed"] = en.Fixed.VOLTAGE
-                deets["n_points"] = sweep_args["nPoints"]
-                deets["from_setpoint"] = sweep_args["start"]
-                deets["to_setpoint"] = sweep_args["end"]
-                deets["area"] = area
-                deets["dark_area"] = dark_area
-                if sweep == "dark":
-                    deets["light"] = False
-                else:
-                    deets["light"] = True
-                db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
-                iv1 = sm.measure(sweep_args["nPoints"])
-                db.putsmdat(iv1, eid)  # type: ignore
-                db.complete_event(eid)  # mark event as done
-                dh.handle_data(iv1, dodb=False)  # type: ignore
-                data += iv1
+                sweep_event = {}
+                sweep_event["run_id"] = rid
+                sweep_event["device_id"] = pix["did"]
+                sweep_event["fixed"] = en.Fixed.VOLTAGE
+                sweep_event["linear"] = True
+                sweep_event["n_points"] = sweep_args["nPoints"]
+                sweep_event["from_setpoint"] = sweep_args["start"]
+                sweep_event["to_setpoint"] = sweep_args["end"]
+                sweep_event["light"] = sweep["light_on"]
+                sweepeid = db.upsert("tbl_sweep_events", sweep_event)
+                assert sweepeid > 0, "Registering new sweep event failed"
+                # do the experiment
+                iv = sm.measure(sweep_args["nPoints"])
+                # record the data
+                db.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, suid)  # type: ignore
+                # mark the event's data collection as done
+                sweepeid = db.upsert("tbl_sweep_events", {"complete": True}, id=sweepeid)
+                assert sweepeid > 0, "Marking sweep event complete failed"
+                # do legacy data handling
+                dh.handle_data(iv, dodb=False)  # type: ignore
+                # keep the data
+                data += iv
 
-                # register this curve with the mppt
-                mppt.register_curve(iv1, light=(sweep == "light"))
-
-                if args["return_switch"] == True:
-                    if self.pkiller.is_set():
-                        self.lg.debug("Killed by killer.")
-                        return data
-                    self.lg.debug(f"Performing second {sweep} sweep (from {args['sweep_end']}V to {args['sweep_start']}V)")
-
-                    dh.kind = "iv_measurement/2"
-                    dh.sweep = sweep
-
-                    sweep_args = {}
-                    sweep_args["sourceVoltage"] = True
-                    sweep_args["senseRange"] = "f"
-                    sweep_args["compliance"] = sweep_current_limit
-                    sweep_args["nPoints"] = int(args["iv_steps"])
-                    sweep_args["stepDelay"] = args["source_delay"] / 1000
-                    sweep_args["start"] = args["sweep_end"]
-                    sweep_args["end"] = args["sweep_start"]
-                    sm.setupSweep(**sweep_args)
-
-                    eid = db.new_event(rid, en.Event.ELECTRIC_SWEEP, sm.address)  # register new ss event
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}'}
-                    deets["fixed"] = en.Fixed.VOLTAGE
-                    deets["n_points"] = sweep_args["nPoints"]
-                    deets["from_setpoint"] = sweep_args["start"]
-                    deets["to_setpoint"] = sweep_args["end"]
-                    deets["area"] = area
-                    deets["dark_area"] = dark_area
-                    if sweep == "dark":
-                        deets["light"] = False
-                    else:
-                        deets["light"] = True
-                    db.upsert(f"{db.schema}.tbl_sweep_events", deets, eid)  # save event details
-                    iv2 = sm.measure(sweep_args["nPoints"])
-                    db.putsmdat(iv2, eid)  # type: ignore
-                    db.complete_event(eid)  # mark event as done
-                    dh.handle_data(iv2, dodb=False)  # type: ignore
-                    data += iv2
-
-                    mppt.register_curve(iv2, light=(sweep == "light"))
+                if mppt_enabled:
+                    # register this curve with the mppt
+                    mppt.register_curve(iv, light=sweep["light_on"])
 
             # TODO: read and interpret parameters for smart mode
-            dh.sweep = ""  # not a sweep
+            dh.illuminated_sweep = None  # not a sweep
 
             # mppt if
-            if (args["mppt_check"]) and (args["mppt_dwell"] > 0):
+            if mppt_enabled:
                 if self.pkiller.is_set():
                     self.lg.debug("Killed by killer.")
                     return data
                 self.lg.debug(f"Performing max. power tracking for {args['mppt_dwell']} seconds.")
-                # mppt needs light
+
+                # mppt always needs light
                 ss.lit = True
+                if isinstance(sm, virt.FakeSMU):
+                    # tell the simulated device how much light it's getting
+                    sm.intensity = ss.intensity / 100
+                compliance_area = pix["area"]
 
                 dh.kind = "mppt_measurement"
                 self.clear_plot("mppt_measurement")
@@ -1233,22 +1217,29 @@ class Fabric(object):
                 mppt_args["duration"] = args["mppt_dwell"]
                 mppt_args["NPLC"] = args["nplc"]
                 mppt_args["extra"] = args["mppt_params"]
-                mppt_args["callback"] = dh.handle_data
-                if ("ccd" in config) and ("max_voltage" in config["ccd"]):
-                    mppt_args["voc_compliance"] = config["ccd"]["max_voltage"]
-                mppt_args["i_limit"] = compliance_i
-                mppt_args["area"] = area
+                mppt_args["voc_compliance"] = sm.init_kwargs["voltage_limit"]
+                mppt_args["i_limit"] = min((sm.init_kwargs["current_limit"], Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
+                mppt_args["area"] = pix["area"]
 
-                eid = db.new_event(rid, en.Event.MPPT, sm.address)  # register new mppt event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                deets["algorithm"] = args["mppt_params"]
-                db.upsert(f"{db.schema}.tbl_mppt_events", deets, eid)  # save event details
-                db.eid = eid  # register event id for datahandler
+                # db prep
+                mppt_event = {}
+                mppt_event["run_id"] = rid
+                mppt_event["device_id"] = pix["did"]
+                mppt_event["fixed"] = en.Fixed.VOLTAGE
+                mppt_event["algorithm"] = args["mppt_params"]
+                mpptid = db.upsert("tbl_mppt_events", mppt_event)
+                assert mpptid > 0, "Registering new mppt event failed"
+                # data collection prep
+                datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
+                mppt_args["callback"] = datcb
+                # do the experiment
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
-                db.eid = None  # unregister event id
-                db.complete_event(eid)  # mark event as done
-                mppt.reset()
+                # mark the event's data collection as done
+                mpptid = db.upsert("tbl_mppt_events", {"complete": True}, id=mpptid)
+                assert mpptid > 0, "Marking mppt event complete failed"
 
+                # TODO: consider moving these into the mpp tracker
+                mppt.reset()
                 # reset nplc because the mppt can mess with it
                 if args["nplc"] != -1:
                     sm.setNPLC(args["nplc"])
@@ -1257,18 +1248,26 @@ class Fabric(object):
                 # send that data to the handler
                 if len(vt) > 0:
                     dh.kind = "vtmppt_measurement"
-                    eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
-                    deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                    deets["fixed"] = en.Fixed.CURRENT
-                    deets["setpoint"] = 0.0
-                    db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
-                    db.eid = eid  # register event id for datahandler
-                    for d in vt:  # simulate the ssvoc measurement from the voc data returned by the mpp tracker
-                        dh.handle_data([d])  # type: ignore
-                    db.eid = None  # unregister event id
-                    db.complete_event(eid)  # mark ss event as done
 
-                data += vt
+                    # db prep
+                    ss_event = {}
+                    ss_event["run_id"] = rid
+                    ss_event["device_id"] = pix["did"]
+                    ss_event["fixed"] = en.Fixed.CURRENT
+                    ss_event["setpoint"] = 0.0
+                    sseid = db.upsert("tbl_ss_events", ss_event)
+                    assert sseid > 0, "Registering new steady state measurement event failed"
+                    # simulate the ssvoc measurement from the voc data returned by the mpp tracker
+                    for d in vt:
+                        db.putsmdat([d], sseid, en.Event.SS, suid)
+                        dh.handle_data([d], dodb=False)
+                    # mark the event as done
+                    sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
+                    assert sseid > 0, "Marking steady state measurement event complete failed"
+                    # keep the data
+                    data += vt
+
+                # keep the mppt data
                 data += mt
 
             # "J_sc" if
@@ -1277,34 +1276,43 @@ class Fabric(object):
                     self.lg.debug("Killed by killer.")
                     return data
                 self.lg.debug(f"Measuring current at constant voltage for {args['v_dwell']} seconds.")
-                # jsc needs light
+
+                # jsc always needs light
                 ss.lit = True
+                if isinstance(sm, virt.FakeSMU):
+                    # tell the simulated device how much light it's getting
+                    sm.intensity = ss.intensity / 100
+                compliance_area = pix["area"]
 
                 dh.kind = "it_measurement"
                 self.clear_plot("it_measurement")
 
                 ss_args = {}
                 ss_args["sourceVoltage"] = True
-                ss_args["compliance"] = compliance_i
+                ss_args["compliance"] = min((sm.init_kwargs["current_limit"], Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
                 ss_args["setPoint"] = args["v_dwell_value"]
                 ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
                 sm.setupDC(**ss_args)
 
-                eid = db.new_event(rid, en.Event.SS, sm.address)  # register new ss event
-                deets = {"label": dh.pixel["device_label"], "slot": f'{dh.pixel["sub_name"]}{dh.pixel["pixel"]}', "area": area}
-                deets["fixed"] = en.Fixed.VOLTAGE
-                deets["setpoint"] = ss_args["setPoint"]
-                db.upsert(f"{db.schema}.tbl_ss_events", deets, eid)  # save event details
-                db.eid = eid  # register event id for datahandler
-                it = sm.measure_until(t_dwell=args["v_dwell"], cb=dh.handle_data)
-                db.eid = None  # unregister event id
-                db.complete_event(eid)  # mark ss event as done
+                # db prep
+                ss_event = {}
+                ss_event["run_id"] = rid
+                ss_event["device_id"] = pix["did"]
+                ss_event["fixed"] = en.Fixed.VOLTAGE
+                ss_event["setpoint"] = args["v_dwell_value"]
+                sseid = db.upsert("tbl_ss_events", ss_event)
+                assert sseid > 0, "Registering new steady state measurement event failed"
+                # data collection prep
+                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                # do the experiment
+                it = sm.measure_until(t_dwell=args["V_dwell"], cb=datcb)
+                # mark it as done
+                sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
+                assert sseid > 0, "Marking steady state measurement event complete failed"
+                # keep the data
                 data += it
 
         sm.outOn(False)  # it's probably wise to shut off the smu after every pixel
-        pass
-        # Fabric.select_pixel(mc, mux_string=f's{q_item[smu_index]["sub_name"]}0')  # disconnect this substrate
-
         return data
 
     @staticmethod
@@ -1363,23 +1371,20 @@ class Fabric(object):
 
             return db.new_light_cal(**cal_args)
 
-    def compliance_current_guess(self, area=None, jmax=None, imax=None) -> float:
-        """Guess what the compliance current should be for i-v-t measurements.
+    @staticmethod
+    def find_i_limit(area: float | None = None, jmax: float | None = None, imax: float | None = None) -> float:
+        """Guess what the maximum allowable current should be
         area in cm^2
         jmax in mA/cm^2
-        imax in A (overrides jmax/area calc)
         returns value in A (defaults to 0.025A = 0.5cm^2 * 50 mA/cm^2)
         """
-        ret_val = 0.5 * 0.05  # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
         if imax is not None:
             ret_val = imax
         elif (area is not None) and (jmax is not None):
             ret_val = jmax * area / 1000  # scale mA to A
-
-        # enforce the global current limit
-        if ret_val > self.current_limit:
-            self.lg.warning("Overcurrent protection kicked in")
-            ret_val = self.current_limit
+        else:
+            # default guess is a 0.5 sqcm device operating at just above the SQ limit for Si
+            ret_val = 0.5 * 0.05
 
         return ret_val
 
@@ -1395,15 +1400,21 @@ class Fabric(object):
 
         pcb.set_mux(mux_sels)
 
-    def suns_voc(self, duration: float, light: LightAPI, sm: SourcemeterAPI, intensities: typing.List[int], dh):
+    def suns_voc(self, duration: float, light: LightAPI, sm: SourcemeterAPI, intensities: typing.List[int], cb):
         """do a suns-Voc measurement"""
+        if isinstance(sm, virt.FakeSMU):
+            old_intensity = sm.intensity
+        else:
+            old_intensity = 1.0
         step_time = duration / len(intensities)
         svt = []
         for intensity_setpoint in intensities:
             light.intensity = intensity_setpoint
             if isinstance(sm, virt.FakeSMU):
                 sm.intensity = intensity_setpoint / 100  # tell the simulated device how much light it's getting
-            svt += sm.measure_until(t_dwell=step_time, cb=dh.handle_data)
+            svt += sm.measure_until(t_dwell=step_time, cb=cb)
+        if isinstance(sm, virt.FakeSMU):
+            sm.intensity = old_intensity  # reset the simulated device's intensity
         return svt
 
     def clear_plot(self, kind: str):

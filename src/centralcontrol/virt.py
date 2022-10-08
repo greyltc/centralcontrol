@@ -310,6 +310,8 @@ class FakeSMU(object):
     cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
     cc_mode = "none"  # contact check mode
     area: float = 1.0
+    dark_area: float = 1.0
+    _area: float = 1.0
     _intensity: float = 1.0  # scale Iph by this (simulates variable intensity)
     current_compliance: float = 1.0
     threshold_ohm: float = 33.3
@@ -336,8 +338,6 @@ class FakeSMU(object):
         self.resistor_connected = 0
 
         # these will get updated externally as needed
-        self.area = 1.0  # cm^2
-        # TODO: add dark area
         self.current_compliance = 1.0  # A
         # self.dark = False  # if we're in the dark, do computations with Iph = 0
 
@@ -380,6 +380,10 @@ class FakeSMU(object):
     def intensity(self, value):
         if value != self._intensity:  # there's an intensity change
             self._intensity = value
+            if value > 0:
+                self._area = self.area
+            else:
+                self._area = self.dark_area
             if self.I == 0:  # open circuit case
                 self.update(current=False)
             else:
@@ -470,12 +474,12 @@ class FakeSMU(object):
                 self.V = self.I * self.resistor_connected
         else:
 
-            Rs = self.Rsa / self.area
-            Rsh = self.Rsha / self.area
+            Rs = self.Rsa / self._area
+            Rsh = self.Rsha / self._area
             n = self.n
-            I0 = self.I0d * self.area / 1000
+            I0 = self.I0d * self._area / 1000
             iph_scale = self._intensity
-            Iph = self.Iphd * self.area / 1000 * iph_scale
+            Iph = self.Iphd * self._area / 1000 * iph_scale
             if current:  # we're updating current from a known voltage
                 I = self.i_from_v(self.V, Rs, Rsh, Iph, I0, n)
                 # simulate the SMU hitting compliance

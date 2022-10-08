@@ -26,9 +26,6 @@ class MPPT:
     Pmax: float | None = None  # power at max power point (for keeping track of voc and isc)
     area: float | None = None
 
-    # under no circumstances should we violate this
-    absolute_current_limit: float  # always safe default
-
     t0: float | None = None  # the time we started the mppt algorithm
 
     # if we're forced to guess Voc or Vmpp, assume that vmpp is this fraction of Voc
@@ -36,13 +33,12 @@ class MPPT:
 
     sm: smapi
 
-    def __init__(self, sm: smapi, absolute_current_limit=0.1):
+    def __init__(self, sm: smapi):
         self.sm = sm
         self.killer = sm.killer
 
         self.lg = get_logger(".".join([__name__, type(self).__name__]), level=logging.INFO)
 
-        self.absolute_current_limit = abs(absolute_current_limit)
         self.lg.debug(f"Initialized.")
 
     def reset(self):
@@ -105,9 +101,6 @@ class MPPT:
         m = []  # list holding mppt measurements
         self.t0 = time.time()  # start the mppt timer
         self.area = area
-
-        if abs(i_limit) > abs(self.absolute_current_limit):
-            i_limit = abs(self.absolute_current_limit)
 
         if NPLC != -1:
             self.sm.setNPLC(NPLC)
