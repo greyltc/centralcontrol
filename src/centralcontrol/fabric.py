@@ -1300,7 +1300,7 @@ class Fabric(object):
                 # data collection prep
                 datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
                 # do the experiment
-                it = sm.measure_until(t_dwell=args["V_dwell"], cb=datcb)
+                it = sm.measure_until(t_dwell=args["v_dwell"], cb=datcb)
                 # mark it as done
                 sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
                 assert sseid > 0, "Marking steady state measurement event complete failed"
