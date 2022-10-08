@@ -322,15 +322,11 @@ class Fabric(object):
                 else:
                     for sm in smus:
                         if task["type"] == "current":
-                            if "current_limit" in sm.init_kwargs:
-                                i_lim = sm.init_kwargs["current_limit"]
-                            else:
-                                i_lim = 0.15
-                            sm.setupDC(sourceVoltage=True, compliance=i_lim, setPoint=0.0, senseRange="a", ohms=False)
+                            sm.setupDC(sourceVoltage=True, compliance=sm.current_limit, setPoint=0.0, senseRange="a", ohms=False)
                         if task["type"] == "voltage":
-                            sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.0, senseRange="a", ohms=False)
+                            sm.setupDC(sourceVoltage=False, compliance=sm.voltage_limit, setPoint=0.0, senseRange="a", ohms=False)
                         elif task["type"] == "rtd":
-                            sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
+                            sm.setupDC(sourceVoltage=False, compliance=sm.voltage_limit, setPoint=0.001, senseRange="f", ohms=True)
                     for i, slot in enumerate(slots):
                         pad = pads[i]
                         if slot == "none":
@@ -1020,7 +1016,7 @@ class Fabric(object):
 
                 ss_args = {}
                 ss_args["sourceVoltage"] = False
-                ss_args["compliance"] = sm.init_kwargs["voltage_limit"]
+                ss_args["compliance"] = sm.voltage_limit
                 ss_args["setPoint"] = args["i_dwell_value"]
                 # NOTE: "a" (auto range) can possibly cause unknown delays between points
                 # but that's okay here because timing between points isn't
@@ -1154,7 +1150,7 @@ class Fabric(object):
                 sweep_args = {}
                 sweep_args["sourceVoltage"] = True
                 sweep_args["senseRange"] = "f"
-                sweep_args["compliance"] = min((sm.init_kwargs["current_limit"], Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
+                sweep_args["compliance"] = min((sm.current_limit, Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
                 sweep_args["nPoints"] = int(args["iv_steps"])
                 sweep_args["stepDelay"] = args["source_delay"] / 1000
                 sweep_args["start"] = start_setpoint
@@ -1217,15 +1213,14 @@ class Fabric(object):
                 mppt_args["duration"] = args["mppt_dwell"]
                 mppt_args["NPLC"] = args["nplc"]
                 mppt_args["extra"] = args["mppt_params"]
-                mppt_args["voc_compliance"] = sm.init_kwargs["voltage_limit"]
-                mppt_args["i_limit"] = min((sm.init_kwargs["current_limit"], Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
+                mppt_args["voc_compliance"] = sm.voltage_limit
+                mppt_args["i_limit"] = min((sm.current_limit, Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
                 mppt_args["area"] = pix["area"]
 
                 # db prep
                 mppt_event = {}
                 mppt_event["run_id"] = rid
                 mppt_event["device_id"] = pix["did"]
-                mppt_event["fixed"] = en.Fixed.VOLTAGE
                 mppt_event["algorithm"] = args["mppt_params"]
                 mpptid = db.upsert("tbl_mppt_events", mppt_event)
                 assert mpptid > 0, "Registering new mppt event failed"
@@ -1289,7 +1284,7 @@ class Fabric(object):
 
                 ss_args = {}
                 ss_args["sourceVoltage"] = True
-                ss_args["compliance"] = min((sm.init_kwargs["current_limit"], Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
+                ss_args["compliance"] = min((sm.current_limit, Fabric.find_i_limit(area=compliance_area, jmax=args["jmax"], imax=args["imax"])))
                 ss_args["setPoint"] = args["v_dwell_value"]
                 ss_args["senseRange"] = "a"  # NOTE: "a" can possibly cause unknown delays between points
                 sm.setupDC(**ss_args)
