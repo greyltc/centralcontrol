@@ -1008,6 +1008,9 @@ class Fabric(object):
         data = []
         mppt_enabled = (args["mppt_check"]) and (args["mppt_dwell"] > 0)  # will we do mppt here?
         with SlothDB(db_uri=config["db"]["uri"]) as db:
+            # spin up a new counter sequence for this device
+            ret = db.pg_cmd([f'CREATE TEMPORARY SEQUENCE IF NOT EXISTS dds{pix["did"]}'])
+            assert ret > 0, "Unable to start data counter"
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
                 if self.pkiller.is_set():
