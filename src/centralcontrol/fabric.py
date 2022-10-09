@@ -1054,7 +1054,7 @@ class Fabric(object):
                     isweepeid = db.upsert("tbl_isweep_events", isweep_event)
                     assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
                     # data collection prep
-                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, False))
+                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, pix["did"], suid), dh.handle_data(x, False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, datcb)
                     # mark it as done
@@ -1077,7 +1077,7 @@ class Fabric(object):
                 sseid = db.upsert("tbl_ss_events", ss_event)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, pix["did"], suid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 vt = sm.measure_until(t_dwell=args["i_dwell"], cb=datcb)
                 # mark it as done
@@ -1108,7 +1108,7 @@ class Fabric(object):
                     isweepeid = db.upsert("tbl_isweep_events", isweep_event)
                     assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
                     # data collection prep
-                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
+                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, pix["did"], suid), dh.handle_data(x, dodb=False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, datcb)
                     # mark it as done
@@ -1175,7 +1175,7 @@ class Fabric(object):
                 # do the experiment
                 iv = sm.measure(sweep_args["nPoints"])
                 # record the data
-                db.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, suid)  # type: ignore
+                db.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, pix["did"], suid)  # type: ignore
                 # mark the event's data collection as done
                 sweepeid = db.upsert("tbl_sweep_events", {"complete": True}, id=sweepeid)
                 assert sweepeid > 0, "Marking sweep event complete failed"
@@ -1228,7 +1228,7 @@ class Fabric(object):
                 mpptid = db.upsert("tbl_mppt_events", mppt_event)
                 assert mpptid > 0, "Registering new mppt event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.LIGHT_SWEEP, pix["did"], suid), dh.handle_data(x, dodb=False))
                 mppt_args["callback"] = datcb
                 # do the experiment
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
@@ -1257,7 +1257,7 @@ class Fabric(object):
                     assert sseid > 0, "Registering new steady state measurement event failed"
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                     for d in vt:
-                        db.putsmdat([d], sseid, en.Event.SS, suid)
+                        db.putsmdat([d], sseid, en.Event.SS, pix["did"], suid)
                         dh.handle_data([d], dodb=False)
                     # mark the event as done
                     sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
@@ -1301,7 +1301,7 @@ class Fabric(object):
                 sseid = db.upsert("tbl_ss_events", ss_event)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, pix["did"], suid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 it = sm.measure_until(t_dwell=args["v_dwell"], cb=datcb)
                 # mark it as done
