@@ -1076,7 +1076,7 @@ class Fabric(object):
                 sseid = db.upsert("tbl_ss_events", ss_event)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, pix["did"], suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 vt = sm.measure_until(t_dwell=args["i_dwell"], cb=datcb)
                 # mark it as done
