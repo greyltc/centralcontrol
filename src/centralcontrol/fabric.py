@@ -1008,9 +1008,9 @@ class Fabric(object):
         data = []
         mppt_enabled = (args["mppt_check"]) and (args["mppt_dwell"] > 0)  # will we do mppt here?
         with SlothDB(db_uri=config["db"]["uri"]) as db:
-            # spin up a new counter sequence for this device
+            # spin up a new raw data counter sequence for this device
             ret = db.pg_cmd([f'CREATE TEMPORARY SEQUENCE IF NOT EXISTS dds{pix["did"]}'])
-            assert ret > 0, "Unable to start data counter"
+            assert ret >= 0, "Unable to start data counter"
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
                 if self.pkiller.is_set():
@@ -1228,7 +1228,7 @@ class Fabric(object):
                 mpptid = db.upsert("tbl_mppt_events", mppt_event)
                 assert mpptid > 0, "Registering new mppt event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.LIGHT_SWEEP, pix["did"], suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.MPPT, pix["did"], suid), dh.handle_data(x, dodb=False))
                 mppt_args["callback"] = datcb
                 # do the experiment
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
