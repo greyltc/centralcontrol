@@ -1007,6 +1007,7 @@ class Fabric(object):
         data = []
         mppt_enabled = (args["mppt_check"]) and (args["mppt_dwell"] > 0)  # will we do mppt here?
         with SlothDB(db_uri=config["db"]["uri"]) as db:
+            ecs = db.data_counter_sequence()  # experiment counter sequence generator to keep track of the order in which things were done here
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
                 if self.pkiller.is_set():
@@ -1043,11 +1044,12 @@ class Fabric(object):
                     # db prep
                     isweep_event = {}
                     isweep_event["run_id"] = rid
+                    isweep_event["ecs"] = next(ecs)
                     isweep_event["device_id"] = pix["did"]
                     isweep_event["fixed"] = en.Fixed.CURRENT
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities
-                    isweepeid = db.upsert("tbl_isweep_events", isweep_event)
+                    isweepeid = db.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
                     assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
                     # data collection prep
                     datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, False))
@@ -1067,10 +1069,11 @@ class Fabric(object):
                 # db prep
                 ss_event = {}
                 ss_event["run_id"] = rid
+                ss_event["ecs"] = next(ecs)
                 ss_event["device_id"] = pix["did"]
                 ss_event["fixed"] = en.Fixed.CURRENT
                 ss_event["setpoint"] = args["i_dwell_value"]
-                sseid = db.upsert("tbl_ss_events", ss_event)
+                sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
                 datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
@@ -1097,11 +1100,12 @@ class Fabric(object):
                     # db prep
                     isweep_event = {}
                     isweep_event["run_id"] = rid
+                    isweep_event["ecs"] = next(ecs)
                     isweep_event["device_id"] = pix["did"]
                     isweep_event["fixed"] = en.Fixed.CURRENT
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities_reversed
-                    isweepeid = db.upsert("tbl_isweep_events", isweep_event)
+                    isweepeid = db.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
                     assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
                     # data collection prep
                     datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
@@ -1159,6 +1163,7 @@ class Fabric(object):
                 # db prep
                 sweep_event = {}
                 sweep_event["run_id"] = rid
+                sweep_event["ecs"] = next(ecs)
                 sweep_event["device_id"] = pix["did"]
                 sweep_event["fixed"] = en.Fixed.VOLTAGE
                 sweep_event["linear"] = True
@@ -1166,7 +1171,7 @@ class Fabric(object):
                 sweep_event["from_setpoint"] = sweep_args["start"]
                 sweep_event["to_setpoint"] = sweep_args["end"]
                 sweep_event["light"] = sweep["light_on"]
-                sweepeid = db.upsert("tbl_sweep_events", sweep_event)
+                sweepeid = db.upsert("tbl_sweep_events", sweep_event, expect_mod=True)
                 assert sweepeid > 0, "Registering new sweep event failed"
                 # do the experiment
                 iv = sm.measure(sweep_args["nPoints"])
@@ -1219,9 +1224,10 @@ class Fabric(object):
                 # db prep
                 mppt_event = {}
                 mppt_event["run_id"] = rid
+                mppt_event["ecs"] = next(ecs)
                 mppt_event["device_id"] = pix["did"]
                 mppt_event["algorithm"] = args["mppt_params"]
-                mpptid = db.upsert("tbl_mppt_events", mppt_event)
+                mpptid = db.upsert("tbl_mppt_events", mppt_event, expect_mod=True)
                 assert mpptid > 0, "Registering new mppt event failed"
                 # data collection prep
                 datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.MPPT, suid), dh.handle_data(x, dodb=False))
@@ -1246,10 +1252,11 @@ class Fabric(object):
                     # db prep
                     ss_event = {}
                     ss_event["run_id"] = rid
+                    ss_event["ecs"] = next(ecs)
                     ss_event["device_id"] = pix["did"]
                     ss_event["fixed"] = en.Fixed.CURRENT
                     ss_event["setpoint"] = 0.0
-                    sseid = db.upsert("tbl_ss_events", ss_event)
+                    sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
                     assert sseid > 0, "Registering new steady state measurement event failed"
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                     for d in vt:
@@ -1291,10 +1298,11 @@ class Fabric(object):
                 # db prep
                 ss_event = {}
                 ss_event["run_id"] = rid
+                ss_event["ecs"] = next(ecs)
                 ss_event["device_id"] = pix["did"]
                 ss_event["fixed"] = en.Fixed.VOLTAGE
                 ss_event["setpoint"] = args["v_dwell_value"]
-                sseid = db.upsert("tbl_ss_events", ss_event)
+                sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
                 datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
