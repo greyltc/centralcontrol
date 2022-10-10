@@ -1007,7 +1007,7 @@ class Fabric(object):
         data = []
         mppt_enabled = (args["mppt_check"]) and (args["mppt_dwell"] > 0)  # will we do mppt here?
         with SlothDB(db_uri=config["db"]["uri"]) as db:
-            ecs = db.data_counter_sequence()  # experiment counter sequence generator to keep track of the order in which things were done here
+            ecs = db.counter_sequence()  # experiment counter sequence generator to keep track of the order in which things were done here
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
                 if self.pkiller.is_set():
