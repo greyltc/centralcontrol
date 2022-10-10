@@ -781,6 +781,7 @@ class Fabric(object):
                     lu["user_labels"].append(pixel["user_label"])
                     lu["layouts"].append(pixel["layout"])
 
+                    # register smu
                     smus[smui].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[smui].address, "idn": smus[smui].idn})
                     assert smus[smui].id > 0, "Registering smu failed"
 
@@ -798,7 +799,12 @@ class Fabric(object):
                     assert pixel["loid"] > 0, "Registering layout failed"
                     lu["layout_ids"].append(pixel["loid"])
 
-                    pixel["sbid"] = db.upsert("tbl_substrates", {"name": pixel["user_label"], "layout_id": pixel["loid"]})
+                    if pixel["user_label"]:
+                        lbl = pixel["user_label"]
+                    else:
+                        lbl = None
+
+                    pixel["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": pixel["loid"]})
                     assert pixel["sbid"] > 0, "Registering substrate failed"
                     lu["substrate_ids"].append(pixel["sbid"])
 
@@ -809,6 +815,8 @@ class Fabric(object):
                     pixel["did"] = db.upsert("tbl_devices", {"substrate_id": pixel["sbid"], "layout_device_id": pixel["ldid"]})
                     assert pixel["did"] > 0, "Registering device failed"
                     lu["device_ids"].append(pixel["did"])
+
+            assert (lu["device_ids"]) == len(list(set(lu["device_ids"]))), "Every device in a run must be unique."
 
             # check connectivity
             self.lg.log(29, f"Checking device connectivity...")
