@@ -215,36 +215,38 @@ class Us(object):
             rslt_pos = -1
         return rslt_pos
 
-    def goto(self, targets_mm, timeout=300.0, debug_prints=False, blocking=True):
+    def goto(self, targets_mm: dict, timeout: float = 300.0, debug_prints: bool = False, blocking: bool = True):
         """sends the stage some place. targets_mm is a dict with keys for axis numbers and vals for target mms"""
         t0 = time.time()
 
         targets_step = {}
         for ax, target_mm in targets_mm.items():  # convert mm to step values
-            targets_step[ax] = round(target_mm * self.steps_per_mm)
+            if target_mm is not float("nan"):
+                targets_step[ax] = round(target_mm * self.steps_per_mm)
 
         start_step = {}
         for ax, target_step in targets_step.items():  # initiate parallal motion and find start points
             start_step[ax] = self.send_g(ax, target_step)
-        self.lg.debug(f"Motion to {targets_mm} started from {[val/self.steps_per_mm for key, val in start_step.items()]}")
+        if start_step:
+            self.lg.debug(f"Motion to {targets_mm} started from {[val/self.steps_per_mm for key, val in start_step.items()]}")
 
-        if blocking == True:  # wait for motion to complete
-            time.sleep(self.poll_delay)
-            for ax, target_step in targets_step.items():
-                loc = None
-                while et := time.time() - t0 <= timeout:
-                    loc = self.send_g(ax, target_step)
-                    if loc == target_step:
-                        break
-                    time.sleep(self.poll_delay)
-                    if debug_prints == True:
-                        self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
-                else:
-                    if loc is not None:
-                        self.lg.error(f"Motion on axis {ax} timed out while it was at {loc/self.steps_per_mm}")
-                    if start_step[ax] is not None:
-                        self.lg.error(f"While going from {start_step[ax]/self.steps_per_mm} to {target_step/self.steps_per_mm}")
-                    raise ValueError(f"{timeout}s timeout exceeded while moving axis {ax}. Tried for {et}s.")
+            if blocking:  # wait for motion to complete
+                time.sleep(self.poll_delay)
+                for ax, target_step in targets_step.items():
+                    loc = None
+                    while et := time.time() - t0 <= timeout:
+                        loc = self.send_g(ax, target_step)
+                        if loc == target_step:
+                            break
+                        time.sleep(self.poll_delay)
+                        if debug_prints:
+                            self.lg.debug(f'{ax}-l-b-{str(self.pcb.query(f"x{ax}18"))}')  # TSTEP register (0x12=18)  value
+                    else:
+                        if loc is not None:
+                            self.lg.error(f"Motion on axis {ax} timed out while it was at {loc/self.steps_per_mm}")
+                        if start_step[ax] is not None:
+                            self.lg.error(f"While going from {start_step[ax]/self.steps_per_mm} to {target_step/self.steps_per_mm}")
+                        raise ValueError(f"{timeout}s timeout exceeded while moving axis {ax}. Tried for {et}s.")
 
     def send_g(self, ax, target_step):
         """sends g (go to) cmd to axis controller"""

@@ -136,7 +136,7 @@ class Motion(object):
         """goes to an absolute mm position, blocking"""
         self.lg.debug(f"goto({pos=}) called")
         if self.enabled:
-            assert self.motion_engine is not None, f"{self.motion_engine is not None=}"
+            assert self.motion_engine is not None, f"{(self.motion_engine is not None)=}"
             if timeout == None:
                 timeout = self.home_timeout * self.motion_timeout_fraction
             if not hasattr(pos, "__len__"):
@@ -154,17 +154,18 @@ class Motion(object):
                 lower_lim = 0 + self.motion_engine.end_buffers
                 upper_lim = al - self.motion_engine.end_buffers
                 goal = pos[i]
-                if el < float("inf"):  # length check is enabled
-                    delta = el - al
-                    if abs(delta) > self.allowed_length_deviation:
-                        raise ValueError(f"Error: Unexpected axis {ax} length. Found {al} [mm] but expected {el} [mm]")
-                if (goal >= ko_lower) and (goal <= ko_upper):
-                    raise ValueError(f"Error: Axis {ax} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
-                if goal < lower_lim:
-                    raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
-                if goal > upper_lim:
-                    raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
-                gti[ax] = goal
+                if goal is not float("nan"):
+                    if el < float("inf"):  # length check is enabled
+                        delta = el - al
+                        if abs(delta) > self.allowed_length_deviation:
+                            raise ValueError(f"Error: Unexpected axis {ax} length. Found {al} [mm] but expected {el} [mm]")
+                    if (goal >= ko_lower) and (goal <= ko_upper):
+                        raise ValueError(f"Error: Axis {ax} requested position, {goal} [mm], falls within keepout zone: [{ko_lower}, {ko_upper}] [mm]")
+                    if goal < lower_lim:
+                        raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Minimum: {lower_lim} [mm]")
+                    if goal > upper_lim:
+                        raise ValueError(f"Error: Attempt to move axis {ax} outside of limits. Attempt: {goal} [mm], but Maximum: {upper_lim} [mm]")
+                    gti[ax] = goal
             self.motion_engine.goto(gti, timeout=timeout, debug_prints=debug_prints)
         self.lg.debug(f"goto() complete")
 

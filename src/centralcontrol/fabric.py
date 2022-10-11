@@ -235,10 +235,13 @@ class Fabric(object):
                 line["slot"] = slot
                 if slot == "OFF":
                     pad = "HI"
-                    dlp = f"{(0):05}"
+                    dlp = f"{0:05}"
                     smi = 0
                 else:
-                    dlp = f"{(1<<(7+pad)):05}"
+                    if pad == 0:
+                        dlp = f"{0:05}"
+                    else:
+                        dlp = f"{(1<<(7+pad)):05}"
                     smi = SourcemeterAPI.which_smu(device_grouping, [slot, pad])
                 line["pad"] = pad
                 line["dlp"] = dlp  # use direct latch programming for the odd mux configs here
@@ -255,16 +258,16 @@ class Fabric(object):
                     line["slot"] = uslot
                     if uslot == "OFF":
                         line["pad"] = "LO"
-                        line["dlp"] = f"{(0):05}"
+                        line["dlp"] = f"{0:05}"
                         line["smi"] = 0
                         lconns.append(line)
                         break
                     else:
                         line["pad"] = pad
-                        line["dlp"] = f"{sel}"
-                        try:  # if the smu isn't registered in the config under pad# 1, try pad# 0
-                            line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
-                        except:
+                        line["dlp"] = sel
+                        line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
+                        if line["smi"] is None:
+                            # if the smu isn't registered in the config under pad# 1, try pad# 0
                             line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 0])
                         lconns.append(line)
 
@@ -493,7 +496,7 @@ class Fabric(object):
         """utility function to send the stage somewhere"""
         with AnMC(task["pcb"], timeout=5) as mc:
             mo = Motion(address=task["stage_uri"], pcb_object=mc)
-            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+            assert mo.connect() == 0, f"{(mo.connect() == 0)=}"  # make connection to motion system
             mo.goto(task["pos"])
             self.send_pos(mo)
 
@@ -501,14 +504,14 @@ class Fabric(object):
         """utility function to send the stage's position up to the front end"""
         with AnMC(task["pcb"], timeout=5) as mc:
             mo = Motion(address=task["stage_uri"], pcb_object=mc)
-            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+            assert mo.connect() == 0, f"{(mo.connect() == 0)=}"  # make connection to motion system
             self.send_pos(mo)
 
     def home_stage(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """homes the stage"""
         with AnMC(task["pcb"], timeout=5) as mc:
             mo = Motion(address=task["stage_uri"], pcb_object=mc)
-            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+            assert mo.connect() == 0, f"{(mo.connect() == 0)=}"  # make connection to motion system
             if task["force"] == True:
                 needs_home = True
             else:
@@ -1541,7 +1544,7 @@ class Fabric(object):
                                         if "dark" not in heading.lower():
                                             try:
                                                 area = float(bd[heading][i])
-                                                self.lg.log(29, f'Using area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                                self.lg.log(29, f'Using user supplied area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                             except:
                                                 self.lg.warning(f'Unable to parse custom area entry for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                             if area == -1:  # handle the case where the user forgot to tell us the area by assuming it's 1.0
@@ -1559,7 +1562,7 @@ class Fabric(object):
                                         if "dark" in heading.lower():
                                             try:
                                                 dark_area = float(bd[heading][i])
-                                                self.lg.log(29, f'Using dark area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                                self.lg.log(29, f'Using user supplied dark area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                             except:
                                                 self.lg.warning(f'Unable to parse custom dark area entry for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                             if dark_area == -1:  # handle the case where the user forgot to tell us the dark area by assuming it's 1.0
