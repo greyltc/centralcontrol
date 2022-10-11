@@ -252,7 +252,7 @@ class MC(object):
                 self.lg.warning(f"Failed to get intiger response from PCB: {cmd=} --> {pcb_ans=} (after {tries} attempts)")
         return rslt
 
-    def set_mux(self, mux_settings: list[tuple[str, int]] | list[str]):
+    def set_mux(self, mux_settings: list[tuple[str, int]] | list[tuple[str, str]]) -> None:
         """program mux with failure recovery logic. returns nothing but raises a value error on failure"""
         if self.enabled:
             if not self.set_mux_attempt(mux_settings):
@@ -271,21 +271,21 @@ class MC(object):
                         self.lg.error(err_msg)
                         raise ValueError(err_msg)
 
-    def set_mux_attempt(self, mux_settings: list[tuple[str, int]] | list[str]):
+    def set_mux_attempt(self, mux_settings: list[tuple[str, int]] | list[tuple[str, str]]):
         """attempts to program mux, returns success bool"""
         success = False
         if self.enabled:
             for mux_setting in mux_settings:
+                slot, pad = mux_setting
                 # TODO: take into account the configured mux type here (from address)
-                if isinstance(mux_setting, str):
-                    mux_string = mux_setting
+                if isinstance(pad, int):
+                    dlp = self.snaith_mux_pixel_lookup[pad]
                 else:
-                    slot, pad = mux_setting
-                    if slot.startswith("EXT"):
-                        # TODO: consider mux terminals
-                        mux_string = "s"
-                    else:
-                        mux_string = f"s{slot}{self.snaith_mux_pixel_lookup[pad]}"
+                    dlp = pad  # the pad designator was given in direct latch programming syntax
+                if slot.startswith("EXT"):
+                    dlp = ""
+                    slot = ""
+                mux_string = f"s{slot}{dlp}"
                 if not self.expect_empty(mux_string, tries=3):
                     break  # abort on failure
             else:

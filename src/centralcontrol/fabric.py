@@ -235,13 +235,13 @@ class Fabric(object):
                 line["slot"] = slot
                 if slot == "OFF":
                     pad = "HI"
-                    selstr = "s"
+                    dlp = f"{(0):05}"
                     smi = 0
                 else:
-                    selstr = f"s{slot}{(1<<(7+pad)):05}"
+                    dlp = f"{(1<<(7+pad)):05}"
                     smi = SourcemeterAPI.which_smu(device_grouping, [slot, pad])
                 line["pad"] = pad
-                line["selstr"] = selstr
+                line["dlp"] = dlp  # use direct latch programming for the odd mux configs here
                 line["smi"] = smi
                 hconns.append(line)
 
@@ -255,14 +255,17 @@ class Fabric(object):
                     line["slot"] = uslot
                     if uslot == "OFF":
                         line["pad"] = "LO"
-                        line["selstr"] = "s"
+                        line["dlp"] = f"{(0):05}"
                         line["smi"] = 0
                         lconns.append(line)
                         break
                     else:
                         line["pad"] = pad
-                        line["selstr"] = f"s{uslot}{sel}"
-                        line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
+                        line["dlp"] = f"{sel}"
+                        try:  # if the smu isn't registered in the config under pad# 1, try pad# 0
+                            line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
+                        except:
+                            line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 0])
                         lconns.append(line)
 
             Fabric.select_pixel(mc)  # ensure we start with devices all deselected
@@ -274,7 +277,7 @@ class Fabric(object):
                 this_slot = line["slot"]
                 if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
                     Fabric.select_pixel(mc, [(last_slot, 0)])  # make sure the last slot is cleaned up
-                Fabric.select_pixel(mc, [line["selstr"]])
+                Fabric.select_pixel(mc, [(line["slot"], line["selstr"])])
                 line["data"] = sms[line["smi"]].do_contact_check(False)
                 last_slot = this_slot
             conns += hconns
@@ -283,7 +286,7 @@ class Fabric(object):
                 this_slot = line["slot"]
                 if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
                     Fabric.select_pixel(mc, [(last_slot, 0)])  # make sure the last slot is cleaned up
-                Fabric.select_pixel(mc, [line["selstr"]])
+                Fabric.select_pixel(mc, [(line["slot"], line["selstr"])])
                 line["data"] = sms[line["smi"]].do_contact_check(True)
                 last_slot = this_slot
             conns += lconns
@@ -1399,7 +1402,7 @@ class Fabric(object):
         return ret_val
 
     @staticmethod
-    def select_pixel(pcb: MC | virt.FakeMC, mux_sels: list[tuple[str, int]] | list[str] | None = None):
+    def select_pixel(pcb: MC | virt.FakeMC, mux_sels: list[tuple[str, int]] | list[tuple[str, str]] | None = None):
         """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
         if mux_sels is None:
             mux_sels = [("OFF", 0)]  # empty call disconnects everything
@@ -1537,13 +1540,13 @@ class Fabric(object):
                                     if "area" in heading.lower():
                                         if "dark" not in heading.lower():
                                             try:
-                                                area = float(bd[heading])
-                                                self.lg.log(29, f'Using area = {area} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                                                area = float(bd[heading][i])
+                                                self.lg.log(29, f'Using area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                             except:
-                                                self.lg.warning(f'Unable to parse custom area entry for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
-                            if area == -1:
+                                                self.lg.warning(f'Unable to parse custom area entry for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                            if area == -1:  # handle the case where the user forgot to tell us the area by assuming it's 1.0
                                 area = 1.0
-                                self.lg.warning(f'Assuming area = {pixel_dict["area"]} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                                self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                             pixel_dict["area"] = area
 
                             dark_area = bd["dark_area"][i]
@@ -1555,13 +1558,13 @@ class Fabric(object):
                                     if "area" in heading.lower():
                                         if "dark" in heading.lower():
                                             try:
-                                                dark_area = float(bd[heading])
-                                                self.lg.log(29, f'Using dark area = {area} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                                                dark_area = float(bd[heading][i])
+                                                self.lg.log(29, f'Using dark area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                             except:
-                                                self.lg.warning(f'Unable to parse custom dark area entry for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
-                            if dark_area == -1:
+                                                self.lg.warning(f'Unable to parse custom dark area entry for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                            if dark_area == -1:  # handle the case where the user forgot to tell us the dark area by assuming it's 1.0
                                 dark_area = 1.0
-                                self.lg.warning(f'Assuming dark area = {pixel_dict["area"]} cm^2 for {pixel_dict["slot"]}:{pixel_dict["pad"]}')
+                                self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                             pixel_dict["dark_area"] = dark_area
 
                             group_dict[smu_index] = pixel_dict
