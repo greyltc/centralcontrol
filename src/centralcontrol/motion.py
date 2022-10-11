@@ -5,6 +5,7 @@ from centralcontrol.us import Us
 import json
 from urllib.parse import urlparse, parse_qs
 from centralcontrol.logstuff import get_logger
+import math
 
 
 class Motion(object):
@@ -26,7 +27,7 @@ class Motion(object):
     micro_stepping = 256  # microsteps/step
     screw_pitch = 8  # mm/rev
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
-
+    direction: int = 1  # can be 1 or -1 to invert what the "forward" direction means
     enabled = True
 
     address = "us://controller"
@@ -58,6 +59,8 @@ class Motion(object):
                     self.keepout_zones[str(i + 1)] = self.empty_koz  # ensure default koz works
             if "spm" in qparsed:
                 self.steps_per_mm = int(qparsed["spm"][0])
+            if "dir" in qparsed:
+                self.direction = int(qparsed["dir"][0])
             if "kz" in qparsed:
                 for i, zone in enumerate(json.loads(qparsed["kz"][0])):
                     if zone == []:
@@ -83,6 +86,7 @@ class Motion(object):
             elif parsed.scheme == "us":
                 us_setup = {}
                 us_setup["spm"] = self.steps_per_mm
+                us_setup["dir"] = self.direction
                 if (self.location != "mc") or (pcb_object is None):
                     raise ValueError(f"us://controller/ requires requires a pre-existing pcb_object")
                 us_setup["pcb_object"] = pcb_object
@@ -154,7 +158,7 @@ class Motion(object):
                 lower_lim = 0 + self.motion_engine.end_buffers
                 upper_lim = al - self.motion_engine.end_buffers
                 goal = pos[i]
-                if goal is not float("nan"):
+                if not math.isnan(goal):
                     if el < float("inf"):  # length check is enabled
                         delta = el - al
                         if abs(delta) > self.allowed_length_deviation:

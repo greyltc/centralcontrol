@@ -1535,7 +1535,8 @@ class Fabric(object):
                             pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
 
                             area = bd["area"][i]
-                            if area == -1:  # handle custom area
+                            # handle custom area/dark area
+                            if area == -1:
                                 headings = list(bd.keys())
                                 headings.remove("area")
                                 headings.remove("dark_area")
@@ -1546,11 +1547,7 @@ class Fabric(object):
                                                 area = float(bd[heading][i])
                                                 self.lg.log(29, f'Using user supplied area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                             except:
-                                                self.lg.warning(f'Unable to parse custom area entry for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                            if area == -1:  # handle the case where the user forgot to tell us the area by assuming it's 1.0
-                                area = 1.0
-                                self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                            pixel_dict["area"] = area
+                                                pass
 
                             dark_area = bd["dark_area"][i]
                             if dark_area == -1:  # handle custom dark area
@@ -1562,12 +1559,24 @@ class Fabric(object):
                                         if "dark" in heading.lower():
                                             try:
                                                 dark_area = float(bd[heading][i])
-                                                self.lg.log(29, f'Using user supplied dark area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                                self.lg.log(29, f'Using user supplied dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                             except:
-                                                self.lg.warning(f'Unable to parse custom dark area entry for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                            if dark_area == -1:  # handle the case where the user forgot to tell us the dark area by assuming it's 1.0
+                                                pass
+
+                            # handle the cases where the user didn't tell us an area
+                            if (area == -1) and (dark_area == -1):
+                                area = 1.0
                                 dark_area = 1.0
+                                self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
                                 self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                            elif area == -1:
+                                area = dark_area
+                                self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                            elif dark_area == -1:
+                                dark_area = area
+                                self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+
+                            pixel_dict["area"] = area
                             pixel_dict["dark_area"] = dark_area
 
                             group_dict[smu_index] = pixel_dict

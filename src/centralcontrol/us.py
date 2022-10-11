@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import time
+import math
 from centralcontrol.mc import MC
 from centralcontrol.logstuff import get_logger
 
@@ -22,6 +23,7 @@ class Us(object):
     motor_steps_per_rev = 200  # steps/rev
     micro_stepping = 256  # microsteps/step
     screw_pitch = 8  # mm/rev
+    direction: int = 1  # can be 1 or -1 to control cw or ccw wiring
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
     home_procedure = "default"
     pcb: MC
@@ -94,11 +96,12 @@ class Us(object):
     TMC5130_ENCM_CTRL = 0x72
     TMC5130_LOST_STEPS = 0x73
 
-    def __init__(self, pcb_object: MC, spm=steps_per_mm, homer=home_procedure):
+    def __init__(self, pcb_object: MC, spm=steps_per_mm, homer=home_procedure, dir: int = 1):
         """sets up the microstepper object, needs handle to active PCB class object"""
         self.pcb = pcb_object
         self.steps_per_mm = spm
         self.home_procedure = homer
+        self.direction = dir
         self.stage_firmwares = {}
 
         # setup logging
@@ -221,7 +224,7 @@ class Us(object):
 
         targets_step = {}
         for ax, target_mm in targets_mm.items():  # convert mm to step values
-            if target_mm is not float("nan"):
+            if not math.isnan(target_mm):
                 targets_step[ax] = round(target_mm * self.steps_per_mm)
 
         start_step = {}
