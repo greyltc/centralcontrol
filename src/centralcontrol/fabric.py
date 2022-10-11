@@ -277,7 +277,7 @@ class Fabric(object):
                 this_slot = line["slot"]
                 if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
                     Fabric.select_pixel(mc, [(last_slot, 0)])  # make sure the last slot is cleaned up
-                Fabric.select_pixel(mc, [(line["slot"], line["selstr"])])
+                Fabric.select_pixel(mc, [(line["slot"], line["dlp"])])
                 line["data"] = sms[line["smi"]].do_contact_check(False)
                 last_slot = this_slot
             conns += hconns
@@ -286,7 +286,7 @@ class Fabric(object):
                 this_slot = line["slot"]
                 if last_slot and (last_slot != this_slot) and (last_slot != "OFF"):
                     Fabric.select_pixel(mc, [(last_slot, 0)])  # make sure the last slot is cleaned up
-                Fabric.select_pixel(mc, [(line["slot"], line["selstr"])])
+                Fabric.select_pixel(mc, [(line["slot"], line["dlp"])])
                 line["data"] = sms[line["smi"]].do_contact_check(True)
                 last_slot = this_slot
             conns += lconns
