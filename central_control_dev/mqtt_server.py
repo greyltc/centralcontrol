@@ -747,46 +747,50 @@ def _get_substrate_positions(config, experiment):
     experiment_centre = config["stage"]["experiment_positions"][experiment]
     print(f"{experiment} center: {experiment_centre}")
 
-    # read in number substrates in the array along each axis
-    substrate_number = config["substrates"]["number"]
+    if "custom_centers" in config["substrates"]:
+        custom_centres = config["substrates"]["custom_centers"]
+        substrate_centres = [[-1*ctr[0] + experiment_centre[0], ctr[1] + experiment_centre[1]] for ctr in  custom_centres]
+    else:
+        # read in number substrates in the array along each axis
+        substrate_number = config["substrates"]["number"]
 
-    # get number of substrate centres between the centre and the edge of the
-    # substrate array along each axis, e.g. if there are 4 rows, there are 1.5
-    # substrate centres to the outermost substrate
-    substrate_offsets = []
-    substrate_total = 1
-    for number in substrate_number:
-        if number % 2 == 0:
-            offset = number / 2 - 0.5
-        else:
-            offset = np.floor(number / 2)
-        substrate_offsets.append(offset)
-        substrate_total = substrate_total * number
+        # get number of substrate centres between the centre and the edge of the
+        # substrate array along each axis, e.g. if there are 4 rows, there are 1.5
+        # substrate centres to the outermost substrate
+        substrate_offsets = []
+        substrate_total = 1
+        for number in substrate_number:
+            if number % 2 == 0:
+                offset = number / 2 - 0.5
+            else:
+                offset = np.floor(number / 2)
+            substrate_offsets.append(offset)
+            substrate_total = substrate_total * number
 
-    print(f"Substrate offsets: {substrate_offsets}")
+        print(f"Substrate offsets: {substrate_offsets}")
 
-    # read in substrate spacing in mm along each axis into a list
-    substrate_spacing = config["substrates"]["spacing"]
+        # read in substrate spacing in mm along each axis into a list
+        substrate_spacing = config["substrates"]["spacing"]
 
-    # get absolute substrate centres along each axis
-    axis_pos = []
-    for offset, spacing, number, centre in zip(
-        substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
-    ):
-        abs_offset = offset * spacing
-        print(f"Offset from experiment centre: {abs_offset}")
-        axis_pos.append(np.linspace(-abs_offset + centre, abs_offset + centre, number))
+        # get absolute substrate centres along each axis
+        axis_pos = []
+        for offset, spacing, number, centre in zip(
+            substrate_offsets, substrate_spacing, substrate_number, experiment_centre,
+        ):
+            abs_offset = offset * spacing
+            print(f"Offset from experiment centre: {abs_offset}")
+            axis_pos.append(np.linspace(-abs_offset + centre, abs_offset + centre, number))
 
-    print(f"Positions along each axis: {axis_pos}")
+        print(f"Positions along each axis: {axis_pos}")
 
-    # create array of positions
-    substrate_centres = []
-    n_axes = len(axis_pos)
-    if n_axes == 2:
-        for y in axis_pos[1]:
-            substrate_centres += [[x, y] for x in axis_pos[0]]
-    elif n_axes == 1:
-        substrate_centres = [[x] for x in axis_pos[0]]
+        # create array of positions
+        substrate_centres = []
+        n_axes = len(axis_pos)
+        if n_axes == 2:
+            for y in axis_pos[1]:
+                substrate_centres += [[x, y] for x in axis_pos[0]]
+        elif n_axes == 1:
+            substrate_centres = [[x] for x in axis_pos[0]]
 
     print(f"Substrate centres (absolute): {substrate_centres}")
 
