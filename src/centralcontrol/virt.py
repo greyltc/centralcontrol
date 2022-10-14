@@ -315,6 +315,8 @@ class FakeSMU(object):
     _intensity: float = 1.0  # scale Iph by this (simulates variable intensity)
     current_compliance: float = 1.0
     threshold_ohm: float = 33.3
+    compliance_bit_number: int = 3
+    n_status_bits: int = 24
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -484,6 +486,7 @@ class FakeSMU(object):
                 I = self.i_from_v(self.V, Rs, Rsh, Iph, I0, n)
                 # simulate the SMU hitting compliance
                 if abs(I) > abs(self.current_compliance):  # check if we're over the current limit
+                    self.status |= 1 << self.compliance_bit_number  # set compliance bit
                     # set I to correct compliance limit
                     if I >= 0:
                         I = abs(self.current_compliance)
@@ -491,6 +494,8 @@ class FakeSMU(object):
                         I = -1 * abs(self.current_compliance)
                     # then figure out what V should be there, due to compliance
                     self.V = self.v_from_i(I, Rs, Rsh, Iph, I0, n)
+                else:  # we're not violating the current limit
+                    self.status &= (2 ^ self.n_status_bits) ^ (1 << self.compliance_bit_number)  # clear compliance bit
                 self.I = I * -1  # change from cell's POV to SMU's POV
             else:  # we're updating voltage from a known current
                 I = self.I * -1  # change from SMU's POV to cell's POV

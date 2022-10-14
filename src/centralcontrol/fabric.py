@@ -2,43 +2,37 @@
 
 import collections
 import concurrent.futures
+import contextlib
+import datetime
+import hmac
+import json
+import multiprocessing
+import signal
+import threading
 import time
 import traceback
-import hmac
-import humanize
-import datetime
 import typing
-import contextlib
-import json
-import numpy as np
-import multiprocessing
-import threading
-import signal
 from contextlib import contextmanager
 from logging import Logger
-
-from paho.mqtt.client import MQTTMessage
-
-from queue import SimpleQueue as Queue
 from multiprocessing.queues import SimpleQueue as mQueue
+from queue import SimpleQueue as Queue
 
-from slothdb.dbsync import SlothDBSync as SlothDB
+import humanize
+import numpy as np
+from paho.mqtt.client import MQTTMessage
 from slothdb import enums as en
-
-from centralcontrol.illumination import LightAPI
-from centralcontrol.illumination import factory as ill_fac
-
-from centralcontrol.sourcemeter import SourcemeterAPI
-from centralcontrol.sourcemeter import factory as smu_fac
-
-from centralcontrol.mqtt import MQTTClient
-from centralcontrol.mppt import MPPT
+from slothdb.dbsync import SlothDBSync as SlothDB
 
 from centralcontrol import virt
+from centralcontrol.illumination import LightAPI
+from centralcontrol.illumination import factory as ill_fac
+from centralcontrol.logstuff import get_logger
 from centralcontrol.mc import MC
 from centralcontrol.motion import Motion
-
-from centralcontrol.logstuff import get_logger
+from centralcontrol.mppt import MPPT
+from centralcontrol.mqtt import MQTTClient
+from centralcontrol.sourcemeter import SourcemeterAPI
+from centralcontrol.sourcemeter import factory as smu_fac
 
 
 class DataHandler(object):
@@ -628,7 +622,7 @@ class Fabric(object):
             db.complete_run(rid)  # mark run as complete
             # db.vac()  # mantain db
 
-    def standard_routine(self, run_queue: collections.deque, request: dict, conf_a_id: int, conf_b_id: int) -> None:
+    def standard_routine(self, run_queue: list[list[dict]], request: dict, conf_a_id: int, conf_b_id: int) -> None:
         """perform the normal measurement routine on a given list of pixels"""
 
         # int("checkerberrycheddarchew")  # force crash for testing
@@ -705,26 +699,26 @@ class Fabric(object):
         # figure out what the sweeps will be like
         sweeps = []
         if args["sweep_check"] == True:
-            if args["lit_sweep"] == 0:
-                sweeps.append({"light_on": False, "forward": True})
-                sweeps.append({"light_on": True, "forward": True})
+            if args["lit_sweep"] == 0:  # "Dark then Light"
+                sweeps.append({"light_on": False, "first_direction": True})
+                sweeps.append({"light_on": True, "first_direction": True})
                 # sweeps = ["dark", "light"]
-            elif args["lit_sweep"] == 1:
-                sweeps.append({"light_on": True, "forward": True})
-                sweeps.append({"light_on": False, "forward": True})
+            elif args["lit_sweep"] == 1:  # "Light then Dark"
+                sweeps.append({"light_on": True, "first_direction": True})
+                sweeps.append({"light_on": False, "first_direction": True})
                 # sweeps = ["light", "dark"]
-            elif args["lit_sweep"] == 2:
-                sweeps.append({"light_on": False, "forward": True})
+            elif args["lit_sweep"] == 2:  # "Only dark"
+                sweeps.append({"light_on": False, "first_direction": True})
                 # sweeps = ["dark"]
-            elif args["lit_sweep"] == 3:
-                sweeps.append({"light_on": True, "forward": True})
+            elif args["lit_sweep"] == 3:  # "Only light"
+                sweeps.append({"light_on": True, "first_direction": True})
                 # sweeps = ["light"]
 
             # insert the reverse ones if we're doing that
             for i in range(len(sweeps)):
                 if args["return_switch"]:
                     rev_sweep = sweeps[i * 2].copy()
-                    rev_sweep["forward"] = False
+                    rev_sweep["first_direction"] = False
                     sweeps.insert(i * 2 + 1, rev_sweep)
 
         start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
@@ -777,50 +771,52 @@ class Fabric(object):
             lu["layout_ids"] = []
             lu["layout_pad_ids"] = []
             lu["device_ids"] = []
+            lu["smuis"] = []
 
             # register substrates, devices, layouts, layout devices, smus, setup slots
             for group in run_queue:
-                for smui, pixel in group.items():
-                    lu["slots"].append(pixel["slot"])
-                    lu["pads"].append(pixel["pad"])
-                    lu["slot_pad"].append((pixel["slot"], pixel["pad"]))
-                    lu["user_labels"].append(pixel["user_label"])
-                    lu["layouts"].append(pixel["layout"])
+                for device_dict in group:
+                    lu["slots"].append(device_dict["slot"])
+                    lu["pads"].append(device_dict["pad"])
+                    lu["slot_pad"].append((device_dict["slot"], device_dict["pad"]))
+                    lu["user_labels"].append(device_dict["user_label"])
+                    lu["layouts"].append(device_dict["layout"])
+                    lu["smuis"].append(device_dict["smui"])
 
                     # register smu
-                    smus[smui].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[smui].address, "idn": smus[smui].idn})
-                    assert smus[smui].id > 0, "Registering smu failed"
+                    smus[device_dict["smui"]].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[device_dict["smui"]].address, "idn": smus[device_dict["smui"]].idn})
+                    assert smus[device_dict["smui"]].id > 0, "Registering smu failed"
 
-                    pixel["slid"] = db.upsert("tbl_setup_slots", {"name": pixel["slot"], "setup_id": suid})
-                    assert pixel["slid"] > 0, "Registering slot failed"
-                    lu["slot_ids"].append(pixel["slid"])
+                    device_dict["slid"] = db.upsert("tbl_setup_slots", {"name": device_dict["slot"], "setup_id": suid})
+                    assert device_dict["slid"] > 0, "Registering slot failed"
+                    lu["slot_ids"].append(device_dict["slid"])
 
-                    layout_name = pixel["layout"]
+                    layout_name = device_dict["layout"]
                     # get layout version
                     layout_version = None
                     for layout in request["config"]["substrates"]["layouts"]:
                         if layout["name"] == layout_name:
                             layout_version = layout["version"]
-                    pixel["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
-                    assert pixel["loid"] > 0, "Registering layout failed"
-                    lu["layout_ids"].append(pixel["loid"])
+                    device_dict["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
+                    assert device_dict["loid"] > 0, "Registering layout failed"
+                    lu["layout_ids"].append(device_dict["loid"])
 
-                    if pixel["user_label"]:
-                        lbl = pixel["user_label"]
+                    if device_dict["user_label"]:
+                        lbl = device_dict["user_label"]
                     else:
                         lbl = None
 
-                    pixel["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": pixel["loid"]})
-                    assert pixel["sbid"] > 0, "Registering substrate failed"
-                    lu["substrate_ids"].append(pixel["sbid"])
+                    device_dict["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": device_dict["loid"]})
+                    assert device_dict["sbid"] > 0, "Registering substrate failed"
+                    lu["substrate_ids"].append(device_dict["sbid"])
 
-                    pixel["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": pixel["loid"], "pad_no": pixel["pad"]})
-                    assert pixel["ldid"] > 0, "Registering layout device failed"
-                    lu["layout_pad_ids"].append(pixel["ldid"])
+                    device_dict["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": device_dict["loid"], "pad_no": device_dict["pad"]})
+                    assert device_dict["ldid"] > 0, "Registering layout device failed"
+                    lu["layout_pad_ids"].append(device_dict["ldid"])
 
-                    pixel["did"] = db.upsert("tbl_devices", {"substrate_id": pixel["sbid"], "layout_device_id": pixel["ldid"]})
-                    assert pixel["did"] > 0, "Registering device failed"
-                    lu["device_ids"].append(pixel["did"])
+                    device_dict["did"] = db.upsert("tbl_devices", {"substrate_id": device_dict["sbid"], "layout_device_id": device_dict["ldid"]})
+                    assert device_dict["did"] > 0, "Registering device failed"
+                    lu["device_ids"].append(device_dict["did"])
 
             assert len(lu["device_ids"]) == len(list(set(lu["device_ids"]))), "Every device in a run must be unique."
 
@@ -828,8 +824,8 @@ class Fabric(object):
             self.lg.log(29, f"Checking device connectivity...")
             slot_pad = []
             for group in run_queue:
-                for smui, pixel in group.items():
-                    slot_pad.append((pixel["slot"], pixel["pad"]))
+                for device_dict in group:
+                    slot_pad.append((device_dict["slot"], device_dict["pad"]))
             slot_pad.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
             pads = [x[1] for x in slot_pad]
             slots = [x[0] for x in slot_pad]
@@ -914,7 +910,7 @@ class Fabric(object):
                 t0 = time.time()  # run start time snapshot
 
                 while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
-                    q_item = run_queue.popleft()  # pop off the queue item that we'll be working on in this loop
+                    group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
 
                     dt = time.time() - t0  # seconds since run start
                     if (n_done > 0) and (args["cycles"] != 0):
@@ -928,11 +924,11 @@ class Fabric(object):
                         progress_msg = {"text": text, "fraction": fraction}
                         self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-                    n_parallel = len(q_item)  # how many pixels this group holds
-                    dev_labels = [val["device_label"] for key, val in q_item.items()]
+                    n_parallel = len(group)  # how many pixels this group holds
+                    dev_labels = [device_dict["device_label"] for device_dict in group]
                     dev_labp = [f"[{l}]" for l in dev_labels]
                     print_label = f'{", ".join(dev_labp)}'
-                    theres = np.array([val["pos"] for key, val in q_item.items()])
+                    theres = np.array([device_dict["pos"] for device_dict in group])
                     self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
                     if n_parallel > 1:
                         there = tuple(theres.mean(0))  # the average location of the group
@@ -954,30 +950,30 @@ class Fabric(object):
                         mo.goto(there)  # command the stage
 
                     # select pixel(s)
-                    pix_selections = [val["mux_sel"] for key, val in q_item.items()]
+                    pix_selections = [device_dict["mux_sel"] for device_dict in group]
                     pix_deselections = [(slot, 0) for slot, pad in pix_selections]
                     Fabric.select_pixel(mc, mux_sels=pix_selections)
 
                     # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(smus), thread_name_prefix="device") as executor:
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
 
                         # keeps track of the parallelized objects
                         futures: list[concurrent.futures.Future] = []
 
-                        for smu_index, pixel in q_item.items():
-                            this_smu = smus[smu_index]
-                            this_mppt = mppts[smu_index]
+                        for device_dict in group:
+                            this_smu = smus[device_dict["smui"]]
+                            this_mppt = mppts[device_dict["smui"]]
 
                             # setup data handler for this device
-                            dh = DataHandler(pixel=pixel, outq=self.outq)
+                            dh = DataHandler(pixel=device_dict, outq=self.outq)
 
                             # set virtual smu scaling (just so it knows how much current to produce)
                             if isinstance(this_smu, virt.FakeSMU):
-                                this_smu.area = pixel["area"]
-                                this_smu.dark_area = pixel["dark_area"]
+                                this_smu.area = device_dict["area"]
+                                this_smu.dark_area = device_dict["dark_area"]
 
                             # submit for processing
-                            futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, pixel, suid))
+                            futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
                             futures[-1].add_done_callback(self.on_device_routine_done)
 
                         # wait for the futures to come back
@@ -1135,10 +1131,9 @@ class Fabric(object):
 
             # perform sweeps
             for sweep in sweeps:
-                if sweep["forward"]:
+                if sweep["first_direction"]:
                     start_setpoint = args["sweep_start"]
                     end_setpoint = args["sweep_end"]
-                    self.clear_plot("iv_measurement")
                     sweep_index = 1
                 else:
                     start_setpoint = args["sweep_end"]
@@ -1152,11 +1147,15 @@ class Fabric(object):
                 # sweeps may or may not need light
                 if sweep["light_on"]:
                     ss.lit = True
+                    if sweep["first_direction"]:
+                        self.clear_plot("iv_measurement")
                     if isinstance(sm, virt.FakeSMU):
                         sm.intensity = ss.intensity / 100  # tell the simulated device how much light it's getting
                     compliance_area = pix["area"]
                 else:
                     ss.lit = False
+                    if sweep["first_direction"]:
+                        self.clear_plot("iv_measurement")
                     if isinstance(sm, virt.FakeSMU):
                         sm.intensity = 0  # tell the simulated device how much light it's getting
                     compliance_area = pix["dark_area"]
@@ -1195,6 +1194,7 @@ class Fabric(object):
                 sweepeid = db.upsert("tbl_sweep_events", {"complete": True}, id=sweepeid)
                 assert sweepeid > 0, "Marking sweep event complete failed"
                 # do legacy data handling
+
                 dh.handle_data(iv, dodb=False)  # type: ignore
                 # keep the data
                 data += iv
@@ -1437,7 +1437,7 @@ class Fabric(object):
         """send a message asking a plot to clear its data"""
         self.outq.put({"topic": f"plotter/{kind}/clear", "payload": json.dumps(""), "qos": 2})
 
-    def get_things_to_measure(self, request: dict) -> collections.deque:
+    def get_things_to_measure(self, request: dict) -> list[list[dict]]:
         """tabulate a list of items to loop through during the measurement"""
         # int("checkerberrycheddarchew")  # force crash for testing
 
@@ -1449,7 +1449,7 @@ class Fabric(object):
         stuff_name = list(stuff.keys())[0]
         bd = stuff[stuff_name]
 
-        run_q = collections.deque()  # TODO: check if this could just be a list
+        run_q = []  # collections.deque()  # TODO: check if this could just be a list
 
         if "slots" in request:
             # int("checkerberrycheddarchew")  # force crash for testing
@@ -1515,13 +1515,14 @@ class Fabric(object):
         if len(request["config"]["smus"]) > 1:  # multismu case
             grouping = request["config"]["slots"]["group_order"]
             for group in grouping:
-                group_dict = {}
+                group_list = []
                 for smu_index, device in enumerate(group):
                     sort_slot, sort_pad = device  # the slot, pad to sort on
 
                     for i, slot in enumerate(bd["slot"]):
                         if (slot, bd["pad"][i]) == (sort_slot, sort_pad):  # we have a match
                             pixel_dict = {}
+                            pixel_dict["smui"] = smu_index
                             pixel_dict["layout"] = bd["layout"][i]
                             pixel_dict["slot"] = bd["slot"][i]
                             pixel_dict["device_label"] = bd["device_label"][i]
@@ -1579,9 +1580,9 @@ class Fabric(object):
                             pixel_dict["area"] = area
                             pixel_dict["dark_area"] = dark_area
 
-                            group_dict[smu_index] = pixel_dict
-                if len(group_dict) > 0:
-                    run_q.append(group_dict)
+                            group_list.append(pixel_dict)
+                if len(group_list) > 0:
+                    run_q.append(group_list)
         # else:  # single smu case
         #    pass
         # # here we build up the pixel handling queue by iterating
@@ -1602,6 +1603,14 @@ class Fabric(object):
         #         pixel_dict["area"] = things["area"]
         #     pixel_dict["mux_sel"] = (things["slot"], int(things["pad"]))
         #     run_q.append({0: pixel_dict})
+
+        # disable turbo (parallel, multi smu) mode by unwrapping the groups
+        if ("turbo_mode" in args) and (args["turbo_mode"] == False):
+            unwrapped_run_queue = []
+            for group in run_q:
+                for pixel_dict in group:
+                    unwrapped_run_queue.append([pixel_dict])
+            run_q = unwrapped_run_queue  # overwrite the run_queue with its unwrapped version
 
         return run_q
 
