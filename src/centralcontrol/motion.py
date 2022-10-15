@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-from centralcontrol.afms import AFMS
-from centralcontrol.us import Us
 import json
-from urllib.parse import urlparse, parse_qs
-from centralcontrol.logstuff import get_logger
 import math
+from urllib.parse import parse_qs, urlparse
+
+from centralcontrol.afms import AFMS
+from centralcontrol.logstuff import get_logger
+from centralcontrol.us import Us
 
 
 class Motion(object):

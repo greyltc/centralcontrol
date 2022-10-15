@@ -193,8 +193,8 @@ class Fabric(object):
         if "stage_virt" in task:
             if task["stage_virt"] == True:
                 ThisStageMC = virt.FakeMC
-        if "pcb_virt" in task:
-            if task["pcb_virt"] == True:
+        if "mc_virt" in task:
+            if task["mc_virt"] == True:
                 ThisMC = virt.FakeMC
 
         if "cmd" in task:
@@ -219,50 +219,52 @@ class Fabric(object):
             self.lg.debug(f"{cmd=} complete!")
 
     @staticmethod
-    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], device_grouping: list[list[list]]) -> list[dict]:
+    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], smuis: list[int]) -> list[dict]:
         """get a list of resistance values for all the connection pads of a given device list"""
         conns = []  # holds the connection info
         if len(slots) > 0:
             hconns = []
-            for slot, pad in zip(slots, pads):  # hi-side lines
+            for i in range(len(slots)):
+                # for slot, pad in zip(slots, pads):  # hi-side lines
                 line = {}
-                line["slot"] = slot
-                if slot == "OFF":
+                line["slot"] = slots[i]
+                if slots[i] == "OFF":
                     pad = "HI"
                     dlp = f"{0:05}"
-                    smi = 0
                 else:
+                    pad = pads[i]
                     if pad == 0:
                         dlp = f"{0:05}"
                     else:
                         dlp = f"{(1<<(7+pad)):05}"
-                    smi = SourcemeterAPI.which_smu(device_grouping, [slot, pad])
                 line["pad"] = pad
                 line["dlp"] = dlp  # use direct latch programming for the odd mux configs here
-                line["smi"] = smi
+                line["smi"] = smuis[i]
                 hconns.append(line)
 
             # lo side stuff
             lconns = []  # holds the connection info
-            uslots = list(set(slots))  # unique substrates
+            # uslots = list(set(slots))  # unique substrates
+            uidx = [slots.index(x) for x in set(slots)]  # indicies of unique slots
             lo_side_mux_strings = [("TOP", f"{(1<<0):05}"), ("BOT", f"{(1<<1):05}")]
-            for uslot in uslots:
+            for i in uidx:
                 for pad, sel in lo_side_mux_strings:
                     line = {}
-                    line["slot"] = uslot
-                    if uslot == "OFF":
+                    line["slot"] = slots[i]
+                    if slots[i] == "OFF":
                         line["pad"] = "LO"
                         line["dlp"] = f"{0:05}"
-                        line["smi"] = 0
+                        line["smi"] = smuis[i]
                         lconns.append(line)
                         break
                     else:
                         line["pad"] = pad
                         line["dlp"] = sel
-                        line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
-                        if line["smi"] is None:
-                            # if the smu isn't registered in the config under pad# 1, try pad# 0
-                            line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 0])
+                        line["smi"] = smuis[i]
+                        # line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 1])
+                        # if line["smi"] is None:
+                        #    # if the smu isn't registered in the config under pad# 1, try pad# 0
+                        #    line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 0])
                         lconns.append(line)
 
             Fabric.select_pixel(mc)  # ensure we start with devices all deselected
@@ -298,21 +300,51 @@ class Fabric(object):
         """handles message from the frontend requesting a round robin-type thing"""
         slots = task["slots"]
         pads = task["pads"]
-        ms = [(slot, pad) for slot, pad in zip(slots, pads)]
+        dev_layouts = task["dev_layouts"]
+        layouts = task["layouts"]
         dev_grp = task["group_order"]
+        user_labels = task["labels"]
+        ms = [(slot, pad) for slot, pad in zip(slots, pads)]
+
+        dev_dicts = []
+        for i in range(len(slots)):
+            dev_dict = {}
+            dev_dict["slot"] = slots[i]
+            dev_dict["pad"] = pads[i]
+            dev_dict["layout"] = dev_layouts[i]
+            dev_dict["user_label"] = user_labels[i]
+            dev_dict["smui"] = SourcemeterAPI.which_smu(dev_grp, [slots[i], pads[i]])  # figure out which smu owns the device
+            dev_dicts.append(dev_dict)
+        smuis = [dd["smui"] for dd in dev_dicts]
 
         # inject the no connect case
         slots.insert(0, "OFF")
         pads.insert(0, 0)
+        smuis.insert(0, 0)
         ms.insert(0, ("OFF", 0))
 
-        if len(slots) > 0:
+        if len(dev_dicts) > 0:
             with contextlib.ExitStack() as stack:  # handles the proper cleanup of the hardware
-                mc = stack.enter_context(AnMC(task["pcb"], timeout=5))
+                mc = stack.enter_context(AnMC(task["mc"], timeout=5))
+                db = stack.enter_context(SlothDB(db_uri=task["db_uri"]))
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smus"]]
+                suid = Fabric.get_suid(task["conf_id"], db)
+                assert suid > 0, "Fetching setup id failed"
+
+                lu = Fabric.registerer(db, dev_dicts, suid, smus, layouts)
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
-                    rs = Fabric.get_pad_rs(mc, smus, pads, slots, dev_grp)
+                    rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
+                    for r in rs:
+                        if r["slot"] in lu["slots"]:  # make sure we don't try to register OFF
+                            to_upsert = {}
+                            to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
+                            to_upsert["setup_slot_id"] = lu["slot_ids"][lu["slots"].index(r["slot"])]
+                            to_upsert["pad_name"] = str(r["pad"])
+                            to_upsert["pass"] = r["data"][0]
+                            to_upsert["r"] = r["data"][1]
+                            r["ccid"] = db.upsert("tbl_contact_checks", to_upsert)
+                            assert r["ccid"] > 0, "Registering contact check result failed"
                     self.lg.debug(repr(rs))
                     for line in rs:
                         if not line["data"][0]:
@@ -329,18 +361,12 @@ class Fabric(object):
                             sm.setupDC(sourceVoltage=False, compliance=sm.voltage_limit, setPoint=0.001, senseRange="f", ohms=True)
                     for i, slot in enumerate(slots):
                         pad = pads[i]
-                        if slot == "none":
+                        if slot == "OFF":
                             slot_words = "[Everything disconnected]"
                         else:
                             slot_words = f"[{slot}{pad:n}]"
                         Fabric.select_pixel(mc, [ms[i]])  # select the device
-                        if slot == "none":
-                            smui = 0  # I guess we should just use smu[0] for the all switches open case
-                        else:
-                            smui = SourcemeterAPI.which_smu(dev_grp, [slot, pad])  # figure out which smu owns the device
-                        if smui is None:
-                            smui = 0
-                            self.lg.warning("Assuming the first SMU is the right one")
+                        smui = smuis[i]
                         if smus[smui].idn != "disabled":
                             if task["type"] == "current":
                                 m = smus[smui].measure()[0]
@@ -376,10 +402,10 @@ class Fabric(object):
 
     def util_check_health(self, task: dict, AnMC: type[MC] | type[virt.FakeMC], AStageMC: type[MC] | type[virt.FakeMC]):
         """handles message from the frontend requesting a utility health check"""
-        if "pcb" in task:
-            self.lg.log(29, f'Checking MC@{task["pcb"]}...')
+        if "mc" in task:
+            self.lg.log(29, f'Checking MC@{task["mc"]}...')
             try:
-                with AnMC(task["pcb"], timeout=5) as mc:
+                with AnMC(task["mc"], timeout=5) as mc:
                     self.lg.debug(f"MC firmware version: {mc.firmware_version}")
                     self.lg.debug(f"MC axes: {mc.detected_axes}")
                     self.lg.debug(f"MC muxes: {mc.detected_muxes}")
@@ -476,11 +502,11 @@ class Fabric(object):
 
     def util_mc_cmd(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """utility function for mc direct interaction"""
-        with AnMC(task["pcb"], timeout=5) as mc:
+        with AnMC(task["mc"], timeout=5) as mc:
             # special case for pixel selection to avoid parallel connections
-            if task["pcb_cmd"].startswith("s") and ("stream" not in task["pcb_cmd"]) and (len(task["pcb_cmd"]) != 1):
+            if task["mc_cmd"].startswith("s") and ("stream" not in task["mc_cmd"]) and (len(task["mc_cmd"]) != 1):
                 mc.query("s")  # deselect all before selecting one
-            result = mc.query(task["pcb_cmd"])
+            result = mc.query(task["mc_cmd"])
             if result == "":
                 self.lg.debug(f"Command acknowledged: {task['pcb_cmd']}")
             else:
@@ -488,7 +514,7 @@ class Fabric(object):
 
     def util_goto(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """utility function to send the stage somewhere"""
-        with AnMC(task["pcb"], timeout=5) as mc:
+        with AnMC(task["mc"], timeout=5) as mc:
             mo = Motion(address=task["stage_uri"], pcb_object=mc)
             assert mo.connect() == 0, f"{(mo.connect() == 0)=}"  # make connection to motion system
             mo.goto(task["pos"])
@@ -496,14 +522,14 @@ class Fabric(object):
 
     def util_read_stage(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """utility function to send the stage's position up to the front end"""
-        with AnMC(task["pcb"], timeout=5) as mc:
+        with AnMC(task["mc"], timeout=5) as mc:
             mo = Motion(address=task["stage_uri"], pcb_object=mc)
             assert mo.connect() == 0, f"{(mo.connect() == 0)=}"  # make connection to motion system
             self.send_pos(mo)
 
     def home_stage(self, task: dict, AnMC: type[MC] | type[virt.FakeMC]):
         """homes the stage"""
-        with AnMC(task["pcb"], timeout=5) as mc:
+        with AnMC(task["mc"], timeout=5) as mc:
             mo = Motion(address=task["stage_uri"], pcb_object=mc)
             assert mo.connect() == 0, f"{(mo.connect() == 0)=}"  # make connection to motion system
             if task["force"] == True:
@@ -738,98 +764,30 @@ class Fabric(object):
             mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
             smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
 
-            # query the db for this setup id
-            sql = f"""
-            select
-                setup_id
-            from
-                {db.schema}.tbl_conf_as
-            join {db.schema}.tbl_mux on
-                mux_set_hash_id = tbl_mux.id
-            join {db.schema}.tbl_setup_slots on
-                tbl_mux.slot_id = tbl_setup_slots.id
-            where
-                tbl_conf_as.id = {conf_a_id}
-            """
-            code, rslt = db.ask(sql)
-            if (code == 0) and rslt:
-                suid = rslt[0][0]
-            else:
-                suid = 0
+            suid = Fabric.get_suid(conf_a_id, db)
             assert suid > 0, "Fetching setup id failed"
 
-            # lookup construct to make looking things up later easier
-            lu = {}
-            lu["setup_id"] = suid
-            lu["slots"] = []
-            lu["slot_ids"] = []
-            lu["pads"] = []
-            lu["slot_pad"] = []
-            lu["user_labels"] = []
-            lu["substrate_ids"] = []
-            lu["layouts"] = []
-            lu["layout_ids"] = []
-            lu["layout_pad_ids"] = []
-            lu["device_ids"] = []
-            lu["smuis"] = []
+            # glather the list of device dicts
+            device_dicts = [dd for group in run_queue for dd in group]
+            layouts = request["config"]["substrates"]["layouts"]
 
             # register substrates, devices, layouts, layout devices, smus, setup slots
-            for group in run_queue:
-                for device_dict in group:
-                    lu["slots"].append(device_dict["slot"])
-                    lu["pads"].append(device_dict["pad"])
-                    lu["slot_pad"].append((device_dict["slot"], device_dict["pad"]))
-                    lu["user_labels"].append(device_dict["user_label"])
-                    lu["layouts"].append(device_dict["layout"])
-                    lu["smuis"].append(device_dict["smui"])
-
-                    # register smu
-                    smus[device_dict["smui"]].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[device_dict["smui"]].address, "idn": smus[device_dict["smui"]].idn})
-                    assert smus[device_dict["smui"]].id > 0, "Registering smu failed"
-
-                    device_dict["slid"] = db.upsert("tbl_setup_slots", {"name": device_dict["slot"], "setup_id": suid})
-                    assert device_dict["slid"] > 0, "Registering slot failed"
-                    lu["slot_ids"].append(device_dict["slid"])
-
-                    layout_name = device_dict["layout"]
-                    # get layout version
-                    layout_version = None
-                    for layout in request["config"]["substrates"]["layouts"]:
-                        if layout["name"] == layout_name:
-                            layout_version = layout["version"]
-                    device_dict["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
-                    assert device_dict["loid"] > 0, "Registering layout failed"
-                    lu["layout_ids"].append(device_dict["loid"])
-
-                    if device_dict["user_label"]:
-                        lbl = device_dict["user_label"]
-                    else:
-                        lbl = None
-
-                    device_dict["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": device_dict["loid"]})
-                    assert device_dict["sbid"] > 0, "Registering substrate failed"
-                    lu["substrate_ids"].append(device_dict["sbid"])
-
-                    device_dict["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": device_dict["loid"], "pad_no": device_dict["pad"]})
-                    assert device_dict["ldid"] > 0, "Registering layout device failed"
-                    lu["layout_pad_ids"].append(device_dict["ldid"])
-
-                    device_dict["did"] = db.upsert("tbl_devices", {"substrate_id": device_dict["sbid"], "layout_device_id": device_dict["ldid"]})
-                    assert device_dict["did"] > 0, "Registering device failed"
-                    lu["device_ids"].append(device_dict["did"])
-
-            assert len(lu["device_ids"]) == len(list(set(lu["device_ids"]))), "Every device in a run must be unique."
+            # to get a lookup construct
+            lu = Fabric.registerer(db, device_dicts, suid, smus, layouts)
+            assert len(lu["device_ids"]) == len(set(lu["device_ids"])), "Every device in a run must be unique."
 
             # check connectivity
             self.lg.log(29, f"Checking device connectivity...")
             slot_pad = []
+            smuis = []
             for group in run_queue:
-                for device_dict in group:
+                for smui, device_dict in enumerate(group):
                     slot_pad.append((device_dict["slot"], device_dict["pad"]))
+                    smuis.append(smui)
             slot_pad.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
             pads = [x[1] for x in slot_pad]
             slots = [x[0] for x in slot_pad]
-            rs = Fabric.get_pad_rs(mc, smus, pads, slots, config["slots"]["group_order"])
+            rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
             for r in rs:
                 to_upsert = {}
                 to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
@@ -1616,11 +1574,11 @@ class Fabric(object):
 
     def estop(self, request):
         """emergency stop of the stage"""
-        if request["pcb_virt"]:
+        if request["mc_virt"]:
             ThisMC = virt.FakeMC
         else:
             ThisMC = MC
-        with ThisMC(request["pcb"]) as mc:
+        with ThisMC(request["mc"]) as mc:
             mc.query("b")  # TODO: consider checking return value
         self.lg.warning("Emergency stop command issued. Re-Homing required before any further movements.")
 
@@ -1653,3 +1611,97 @@ class Fabric(object):
         if r < r0:
             t += poly(r)
         return t
+
+    @staticmethod
+    def registerer(db: SlothDB, device_dicts: list[dict], suid: int, smus: list, layouts: list | None = None) -> dict:
+        """register substrates, devices, layouts, layout devices and setup slots with
+        the db to get the ids for these to put into a lookup construct"""
+
+        lu = {}  # a lookup construct to make looking things up later easier
+        lu["setup_id"] = suid
+        lu["slots"] = []
+        lu["slot_ids"] = []
+        lu["pads"] = []
+        lu["slot_pad"] = []
+        lu["user_labels"] = []
+        lu["substrate_ids"] = []
+        lu["layouts"] = []
+        lu["layout_ids"] = []
+        lu["layout_pad_ids"] = []
+        lu["device_ids"] = []
+        lu["smuis"] = []
+
+        # register substrates, devices, layouts, layout devices, smus, setup slots
+        for device_dict in device_dicts:
+            lu["slots"].append(device_dict["slot"])
+            lu["pads"].append(device_dict["pad"])
+            lu["slot_pad"].append((device_dict["slot"], device_dict["pad"]))
+            lu["smuis"].append(device_dict["smui"])
+
+            # register smu
+            smus[device_dict["smui"]].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[device_dict["smui"]].address, "idn": smus[device_dict["smui"]].idn})
+            assert smus[device_dict["smui"]].id > 0, "Registering smu failed"
+
+            device_dict["slid"] = db.upsert("tbl_setup_slots", {"name": device_dict["slot"], "setup_id": suid})
+            assert device_dict["slid"] > 0, "Registering slot failed"
+            lu["slot_ids"].append(device_dict["slid"])
+
+            if "user_label" in device_dict:
+                lu["user_labels"].append(device_dict["user_label"])
+
+            if "layout" in device_dict:
+                lu["layouts"].append(device_dict["layout"])
+                layout_name = device_dict["layout"]
+                if layouts:
+                    # get layout version
+                    layout_version = None
+                    for layout in layouts:
+                        if layout["name"] == layout_name:
+                            layout_version = layout["version"]
+
+                    device_dict["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
+                    assert device_dict["loid"] > 0, "Registering layout failed"
+                    lu["layout_ids"].append(device_dict["loid"])
+
+                    device_dict["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": device_dict["loid"], "pad_no": device_dict["pad"]})
+                    assert device_dict["ldid"] > 0, "Registering layout device failed"
+                    lu["layout_pad_ids"].append(device_dict["ldid"])
+
+                    if "user_label" in device_dict:
+                        if device_dict["user_label"]:
+                            lbl = device_dict["user_label"]
+                        else:
+                            lbl = None
+
+                        device_dict["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": device_dict["loid"]})
+                        assert device_dict["sbid"] > 0, "Registering substrate failed"
+                        lu["substrate_ids"].append(device_dict["sbid"])
+
+                        device_dict["did"] = db.upsert("tbl_devices", {"substrate_id": device_dict["sbid"], "layout_device_id": device_dict["ldid"]})
+                        assert device_dict["did"] > 0, "Registering device failed"
+                        lu["device_ids"].append(device_dict["did"])
+
+        return lu
+
+    @staticmethod
+    def get_suid(conf_a_id: int, db: SlothDB) -> int:
+        """query the db for a setup id associated with conf type a"""
+        sql = f"""
+        select
+            setup_id
+        from
+            {db.schema}.tbl_conf_as
+        join {db.schema}.tbl_mux on
+            mux_set_hash_id = tbl_mux.id
+        join {db.schema}.tbl_setup_slots on
+            tbl_mux.slot_id = tbl_setup_slots.id
+        where
+            tbl_conf_as.id = {conf_a_id}
+        """
+        code, rslt = db.ask(sql)
+        if (code == 0) and rslt:
+            suid = rslt[0][0]
+        else:
+            suid = 0
+
+        return suid
