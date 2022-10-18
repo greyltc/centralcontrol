@@ -3,7 +3,7 @@ requires = ["hatchling>=1.10.0", "hatch-vcs>=0.2.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "centracontrol"
+name = "centralcontrol"
 description = "instrument control backend"
 readme = "README.md"
 license = "GPL-3.0-or-later"
