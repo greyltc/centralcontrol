@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
-from telnetlib import Telnet
+import os
 import socket
 import time
-import os
+from telnetlib import Telnet
 
 from centralcontrol.logstuff import get_logger
 

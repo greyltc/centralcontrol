@@ -5,6 +5,7 @@ import concurrent.futures
 import contextlib
 import datetime
 import hmac
+import importlib.metadata
 import json
 import multiprocessing
 import signal
@@ -834,7 +835,7 @@ class Fabric(object):
                 mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
             assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
-            rid = db.register_run(uid, conf_a_id, conf_b_id, name=args["run_name_prefix"])  # register a new run
+            rid = db.register_run(uid, conf_a_id, conf_b_id, importlib.metadata.version("centralcontrol"), name=args["run_name_prefix"])  # register a new run
             assert rid > 0, "Saving run config failed"
 
             for r in rs:  # now go back and attach this run id to the contact check results that go with it
