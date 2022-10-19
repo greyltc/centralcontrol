@@ -1,11 +1,13 @@
-import mpmath
-import time
-import numpy
-import random
-import inspect
 import collections
-from threading import Event as tEvent
+import inspect
+import random
+import time
 from multiprocessing.synchronize import Event as mEvent
+from threading import Event as tEvent
+
+import mpmath
+import numpy
+
 from centralcontrol.logstuff import get_logger
 
 
@@ -309,14 +311,17 @@ class FakeSMU(object):
     address: str | None = None
     cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
     cc_mode = "none"  # contact check mode
-    area: float = 1.0
-    dark_area: float = 1.0
+    _dark_area: float = 1.0
     _area: float = 1.0
+    _calc_area: float
     _intensity: float = 1.0  # scale Iph by this (simulates variable intensity)
     current_compliance: float = 1.0
     threshold_ohm: float = 33.3
     compliance_bit_number: int = 3
     n_status_bits: int = 24
+
+    # if non-zero, we have a resistor of this ohm value connected instead of a solar cell
+    resistor_connected = 0
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
@@ -327,6 +332,13 @@ class FakeSMU(object):
         self.t0 = time.time()
         self.measurementTime = 0.01  # [s] the time it takes the simulated sourcemeter to make a measurement
 
+        # here we choose some numbers for our simulated solar cell model
+        self.Iphd = 23  # photocurrent density, in mA/cm^2 (where cm^2 is for illuminated area)
+        self.I0d = 1e-12  # dark current density in mA/cm^2 (where cm^2 is for physical device area)
+        self.n = 1.3  # diode ideality factor
+        self.Rsa = 1.8  # arial series resistance [ohm*cm^2] (where cm^2 is for physical device area)
+        self.Rsha = 8e2  # arial shunt resistance [ohm*cm^2] (where cm^2 is for physical device area)
+
         if "killer" in kwargs:
             self.killer = kwargs["killer"]
 
@@ -336,19 +348,17 @@ class FakeSMU(object):
         if "cc_mode" in kwargs:
             self.cc_mode = kwargs["cc_mode"]
 
-        # if non-zero, we have a resistor of this ohm value connected instead of a solar cell
-        self.resistor_connected = 0
+        if "Rsa" in kwargs:
+            self.Rsa = kwargs["Rsa"]
 
-        # these will get updated externally as needed
-        self.current_compliance = 1.0  # A
-        # self.dark = False  # if we're in the dark, do computations with Iph = 0
+        if "Rsha" in kwargs:
+            self.Rsha = kwargs["Rsha"]
 
-        # here we choose some numbers for our simulated solar cell model
-        self.Iphd = 23  # photocurrent density, in mA/cm^2 (where cm^2 is for illuminated area)
-        self.I0d = 1e-12  # dark current density in mA/cm^2 (where cm^2 is for physical device area)
-        self.n = 1.3  # diode ideality factor
-        self.Rsa = 1.8  # arial series resistance [ohm*cm^2] (where cm^2 is for physical device area)
-        self.Rsha = 8e2  # arial shunt resistance [ohm*cm^2] (where cm^2 is for physical device area)
+        if "area" in kwargs:
+            self.area = kwargs["area"]
+
+        if "dark_area" in kwargs:
+            self.dark_area = kwargs["dark_area"]
 
         self.cellTemp = 40.25  # degC
         self.T = 273.15 + self.cellTemp  # cell temp in K
@@ -357,6 +367,11 @@ class FakeSMU(object):
         self.Vth = mpmath.mpf(self.K * self.T / self.q)  # thermal voltage ~26mv
         # self.V = 0  # voltage across device
         self.I = 0  # current through device
+
+        if "intensity" in kwargs:
+            self.intensity = kwargs["intensity"]
+        else:
+            self._calc_area = self.area
         self.update(current=False)  # sets self.V to Voc
 
         # for sweeps:
@@ -380,16 +395,35 @@ class FakeSMU(object):
 
     @intensity.setter
     def intensity(self, value):
+
+        if value > 0:
+            self._calc_area = self._area
+        else:
+            self._calc_area = self._dark_area
+
         if value != self._intensity:  # there's an intensity change
             self._intensity = value
-            if value > 0:
-                self._area = self.area
-            else:
-                self._area = self.dark_area
+
             if self.I == 0:  # open circuit case
                 self.update(current=False)
             else:
                 self.update(current=True)
+
+    @property
+    def area(self):
+        return self._area
+
+    @area.setter
+    def area(self, value):
+        self._area = value
+
+    @property
+    def dark_area(self):
+        return self._dark_area
+
+    @dark_area.setter
+    def dark_area(self, value):
+        self._dark_area = value
 
     def connect(self):
         self.idn = "Virtual Sourcemeter"
@@ -476,12 +510,12 @@ class FakeSMU(object):
                 self.V = self.I * self.resistor_connected
         else:
 
-            Rs = self.Rsa / self._area
-            Rsh = self.Rsha / self._area
+            Rs = self.Rsa / self._calc_area
+            Rsh = self.Rsha / self._calc_area
             n = self.n
-            I0 = self.I0d * self._area / 1000
+            I0 = self.I0d * self._calc_area / 1000
             iph_scale = self._intensity
-            Iph = self.Iphd * self._area / 1000 * iph_scale
+            Iph = self.Iphd * self._calc_area / 1000 * iph_scale
             if current:  # we're updating current from a known voltage
                 I = self.i_from_v(self.V, Rs, Rsh, Iph, I0, n)
                 # simulate the SMU hitting compliance
