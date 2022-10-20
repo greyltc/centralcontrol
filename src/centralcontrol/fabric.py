@@ -838,6 +838,12 @@ class Fabric(object):
             rid = db.register_run(uid, conf_a_id, conf_b_id, importlib.metadata.version("centralcontrol"), name=args["run_name_prefix"])  # register a new run
             assert rid > 0, "Saving run config failed"
 
+            # register what's in what slot for this run
+            for substrate_id in set(lu["substrate_ids"]):
+                slot_id = lu["slot_ids"][lu["substrate_ids"].index(substrate_id)]
+                id = db.upsert("tbl_slot_substrate_run_mappings", {"run_id": rid, "slot_id": slot_id, "substrate_id": substrate_id}, expect_mod=True)
+                assert id > 0, "Registering slot substrate mapping failed"
+
             for r in rs:  # now go back and attach this run id to the contact check results that go with it
                 id = db.upsert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
                 assert id > 0, "Updating contact check failed"
