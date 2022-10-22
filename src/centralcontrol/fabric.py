@@ -844,6 +844,11 @@ class Fabric(object):
                 id = db.upsert("tbl_slot_substrate_run_mappings", {"run_id": rid, "slot_id": slot_id, "substrate_id": substrate_id}, expect_mod=True)
                 assert id > 0, "Registering slot substrate mapping failed"
 
+            # register the devices selected for measurement in this run
+            run_devices = [(rid, did) for did in lu["device_ids"]]
+            rslt = db.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
+            assert rslt > 0, "Registering run-devices failed"
+
             for r in rs:  # now go back and attach this run id to the contact check results that go with it
                 id = db.upsert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
                 assert id > 0, "Updating contact check failed"
@@ -1638,7 +1643,7 @@ class Fabric(object):
         lu["device_ids"] = []
         lu["smuis"] = []
 
-        # register substrates, devices, layouts, layout devices, smus, setup slots
+        # register substrates, devices, layouts, layout devices, smus, setup slots, run-devices
         for device_dict in device_dicts:
             lu["slots"].append(device_dict["slot"])
             lu["pads"].append(device_dict["pad"])
@@ -1649,6 +1654,7 @@ class Fabric(object):
             smus[device_dict["smui"]].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[device_dict["smui"]].address, "idn": smus[device_dict["smui"]].idn})
             assert smus[device_dict["smui"]].id > 0, "Registering smu failed"
 
+            # register setup slot
             device_dict["slid"] = db.upsert("tbl_setup_slots", {"name": device_dict["slot"], "setup_id": suid})
             assert device_dict["slid"] > 0, "Registering slot failed"
             lu["slot_ids"].append(device_dict["slid"])
@@ -1666,10 +1672,12 @@ class Fabric(object):
                         if layout["name"] == layout_name:
                             layout_version = layout["version"]
 
+                    # register layout
                     device_dict["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
                     assert device_dict["loid"] > 0, "Registering layout failed"
                     lu["layout_ids"].append(device_dict["loid"])
 
+                    # register layout-device
                     device_dict["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": device_dict["loid"], "pad_no": device_dict["pad"]})
                     assert device_dict["ldid"] > 0, "Registering layout device failed"
                     lu["layout_pad_ids"].append(device_dict["ldid"])
@@ -1680,10 +1688,12 @@ class Fabric(object):
                         else:
                             lbl = None
 
+                        # register substrate
                         device_dict["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": device_dict["loid"]})
                         assert device_dict["sbid"] > 0, "Registering substrate failed"
                         lu["substrate_ids"].append(device_dict["sbid"])
 
+                        # register device
                         device_dict["did"] = db.upsert("tbl_devices", {"substrate_id": device_dict["sbid"], "layout_device_id": device_dict["ldid"]})
                         assert device_dict["did"] > 0, "Registering device failed"
                         lu["device_ids"].append(device_dict["did"])
