@@ -638,7 +638,7 @@ class FakeSMU(object):
         else:
             raise ValueError("What?")
 
-    def measure_until(self, t_dwell=float("Infinity"), measurements=float("Infinity"), cb=lambda x: None):
+    def measure_until(self, t_dwell=float("Infinity"), measurements=float("Infinity"), cb=lambda x: None) -> list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]:
         """Meakes measurements until termination conditions are met
         supports a callback after every measurement
         returns a queqe of measurements
@@ -650,7 +650,7 @@ class FakeSMU(object):
             i = i + 1
             msmt = self.measure()
             cb(msmt)
-            q.append(msmt)
+            q += msmt
         return q
 
     def measure(self, nPoints=1) -> list[tuple[float, float, float, int]] | list[tuple[float, float, float, float, int]]:
