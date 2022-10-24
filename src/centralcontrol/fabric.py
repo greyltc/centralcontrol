@@ -1029,6 +1029,7 @@ class Fabric(object):
                     isweep_event["fixed"] = en.Fixed.CURRENT
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities
+                    isweep_event["effective_area"] = pix["area"]
                     isweepeid = db.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
                     assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
                     # data collection prep
@@ -1053,6 +1054,7 @@ class Fabric(object):
                 ss_event["device_id"] = pix["did"]
                 ss_event["fixed"] = en.Fixed.CURRENT
                 ss_event["setpoint"] = args["i_dwell_value"]
+                ss_event["effective_area"] = pix["area"]
                 sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
@@ -1085,6 +1087,7 @@ class Fabric(object):
                     isweep_event["fixed"] = en.Fixed.CURRENT
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities_reversed
+                    isweep_event["effective_area"] = pix["area"]
                     isweepeid = db.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
                     assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
                     # data collection prep
@@ -1154,6 +1157,7 @@ class Fabric(object):
                 sweep_event["from_setpoint"] = sweep_args["start"]
                 sweep_event["to_setpoint"] = sweep_args["end"]
                 sweep_event["light"] = sweep["light_on"]
+                sweep_event["effective_area"] = compliance_area
                 sweepeid = db.upsert("tbl_sweep_events", sweep_event, expect_mod=True)
                 assert sweepeid > 0, "Registering new sweep event failed"
                 # do the experiment
@@ -1211,6 +1215,7 @@ class Fabric(object):
                 mppt_event["ecs"] = next(ecs)
                 mppt_event["device_id"] = pix["did"]
                 mppt_event["algorithm"] = args["mppt_params"]
+                mppt_event["effective_area"] = compliance_area
                 mpptid = db.upsert("tbl_mppt_events", mppt_event, expect_mod=True)
                 assert mpptid > 0, "Registering new mppt event failed"
                 # data collection prep
@@ -1240,6 +1245,7 @@ class Fabric(object):
                     ss_event["device_id"] = pix["did"]
                     ss_event["fixed"] = en.Fixed.CURRENT
                     ss_event["setpoint"] = 0.0
+                    mppt_event["effective_area"] = compliance_area
                     sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
                     assert sseid > 0, "Registering new steady state measurement event failed"
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
@@ -1286,6 +1292,7 @@ class Fabric(object):
                 ss_event["device_id"] = pix["did"]
                 ss_event["fixed"] = en.Fixed.VOLTAGE
                 ss_event["setpoint"] = args["v_dwell_value"]
+                ss_event["effective_area"] = compliance_area
                 sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
                 assert sseid > 0, "Registering new steady state measurement event failed"
                 # data collection prep
