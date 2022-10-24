@@ -282,7 +282,7 @@ class MC(object):
                     dlp = self.snaith_mux_pixel_lookup[pad]
                 else:
                     dlp = pad  # the pad designator was given in direct latch programming syntax
-                if slot.startswith("EXT"):
+                if slot.startswith("EXT") or (slot == "OFF"):
                     dlp = ""
                     slot = ""
                 mux_string = f"s{slot}{dlp}"
