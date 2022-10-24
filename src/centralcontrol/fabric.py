@@ -683,9 +683,10 @@ class Fabric(object):
             # check if the MC is enabled
             if "enabled" in config["mc"]:
                 mc_enabled = config["mc"]["enabled"] == True
+        if "mux" in config:
             # check what muxes we expect
-            if "expected_muxes" in config["mc"]:
-                mc_expected_muxes = config["mc"]["expected_muxes"]
+            if "expected_muxes" in config["mux"]:
+                mc_expected_muxes = config["mux"]["expected_muxes"]
         if fake_mc:
             ThisMC = virt.FakeMC
         else:
