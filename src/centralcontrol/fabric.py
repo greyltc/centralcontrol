@@ -1506,11 +1506,9 @@ class Fabric(object):
                             pixel_dict["device_label"] = bd["device_label"][i]
                             pixel_dict["user_label"] = bd["user_label"][i]
                             pixel_dict["pad"] = bd["pad"][i]
-                            loc_raw = bd["loc_raw"][i]
-                            assert loc_raw is not None, f"{loc_raw is not None=}"  # catch error case
-                            loc = [float("nan") if x is None else x for x in loc_raw]
-                            pos = [a + b for a, b in zip(center, loc)]
-                            pixel_dict["pos"] = pos
+                            por = [float("nan") if x is None else x for x in bd["pixel_offset_raw"][i]]  # convert Nones to NaNs
+                            sor = [float("nan") if x is None else x for x in bd["substrate_offset_raw"][i]]  # convert Nones to NaNs
+                            pixel_dict["pos"] = [c - s - p for c, s, p in zip(center, sor, por)]
                             pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
 
                             area = bd["area"][i]
