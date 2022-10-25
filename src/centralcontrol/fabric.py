@@ -780,16 +780,19 @@ class Fabric(object):
 
             # check connectivity
             self.lg.log(29, f"Checking device connectivity...")
-            slot_pad = []
-            smuis = []
+            tosort = []
             for group in run_queue:
                 for smui, device_dict in enumerate(group):
-                    slot_pad.append((device_dict["slot"], device_dict["pad"]))
-                    smuis.append(smui)
-            slot_pad.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
-            pads = [x[1] for x in slot_pad]
-            slots = [x[0] for x in slot_pad]
+                    tosort.append((device_dict["slot"], device_dict["pad"], smui))
+            tosort.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
+            slots = [x[0] for x in tosort]
+            pads = [x[1] for x in tosort]
+            smuis = [x[2] for x in tosort]
+
+            # do the contact check
             rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
+
+            # save results to db
             for r in rs:
                 to_upsert = {}
                 to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
@@ -799,7 +802,8 @@ class Fabric(object):
                 to_upsert["r"] = r["data"][1]
                 r["ccid"] = db.upsert("tbl_contact_checks", to_upsert)
                 assert r["ccid"] > 0, "Registering contact check result failed"
-            # self.lg.debug(repr(rs))
+
+            # notify user of contact check failures
             fails = [line for line in rs if not line["data"][0]]
             if any(fails):
                 headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
