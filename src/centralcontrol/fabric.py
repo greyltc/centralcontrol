@@ -852,7 +852,7 @@ class Fabric(object):
             # register the devices selected for measurement in this run
             run_devices = [(rid, did) for did in lu["device_ids"]]
             rslt = db.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
-            assert rslt > 0, "Registering run-devices failed"
+            assert rslt == len(run_devices), "Registering run-devices failed"
 
             for r in rs:  # now go back and attach this run id to the contact check results that go with it
                 id = db.upsert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
@@ -884,96 +884,97 @@ class Fabric(object):
                 n_done = 0  # number of steps in the routine that we've completed so far
                 t0 = time.time()  # run start time snapshot
 
-                while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
-                    group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
+                if run_queue:
+                    while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
+                        group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
 
-                    dt = time.time() - t0  # seconds since run start
-                    if (n_done > 0) and (args["cycles"] != 0):
-                        tpp = dt / n_done  # average time per step
-                        finishtime = time.time() + tpp * remaining
-                        finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                        human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                        fraction = n_done / p_total
-                        text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                        self.lg.debug(f'{text} for {args["run_name_prefix"]} by {request["args"]["user_name"]}')
-                        progress_msg = {"text": text, "fraction": fraction}
-                        self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+                        dt = time.time() - t0  # seconds since run start
+                        if (n_done > 0) and (args["cycles"] != 0):
+                            tpp = dt / n_done  # average time per step
+                            finishtime = time.time() + tpp * remaining
+                            finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+                            human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                            fraction = n_done / p_total
+                            text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
+                            self.lg.debug(f'{text} for {args["run_name_prefix"]} by {request["args"]["user_name"]}')
+                            progress_msg = {"text": text, "fraction": fraction}
+                            self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-                    n_parallel = len(group)  # how many pixels this group holds
-                    dev_labels = [device_dict["device_label"] for device_dict in group]
-                    dev_labp = [f"[{l}]" for l in dev_labels]
-                    print_label = f'{", ".join(dev_labp)}'
-                    theres = np.array([device_dict["pos"] for device_dict in group])
-                    self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
-                    if n_parallel > 1:
-                        there = tuple(theres.mean(0))  # the average location of the group
-                    else:
-                        there = theres[0]
+                        n_parallel = len(group)  # how many pixels this group holds
+                        dev_labels = [device_dict["device_label"] for device_dict in group]
+                        dev_labp = [f"[{l}]" for l in dev_labels]
+                        print_label = f'{", ".join(dev_labp)}'
+                        theres = np.array([device_dict["pos"] for device_dict in group])
+                        self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
+                        if n_parallel > 1:
+                            there = tuple(theres.mean(0))  # the average location of the group
+                        else:
+                            there = theres[0]
 
-                    # send a progress message for the frontend's log window
-                    self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
+                        # send a progress message for the frontend's log window
+                        self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
 
-                    # set up light source voting/synchronization (if any)
-                    ss.n_sync = n_parallel
+                        # set up light source voting/synchronization (if any)
+                        ss.n_sync = n_parallel
 
-                    # move stage
-                    if there and (float("nan") not in there):
-                        # force light off for motion if configured
-                        if "off_during_motion" in config["solarsim"]:
-                            if config["solarsim"]["off_during_motion"] is True:
-                                ss.apply_intensity(0)
-                        mo.goto(there)  # command the stage
+                        # move stage
+                        if there and (float("nan") not in there):
+                            # force light off for motion if configured
+                            if "off_during_motion" in config["solarsim"]:
+                                if config["solarsim"]["off_during_motion"] is True:
+                                    ss.apply_intensity(0)
+                            mo.goto(there)  # command the stage
 
-                    # select pixel(s)
-                    pix_selections = [device_dict["mux_sel"] for device_dict in group]
-                    pix_deselections = [(slot, 0) for slot, pad in pix_selections]
-                    Fabric.select_pixel(mc, mux_sels=pix_selections)
+                        # select pixel(s)
+                        pix_selections = [device_dict["mux_sel"] for device_dict in group]
+                        pix_deselections = [(slot, 0) for slot, pad in pix_selections]
+                        Fabric.select_pixel(mc, mux_sels=pix_selections)
 
-                    # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
+                        # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
 
-                        # keeps track of the parallelized objects
-                        futures: list[concurrent.futures.Future] = []
+                            # keeps track of the parallelized objects
+                            futures: list[concurrent.futures.Future] = []
 
-                        for device_dict in group:
-                            this_smu = smus[device_dict["smui"]]
-                            this_mppt = mppts[device_dict["smui"]]
+                            for device_dict in group:
+                                this_smu = smus[device_dict["smui"]]
+                                this_mppt = mppts[device_dict["smui"]]
 
-                            # setup data handler for this device
-                            dh = DataHandler(pixel=device_dict, outq=self.outq)
+                                # setup data handler for this device
+                                dh = DataHandler(pixel=device_dict, outq=self.outq)
 
-                            # set virtual smu scaling (just so it knows how much current to produce)
-                            if isinstance(this_smu, virt.FakeSMU):
-                                this_smu.area = device_dict["area"]
-                                this_smu.dark_area = device_dict["dark_area"]
+                                # set virtual smu scaling (just so it knows how much current to produce)
+                                if isinstance(this_smu, virt.FakeSMU):
+                                    this_smu.area = device_dict["area"]
+                                    this_smu.dark_area = device_dict["dark_area"]
 
-                            # submit for processing
-                            futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
-                            futures[-1].add_done_callback(self.on_device_routine_done)
+                                # submit for processing
+                                futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
+                                futures[-1].add_done_callback(self.on_device_routine_done)
 
-                        # wait for the futures to come back
-                        max_future_time = None  # TODO: try to calculate an upper limit for this
-                        (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
+                            # wait for the futures to come back
+                            max_future_time = None  # TODO: try to calculate an upper limit for this
+                            (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
 
-                        for futrue in not_done:
-                            self.lg.warning(f"{repr(futrue)} didn't finish in time!")
-                            if not futrue.cancel():
-                                self.lg.warning("and we couldn't cancel it.")
+                            for futrue in not_done:
+                                self.lg.warning(f"{repr(futrue)} didn't finish in time!")
+                                if not futrue.cancel():
+                                    self.lg.warning("and we couldn't cancel it.")
 
-                    # deselect what we had just selected
-                    Fabric.select_pixel(mc, mux_sels=pix_deselections)
+                        # deselect what we had just selected
+                        Fabric.select_pixel(mc, mux_sels=pix_deselections)
 
-                    # turn off the SMUs
-                    for sm in smus:
-                        sm.outOn(False)
+                        # turn off the SMUs
+                        for sm in smus:
+                            sm.outOn(False)
 
-                    n_done += 1
-                    remaining = len(run_queue)
-
-                    if (remaining == 0) and (args["cycles"] == 0):
-                        # refresh the deque to loop forever
-                        run_queue = start_q.copy()
+                        n_done += 1
                         remaining = len(run_queue)
+
+                        if (remaining == 0) and (args["cycles"] == 0):
+                            # refresh the deque to loop forever
+                            run_queue = start_q.copy()
+                            remaining = len(run_queue)
 
     def on_device_routine_done(self, future: concurrent.futures.Future):
         """callback function for when a device routine future completes"""
@@ -1427,10 +1428,6 @@ class Fabric(object):
         args = request["args"]
 
         center = config["motion"]["centers"]["solarsim"]
-        stuff = args["IV_stuff"]  # dict from dataframe
-        stuff_name = list(stuff.keys())[0]
-        bd = stuff[stuff_name]
-
         run_q = []  # collections.deque()  # TODO: check if this could just be a list
 
         if "slots" in request:
@@ -1493,96 +1490,81 @@ class Fabric(object):
                 # TODO: use validated slot data to update stuff
                 pass
 
-        # build pixel/group queue for the run
-        if len(request["config"]["smus"]) > 1:  # multismu case
-            grouping = request["config"]["slots"]["group_order"]
-            for group in grouping:
-                group_list = []
-                for smu_index, device in enumerate(group):
-                    sort_slot, sort_pad = device  # the slot, pad to sort on
+        if "IV_stuff" in args:
+            stuff = args["IV_stuff"]  # dict from dataframe
+            stuff_name = list(stuff.keys())[0]
+            bd = stuff[stuff_name]
 
-                    for i, slot in enumerate(bd["slot"]):
-                        if (slot, bd["pad"][i]) == (sort_slot, sort_pad):  # we have a match
-                            pixel_dict = {}
-                            pixel_dict["smui"] = smu_index
-                            pixel_dict["layout"] = bd["layout"][i]
-                            pixel_dict["slot"] = bd["slot"][i]
-                            pixel_dict["device_label"] = bd["device_label"][i]
-                            pixel_dict["user_label"] = bd["user_label"][i]
-                            pixel_dict["pad"] = bd["pad"][i]
-                            por = [float("nan") if x is None else x for x in bd["pixel_offset_raw"][i]]  # convert Nones to NaNs
-                            sor = [float("nan") if x is None else x for x in bd["substrate_offset_raw"][i]]  # convert Nones to NaNs
-                            pixel_dict["pos"] = [c - s - p for c, s, p in zip(center, sor, por)]
-                            pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
+            # build pixel/group queue for the run
+            if len(request["config"]["smus"]) > 1:  # multismu case
+                grouping = request["config"]["slots"]["group_order"]
+                for group in grouping:
+                    group_list = []
+                    for smu_index, device in enumerate(group):
+                        sort_slot, sort_pad = device  # the slot, pad to sort on
 
-                            area = bd["area"][i]
-                            # handle custom area/dark area
-                            if area == -1:
-                                headings = list(bd.keys())
-                                headings.remove("area")
-                                headings.remove("dark_area")
-                                for heading in headings:
-                                    if "area" in heading.lower():
-                                        if "dark" not in heading.lower():
-                                            try:
-                                                area = float(bd[heading][i])
-                                                self.lg.log(29, f'Using user supplied area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                                            except:
-                                                pass
+                        for i, slot in enumerate(bd["slot"]):
+                            if (slot, bd["pad"][i]) == (sort_slot, sort_pad):  # we have a match
+                                pixel_dict = {}
+                                pixel_dict["smui"] = smu_index
+                                pixel_dict["layout"] = bd["layout"][i]
+                                pixel_dict["slot"] = bd["slot"][i]
+                                pixel_dict["device_label"] = bd["device_label"][i]
+                                pixel_dict["user_label"] = bd["user_label"][i]
+                                pixel_dict["pad"] = bd["pad"][i]
+                                por = [float("nan") if x is None else x for x in bd["pixel_offset_raw"][i]]  # convert Nones to NaNs
+                                sor = [float("nan") if x is None else x for x in bd["substrate_offset_raw"][i]]  # convert Nones to NaNs
+                                pixel_dict["pos"] = [c - s - p for c, s, p in zip(center, sor, por)]
+                                pixel_dict["mux_sel"] = (pixel_dict["slot"], pixel_dict["pad"])
 
-                            dark_area = bd["dark_area"][i]
-                            if dark_area == -1:  # handle custom dark area
-                                headings = list(bd.keys())
-                                headings.remove("area")
-                                headings.remove("dark_area")
-                                for heading in headings:
-                                    if "area" in heading.lower():
-                                        if "dark" in heading.lower():
-                                            try:
-                                                dark_area = float(bd[heading][i])
-                                                self.lg.log(29, f'Using user supplied dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                                            except:
-                                                pass
+                                area = bd["area"][i]
+                                # handle custom area/dark area
+                                if area == -1:
+                                    headings = list(bd.keys())
+                                    headings.remove("area")
+                                    headings.remove("dark_area")
+                                    for heading in headings:
+                                        if "area" in heading.lower():
+                                            if "dark" not in heading.lower():
+                                                try:
+                                                    area = float(bd[heading][i])
+                                                    self.lg.log(29, f'Using user supplied area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                                except:
+                                                    pass
 
-                            # handle the cases where the user didn't tell us an area
-                            if (area == -1) and (dark_area == -1):
-                                area = 1.0
-                                dark_area = 1.0
-                                self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                                self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                            elif area == -1:
-                                area = dark_area
-                                self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
-                            elif dark_area == -1:
-                                dark_area = area
-                                self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                dark_area = bd["dark_area"][i]
+                                if dark_area == -1:  # handle custom dark area
+                                    headings = list(bd.keys())
+                                    headings.remove("area")
+                                    headings.remove("dark_area")
+                                    for heading in headings:
+                                        if "area" in heading.lower():
+                                            if "dark" in heading.lower():
+                                                try:
+                                                    dark_area = float(bd[heading][i])
+                                                    self.lg.log(29, f'Using user supplied dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                                except:
+                                                    pass
 
-                            pixel_dict["area"] = area
-                            pixel_dict["dark_area"] = dark_area
+                                # handle the cases where the user didn't tell us an area
+                                if (area == -1) and (dark_area == -1):
+                                    area = 1.0
+                                    dark_area = 1.0
+                                    self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                    self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                elif area == -1:
+                                    area = dark_area
+                                    self.lg.warning(f'Assuming area = {area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
+                                elif dark_area == -1:
+                                    dark_area = area
+                                    self.lg.warning(f'Assuming dark area = {dark_area} [cm^2] for slot {pixel_dict["slot"]}, pad# {pixel_dict["pad"]}')
 
-                            group_list.append(pixel_dict)
-                if len(group_list) > 0:
-                    run_q.append(group_list)
-        # else:  # single smu case
-        #    pass
-        # # here we build up the pixel handling queue by iterating
-        # # through the rows of a pandas dataframe
-        # # that contains one row for each turned on pixel
-        # for things in stuff.to_dict(orient="records"):
-        #     pixel_dict = {}
-        #     pixel_dict["layout"] = things["layout"]
-        #     pixel_dict["slot"] = things["slot"]
-        #     pixel_dict["device_label"] = things["device_label"]
-        #     pixel_dict["pad"] = int(things["pad"])
-        #     loc = things["loc"]
-        #     pos = [a + b for a, b in zip(center, loc)]
-        #     pixel_dict["pos"] = pos
-        #     if things["area"] == -1:  # handle custom area
-        #         pixel_dict["area"] = args["a_ovr_spin"]
-        #     else:
-        #         pixel_dict["area"] = things["area"]
-        #     pixel_dict["mux_sel"] = (things["slot"], int(things["pad"]))
-        #     run_q.append({0: pixel_dict})
+                                pixel_dict["area"] = area
+                                pixel_dict["dark_area"] = dark_area
+
+                                group_list.append(pixel_dict)
+                    if len(group_list) > 0:
+                        run_q.append(group_list)
 
         # disable turbo (parallel, multi smu) mode by unwrapping the groups
         if ("turbo_mode" in args) and (args["turbo_mode"] == False):
