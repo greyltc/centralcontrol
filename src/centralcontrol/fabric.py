@@ -22,7 +22,9 @@ import humanize
 import numpy as np
 from paho.mqtt.client import MQTTMessage
 from slothdb import enums as en
-from slothdb.dbsync import SlothDBSync as SlothDB
+
+# from slothdb.dbsync import SlothDBSync as SlothDB
+import redis
 
 from centralcontrol import virt
 from centralcontrol.illumination import LightAPI
@@ -65,6 +67,8 @@ class DataHandler(object):
 class Fabric(object):
     """High level experiment control logic"""
 
+    mem_db_url: str = "redis://"
+
     # process killer signal
     pkiller = multiprocessing.Event()
 
@@ -85,9 +89,9 @@ class Fabric(object):
 
     exitcode: int = 0
 
-    def __init__(self):
-        # self.software_revision = __version__
-        # print("Software revision: {:s}".format(self.software_revision))
+    def __init__(self, mem_db_url: str | None = None):
+        if mem_db_url:
+            self.mem_db_url = mem_db_url
 
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
@@ -758,7 +762,8 @@ class Fabric(object):
 
         with contextlib.ExitStack() as stack:  # big context manager to manage equipemnt connections
             # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
-            db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
+            db = stack.enter_context(redis.Redis.from_url(self.mem_db_url))
+            # db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
 
             # user registration
             uid = db.register_user(request["args"]["user_name"])
@@ -873,8 +878,9 @@ class Fabric(object):
 
                 # make sure we have a record of spectral data
                 datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                lcid = self.log_light_cal(datas, suid, db, args["light_recipe"], rid)
-                assert lcid > 0, "Failure registering the light calibration"
+                for ldata in datas:
+                    lcid = self.log_light_cal(ldata, suid, db, args["light_recipe"], rid)
+                    assert lcid > 0, "Failure registering the light calibration"
 
                 # set NPLC
                 if args["nplc"] != -1:
@@ -1256,6 +1262,7 @@ class Fabric(object):
                     assert sseid > 0, "Registering new steady state measurement event failed"
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                     for d in vt:
+                        assert len(d) == 4, "Malformed smu data (resistance mode?)"
                         db.putsmdat([d], sseid, en.Event.SS, suid)
                         dh.handle_data([d], dodb=False)
                     # mark the event as done
@@ -1348,27 +1355,26 @@ class Fabric(object):
 
     def log_light_cal(
         self,
-        datas: list[dict[str, float | list[tuple[float, float]]]],
+        data: dict[str, float | list[tuple[float, float]]],
         setup_id: int,
         db: SlothDB,
         recipe: str | None = None,
         run_id: int | None = None,
     ) -> int:
         """stores away light calibration data"""
-        for data in datas:
-            ary = np.array(data["data"])
-            area = np.trapz(ary[:, 1], ary[:, 0])
-            cal_args = {}
-            cal_args["sid"] = setup_id
-            cal_args["rid"] = run_id
-            cal_args["temps"] = data["temps"]
-            cal_args["raw_spec"] = data["data"]
-            cal_args["raw_int_spec"] = area
-            cal_args["setpoint"] = data["intensity"]
-            cal_args["recipe"] = recipe
-            cal_args["idn"] = data["idn"]
+        ary = np.array(data["data"])
+        area = np.trapz(ary[:, 1], ary[:, 0])
+        cal_args = {}
+        cal_args["sid"] = setup_id
+        cal_args["rid"] = run_id
+        cal_args["temps"] = data["temps"]
+        cal_args["raw_spec"] = data["data"]
+        cal_args["raw_int_spec"] = area
+        cal_args["setpoint"] = data["intensity"]
+        cal_args["recipe"] = recipe
+        cal_args["idn"] = data["idn"]
 
-            return db.new_light_cal(**cal_args)
+        return db.new_light_cal(**cal_args)
 
     @staticmethod
     def find_i_limit(area: float | None = None, jmax: float | None = None, imax: float | None = None) -> float:

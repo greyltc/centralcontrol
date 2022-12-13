@@ -1,15 +1,7 @@
 {
+    "editor.formatOnSave": true,
+    "python.formatting.provider": "black",
     "python.analysis.autoImportCompletions": false,
     "python.testing.unittestEnabled": true,
-    "python.formatting.provider": "black",
-    "editor.formatOnSave": true,
-    //"python.envFile": "${workspaceFolder}${pathSeparator}.env",
-    "python.envFile": "${workspaceFolder}/.env",
-    "terminal.integrated.env.linux": {
-        "PYTHONPATH": "${workspaceFolder}${pathSeparator}src",
-    },
-    "terminal.integrated.env.windows": {
-        "PYTHONPATH": "${workspaceFolder}${pathSeparator}src",
-    },
     "python.analysis.typeCheckingMode": "basic",
 }
