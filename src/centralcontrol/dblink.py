@@ -94,7 +94,7 @@ class DBLink(object):
                 ret = None
         return ret
 
-    def insert(self, tbl: str, val: Any, id: int | None = None) -> int | None:
+    def insert(self, tbl: str, val: Any, id: int | None = None, expect_mod: bool | None = None) -> int | None:
         key = tbl.removeprefix("tbl_")
         if id is None:  # normal insert
             ret = redis_annex.add(self.db, key, json.dumps(val))
@@ -248,7 +248,7 @@ class DBLink(object):
             to_upsert["recipe"] = recipe
         if idn:
             to_upsert["idn"] = idn
-        return self.upsert(f"tbl_light_cal", to_upsert)
+        return self.insert(f"tbl_light_cal", to_upsert)
 
     def putsmdat(self, data: list[tuple[float, float, float, int]], eid: int, kind: en.Event, table_counter: int = 1) -> list[int | None]:
         """insert data row into a raw data table"""
