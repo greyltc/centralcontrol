@@ -1,14 +1,5 @@
 import sys
-
-from centralcontrol import CentralControl
-
-
-def main():
-    cc = CentralControl()
-    cc.cli()
-    cc.run()
-    sys.exit(cc.exitcode)
-
+from centralcontrol import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

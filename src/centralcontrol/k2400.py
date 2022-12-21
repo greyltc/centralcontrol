@@ -184,7 +184,7 @@ class k2400(object):
         # restore previous timeout
         if isinstance(s, socket.socket):
             s.settimeout(oto)
-        elif self.ser is not None:
+        elif self.ser:
             self.ser.timeout = oto
 
         return success
@@ -281,6 +281,8 @@ class k2400(object):
         self.setWires(two_wire)
         self.write("sens:func 'curr:dc', 'volt:dc'")
         self.write("form:elem time,volt,curr,stat")  # set what we want reported
+        self.write("system:posetup RST")  # system turns on with *RST defaults
+        self.write("system:lfrequency:auto ON")  # auto-detect line frequency
         # status is a 24 bit intiger. bits are these:
         # Bit 0 (OFLO) — Set to 1 if measurement was made while in over-range.
         # Bit 1 (Filter) — Set to 1 if measurement was made with the filter enabled.
@@ -305,9 +307,9 @@ class k2400(object):
         # Bit 23 (Pulse Mode) — Set to 1 if in the Pulse Mode.
         self.setTerminals(front)
 
-        self.src = self.query("sour:func:mode?")  # check/set the source
-        self.write("syst:azer off")  # we'll do this once before every measurement
-        self.write("syst:azer:cach 1")
+        self.src = self.query("source:function:mode?")  # check/set the source
+        self.write("system:azero off")  # we'll do this once before every measurement
+        self.write("system:azero:caching:state ON")
 
         # enable/setup contact check :system:ccheck
         self.opts = self.query("*OPT?")
@@ -335,6 +337,7 @@ class k2400(object):
         return ret
 
     def write(self, cmd):
+        assert self.ser, "smu comms not set up"
         cmd_bytes = len(cmd)
         bytes_written = self.ser.write(cmd.encode() + self.write_term)
         if cmd_bytes != (bytes_written - self.write_term_len):
@@ -345,6 +348,7 @@ class k2400(object):
         return self.read()
 
     def read(self) -> str:
+        assert self.ser, "smu comms not set up"
         return self.ser.read_until(self.read_term).decode().removesuffix(self.read_term_str)
 
     def hardware_reset(self):
@@ -355,23 +359,27 @@ class k2400(object):
             pass
 
         try:
-            self.ser.send_break()
+            if self.ser:
+                self.ser.send_break()
         except:
             pass
 
         try:
-            self.ser.write(bytes([18]))  # interrupt
+            if self.ser:
+                self.ser.write(bytes([18]))  # interrupt
         except:
             pass
 
         try:
-            self.ser.send_break()
+            if self.ser:
+                self.ser.send_break()
         except:
             pass
 
         # the above breaks can generate DCLs so lets discard those
         try:
-            self.ser.reset_input_buffer()
+            if self.ser:
+                self.ser.reset_input_buffer()
         except:
             pass
 
@@ -440,7 +448,8 @@ class k2400(object):
             pass
 
         try:
-            self.ser.reset_input_buffer()
+            if self.ser:
+                self.ser.reset_input_buffer()
         except:
             pass
 
@@ -468,7 +477,8 @@ class k2400(object):
             self.dead_socket_cleanup(self.host)
 
         try:
-            self.ser.close()
+            if self.ser:
+                self.ser.close()
         except Exception as e:
             self.lg.debug("Issue disconnecting: {e}")
 
@@ -477,7 +487,10 @@ class k2400(object):
             self.dead_socket_cleanup(self.host)  # use dead socket port to clean up old connections
             self.socket_cleanup(self.host, int(self.port))
 
-        self.connected = self.ser.is_open
+        if self.ser:
+            self.connected = self.ser.is_open
+        else:
+            self.connected = False
 
     def setWires(self, two_wire=False):
         self.two_wire = two_wire  # record setting
@@ -592,9 +605,15 @@ class k2400(object):
         if senseRange == 'f' then the sense range will follow the compliance setting
         if stepDelay < 0 then step delay is on auto (~5ms), otherwise it's set to the value here (in seconds)
         """
+        assert self.ser, "smu comms not set up"
 
         nplc = self.getNPLC()
-        approx_measure_time = 1000 / 50 * nplc  # [ms] assume 50Hz line freq just because that's safer
+        ln_freq = 50  # assume 50Hz line freq just because that's safer for timing
+        n_types = 2  # we measure both V and I
+        adc_conversion_time = (ln_freq * nplc) * n_types
+        adc_conversion_time_ms = adc_conversion_time * 1000
+        t_overhead_ms = 3  # worst case overhead in SDM cycle (see 2400 manual A-7, page 513)
+        sdm_period_baseline = adc_conversion_time_ms + t_overhead_ms
 
         if sourceVoltage:
             src = "volt"
@@ -632,11 +651,11 @@ class k2400(object):
         if stepDelay < 0:
             # this just sets delay to 1ms (probably. the actual delay is in table 3-4, page 97, 3-13 of the k2400 manual)
             self.write("sour:delay:auto 1")
-            approx_point_duration = 20 + approx_measure_time  # used for calculating dynamic sweep timeout [ms]
+            sdm_delay_ms = 3  # worst case
         else:
             self.write("sour:delay:auto 0")
             self.write(f"sour:delay {stepDelay:0.6f}")  # this value is in seconds!
-            approx_point_duration = 20 + stepDelay * 1000 + approx_measure_time  # [ms] used for calculating dynamic sweep timeout
+            sdm_delay_ms = stepDelay * 1000
 
         self.write(f"trigger:count {nPoints}")
         self.write(f"sour:sweep:points {nPoints}")
@@ -657,11 +676,12 @@ class k2400(object):
         self.do_azer()
 
         # calculate the expected sweep duration with safety margin
-        max_sweep_duration = nPoints * approx_point_duration * 1.2  # [ms]
+        to_fudge_margin = 1.2  # give the sweep an extra 20 per cent in case our calcs are slightly off
+        max_sweep_duration_ms = nPoints * (sdm_delay_ms + sdm_period_baseline) * to_fudge_margin  # [ms]
 
         # make sure long sweeps don't result in comms timeouts
-        max_transport_time = 10000  # [ms] let's asssetupSume no sweep will ever take longer than 10s to transport
-        self.ser.timeout = (max_sweep_duration + max_transport_time) / 1000  # [s]
+        max_transport_time_ms = 10000  # [ms] let's asssetupSume no sweep will ever take longer than 10s to transport
+        self.ser.timeout = (max_sweep_duration_ms + max_transport_time_ms) / 1000  # [s]
 
     def do_azer(self):
         """parform autozero routine"""
@@ -760,15 +780,19 @@ class k2400(object):
                     if value:
                         self.outOn(on=False)
                         self.write("outp:smod guar")
-                        self.write("syst:cch 1")
-                        self.write("sens:volt:nplc 0.1")
+                        self.write("system:cchech ON")
+                        self.write("sense:voltage:nplc 0.1")
+                        self.write("sense:current:nplc 0.1")
+                        self.write("sense:resistance:nplc 0.1")
                         # setup I=0 voltage measurement
                         self.setupDC(sourceVoltage=False, compliance=3, setPoint=0, senseRange="f", ohms=False)
                     else:
-                        self.write("outp:smod himp")
+                        self.write("output:smode himpedance")
                         self.outOn(on=False)
-                        self.write(f"sens:volt:nplc {self.nplc_user_set}")
-                        self.write("syst:cch 0")
+                        self.write(f"sense:voltage:nplc {self.nplc_user_set}")
+                        self.write(f"sense:current:nplc {self.nplc_user_set}")
+                        self.write(f"sense:resistance:nplc {self.nplc_user_set}")
+                        self.write("system:cchech OFF")
                 else:
                     self.lg.debug("Contact check option not installed")
             else:
@@ -780,14 +804,18 @@ class k2400(object):
             if self.query("outp?") == "0":  # check if that worked
                 if value:
                     self.write("syst:rsen 0")  # four wire mode off
-                    self.write("sens:volt:nplc 0.1")
+                    self.write("sense:voltage:nplc 0.1")
+                    self.write("sense:current:nplc 0.1")
+                    self.write("sense:resistance:nplc 0.1")
                     self.set_do(13)  # HI check
                     time.sleep(self.t_relay_bounce)
                     self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=sense_current, senseRange="f", ohms=True)
                     self.last_lo = False  # mark as set up for hi side checking
                 else:
                     self.setWires(self.two_wire)  # restore previous 2/4 wire setting
-                    self.write(f"sens:volt:nplc {self.nplc_user_set}")  # restore previous nplc setting
+                    self.write(f"sense:voltage:nplc {self.nplc_user_set}")  # restore previous nplc setting
+                    self.write(f"sense:current:nplc {self.nplc_user_set}")
+                    self.write(f"sense:resistance:nplc {self.nplc_user_set}")
                     self.setupDC(sourceVoltage=False, compliance=compliance_voltage, setPoint=0.0, senseRange="f", ohms=False)
                     self.outOn(on=False)
                     if self.query("outp?") == "0":  # check if that worked

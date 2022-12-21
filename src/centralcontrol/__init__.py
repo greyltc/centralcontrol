@@ -1,9 +1,9 @@
 """central control package"""
 from centralcontrol.__about__ import __version__, __version_tuple__
-from centralcontrol.__main__ import main
 from centralcontrol.fabric import Fabric
 import argparse
 import os
+import sys
 
 
 class CentralControl(object):
@@ -61,6 +61,13 @@ class CentralControl(object):
         """run the program"""
         self.exitcode = self.mqtt_run()
         return self.exitcode
+
+
+def main():
+    cc = CentralControl()
+    cc.cli()
+    cc.run()
+    sys.exit(cc.exitcode)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ class MQTTClient(object):
     outq: Queue | mQueue
 
     # for incoming messages
-    inq: Queue[str | mqtt.MQTTMessage] = Queue()
+    inq: Queue
 
     # return code
     retcode = 0
@@ -39,11 +39,16 @@ class MQTTClient(object):
 
     workers: list[threading.Thread] = []  # list of things doing work for us
 
-    def __init__(self, host="127.0.0.1", port=1883, parent_outq: None | Queue | mQueue = None):
+    def __init__(self, host="127.0.0.1", port=1883, parent_outq: None | Queue | mQueue = None, parent_inq: None | Queue = None):
         if parent_outq:
             self.outq = parent_outq
         else:
             self.outq = Queue()
+
+        if parent_inq:
+            self.inq = parent_inq
+        else:
+            self.inq = Queue()
 
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 

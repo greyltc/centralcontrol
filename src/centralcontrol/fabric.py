@@ -5,6 +5,7 @@ import concurrent.futures
 import contextlib
 import datetime
 import hmac
+import hashlib
 import importlib.metadata
 import json
 import multiprocessing
@@ -13,6 +14,7 @@ import threading
 import time
 import traceback
 import typing
+from typing import cast
 from contextlib import contextmanager
 from logging import Logger
 from multiprocessing.queues import SimpleQueue as mQueue
@@ -21,10 +23,11 @@ from queue import SimpleQueue as Queue
 import humanize
 import numpy as np
 from paho.mqtt.client import MQTTMessage
-from slothdb import enums as en
+import centralcontrol.enums as en
 
-# from slothdb.dbsync import SlothDBSync as SlothDB
+from slothdb.dbsync import SlothDBSync as SlothDB
 import redis
+import redis_annex
 
 from centralcontrol import virt
 from centralcontrol.illumination import LightAPI
@@ -36,6 +39,8 @@ from centralcontrol.mppt import MPPT
 from centralcontrol.mqtt import MQTTClient
 from centralcontrol.sourcemeter import SourcemeterAPI
 from centralcontrol.sourcemeter import factory as smu_fac
+from centralcontrol.dblink import DBLink
+from centralcontrol import __version__ as backend_ver
 
 
 class DataHandler(object):
@@ -99,20 +104,25 @@ class Fabric(object):
 
     def run(self) -> int:
         """runs the measurement server. blocks forever"""
+        inq = Queue()  # queue for incomming comms messages
+
+        # handle SIGTERM gracefully by asking the main loop to break with a "die" message
+        signal.signal(signal.SIGTERM, lambda _, __: inq.put("die"))
+
         commcls = None
         comms_args = None
         if self.mqttargs["host"] is not None:
             commcls = MQTTClient
             comms_args = self.mqttargs
             comms_args["parent_outq"] = self.outq
-        assert commcls is not None, f"{commcls is not None=}"
-        assert comms_args is not None, f"{comms_args is not None=}"
-        with commcls(**comms_args) as comms:
-            # handle SIGTERM gracefully by asking the main loop to break
-            signal.signal(signal.SIGTERM, lambda _, __: comms.inq.put("die"))
-
-            # run the message handler, blocking forever
-            self.msg_handler(comms.inq)
+            comms_args["parent_inq"] = inq
+        assert commcls is not None, f"{commcls=}"
+        assert comms_args is not None, f"{comms_args=}"
+        with commcls(**comms_args):  # for mqtt comms
+            with redis.Redis.from_url(self.mem_db_url) as r:
+                with DBLink(r, inq, self.lg):  # manager for the mem-db inq listener
+                    # run the message handler, blocking right here forever
+                    self.msg_handler(inq)
 
         self.lg.debug("Graceful exit achieved")
         return self.exitcode
@@ -136,12 +146,12 @@ class Fabric(object):
         with concurrent.futures.ProcessPoolExecutor(max_workers=1) as exicuter:
             try:  # this try/except block is for catching keyboard interrupts and then asking the main loop to break
                 while True:  # main program loop
-                    try:  # this try/except block lets the main loop keep running through programming errors
+                    try:  # this high level try/except block lets the main loop keep running through programming errors
                         msg = inq.get()  # mostly execution sits right here waiting to be told what to do
                         if isinstance(msg, str):
                             if msg == "die":
                                 break
-                        else:
+                        elif isinstance(msg, MQTTMessage):
                             topic = msg.topic
                             if isinstance(topic, str):
                                 channel = topic.split("/")
@@ -161,7 +171,8 @@ class Fabric(object):
                                     elif channel == ["stop"]:
                                         self.stop_process(future)
                                     elif channel == ["run"]:
-                                        future = self.submit_for_execution(exicuter, future, self.do_run, request)
+                                        pass  # handled by memdb
+                                        # future = self.submit_for_execution(exicuter, future, self.do_run, request)
                                 elif rootchan == "cmd":
                                     if channel == ["util"]:  # previously utility handler territory
                                         assert request is not None, f"{request is not None=}"
@@ -172,6 +183,14 @@ class Fabric(object):
                                                 future = self.submit_for_execution(exicuter, future, self.utility_handler, request)
                                         elif request == "unblock":
                                             self.bc_response.set()  # unblock waiting for a response from the frontend
+                        elif isinstance(msg, dict):  # from memdb
+                            if msg["type"] == "message":
+                                if msg["channel"].decode() == "runs:new":
+                                    rid = int(msg["data"].decode())
+                                    self.lg.debug(f"Got new run start with id: {rid}")
+                                    future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid})
+                        else:
+                            self.lg.debug(f"Unknown message type in inq: {type(msg)}")
 
                     except Exception as e:
                         self.lg.error(f"Runtime exception: {repr(e)}")
@@ -331,10 +350,10 @@ class Fabric(object):
         if len(dev_dicts) > 0:
             with contextlib.ExitStack() as stack:  # handles the proper cleanup of the hardware
                 mc = stack.enter_context(AnMC(task["mc"], timeout=5))
-                db = stack.enter_context(SlothDB(db_uri=task["db_uri"]))
+                db = stack.enter_context(redis.Redis.from_url(self.mem_db_url))
+                dbl = DBLink(db)
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smus"]]
-                suid = Fabric.get_suid(task["conf_id"], db)
-                assert suid > 0, "Fetching setup id failed"
+                assert isinstance(suid := dbl.upsert("setups", task["conf_id"]["setups"]), int), "Fetching setup id failed"
 
                 lu = Fabric.registerer(db, dev_dicts, suid, smus, layouts)
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
@@ -348,8 +367,7 @@ class Fabric(object):
                             to_upsert["pad_name"] = str(r["pad"])
                             to_upsert["pass"] = r["data"][0]
                             to_upsert["r"] = r["data"][1]
-                            r["ccid"] = db.upsert("tbl_contact_checks", to_upsert)
-                            assert r["ccid"] > 0, "Registering contact check result failed"
+                            assert isinstance(db.rpush("contact_checks", json.dumps(to_upsert)), int), "Failure writing to db"
                     self.lg.debug(repr(rs))
                     for line in rs:
                         if not line["data"][0]:
@@ -601,7 +619,12 @@ class Fabric(object):
 
     def do_run(self, request):
         """handle a request published to the 'run' topic"""
-        if "rundata" in request:
+        if "runid" in request:
+            self.lg.log(29, "Starting run...")
+            self.standard_routine([[{}]], request)
+            self.lg.log(29, "Run complete!")
+
+        elif "rundata" in request:  # TODO: remove this legacy codde path
             rundata = request["rundata"]
             if "digest" in rundata:
                 remotedigest_str: str = rundata.pop("digest")
@@ -617,12 +640,12 @@ class Fabric(object):
                                     rundata["slots"] = request["slots"]
                                 self.lg.log(29, "Starting run...")
                                 things_to_measure = self.get_things_to_measure(rundata)
-                                self.standard_routine(things_to_measure, rundata, request["conf_a_id"], request["conf_b_id"])
+                                self.standard_routine(things_to_measure, rundata)
                                 self.lg.log(29, "Run complete!")
 
     @staticmethod
     @contextmanager
-    def measurement_context(mc: MC | virt.FakeMC, ss: LightAPI, smus: list[SourcemeterAPI], outq: Queue | mQueue, db: SlothDB, rid: int):
+    def measurement_context(mc: MC | virt.FakeMC, ss: LightAPI, smus: list[SourcemeterAPI], outq: Queue | mQueue, db: redis.Redis, rid: int):
         """context to ensure we're properly set up and then properly cleaned up"""
         # ensure we start with the light off
         # ss.apply_intensity(0)  # overrides barrier
@@ -650,337 +673,352 @@ class Fabric(object):
             outq.put({"topic": "progress", "payload": json.dumps({"text": "Done!", "fraction": 1}), "qos": 2})
             outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
 
-            db.complete_run(rid)  # mark run as complete
-            # db.vac()  # mantain db
+            assert 0 == db.hset(f"run:{rid}", mapping={"complete": 1}), "Failure marking run complete"
 
-    def standard_routine(self, run_queue: list[list[dict]], request: dict, conf_a_id: int, conf_b_id: int) -> None:
+    def standard_routine(self, run_queue: list[list[dict]], request: dict) -> None:
         """perform the normal measurement routine on a given list of pixels"""
 
         # int("checkerberrycheddarchew")  # force crash for testing
 
-        if "config" in request:
-            config = request["config"]
-        else:
-            config = {}
+        with redis.Redis.from_url(self.mem_db_url) as db:
+            dbl = DBLink(db)
+            if "runid" in request:
+                rid = request["runid"]
+                assert isinstance(run_info := db.hgetall(f"run:{rid}"), dict), "Failed to fetch run info"
+                assert 1 == db.hset(f"run:{rid}", mapping={"backend_ver": backend_ver}), "Failed to set version"
+                conf_a_id = int(run_info[b"conf_a_id"])
+                conf_b_id = int(run_info[b"conf_b_id"])
+                rq_id = int(run_info[b"rq_id"])
+                config = json.loads(db.zrange("conf_as", conf_a_id, conf_a_id)[0])
+                assert isinstance(args_bin := db.lindex("conf_bs", conf_b_id), bytes), "Failed to load config type B"
+                args = json.loads(args_bin)
+                assert isinstance(runq_bin := db.lindex("runqs", rq_id), bytes), "Failed to load run queue"
+                run_queue = json.loads(runq_bin)
+            else:  # TODO: remove this legacy code path
+                rid = 1  # HACK a run id for testing
+                if "config" in request:
+                    config = request["config"]
+                else:
+                    config = {}
 
-        if "args" in request:
-            args = request["args"]
-        else:
-            args = {}
+                if "args" in request:
+                    args = request["args"]
+                else:
+                    args = {}
 
-        if self.pkiller.is_set():
-            self.lg.debug("Killed by killer.")
-            return
+            if self.pkiller.is_set():
+                self.lg.debug("Killed by killer.")
+                return
 
-        # check the MC configs
-        fake_mc = True
-        mc_address = None
-        mc_enabled = False
-        mc_expected_muxes = [""]
-        if "mc" in config:
-            # check if we'll be virtualizing the MC
-            if "virtual" in config["mc"]:
-                fake_mc = config["mc"]["virtual"] == True
-            # get the MC's address
-            if "address" in config["mc"]:
-                mc_address = config["mc"]["address"]
-            # check if the MC is enabled
-            if "enabled" in config["mc"]:
-                mc_enabled = config["mc"]["enabled"] == True
-        if "mux" in config:
-            # check what muxes we expect
-            if "expected_muxes" in config["mux"]:
-                mc_expected_muxes = config["mux"]["expected_muxes"]
-        if fake_mc:
-            ThisMC = virt.FakeMC
-        else:
-            ThisMC = MC
+            # check the MC configs
+            fake_mc = True
+            mc_address = None
+            mc_enabled = False
+            mc_expected_muxes = [""]
+            if "mc" in config:
+                # check if we'll be virtualizing the MC
+                if "virtual" in config["mc"]:
+                    fake_mc = config["mc"]["virtual"] == True
+                # get the MC's address
+                if "address" in config["mc"]:
+                    mc_address = config["mc"]["address"]
+                # check if the MC is enabled
+                if "enabled" in config["mc"]:
+                    mc_enabled = config["mc"]["enabled"] == True
+            if "mux" in config:
+                # check what muxes we expect
+                if "expected_muxes" in config["mux"]:
+                    mc_expected_muxes = config["mux"]["expected_muxes"]
+            if fake_mc:
+                ThisMC = virt.FakeMC
+            else:
+                ThisMC = MC
 
-        # check the motion controller configs
-        fake_mo = True
-        mo_address = None
-        mo_enabled = False
-        if "motion" in config:
-            # check if we'll be virtualizing the motion controller
-            if "virtual" in config["motion"]:
-                fake_mo = config["motion"]["virtual"] == True
-            # get the motion controller's address
-            if "uri" in config["motion"]:
-                mo_address = config["motion"]["uri"]
-            # check if the motion controlller is enabled
-            if "enabled" in config["motion"]:
-                if config["motion"]["enabled"] == True:
-                    mo_enabled = True
-                    # check args for override of stage enable
-                    if ("enable_stage" in args) and (args["enable_stage"] == False):
-                        mo_enabled = False
+            # check the motion controller configs
+            fake_mo = True
+            mo_address = None
+            mo_enabled = False
+            if "motion" in config:
+                # check if we'll be virtualizing the motion controller
+                if "virtual" in config["motion"]:
+                    fake_mo = config["motion"]["virtual"] == True
+                # get the motion controller's address
+                if "uri" in config["motion"]:
+                    mo_address = config["motion"]["uri"]
+                # check if the motion controlller is enabled
+                if "enabled" in config["motion"]:
+                    if config["motion"]["enabled"] == True:
+                        mo_enabled = True
+                        # check args for override of stage enable
+                        if ("enable_stage" in args) and (args["enable_stage"] == False):
+                            mo_enabled = False
 
-        mc_args = {}
-        mc_args["timeout"] = 5
-        mc_args["address"] = mc_address
-        mc_args["expected_muxes"] = mc_expected_muxes
-        mc_args["enabled"] = mc_enabled
+            mc_args = {}
+            mc_args["timeout"] = 5
+            mc_args["address"] = mc_address
+            mc_args["expected_muxes"] = mc_expected_muxes
+            mc_args["enabled"] = mc_enabled
 
-        smucfgs = request["config"]["smus"]  # the smu configs
-        for smucfg in smucfgs:
-            smucfg["print_sweep_deets"] = request["args"]["print_sweep_deets"]  # apply sweep details setting
-        sscfg = request["config"]["solarsim"]  # the solar sim config
-        sscfg["active_recipe"] = request["args"]["light_recipe"]  # throw in recipe
-        sscfg["intensity"] = request["args"]["light_recipe_int"]  # throw in configured intensity
+            smucfgs = config["smus"]  # the smu configs
+            for smucfg in smucfgs:
+                smucfg["print_sweep_deets"] = args["print_sweep_deets"]  # apply sweep details setting
+            sscfg = config["solarsim"]  # the solar sim config
+            sscfg["active_recipe"] = args["light_recipe"]  # throw in recipe
+            sscfg["intensity"] = args["light_recipe_int"]  # throw in configured intensity
 
-        # figure out what the sweeps will be like
-        sweeps = []
-        if args["sweep_check"] == True:
-            if args["lit_sweep"] == 0:  # "Dark then Light"
-                sweeps.append({"light_on": False, "first_direction": True})
-                sweeps.append({"light_on": True, "first_direction": True})
-                # sweeps = ["dark", "light"]
-            elif args["lit_sweep"] == 1:  # "Light then Dark"
-                sweeps.append({"light_on": True, "first_direction": True})
-                sweeps.append({"light_on": False, "first_direction": True})
-                # sweeps = ["light", "dark"]
-            elif args["lit_sweep"] == 2:  # "Only dark"
-                sweeps.append({"light_on": False, "first_direction": True})
-                # sweeps = ["dark"]
-            elif args["lit_sweep"] == 3:  # "Only light"
-                sweeps.append({"light_on": True, "first_direction": True})
-                # sweeps = ["light"]
+            # figure out what the sweeps will be like
+            sweeps = []
+            if args["sweep_check"] == True:
+                if args["lit_sweep"] == 0:  # "Dark then Light"
+                    sweeps.append({"light_on": False, "first_direction": True})
+                    sweeps.append({"light_on": True, "first_direction": True})
+                    # sweeps = ["dark", "light"]
+                elif args["lit_sweep"] == 1:  # "Light then Dark"
+                    sweeps.append({"light_on": True, "first_direction": True})
+                    sweeps.append({"light_on": False, "first_direction": True})
+                    # sweeps = ["light", "dark"]
+                elif args["lit_sweep"] == 2:  # "Only dark"
+                    sweeps.append({"light_on": False, "first_direction": True})
+                    # sweeps = ["dark"]
+                elif args["lit_sweep"] == 3:  # "Only light"
+                    sweeps.append({"light_on": True, "first_direction": True})
+                    # sweeps = ["light"]
 
-            # insert the reverse ones if we're doing that
-            for i in range(len(sweeps)):
-                if args["return_switch"]:
-                    rev_sweep = sweeps[i * 2].copy()
-                    rev_sweep["first_direction"] = False
-                    sweeps.insert(i * 2 + 1, rev_sweep)
+                # insert the reverse ones if we're doing that
+                for i in range(len(sweeps)):
+                    if args["return_switch"]:
+                        rev_sweep = sweeps[i * 2].copy()
+                        rev_sweep["first_direction"] = False
+                        sweeps.insert(i * 2 + 1, rev_sweep)
 
-        start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
-        if args["cycles"] != 0:
-            run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
-            p_total = len(run_queue)
-        else:  # cycle forever
-            p_total = float("inf")
+            start_q = run_queue.copy()  # make a copy that we might use later in case we're gonna loop forever
+            if args["cycles"] != 0:
+                run_queue *= int(args["cycles"])  # duplicate the pixel_queue "cycles" times
+                p_total = len(run_queue)
+            else:  # cycle forever
+                p_total = float("inf")
 
-        with contextlib.ExitStack() as stack:  # big context manager to manage equipemnt connections
-            # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
-            db = stack.enter_context(redis.Redis.from_url(self.mem_db_url))
-            # db = stack.enter_context(SlothDB(db_uri=request["config"]["db"]["uri"]))
+            with contextlib.ExitStack() as stack:  # big context manager to manage equipemnt connections
+                # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
 
-            # user registration
-            uid = db.register_user(request["args"]["user_name"])
+                # user registration TODO: consider moving this kind of thing to the frontend
+                assert isinstance(uid := redis_annex.uadd(db, "users", args["user_name"])[0], int), "Failure writing to db"
 
-            mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
-            smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
+                mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
+                smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
 
-            suid = Fabric.get_suid(conf_a_id, db)
-            assert suid > 0, "Fetching setup id failed"
+                assert isinstance(suid := dbl.upsert("setups", config["setup"]), int), "Failure writing to db"
 
-            # glather the list of device dicts
-            device_dicts = [dd for group in run_queue for dd in group]
-            layouts = request["config"]["substrates"]["layouts"]
+                # glather the list of device dicts
+                device_dicts = [dd for group in run_queue for dd in group]
+                layouts = config["substrates"]["layouts"]
 
-            # register substrates, devices, layouts, layout devices, smus, setup slots
-            # to get a lookup construct
-            lu = Fabric.registerer(db, device_dicts, suid, smus, layouts)
-            assert len(lu["device_ids"]) == len(set(lu["device_ids"])), "Every device in a run must be unique."
+                # register substrates, devices, layouts, layout devices, smus, setup slots
+                # to get a lookup construct
+                lu = dbl.registerer(device_dicts, suid, smus, layouts)
+                assert len(lu["device_ids"]) == len(set(lu["device_ids"])), "Every device in a run must be unique."
 
-            # check connectivity
-            self.lg.log(29, f"Checking device connectivity...")
-            tosort = []
-            for group in run_queue:
-                for smui, device_dict in enumerate(group):
-                    tosort.append((device_dict["slot"], device_dict["pad"], smui))
-            tosort.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
-            slots = [x[0] for x in tosort]
-            pads = [x[1] for x in tosort]
-            smuis = [x[2] for x in tosort]
+                # check connectivity
+                self.lg.log(29, f"Checking device connectivity...")
+                tosort = []
+                for group in run_queue:
+                    for smui, device_dict in enumerate(group):
+                        tosort.append((device_dict["slot"], device_dict["pad"], smui))
+                tosort.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
+                slots = [x[0] for x in tosort]
+                pads = [x[1] for x in tosort]
+                smuis = [x[2] for x in tosort]
 
-            # do the contact check
-            rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
+                # do the contact check
+                rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
 
-            # save results to db
-            for r in rs:
-                to_upsert = {}
-                to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
-                to_upsert["setup_slot_id"] = lu["slot_ids"][lu["slots"].index(r["slot"])]
-                to_upsert["pad_name"] = str(r["pad"])
-                to_upsert["pass"] = r["data"][0]
-                to_upsert["r"] = r["data"][1]
-                r["ccid"] = db.upsert("tbl_contact_checks", to_upsert)
-                assert r["ccid"] > 0, "Registering contact check result failed"
+                # send results to db
+                for r in rs:
+                    to_upsert = {}
+                    to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
+                    to_upsert["setup_slot_id"] = lu["slot_ids"][lu["slots"].index(r["slot"])]
+                    to_upsert["pad_name"] = str(r["pad"])
+                    to_upsert["pass"] = r["data"][0]
+                    to_upsert["r"] = r["data"][1]
+                    ccid = dbl.insert("tbl_contact_checks", to_upsert)
+                    assert isinstance(ccid, int), "Registering contact check result failed"
+                    r["ccid"] = ccid
 
-            # notify user of contact check failures
-            fails = [line for line in rs if not line["data"][0]]
-            if any(fails):
-                headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
-                self.lg.warning(headline)
-                if config["UI"]["bad_connections"] == "abort":  # abort mode
-                    return
-                body = ["Ignoring poor connections can result in the collection of misleading data."]
-                if config["UI"]["bad_connections"] == "ignore":  # ignore mode
-                    pass
-                else:  # "ask" mode: generate warning dialog for user to decide
-                    body.append("Pads with connection faults:")
-                    for line in fails:
-                        body.append(f'{line["slot"]}-{line["pad"]}')
+                # notify user of contact check failures
+                fails = [line for line in rs if not line["data"][0]]
+                if any(fails):
+                    headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
+                    self.lg.warning(headline)
+                    if config["UI"]["bad_connections"] == "abort":  # abort mode
+                        return
+                    body = ["Ignoring poor connections can result in the collection of misleading data."]
+                    if config["UI"]["bad_connections"] == "ignore":  # ignore mode
+                        pass
+                    else:  # "ask" mode: generate warning dialog for user to decide
+                        body.append("Pads with connection faults:")
+                        for line in fails:
+                            body.append(f'{line["slot"]}-{line["pad"]}')
 
-                    payload = {"warn_dialog": {"headline": headline, "body": "\n".join(body), "buttons": ("Ignore and Continue", "Abort the Run")}}
-                    self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
-                    self.lg.log(29, "Waiting for user input on what to do...")
-                    self.bc_response.wait()
-                    self.bc_response.clear()
+                        payload = {"warn_dialog": {"headline": headline, "body": "\n".join(body), "buttons": ("Ignore and Continue", "Abort the Run")}}
+                        self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
+                        self.lg.log(29, "Waiting for user input on what to do...")
+                        self.bc_response.wait()
+                        self.bc_response.clear()
+                        if self.pkiller.is_set():
+                            self.lg.debug("Killed by killer.")
+                            return
+                    self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
+                    self.lg.warning("Continuting anyway...")
+                else:
+                    self.lg.log(29, "🟢 All good!")
+
+                ss = stack.enter_context(ill_fac(sscfg)(**sscfg))  # init and connect to solar sim
+
+                # setup motion object
+                if fake_mo:
+                    mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled)
+                else:
+                    mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
+                assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+
+                # register a new run
+                # rid = db.register_run(uid, conf_a_id, conf_b_id, importlib.metadata.version("centralcontrol"), name=args["run_name_prefix"])
+                assert 0 == db.hset(f"run:{rid}", mapping={"started": 1}), "Failed to mark run as started"
+
+                # register what's in what slot for this run
+                for substrate_id in set(lu["substrate_ids"]):
+                    slot_id = lu["slot_ids"][lu["substrate_ids"].index(substrate_id)]
+                    id = dbl.upsert("tbl_slot_substrate_run_mappings", {"run_id": rid, "slot_id": slot_id, "substrate_id": substrate_id}, expect_mod=True)
+                    assert isinstance(id, int), "Registering slot substrate mapping failed"
+
+                # register the devices selected for measurement in this run
+                run_devices = [(rid, did) for did in lu["device_ids"]]
+                rslts = dbl.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
+                assert all([isinstance(rslt, int) for rslt in rslts]), "Registering run-devices failed"
+
+                for r in rs:  # now go back and attach this run id to the contact check results that go with it
+                    id = dbl.insert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
+                    assert isinstance(id, int), "Updating contact check failed"
+
+                for sm in smus:
+                    sm.killer = self.pkiller  # register the kill signal with the smu object
+                mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
+
+                # ====== the hardware and configuration is all set up now so the actual run logic begins here ======
+
+                # here's a context manager that ensures the hardware is in the right state at the start and end
+                with Fabric.measurement_context(mc, ss, smus, self.outq, db, rid):
+
                     if self.pkiller.is_set():
                         self.lg.debug("Killed by killer.")
                         return
-                self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
-                self.lg.warning("Continuting anyway...")
-            else:
-                self.lg.log(29, "🟢 All good!")
 
-            ss = stack.enter_context(ill_fac(sscfg)(**sscfg))  # init and connect to solar sim
+                    # make sure we have a record of spectral data
+                    # TODO: only do this if this run will actually use the light
+                    datas = Fabric.record_spectrum(ss, self.outq, self.lg)
+                    for ldata in datas:
+                        lcid = self.log_light_cal(ldata, suid, dbl, args["light_recipe"], rid)
+                        assert isinstance(lcid, int), "Failure registering the light calibration"
 
-            # setup motion object
-            if fake_mo:
-                mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled)
-            else:
-                mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
-            assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
+                    # set NPLC
+                    if args["nplc"] != -1:
+                        [sm.setNPLC(args["nplc"]) for sm in smus]
 
-            rid = db.register_run(uid, conf_a_id, conf_b_id, importlib.metadata.version("centralcontrol"), name=args["run_name_prefix"])  # register a new run
-            assert rid > 0, "Saving run config failed"
+                    remaining = p_total  # number of steps in the routine that still need to be done
+                    n_done = 0  # number of steps in the routine that we've completed so far
+                    t0 = time.time()  # run start time snapshot
 
-            # register what's in what slot for this run
-            for substrate_id in set(lu["substrate_ids"]):
-                slot_id = lu["slot_ids"][lu["substrate_ids"].index(substrate_id)]
-                id = db.upsert("tbl_slot_substrate_run_mappings", {"run_id": rid, "slot_id": slot_id, "substrate_id": substrate_id}, expect_mod=True)
-                assert id > 0, "Registering slot substrate mapping failed"
+                    if run_queue:
+                        while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
+                            group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
 
-            # register the devices selected for measurement in this run
-            run_devices = [(rid, did) for did in lu["device_ids"]]
-            rslt = db.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
-            assert rslt == len(run_devices), "Registering run-devices failed"
+                            dt = time.time() - t0  # seconds since run start
+                            if (n_done > 0) and (args["cycles"] != 0):
+                                tpp = dt / n_done  # average time per step
+                                finishtime = time.time() + tpp * remaining
+                                finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+                                human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                                fraction = n_done / p_total
+                                text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
+                                self.lg.debug(f'{text} for {args["run_name_prefix"]} by {args["user_name"]}')
+                                progress_msg = {"text": text, "fraction": fraction}
+                                self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-            for r in rs:  # now go back and attach this run id to the contact check results that go with it
-                id = db.upsert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
-                assert id > 0, "Updating contact check failed"
+                            n_parallel = len(group)  # how many pixels this group holds
+                            dev_labels = [device_dict["device_label"] for device_dict in group]
+                            dev_labp = [f"[{l}]" for l in dev_labels]
+                            print_label = f'{", ".join(dev_labp)}'
+                            theres = np.array([device_dict["pos"] for device_dict in group])
+                            self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
+                            if n_parallel > 1:
+                                there = tuple(theres.mean(0))  # the average location of the group
+                            else:
+                                there = theres[0]
 
-            for sm in smus:
-                sm.killer = self.pkiller  # register the kill signal with the smu object
-            mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
+                            # send a progress message for the frontend's log window
+                            self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
 
-            # ====== the hardware and configuration is all set up now so the actual run logic begins here ======
+                            # set up light source voting/synchronization (if any)
+                            ss.n_sync = n_parallel
 
-            # here's a context manager that ensures the hardware is in the right state at the start and end
-            with Fabric.measurement_context(mc, ss, smus, self.outq, db, rid):
+                            # move stage
+                            if there and (float("nan") not in there):
+                                # force light off for motion if configured
+                                if "off_during_motion" in config["solarsim"]:
+                                    if config["solarsim"]["off_during_motion"] is True:
+                                        ss.apply_intensity(0)
+                                mo.goto(there)  # command the stage
 
-                if self.pkiller.is_set():
-                    self.lg.debug("Killed by killer.")
-                    return
+                            # select pixel(s)
+                            pix_selections = [device_dict["mux_sel"] for device_dict in group]
+                            pix_deselections = [(slot, 0) for slot, pad in pix_selections]
+                            Fabric.select_pixel(mc, mux_sels=pix_selections)
 
-                # make sure we have a record of spectral data
-                datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                for ldata in datas:
-                    lcid = self.log_light_cal(ldata, suid, db, args["light_recipe"], rid)
-                    assert lcid > 0, "Failure registering the light calibration"
+                            # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
 
-                # set NPLC
-                if args["nplc"] != -1:
-                    [sm.setNPLC(args["nplc"]) for sm in smus]
+                                # keeps track of the parallelized objects
+                                futures: list[concurrent.futures.Future] = []
 
-                remaining = p_total  # number of steps in the routine that still need to be done
-                n_done = 0  # number of steps in the routine that we've completed so far
-                t0 = time.time()  # run start time snapshot
+                                for device_dict in group:
+                                    this_smu = smus[device_dict["smui"]]
+                                    this_mppt = mppts[device_dict["smui"]]
 
-                if run_queue:
-                    while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
-                        group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
+                                    # setup data handler for this device
+                                    dh = DataHandler(pixel=device_dict, outq=self.outq)
 
-                        dt = time.time() - t0  # seconds since run start
-                        if (n_done > 0) and (args["cycles"] != 0):
-                            tpp = dt / n_done  # average time per step
-                            finishtime = time.time() + tpp * remaining
-                            finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                            human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                            fraction = n_done / p_total
-                            text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                            self.lg.debug(f'{text} for {args["run_name_prefix"]} by {request["args"]["user_name"]}')
-                            progress_msg = {"text": text, "fraction": fraction}
-                            self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+                                    # set virtual smu scaling (just so it knows how much current to produce)
+                                    if isinstance(this_smu, virt.FakeSMU):
+                                        this_smu.area = device_dict["area"]
+                                        this_smu.dark_area = device_dict["dark_area"]
 
-                        n_parallel = len(group)  # how many pixels this group holds
-                        dev_labels = [device_dict["device_label"] for device_dict in group]
-                        dev_labp = [f"[{l}]" for l in dev_labels]
-                        print_label = f'{", ".join(dev_labp)}'
-                        theres = np.array([device_dict["pos"] for device_dict in group])
-                        self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
-                        if n_parallel > 1:
-                            there = tuple(theres.mean(0))  # the average location of the group
-                        else:
-                            there = theres[0]
+                                    # submit for processing
+                                    futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
+                                    futures[-1].add_done_callback(self.on_device_routine_done)
 
-                        # send a progress message for the frontend's log window
-                        self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
+                                # wait for the futures to come back
+                                max_future_time = None  # TODO: try to calculate an upper limit for this
+                                (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
 
-                        # set up light source voting/synchronization (if any)
-                        ss.n_sync = n_parallel
+                                for futrue in not_done:
+                                    self.lg.warning(f"{repr(futrue)} didn't finish in time!")
+                                    if not futrue.cancel():
+                                        self.lg.warning("and we couldn't cancel it.")
 
-                        # move stage
-                        if there and (float("nan") not in there):
-                            # force light off for motion if configured
-                            if "off_during_motion" in config["solarsim"]:
-                                if config["solarsim"]["off_during_motion"] is True:
-                                    ss.apply_intensity(0)
-                            mo.goto(there)  # command the stage
+                            # deselect what we had just selected
+                            Fabric.select_pixel(mc, mux_sels=pix_deselections)
 
-                        # select pixel(s)
-                        pix_selections = [device_dict["mux_sel"] for device_dict in group]
-                        pix_deselections = [(slot, 0) for slot, pad in pix_selections]
-                        Fabric.select_pixel(mc, mux_sels=pix_selections)
+                            # turn off the SMUs
+                            for sm in smus:
+                                sm.outOn(False)
 
-                        # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
-
-                            # keeps track of the parallelized objects
-                            futures: list[concurrent.futures.Future] = []
-
-                            for device_dict in group:
-                                this_smu = smus[device_dict["smui"]]
-                                this_mppt = mppts[device_dict["smui"]]
-
-                                # setup data handler for this device
-                                dh = DataHandler(pixel=device_dict, outq=self.outq)
-
-                                # set virtual smu scaling (just so it knows how much current to produce)
-                                if isinstance(this_smu, virt.FakeSMU):
-                                    this_smu.area = device_dict["area"]
-                                    this_smu.dark_area = device_dict["dark_area"]
-
-                                # submit for processing
-                                futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
-                                futures[-1].add_done_callback(self.on_device_routine_done)
-
-                            # wait for the futures to come back
-                            max_future_time = None  # TODO: try to calculate an upper limit for this
-                            (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
-
-                            for futrue in not_done:
-                                self.lg.warning(f"{repr(futrue)} didn't finish in time!")
-                                if not futrue.cancel():
-                                    self.lg.warning("and we couldn't cancel it.")
-
-                        # deselect what we had just selected
-                        Fabric.select_pixel(mc, mux_sels=pix_deselections)
-
-                        # turn off the SMUs
-                        for sm in smus:
-                            sm.outOn(False)
-
-                        n_done += 1
-                        remaining = len(run_queue)
-
-                        if (remaining == 0) and (args["cycles"] == 0):
-                            # refresh the deque to loop forever
-                            run_queue = start_q.copy()
+                            n_done += 1
                             remaining = len(run_queue)
+
+                            if (remaining == 0) and (args["cycles"] == 0):
+                                # refresh the deque to loop forever
+                                run_queue = start_q.copy()
+                                remaining = len(run_queue)
 
     def on_device_routine_done(self, future: concurrent.futures.Future):
         """callback function for when a device routine future completes"""
@@ -998,8 +1036,10 @@ class Fabric(object):
         """
         data = []
         mppt_enabled = (args["mppt_check"]) and (args["mppt_dwell"] > 0)  # will we do mppt here?
-        with SlothDB(db_uri=config["db"]["uri"]) as db:
-            ecs = db.counter_sequence()  # experiment counter sequence generator to keep track of the order in which things were done here
+        # with SlothDB(db_uri=config["db"]["uri"]) as db:
+        with redis.Redis.from_url(self.mem_db_url) as db:
+            dbl = DBLink(db)
+            ecs = dbl.counter_sequence()  # experiment counter sequence generator to keep track of the order in which things were done here
             # "Voc" if
             if (args["i_dwell"] > 0) and args["i_dwell_check"]:
                 if self.pkiller.is_set():
@@ -1042,15 +1082,15 @@ class Fabric(object):
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities
                     isweep_event["effective_area"] = pix["area"]
-                    isweepeid = db.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
-                    assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
+                    isweepeid = dbl.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
+                    assert isinstance(isweepeid, int), "Registering new intensity sweep measurement event failed"
                     # data collection prep
-                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, False))
+                    datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, datcb)
                     # mark it as done
-                    isweepeid = db.upsert("tbl_isweep_events", {"complete": True}, id=isweepeid)
-                    assert isweepeid > 0, "Marking intensity sweep event complete failed"
+                    isweepeid = dbl.upsert("tbl_isweep_events", {"complete": True}, id=isweepeid)
+                    assert isinstance(isweepeid, int), "Marking intensity sweep event complete failed"
                     # keep the data
                     data += svtb
 
@@ -1067,15 +1107,15 @@ class Fabric(object):
                 ss_event["fixed"] = en.Fixed.CURRENT
                 ss_event["setpoint"] = args["i_dwell_value"]
                 ss_event["effective_area"] = pix["area"]
-                sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
-                assert sseid > 0, "Registering new steady state measurement event failed"
+                sseid = dbl.upsert("tbl_ss_events", ss_event, expect_mod=True)
+                assert isinstance(sseid, int), "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, suid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 vt = sm.measure_until(t_dwell=args["i_dwell"], cb=datcb)
                 # mark it as done
-                sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
-                assert sseid > 0, "Marking steady state measurement event complete failed"
+                sseid = dbl.upsert("tbl_ss_events", {"complete": True}, id=sseid)
+                assert isinstance(sseid, int), "Marking steady state measurement event complete failed"
                 # keep the data
                 data += vt
 
@@ -1100,15 +1140,15 @@ class Fabric(object):
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities_reversed
                     isweep_event["effective_area"] = pix["area"]
-                    isweepeid = db.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
-                    assert isweepeid > 0, "Registering new intensity sweep measurement event failed"
+                    isweepeid = dbl.upsert("tbl_isweep_events", isweep_event, expect_mod=True)
+                    assert isinstance(isweepeid, int), "Registering new intensity sweep measurement event failed"
                     # data collection prep
-                    datcb = lambda x: (db.putsmdat(x, isweepeid, en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
+                    datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, datcb)
                     # mark it as done
-                    isweepeid = db.upsert("tbl_isweep_events", {"complete": True}, id=isweepeid)
-                    assert isweepeid > 0, "Marking intensity sweep event complete failed"
+                    isweepeid = dbl.upsert("tbl_isweep_events", {"complete": True}, id=isweepeid)
+                    assert isinstance(isweepeid, int), "Marking intensity sweep event complete failed"
                     # keep the data
                     data += svtb
             else:
@@ -1170,15 +1210,15 @@ class Fabric(object):
                 sweep_event["to_setpoint"] = sweep_args["end"]
                 sweep_event["light"] = sweep["light_on"]
                 sweep_event["effective_area"] = compliance_area
-                sweepeid = db.upsert("tbl_sweep_events", sweep_event, expect_mod=True)
-                assert sweepeid > 0, "Registering new sweep event failed"
+                sweepeid = dbl.upsert("tbl_sweep_events", sweep_event, expect_mod=True)
+                assert isinstance(sweepeid, int), "Registering new sweep event failed"
                 # do the experiment
                 iv = sm.measure(sweep_args["nPoints"])
                 # record the data
-                db.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, suid)  # type: ignore
+                dbl.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, suid)  # type: ignore
                 # mark the event's data collection as done
-                sweepeid = db.upsert("tbl_sweep_events", {"complete": True}, id=sweepeid)
-                assert sweepeid > 0, "Marking sweep event complete failed"
+                sweepeid = dbl.upsert("tbl_sweep_events", {"complete": True}, id=sweepeid)
+                assert isinstance(sweepeid, int), "Marking sweep event complete failed"
                 # do legacy data handling
 
                 dh.handle_data(iv, dodb=False)  # type: ignore
@@ -1228,16 +1268,16 @@ class Fabric(object):
                 mppt_event["device_id"] = pix["did"]
                 mppt_event["algorithm"] = args["mppt_params"]
                 mppt_event["effective_area"] = compliance_area
-                mpptid = db.upsert("tbl_mppt_events", mppt_event, expect_mod=True)
-                assert mpptid > 0, "Registering new mppt event failed"
+                mpptid = dbl.upsert("tbl_mppt_events", mppt_event, expect_mod=True)
+                assert isinstance(mpptid, int), "Registering new mppt event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, mpptid, en.Event.MPPT, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (dbl.putsmdat(x, cast(int, mpptid), en.Event.MPPT, suid), dh.handle_data(x, dodb=False))
                 mppt_args["callback"] = datcb
                 # do the experiment
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
                 # mark the event's data collection as done
-                mpptid = db.upsert("tbl_mppt_events", {"complete": True}, id=mpptid)
-                assert mpptid > 0, "Marking mppt event complete failed"
+                mpptid = dbl.upsert("tbl_mppt_events", {"complete": True}, id=mpptid)
+                assert isinstance(mpptid, int), "Marking mppt event complete failed"
 
                 # TODO: consider moving these into the mpp tracker
                 mppt.reset()
@@ -1258,16 +1298,16 @@ class Fabric(object):
                     ss_event["fixed"] = en.Fixed.CURRENT
                     ss_event["setpoint"] = 0.0
                     mppt_event["effective_area"] = compliance_area
-                    sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
-                    assert sseid > 0, "Registering new steady state measurement event failed"
+                    sseid = dbl.upsert("tbl_ss_events", ss_event, expect_mod=True)
+                    assert isinstance(sseid, int), "Registering new steady state measurement event failed"
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                     for d in vt:
                         assert len(d) == 4, "Malformed smu data (resistance mode?)"
-                        db.putsmdat([d], sseid, en.Event.SS, suid)
+                        dbl.putsmdat([d], sseid, en.Event.SS, suid)
                         dh.handle_data([d], dodb=False)
                     # mark the event as done
-                    sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
-                    assert sseid > 0, "Marking steady state measurement event complete failed"
+                    sseid = dbl.upsert("tbl_ss_events", {"complete": True}, id=sseid)
+                    assert isinstance(sseid, int), "Marking steady state measurement event complete failed"
                     # keep the data
                     data += vt
 
@@ -1306,15 +1346,15 @@ class Fabric(object):
                 ss_event["fixed"] = en.Fixed.VOLTAGE
                 ss_event["setpoint"] = args["v_dwell_value"]
                 ss_event["effective_area"] = compliance_area
-                sseid = db.upsert("tbl_ss_events", ss_event, expect_mod=True)
-                assert sseid > 0, "Registering new steady state measurement event failed"
+                sseid = dbl.upsert("tbl_ss_events", ss_event, expect_mod=True)
+                assert isinstance(sseid, int), "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (db.putsmdat(x, sseid, en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, suid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 it = sm.measure_until(t_dwell=args["v_dwell"], cb=datcb)
                 # mark it as done
-                sseid = db.upsert("tbl_ss_events", {"complete": True}, id=sseid)
-                assert sseid > 0, "Marking steady state measurement event complete failed"
+                sseid = dbl.upsert("tbl_ss_events", {"complete": True}, id=sseid)
+                assert isinstance(sseid, int), "Marking steady state measurement event complete failed"
                 # keep the data
                 data += it
 
@@ -1357,10 +1397,10 @@ class Fabric(object):
         self,
         data: dict[str, float | list[tuple[float, float]]],
         setup_id: int,
-        db: SlothDB,
+        db: DBLink,
         recipe: str | None = None,
         run_id: int | None = None,
-    ) -> int:
+    ) -> int | None:
         """stores away light calibration data"""
         ary = np.array(data["data"])
         area = np.trapz(ary[:, 1], ary[:, 0])
@@ -1436,7 +1476,7 @@ class Fabric(object):
         center = config["motion"]["centers"]["solarsim"]
         run_q = []  # collections.deque()  # TODO: check if this could just be a list
 
-        if "slots" in request:
+        if "slots" in request:  # legacy
             # int("checkerberrycheddarchew")  # force crash for testing
             required_cols = ["slot", "user_label", "layout", "bitmask"]
             validated = []  # holds validated slot data
@@ -1621,102 +1661,3 @@ class Fabric(object):
         if r < r0:
             t += poly(r)
         return t
-
-    @staticmethod
-    def registerer(db: SlothDB, device_dicts: list[dict], suid: int, smus: list, layouts: list | None = None) -> dict:
-        """register substrates, devices, layouts, layout devices and setup slots with
-        the db to get the ids for these to put into a lookup construct"""
-
-        lu = {}  # a lookup construct to make looking things up later easier
-        lu["setup_id"] = suid
-        lu["slots"] = []
-        lu["slot_ids"] = []
-        lu["pads"] = []
-        lu["slot_pad"] = []
-        lu["user_labels"] = []
-        lu["substrate_ids"] = []
-        lu["layouts"] = []
-        lu["layout_ids"] = []
-        lu["layout_pad_ids"] = []
-        lu["device_ids"] = []
-        lu["smuis"] = []
-
-        # register substrates, devices, layouts, layout devices, smus, setup slots, run-devices
-        for device_dict in device_dicts:
-            lu["slots"].append(device_dict["slot"])
-            lu["pads"].append(device_dict["pad"])
-            lu["slot_pad"].append((device_dict["slot"], device_dict["pad"]))
-            lu["smuis"].append(device_dict["smui"])
-
-            # register smu
-            smus[device_dict["smui"]].id = db.upsert("tbl_tools", {"setup_id": suid, "address": smus[device_dict["smui"]].address, "idn": smus[device_dict["smui"]].idn})
-            assert smus[device_dict["smui"]].id > 0, "Registering smu failed"
-
-            # register setup slot
-            device_dict["slid"] = db.upsert("tbl_setup_slots", {"name": device_dict["slot"], "setup_id": suid})
-            assert device_dict["slid"] > 0, "Registering slot failed"
-            lu["slot_ids"].append(device_dict["slid"])
-
-            if "user_label" in device_dict:
-                lu["user_labels"].append(device_dict["user_label"])
-
-            if "layout" in device_dict:
-                lu["layouts"].append(device_dict["layout"])
-                layout_name = device_dict["layout"]
-                if layouts:
-                    # get layout version
-                    layout_version = None
-                    for layout in layouts:
-                        if layout["name"] == layout_name:
-                            layout_version = layout["version"]
-
-                    # register layout
-                    device_dict["loid"] = db.upsert("tbl_layouts", {"name": layout_name, "version": layout_version})
-                    assert device_dict["loid"] > 0, "Registering layout failed"
-                    lu["layout_ids"].append(device_dict["loid"])
-
-                    # register layout-device
-                    device_dict["ldid"] = db.upsert("tbl_layout_devices", {"layout_id": device_dict["loid"], "pad_no": device_dict["pad"]})
-                    assert device_dict["ldid"] > 0, "Registering layout device failed"
-                    lu["layout_pad_ids"].append(device_dict["ldid"])
-
-                    if "user_label" in device_dict:
-                        if device_dict["user_label"]:
-                            lbl = device_dict["user_label"]
-                        else:
-                            lbl = None
-
-                        # register substrate
-                        device_dict["sbid"] = db.upsert("tbl_substrates", {"name": lbl, "layout_id": device_dict["loid"]})
-                        assert device_dict["sbid"] > 0, "Registering substrate failed"
-                        lu["substrate_ids"].append(device_dict["sbid"])
-
-                        # register device
-                        device_dict["did"] = db.upsert("tbl_devices", {"substrate_id": device_dict["sbid"], "layout_device_id": device_dict["ldid"]})
-                        assert device_dict["did"] > 0, "Registering device failed"
-                        lu["device_ids"].append(device_dict["did"])
-
-        return lu
-
-    @staticmethod
-    def get_suid(conf_a_id: int, db: SlothDB) -> int:
-        """query the db for a setup id associated with conf type a"""
-        sql = f"""
-        select
-            setup_id
-        from
-            {db.schema}.tbl_conf_as
-        join {db.schema}.tbl_mux on
-            mux_set_hash_id = tbl_mux.id
-        join {db.schema}.tbl_setup_slots on
-            tbl_mux.slot_id = tbl_setup_slots.id
-        where
-            tbl_conf_as.id = {conf_a_id}
-        """
-        code, rslt = db.ask(sql)
-        if (code == 0) and rslt:
-            suid = rslt[0][0]
-        else:
-            suid = 0
-
-        return suid
