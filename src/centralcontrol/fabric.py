@@ -1085,7 +1085,7 @@ class Fabric(object):
                     isweepeid = dbl.insert("tbl_isweep_events", isweep_event, expect_mod=True)
                     assert isinstance(isweepeid, int), "Registering new intensity sweep measurement event failed"
                     # data collection prep
-                    datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, False))
+                    datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, rid), dh.handle_data(x, False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, datcb)
                     # mark it as done
@@ -1110,7 +1110,7 @@ class Fabric(object):
                 sseid = dbl.insert("tbl_ss_events", ss_event, expect_mod=True)
                 assert isinstance(sseid, int), "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, rid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 vt = sm.measure_until(t_dwell=args["i_dwell"], cb=datcb)
                 # mark it as done
@@ -1143,7 +1143,7 @@ class Fabric(object):
                     isweepeid = dbl.insert("tbl_isweep_events", isweep_event, expect_mod=True)
                     assert isinstance(isweepeid, int), "Registering new intensity sweep measurement event failed"
                     # data collection prep
-                    datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, suid), dh.handle_data(x, dodb=False))
+                    datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, rid), dh.handle_data(x, dodb=False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, datcb)
                     # mark it as done
@@ -1215,7 +1215,7 @@ class Fabric(object):
                 # do the experiment
                 iv = sm.measure(sweep_args["nPoints"])
                 # record the data
-                dbl.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, suid)  # type: ignore
+                dbl.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, rid)  # type: ignore
                 # mark the event's data collection as done
                 sweepeid = dbl.insert("tbl_sweep_events", {"complete": True}, id=sweepeid)
                 assert isinstance(sweepeid, int), "Marking sweep event complete failed"
@@ -1271,7 +1271,7 @@ class Fabric(object):
                 mpptid = dbl.insert("tbl_mppt_events", mppt_event, expect_mod=True)
                 assert isinstance(mpptid, int), "Registering new mppt event failed"
                 # data collection prep
-                datcb = lambda x: (dbl.putsmdat(x, cast(int, mpptid), en.Event.MPPT, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (dbl.putsmdat(x, cast(int, mpptid), en.Event.MPPT, rid), dh.handle_data(x, dodb=False))
                 mppt_args["callback"] = datcb
                 # do the experiment
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
@@ -1303,7 +1303,7 @@ class Fabric(object):
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                     for d in vt:
                         assert len(d) == 4, "Malformed smu data (resistance mode?)"
-                        dbl.putsmdat([d], sseid, en.Event.SS, suid)
+                        dbl.putsmdat([d], sseid, en.Event.SS, rid)
                         dh.handle_data([d], dodb=False)
                     # mark the event as done
                     sseid = dbl.insert("tbl_ss_events", {"complete": True}, id=sseid)
@@ -1349,7 +1349,7 @@ class Fabric(object):
                 sseid = dbl.insert("tbl_ss_events", ss_event, expect_mod=True)
                 assert isinstance(sseid, int), "Registering new steady state measurement event failed"
                 # data collection prep
-                datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, suid), dh.handle_data(x, dodb=False))
+                datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, rid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 it = sm.measure_until(t_dwell=args["v_dwell"], cb=datcb)
                 # mark it as done

@@ -250,14 +250,11 @@ class DBLink(object):
             to_upsert["idn"] = idn
         return self.insert(f"tbl_light_cal", to_upsert)
 
-    def putsmdat(self, data: list[tuple[float, float, float, int]], eid: int, kind: en.Event, table_counter: int = 1) -> list[int | None]:
+    def putsmdat(self, data: list[tuple[float, float, float, int]], eid: int, kind: en.Event, rid: int) -> list[int | None]:
         """insert data row into a raw data table"""
-        to_put = []
-        tbl = f"tbl_{kind.value}_raw_{table_counter}"
-        col_names = ["eid", "dcs", "v", "i", "t", "s"]
-        for row in data:
-            to_put.append((eid, next(self.dat_seq)) + row)
-        return self.multiput(tbl, to_put, col_names, upsert=False)
+        tbl = f"tbl_{kind.value}_raw:{rid}:{eid}"
+        col_names = ["v", "i", "t", "s"]
+        return self.multiput(tbl, data, col_names, upsert=False)
 
     @staticmethod
     def counter_sequence(start: int = 0) -> Generator[int, int | None, None]:
