@@ -252,7 +252,7 @@ class DBLink(object):
 
     def putsmdat(self, data: list[tuple[float, float, float, int]], eid: int, kind: en.Event, rid: int) -> list[int | None]:
         """insert data row into a raw data table"""
-        tbl = f"tbl_{kind.value}_raw:{rid}:{eid}"
+        tbl = f"tbl_raw:{kind.value}:{rid}:{eid}"
         col_names = ["v", "i", "t", "s"]
         return self.multiput(tbl, data, col_names, upsert=False)
 
