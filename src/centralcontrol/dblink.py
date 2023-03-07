@@ -1,5 +1,8 @@
 import redis
-import redis_annex
+import redis.asyncio as aredis
+import asyncio
+
+# import redis_annex
 import json
 from typing import Any, Generator
 from queue import SimpleQueue as Queue
@@ -20,10 +23,12 @@ class DBLink(object):
 
     db: redis.Redis
     inq: Queue  # input message queue
-    p: redis.client.PubSub  # publish/subscribe object for
+    # p: redis.client.PubSub  # publish/subscribe object for
     inq_thread: threading.Thread
     lg: logging.Logger
     dat_seq: Generator[int, int | None, None]
+    listen_streams: list[str] = []
+    xread_task: asyncio.Task | None = None
 
     def __init__(self, db: redis.Redis, inq: None | Queue = None, lg: None | logging.Logger = None):
         self.db = db
@@ -32,14 +37,15 @@ class DBLink(object):
         if lg:
             self.lg = lg
         self.dat_seq = DBLink.counter_sequence()
+        self.listen_streams.append("runs")
 
     def __enter__(self):
         """context manager for handling the inq relay setup/teardown"""
         assert self.inq, "The in-memory db relay input queue has not been defined"
-        self.p = self.db.pubsub()
-        listen_channels = []
-        listen_channels.append("runs:new")  # a new run has been initiated
-        self.p.subscribe(*listen_channels)
+        # self.p = self.db.pubsub()
+        # listen_channels = []
+        # listen_channels.append("runs:new")  # a new run has been initiated
+        # self.p.subscribe(*listen_channels)
         self.inq_thread = threading.Thread(target=self.inq_handler, daemon=False)
         self.inq_thread.start()
 
@@ -51,7 +57,8 @@ class DBLink(object):
     def stop_listening(self):
         """cleanup listener and inq thread"""
         try:
-            self.p.unsubscribe()
+            if self.xread_task:
+                self.xread_task.cancel()
         except Exception as e:
             if self.lg:
                 self.lg.debug(f"memdb unsubscribe fail: {repr(e)}")
@@ -63,61 +70,36 @@ class DBLink(object):
 
     def inq_handler(self):
         """shuttles incomming messages to the inq"""
-        assert self.p, "The in-memory db listener has not been defined"
+        # assert self.p, "The in-memory db listener has not been defined"
         assert self.inq, "The in-memory db relay input queue has not been defined"
-        for message in self.p.listen():
-            self.inq.put(message)
+        streams = {s: "$" for s in self.listen_streams}
+        ar = aredis.Redis(**self.db.get_connection_kwargs())
+
+        async def msg_shuttle(lar: aredis.Redis, lstreams: dict, linq: Queue):
+            while True:
+                self.xread_task = asyncio.create_task(lar.xread(streams=lstreams, block=0, count=1))
+                try:
+                    message = await self.xread_task
+                except asyncio.CancelledError:
+                    message = None
+
+                if not message:
+                    break
+
+                linq.put(message)
+                # get ready for the next message
+                id = message[0][1][0][0]
+                lstreams = {s: id for s in self.listen_streams}
+            await lar.close()
+
+        asyncio.run(msg_shuttle(ar, streams, self.inq))
+
         if self.lg:
             self.lg.debug("memdb inq relay finished")
 
-    def upsert(self, tbl: str, val: Any, id: int | None = None, expect_mod: bool | None = None) -> int | None:
-        key = tbl.removeprefix("tbl_")
-        if id is None:  # unique insert
-            ret, mod = redis_annex.uadd(self.db, key, json.dumps(val))
-        else:  # update
-            mod = True
-            assert isinstance(val, dict), "Upsert-update only works with dicts"
-            # TODO: might consider using redis json extension for this...
-            old_val_bin = self.db.zrange(key, id, id)[0]
-            assert isinstance(old_val_bin, bytes), "Failed on update in upsert"
-            contents = json.loads(old_val_bin)
-            for ckey, new_val in val.items():
-                contents[ckey] = new_val
-            if isinstance(self.db.zadd(key, {json.dumps(contents): id}), int):
-                ret = id
-            else:  # zadd fail
-                ret = None
-
-        # check the expected mod state
-        if expect_mod is not None:
-            if mod != expect_mod:
-                ret = None
-        return ret
-
-    def insert(self, tbl: str, val: Any, id: int | None = None, expect_mod: bool | None = None) -> int | None:
-        key = tbl.removeprefix("tbl_")
-        if id is None:  # normal insert
-            ret = redis_annex.add(self.db, key, json.dumps(val))
-        else:  # update
-            assert isinstance(val, dict), "Upsert-update only works with dicts"
-            old_val_bin = self.db.lindex(key, id)
-            assert isinstance(old_val_bin, bytes), "Failed on update in insert"
-            contents = json.loads(old_val_bin)
-            for ckey, new_val in val.items():
-                contents[ckey] = new_val
-            if isinstance(self.db.lset(key, id, json.dumps(contents)), int):
-                ret = id
-            else:  # zadd fail
-                ret = None
-        return ret
-
-    def multiput(self, table: str, data: list[tuple], col_names: list[str], upsert: bool = True) -> list[int | None]:
+    def multiput(self, table: str, data: list[tuple], col_names: list[str]) -> list[str]:
         dicts = [dict(zip(col_names, datum)) for datum in data]
-        if upsert:
-            ret = [self.upsert(table, adict) for adict in dicts]
-        else:  # insert
-            ret = [self.insert(table, adict) for adict in dicts]
-        return ret
+        return [self.db.xadd(table, fields={"json": json.dumps(adict)}, maxlen=10000, approximate=True).decode() for adict in dicts]
 
     def registerer(self, device_dicts: list[dict], suid: int, smus: list, layouts: list | None = None) -> dict:
         """register substrates, devices, layouts, layout devices and setup slots with
@@ -149,16 +131,14 @@ class DBLink(object):
             tool["setup_id"] = suid
             tool["address"] = smus[device_dict["smui"]].address
             tool["idn"] = smus[device_dict["smui"]].idn
-            smu_id = self.upsert("tbl_tools", tool)
-            assert isinstance(smu_id, int), "Registering smu failed"
+            smu_id = self.db.xadd("tbl_tools", fields={"json": json.dumps(tool)}, maxlen=100, approximate=True).decode()
             smus[device_dict["smui"]].id = smu_id
 
             # register setup slot
             slot = {}
             slot["name"] = device_dict["slot"]
             slot["setup_id"] = suid
-            slot_id = self.upsert("tbl_setup_slots", slot)
-            assert isinstance(slot_id, int), "Registering slot failed"
+            slot_id = self.db.xadd("tbl_setup_slots", fields={"json": json.dumps(slot)}, maxlen=10000, approximate=True).decode()
             device_dict["slid"] = slot_id
             lu["slot_ids"].append(slot_id)
 
@@ -179,8 +159,7 @@ class DBLink(object):
                     layout = {}
                     layout["name"] = layout_name
                     layout["version"] = layout_version
-                    layout_id = self.upsert("tbl_layouts", layout)
-                    assert isinstance(layout_id, int), "Registering layout failed"
+                    layout_id = self.db.xadd("tbl_layouts", fields={"json": json.dumps(layout)}, maxlen=10000, approximate=True).decode()
                     device_dict["loid"] = layout_id
                     lu["layout_ids"].append(layout_id)
 
@@ -188,8 +167,7 @@ class DBLink(object):
                     layout_device = {}
                     layout_device["layout_id"] = device_dict["loid"]
                     layout_device["pad_no"] = device_dict["pad"]
-                    layout_device_id = self.upsert("tbl_layout_devices", layout_device)
-                    assert isinstance(layout_device_id, int), "Registering layout device failed"
+                    layout_device_id = self.db.xadd("tbl_layout_devices", fields={"json": json.dumps(layout_device)}, maxlen=10000, approximate=True).decode()
                     device_dict["ldid"] = layout_device_id
                     lu["layout_pad_ids"].append(layout_device_id)
 
@@ -203,8 +181,7 @@ class DBLink(object):
                         substrate = {}
                         substrate["name"] = lbl
                         substrate["layout_id"] = device_dict["loid"]
-                        substrate_id = self.upsert("tbl_substrates", substrate)
-                        assert isinstance(substrate_id, int), "Registering substrate failed"
+                        substrate_id = self.db.xadd("tbl_substrates", fields={"json": json.dumps(substrate)}, maxlen=10000, approximate=True).decode()
                         device_dict["sbid"] = substrate_id
                         lu["substrate_ids"].append(substrate_id)
 
@@ -212,8 +189,7 @@ class DBLink(object):
                         device = {}
                         device["substrate_id"] = device_dict["sbid"]
                         device["layout_device_id"] = device_dict["ldid"]
-                        device_id = self.upsert("tbl_devices", device)
-                        assert isinstance(device_id, int), "Registering device failed"
+                        device_id = self.db.xadd("tbl_devices", fields={"json": json.dumps(device)}, maxlen=10000, approximate=True).decode()
                         device_dict["did"] = device_id
                         lu["device_ids"].append(device_id)
 
@@ -221,6 +197,7 @@ class DBLink(object):
 
     def new_light_cal(
         self,
+        timestamp: str,
         sid: int,
         rid: int | None = None,
         temps: tuple[float] | None = None,
@@ -230,8 +207,9 @@ class DBLink(object):
         setpoint: tuple[float] | None = None,
         recipe: str | None = None,
         idn: str | None = None,
-    ) -> int | None:
+    ) -> str:
         to_upsert = {}
+        to_upsert["time"] = timestamp
         to_upsert["setup_id"] = sid
         if rid:
             to_upsert["run_id"] = rid
@@ -248,13 +226,13 @@ class DBLink(object):
             to_upsert["recipe"] = recipe
         if idn:
             to_upsert["idn"] = idn
-        return self.insert(f"tbl_light_cal", to_upsert)
+        return self.db.xadd("tbl_light_cal", fields={"json": json.dumps(to_upsert)}, maxlen=100, approximate=True).decode()
 
-    def putsmdat(self, data: list[tuple[float, float, float, int]], eid: int, kind: en.Event, rid: int) -> list[int | None]:
+    def putsmdat(self, data: list[tuple[float, float, float, int]], eid: int, kind: en.Event, rid: int) -> list[str]:
         """insert data row into a raw data table"""
         tbl = f"tbl_raw:{kind.value}:{rid}:{eid}"
         col_names = ["v", "i", "t", "s"]
-        return self.multiput(tbl, data, col_names, upsert=False)
+        return self.multiput(tbl, data, col_names)
 
     @staticmethod
     def counter_sequence(start: int = 0) -> Generator[int, int | None, None]:

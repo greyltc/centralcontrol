@@ -27,7 +27,8 @@ import centralcontrol.enums as en
 
 from slothdb.dbsync import SlothDBSync as SlothDB
 import redis
-import redis_annex
+
+# import redis_annex
 
 from centralcontrol import virt
 from centralcontrol.illumination import LightAPI
@@ -139,7 +140,7 @@ class Fabric(object):
             self.lg.debug("".join(tb.format()))
         self.outq.put({"topic": "measurement/status", "payload": json.dumps("Ready"), "qos": 2, "retain": True})
 
-    def msg_handler(self, inq: Queue[str | MQTTMessage]):
+    def msg_handler(self, inq: Queue[list | str | MQTTMessage]):
         """handle new messages as they come in from comms, the main program loop lives here"""
         future = None  # represents a long-running task
         # decode_topics = ["measurement/run", "util"]  # messages posted to these channels need their payloads decoded
@@ -183,12 +184,12 @@ class Fabric(object):
                                                 future = self.submit_for_execution(exicuter, future, self.utility_handler, request)
                                         elif request == "unblock":
                                             self.bc_response.set()  # unblock waiting for a response from the frontend
-                        elif isinstance(msg, dict):  # from memdb
-                            if msg["type"] == "message":
-                                if msg["channel"].decode() == "runs:new":
-                                    rid = int(msg["data"].decode())
-                                    self.lg.debug(f"Got new run start with id: {rid}")
-                                    future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid})
+                        elif isinstance(msg, list) and len(msg[0]) == 2:  # from memdb
+                            channel, payload = msg[0]
+                            if channel == b"runs":
+                                rid = payload[0][0]
+                                self.lg.debug(f"Got new run start with id: {rid.decode()}")
+                                future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid} | json.loads(payload[0][1][b"json"]))
                         else:
                             self.lg.debug(f"Unknown message type in inq: {type(msg)}")
 
@@ -353,9 +354,9 @@ class Fabric(object):
                 db = stack.enter_context(redis.Redis.from_url(self.mem_db_url))
                 dbl = DBLink(db)
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smus"]]
-                assert isinstance(suid := dbl.upsert("setups", task["conf_id"]["setups"]), int), "Fetching setup id failed"
+                suid = db.xadd("setups", fields={"json": json.dumps(task["conf_id"]["setups"])}, maxlen=100, approximate=True)
 
-                lu = Fabric.registerer(db, dev_dicts, suid, smus, layouts)
+                lu = dbl.registerer(dev_dicts, suid, smus, layouts)
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
                     rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
@@ -673,7 +674,7 @@ class Fabric(object):
             outq.put({"topic": "progress", "payload": json.dumps({"text": "Done!", "fraction": 1}), "qos": 2})
             outq.put({"topic": "plotter/live_devices", "payload": json.dumps([]), "qos": 2, "retain": True})
 
-            assert 0 == db.hset(f"run:{rid}", mapping={"complete": 1}), "Failure marking run complete"
+            db.xadd("completed_runs", fields={"id": rid}, maxlen=100, approximate=True)
 
     def standard_routine(self, run_queue: list[list[dict]], request: dict) -> None:
         """perform the normal measurement routine on a given list of pixels"""
@@ -683,17 +684,15 @@ class Fabric(object):
         with redis.Redis.from_url(self.mem_db_url) as db:
             dbl = DBLink(db)
             if "runid" in request:
-                rid = request["runid"]
-                assert isinstance(run_info := db.hgetall(f"run:{rid}"), dict), "Failed to fetch run info"
-                assert 1 == db.hset(f"run:{rid}", mapping={"backend_ver": backend_ver}), "Failed to set version"
-                conf_a_id = int(run_info[b"conf_a_id"])
-                conf_b_id = int(run_info[b"conf_b_id"])
-                rq_id = int(run_info[b"rq_id"])
-                config = json.loads(db.zrange("conf_as", conf_a_id, conf_a_id)[0])
-                assert isinstance(args_bin := db.lindex("conf_bs", conf_b_id), bytes), "Failed to load config type B"
-                args = json.loads(args_bin)
-                assert isinstance(runq_bin := db.lindex("runqs", rq_id), bytes), "Failed to load run queue"
-                run_queue = json.loads(runq_bin)
+                rid = request["runid"].decode()
+                conf_a_id = request["conf_a_id"]
+                conf_b_id = request["conf_b_id"]
+                rq_id = request["rq_id"]
+                # notify of this backend's software version
+                db.xadd("backend_vers", fields={rid: backend_ver}, maxlen=100, approximate=True)
+                config = json.loads(db.xrange("conf_as", conf_a_id, conf_a_id)[0][1][b"json"])
+                args = json.loads(db.xrange("conf_bs", conf_b_id, conf_b_id)[0][1][b"json"])
+                run_queue = json.loads(db.xrange("runqs", rq_id, rq_id)[0][1][b"json"])
             else:  # TODO: remove this legacy code path
                 rid = 1  # HACK a run id for testing
                 if "config" in request:
@@ -802,12 +801,12 @@ class Fabric(object):
                 # register the equipment comms & db comms instances with the ExitStack for magic cleanup/disconnect
 
                 # user registration TODO: consider moving this kind of thing to the frontend
-                assert isinstance(uid := redis_annex.uadd(db, "users", args["user_name"])[0], int), "Failure writing to db"
+                uid = db.xadd("users", fields={"str": args["user_name"]}, maxlen=100, approximate=True).decode()
 
                 mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
 
-                assert isinstance(suid := dbl.upsert("setups", config["setup"]), int), "Failure writing to db"
+                suid = db.xadd("setups", fields={"json": json.dumps(config["setup"])}, maxlen=100, approximate=True).decode()
 
                 # glather the list of device dicts
                 device_dicts = [dd for group in run_queue for dd in group]
@@ -840,9 +839,7 @@ class Fabric(object):
                     to_upsert["pad_name"] = str(r["pad"])
                     to_upsert["pass"] = r["data"][0]
                     to_upsert["r"] = r["data"][1]
-                    ccid = dbl.insert("tbl_contact_checks", to_upsert)
-                    assert isinstance(ccid, int), "Registering contact check result failed"
-                    r["ccid"] = ccid
+                    r["ccid"] = db.xadd("tbl_contact_checks", fields={"json": json.dumps(to_upsert)}, maxlen=10000, approximate=True).decode()
 
                 # notify user of contact check failures
                 fails = [line for line in rs if not line["data"][0]]
@@ -883,22 +880,20 @@ class Fabric(object):
 
                 # register a new run
                 # rid = db.register_run(uid, conf_a_id, conf_b_id, importlib.metadata.version("centralcontrol"), name=args["run_name_prefix"])
-                assert 0 == db.hset(f"run:{rid}", mapping={"started": 1}), "Failed to mark run as started"
+                db.xadd("started_runs", fields={"run": rid}, maxlen=100, approximate=True).decode()
 
                 # register what's in what slot for this run
                 for substrate_id in set(lu["substrate_ids"]):
                     slot_id = lu["slot_ids"][lu["substrate_ids"].index(substrate_id)]
-                    id = dbl.upsert("tbl_slot_substrate_run_mappings", {"run_id": rid, "slot_id": slot_id, "substrate_id": substrate_id}, expect_mod=True)
-                    assert isinstance(id, int), "Registering slot substrate mapping failed"
+                    db.xadd("tbl_slot_substrate_run_mappings", fields={"json": json.dumps({"run_id": rid, "slot_id": slot_id, "substrate_id": substrate_id})}, maxlen=10000, approximate=True).decode()
 
                 # register the devices selected for measurement in this run
                 run_devices = [(rid, did) for did in lu["device_ids"]]
-                rslts = dbl.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
-                assert all([isinstance(rslt, int) for rslt in rslts]), "Registering run-devices failed"
+                dbl.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
 
-                for r in rs:  # now go back and attach this run id to the contact check results that go with it
-                    id = dbl.insert("tbl_contact_checks", {"run_id": rid}, id=r["ccid"])
-                    assert isinstance(id, int), "Updating contact check failed"
+                # now go back and attach this run id to the contact check results that go with it
+                ccids = [r["ccid"] for r in rs]
+                db.xadd("rid_to_ccid", fields={rid: json.dumps(ccids)}, maxlen=10000, approximate=True).decode()
 
                 for sm in smus:
                     sm.killer = self.pkiller  # register the kill signal with the smu object
@@ -908,7 +903,6 @@ class Fabric(object):
 
                 # here's a context manager that ensures the hardware is in the right state at the start and end
                 with Fabric.measurement_context(mc, ss, smus, self.outq, db, rid):
-
                     if self.pkiller.is_set():
                         self.lg.debug("Killed by killer.")
                         return
@@ -917,8 +911,7 @@ class Fabric(object):
                     # TODO: only do this if this run will actually use the light
                     datas = Fabric.record_spectrum(ss, self.outq, self.lg)
                     for ldata in datas:
-                        lcid = self.log_light_cal(ldata, suid, dbl, args["light_recipe"], rid)
-                        assert isinstance(lcid, int), "Failure registering the light calibration"
+                        self.log_light_cal(ldata, suid, dbl, args["light_recipe"], rid)
 
                     # set NPLC
                     if args["nplc"] != -1:
@@ -976,7 +969,6 @@ class Fabric(object):
 
                             # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
                             with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
-
                                 # keeps track of the parallelized objects
                                 futures: list[concurrent.futures.Future] = []
 
@@ -1082,15 +1074,13 @@ class Fabric(object):
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities
                     isweep_event["effective_area"] = pix["area"]
-                    isweepeid = dbl.insert("tbl_event:isweep", isweep_event, expect_mod=True)
-                    assert isinstance(isweepeid, int), "Registering new intensity sweep measurement event failed"
+                    isweepeid = db.xadd("tbl_event:isweep", fields={"json": json.dumps(isweep_event)}, maxlen=1000, approximate=True).decode()
                     # data collection prep
                     datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, rid), dh.handle_data(x, False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities, datcb)
                     # mark it as done
-                    isweepeid = dbl.insert("tbl_event:isweep", {"complete": True}, id=isweepeid)
-                    assert isinstance(isweepeid, int), "Marking intensity sweep event complete failed"
+                    db.xadd("tbl_event:isweeps_done", fields={"id": isweepeid}, maxlen=1000, approximate=True).decode()
                     # keep the data
                     data += svtb
 
@@ -1107,15 +1097,13 @@ class Fabric(object):
                 ss_event["fixed"] = en.Fixed.CURRENT
                 ss_event["setpoint"] = args["i_dwell_value"]
                 ss_event["effective_area"] = pix["area"]
-                sseid = dbl.insert("tbl_event:ss", ss_event, expect_mod=True)
-                assert isinstance(sseid, int), "Registering new steady state measurement event failed"
+                sseid = db.xadd("tbl_event:ss", fields={"json": json.dumps(ss_event)}, maxlen=1000, approximate=True).decode()
                 # data collection prep
                 datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, rid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 vt = sm.measure_until(t_dwell=args["i_dwell"], cb=datcb)
                 # mark it as done
-                sseid = dbl.insert("tbl_event:ss", {"complete": True}, id=sseid)
-                assert isinstance(sseid, int), "Marking steady state measurement event complete failed"
+                db.xadd("tbl_event:ss_done", fields={"id": sseid}, maxlen=1000, approximate=True).decode()
                 # keep the data
                 data += vt
 
@@ -1140,15 +1128,13 @@ class Fabric(object):
                     isweep_event["setpoint"] = args["i_dwell_value"]
                     isweep_event["isetpoints"] = intensities_reversed
                     isweep_event["effective_area"] = pix["area"]
-                    isweepeid = dbl.insert("tbl_event:isweep", isweep_event, expect_mod=True)
-                    assert isinstance(isweepeid, int), "Registering new intensity sweep measurement event failed"
+                    isweepeid = db.xadd("tbl_event:isweep", fields={"json": json.dumps(isweep_event)}, maxlen=1000, approximate=True).decode()
                     # data collection prep
                     datcb = lambda x: (dbl.putsmdat(x, cast(int, isweepeid), en.Event.LIGHT_SWEEP, rid), dh.handle_data(x, dodb=False))
                     # do the experiment
                     svtb = self.suns_voc(args["i_dwell"], ss, sm, intensities_reversed, datcb)
                     # mark it as done
-                    isweepeid = dbl.insert("tbl_event:isweep", {"complete": True}, id=isweepeid)
-                    assert isinstance(isweepeid, int), "Marking intensity sweep event complete failed"
+                    db.xadd("tbl_event:isweeps_done", fields={"id": isweepeid}, maxlen=1000, approximate=True).decode()
                     # keep the data
                     data += svtb
             else:
@@ -1210,15 +1196,13 @@ class Fabric(object):
                 sweep_event["to_setpoint"] = sweep_args["end"]
                 sweep_event["light"] = sweep["light_on"]
                 sweep_event["effective_area"] = compliance_area
-                sweepeid = dbl.insert("tbl_event:sweep", sweep_event, expect_mod=True)
-                assert isinstance(sweepeid, int), "Registering new sweep event failed"
+                sweepeid = db.xadd("tbl_event:sweep", fields={"json": json.dumps(sweep_event)}, maxlen=1000, approximate=True).decode()
                 # do the experiment
                 iv = sm.measure(sweep_args["nPoints"])
                 # record the data
                 dbl.putsmdat(iv, sweepeid, en.Event.ELECTRIC_SWEEP, rid)  # type: ignore
                 # mark the event's data collection as done
-                sweepeid = dbl.insert("tbl_event:sweep", {"complete": True}, id=sweepeid)
-                assert isinstance(sweepeid, int), "Marking sweep event complete failed"
+                db.xadd("tbl_event:sweeps_done", fields={"id": sweepeid}, maxlen=1000, approximate=True).decode()
                 # do legacy data handling
 
                 dh.handle_data(iv, dodb=False)  # type: ignore
@@ -1268,16 +1252,14 @@ class Fabric(object):
                 mppt_event["device_id"] = pix["did"]
                 mppt_event["algorithm"] = args["mppt_params"]
                 mppt_event["effective_area"] = compliance_area
-                mpptid = dbl.insert("tbl_event:mppt", mppt_event, expect_mod=True)
-                assert isinstance(mpptid, int), "Registering new mppt event failed"
+                mpptid = db.xadd("tbl_event:mppt", fields={"json": json.dumps(mppt_event)}, maxlen=1000, approximate=True).decode()
                 # data collection prep
                 datcb = lambda x: (dbl.putsmdat(x, cast(int, mpptid), en.Event.MPPT, rid), dh.handle_data(x, dodb=False))
                 mppt_args["callback"] = datcb
                 # do the experiment
                 (mt, vt) = mppt.launch_tracker(**mppt_args)
                 # mark the event's data collection as done
-                mpptid = dbl.insert("tbl_event:mppt", {"complete": True}, id=mpptid)
-                assert isinstance(mpptid, int), "Marking mppt event complete failed"
+                db.xadd("tbl_event:mppt_done", fields={"id": mpptid}, maxlen=1000, approximate=True).decode()
 
                 # TODO: consider moving these into the mpp tracker
                 mppt.reset()
@@ -1297,17 +1279,15 @@ class Fabric(object):
                     ss_event["device_id"] = pix["did"]
                     ss_event["fixed"] = en.Fixed.CURRENT
                     ss_event["setpoint"] = 0.0
-                    mppt_event["effective_area"] = compliance_area
-                    sseid = dbl.insert("tbl_event:ss", ss_event, expect_mod=True)
-                    assert isinstance(sseid, int), "Registering new steady state measurement event failed"
+                    ss_event["effective_area"] = compliance_area
+                    sseid = db.xadd("tbl_event:ss", fields={"json": json.dumps(ss_event)}, maxlen=1000, approximate=True).decode()
                     # simulate the ssvoc measurement from the voc data returned by the mpp tracker
                     for d in vt:
                         assert len(d) == 4, "Malformed smu data (resistance mode?)"
                         dbl.putsmdat([d], sseid, en.Event.SS, rid)
                         dh.handle_data([d], dodb=False)
                     # mark the event as done
-                    sseid = dbl.insert("tbl_event:ss", {"complete": True}, id=sseid)
-                    assert isinstance(sseid, int), "Marking steady state measurement event complete failed"
+                    db.xadd("tbl_event:ss_done", fields={"id": sseid}, maxlen=1000, approximate=True).decode()
                     # keep the data
                     data += vt
 
@@ -1346,15 +1326,13 @@ class Fabric(object):
                 ss_event["fixed"] = en.Fixed.VOLTAGE
                 ss_event["setpoint"] = args["v_dwell_value"]
                 ss_event["effective_area"] = compliance_area
-                sseid = dbl.insert("tbl_event:ss", ss_event, expect_mod=True)
-                assert isinstance(sseid, int), "Registering new steady state measurement event failed"
+                sseid = db.xadd("tbl_event:ss", fields={"json": json.dumps(ss_event)}, maxlen=1000, approximate=True).decode()
                 # data collection prep
                 datcb = lambda x: (dbl.putsmdat(x, cast(int, sseid), en.Event.SS, rid), dh.handle_data(x, dodb=False))
                 # do the experiment
                 it = sm.measure_until(t_dwell=args["v_dwell"], cb=datcb)
                 # mark it as done
-                sseid = dbl.insert("tbl_event:ss", {"complete": True}, id=sseid)
-                assert isinstance(sseid, int), "Marking steady state measurement event complete failed"
+                db.xadd("tbl_event:ss_done", fields={"id": sseid}, maxlen=1000, approximate=True).decode()
                 # keep the data
                 data += it
 
@@ -1362,7 +1340,7 @@ class Fabric(object):
         return data
 
     @staticmethod
-    def record_spectrum(ss: LightAPI, outq: Queue | mQueue, lg: Logger) -> list[dict[str, float | list[tuple[float, float]]]]:
+    def record_spectrum(ss: LightAPI, outq: Queue | mQueue, lg: Logger) -> list[dict]:
         """does spectrum fetching at the start of the standard routine"""
         datas = []
         try:
@@ -1370,9 +1348,9 @@ class Fabric(object):
             intensity_setpoint = ss.active_intensity
             wls, counts = ss.get_spectrum()
             data = [(wl, count) for wl, count in zip(wls, counts)]
-            spec = {"data": data, "temps": ss.last_temps, "intensity": (intensity_setpoint,), "idn": ss.idn}
+            spec = {"data": data, "temps": ss.last_temps, "intensity": (intensity_setpoint,), "idn": ss.idn, "timestamp": datetime.datetime.now().astimezone().isoformat()}
             datas.append(spec)
-            spectrum_dict = {"data": data, "intensity": intensity_setpoint, "timestamp": time.time()}
+            spectrum_dict = {"data": data, "intensity": (intensity_setpoint,), "timestamp": time.time()}
             outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
             if intensity_setpoint != 100:
                 # now do it again to make sure we have a record of the 100% baseline
@@ -1380,9 +1358,9 @@ class Fabric(object):
                 ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
                 wls, counts = ss.get_spectrum()
                 data = [(wl, count) for wl, count in zip(wls, counts)]
-                spec = {"data": data, "temps": ss.last_temps, "intensity": (100.0,)}
+                spec = {"data": data, "temps": ss.last_temps, "intensity": (100.0,), "idn": ss.idn, "timestamp": datetime.datetime.now().astimezone().isoformat()}
                 datas.append(spec)
-                spectrum_dict = {"data": data, "intensity": 100, "timestamp": time.time()}
+                spectrum_dict = {"data": data, "intensity": (100,), "timestamp": time.time()}
                 outq.put({"topic": "calibration/spectrum", "payload": json.dumps(spectrum_dict), "qos": 2, "retain": True})
                 # ss.apply_intensity(intensity_setpoint)
                 ss.set_intensity(100)  # type: ignore # TODO: this bypasses the API, fix that
@@ -1395,16 +1373,17 @@ class Fabric(object):
 
     def log_light_cal(
         self,
-        data: dict[str, float | list[tuple[float, float]]],
+        data: dict,
         setup_id: int,
         db: DBLink,
         recipe: str | None = None,
         run_id: int | None = None,
-    ) -> int | None:
+    ) -> str:
         """stores away light calibration data"""
         ary = np.array(data["data"])
         area = np.trapz(ary[:, 1], ary[:, 0])
         cal_args = {}
+        cal_args["timestamp"] = data["timestamp"]
         cal_args["sid"] = setup_id
         cal_args["rid"] = run_id
         cal_args["temps"] = data["temps"]
