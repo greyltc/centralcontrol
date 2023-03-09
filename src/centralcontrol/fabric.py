@@ -7,6 +7,7 @@ import datetime
 import hmac
 import hashlib
 import importlib.metadata
+import asyncio
 import json
 import multiprocessing
 import signal
@@ -103,12 +104,20 @@ class Fabric(object):
 
         self.lg.debug("Initialized.")
 
+    def do_cleanup_stuff(self, inq: Queue, dbl: DBLink, signal: signal.Signals):
+        if self.lg:
+            self.lg.debug(f"We caught a {signal.name}. Handling...")
+
+        # stop awaiting for new messages
+        dbl.stop_listening()
+
+        # ask the main loop to break with a "die" message
+        inq.put("die")
+
     def run(self) -> int:
         """runs the measurement server. blocks forever"""
-        inq = Queue()  # queue for incomming comms messages
-
-        # handle SIGTERM gracefully by asking the main loop to break with a "die" message
-        signal.signal(signal.SIGTERM, lambda _, __: inq.put("die"))
+        # aloop = asyncio.new_event_loop()
+        inq = Queue()  # queue for incomming comms messages TODO: switch this to asyncio.Queue
 
         commcls = None
         comms_args = None
@@ -121,9 +130,20 @@ class Fabric(object):
         assert comms_args is not None, f"{comms_args=}"
         with commcls(**comms_args):  # for mqtt comms
             with redis.Redis.from_url(self.mem_db_url) as r:
-                with DBLink(r, inq, self.lg):  # manager for the mem-db inq listener
+                with DBLink(r, inq, self.lg) as dbl:  # manager for the mem-db inq listener
+                    # handle SIGTERM and SIGINT gracefully by asking the runners to clean themselves up
+                    signal.signal(signal.SIGTERM, lambda _, __: self.do_cleanup_stuff(inq, dbl, signal.SIGTERM))
+                    signal.signal(signal.SIGINT, lambda _, __: self.do_cleanup_stuff(inq, dbl, signal.SIGINT))
+
                     # run the message handler, blocking right here forever
-                    self.msg_handler(inq)
+                    # async with asyncio.TaskGroup() as tg:  # TODO: use this when we get 3.11
+                    async def do_gather():
+                        to_gather = []
+                        to_gather.append(asyncio.to_thread(self.msg_handler, inq))
+                        to_gather.append(dbl.inq_handler())
+                        await asyncio.gather(*to_gather)
+
+                    asyncio.run(do_gather())
 
         self.lg.debug("Graceful exit achieved")
         return self.exitcode
@@ -184,12 +204,12 @@ class Fabric(object):
                                                 future = self.submit_for_execution(exicuter, future, self.utility_handler, request)
                                         elif request == "unblock":
                                             self.bc_response.set()  # unblock waiting for a response from the frontend
-                        elif isinstance(msg, list) and len(msg[0]) == 2:  # from memdb
-                            channel, payload = msg[0]
+                        elif isinstance(msg, tuple) and len(msg) == 3:  # from memdb
+                            channel, stream_id, payload = msg
                             if channel == b"runs":
-                                rid = payload[0][0]
+                                rid = stream_id
                                 self.lg.debug(f"Got new run start with id: {rid.decode()}")
-                                future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid} | json.loads(payload[0][1][b"json"]))
+                                future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid} | json.loads(payload[b"json"]))
                         else:
                             self.lg.debug(f"Unknown message type in inq: {type(msg)}")
 

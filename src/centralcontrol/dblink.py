@@ -1,6 +1,7 @@
 import redis
 import redis.asyncio as aredis
 import asyncio
+import signal
 
 # import redis_annex
 import json
@@ -24,7 +25,7 @@ class DBLink(object):
     db: redis.Redis
     inq: Queue  # input message queue
     # p: redis.client.PubSub  # publish/subscribe object for
-    inq_thread: threading.Thread
+    # inq_thread: threading.Thread
     lg: logging.Logger
     dat_seq: Generator[int, int | None, None]
     listen_streams: list[str] = []
@@ -46,8 +47,10 @@ class DBLink(object):
         # listen_channels = []
         # listen_channels.append("runs:new")  # a new run has been initiated
         # self.p.subscribe(*listen_channels)
-        self.inq_thread = threading.Thread(target=self.inq_handler, daemon=False)
-        self.inq_thread.start()
+        # self.inq_thread = threading.Thread(target=self.inq_handler, daemon=False)
+        # self.inq_thread.start()
+        # asyncio.run(self.inq_handler())
+        return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         """exit contect with listner cleanup"""
@@ -62,40 +65,72 @@ class DBLink(object):
         except Exception as e:
             if self.lg:
                 self.lg.debug(f"memdb unsubscribe fail: {repr(e)}")
-        try:
-            self.inq_thread.join(1.0)
-        except Exception as e:
-            if self.lg:
-                self.lg.debug(f"memdb inq thread join fail: {repr(e)}")
+        # try:
+        #    self.inq_thread.join(1.0)
+        # except Exception as e:
+        #    if self.lg:
+        #        self.lg.debug(f"memdb inq thread join fail: {repr(e)}")
 
-    def inq_handler(self):
+    async def inq_handler(self):
         """shuttles incomming messages to the inq"""
-        # assert self.p, "The in-memory db listener has not been defined"
         assert self.inq, "The in-memory db relay input queue has not been defined"
-        streams = {s: "$" for s in self.listen_streams}
+        listen_stream_ids = {s: "$" for s in self.listen_streams}
         ar = aredis.Redis(**self.db.get_connection_kwargs())
+        keep_going = True
+        while keep_going:
+            self.xread_task = asyncio.create_task(ar.xread(streams=listen_stream_ids, block=0))
+            try:
+                streams = await self.xread_task
+            except asyncio.CancelledError:
+                keep_going = False
+                streams = []
 
-        async def msg_shuttle(lar: aredis.Redis, lstreams: dict, linq: Queue):
-            while True:
-                self.xread_task = asyncio.create_task(lar.xread(streams=lstreams, block=0, count=1))
-                try:
-                    message = await self.xread_task
-                except asyncio.CancelledError:
-                    message = None
+            for stream in streams:
+                stream_name = stream[0]
+                stream_items = stream[1]
+                for stream_item in stream_items:
+                    id = stream_item[0]
+                    value = stream_item[1]
+                    self.inq.put((stream_name, id, value))
+                    listen_stream_ids[stream_name] = id  # prepare for the next message
 
-                if not message:
-                    break
-
-                linq.put(message)
-                # get ready for the next message
-                id = message[0][1][0][0]
-                lstreams = {s: id for s in self.listen_streams}
-            await lar.close()
-
-        asyncio.run(msg_shuttle(ar, streams, self.inq))
+        await ar.close()
 
         if self.lg:
             self.lg.debug("memdb inq relay finished")
+
+    # def inq_handler(self):
+    #     """shuttles incomming messages to the inq"""
+    #     # assert self.p, "The in-memory db listener has not been defined"
+    #     assert self.inq, "The in-memory db relay input queue has not been defined"
+    #     streams = {s: "$" for s in self.listen_streams}
+    #     ar = aredis.Redis(**self.db.get_connection_kwargs())
+
+    #     async def msg_shuttle(lar: aredis.Redis, lstreams: dict, linq: Queue):
+    #         keep_going = True
+    #         while keep_going:
+    #             self.xread_task = asyncio.create_task(lar.xread(streams=lstreams, block=0))
+    #             try:
+    #                 streams = await self.xread_task
+    #             except asyncio.CancelledError:
+    #                 keep_going = False
+    #                 streams = []
+
+    #             for stream in streams:
+    #                 stream_name = stream[0]
+    #                 stream_items = stream[1]
+    #                 for stream_item in stream_items:
+    #                     id = stream_item[0]
+    #                     value = stream_item[1]
+    #                     linq.put((stream_name, id, value))
+    #                     lstreams[stream_name] = id  # prepare for the next message
+
+    #         await lar.close()
+
+    #     asyncio.run(msg_shuttle(ar, streams, self.inq))
+
+    #     if self.lg:
+    #         self.lg.debug("memdb inq relay finished")
 
     def multiput(self, table: str, data: list[tuple], col_names: list[str]) -> list[str]:
         dicts = [dict(zip(col_names, datum)) for datum in data]
