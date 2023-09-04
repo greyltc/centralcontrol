@@ -374,7 +374,8 @@ class Fabric(object):
                 db = stack.enter_context(redis.Redis.from_url(self.mem_db_url))
                 dbl = DBLink(db)
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in task["smus"]]
-                suid = db.xadd("setups", fields={"json": json.dumps(task["conf_id"]["setups"])}, maxlen=100, approximate=True)
+                config = json.loads(db.xrange("conf_as", task["conf_id"], task["conf_id"])[0][1][b"json"])
+                suid = db.xadd("setups", fields={"json": json.dumps(config["setup"])}, maxlen=100, approximate=True).decode()
 
                 lu = dbl.registerer(dev_dicts, suid, smus, layouts)
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected

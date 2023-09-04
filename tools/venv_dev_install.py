@@ -3,7 +3,7 @@
 from tomli import load
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from pep517 import Pep517HookCaller
+from pyproject_hooks import BuildBackendHookCaller
 from installer.__main__ import _main as installer_cli
 import sys
 
@@ -18,7 +18,7 @@ Path(dist_dir_name).mkdir(exist_ok=True)
 with open("pyproject.toml", "rb") as ppjt:
     data = load(ppjt)
 
-some_hooks = Pep517HookCaller(".", data["build-system"]["build-backend"])
+some_hooks = BuildBackendHookCaller(".", data["build-system"]["build-backend"])
 
 with TemporaryDirectory() as bldd:
     ewhl_file = some_hooks.build_editable(bldd)
