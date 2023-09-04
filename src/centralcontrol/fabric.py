@@ -874,8 +874,20 @@ class Fabric(object):
                         pass
                     else:  # "ask" mode: generate warning dialog for user to decide
                         body.append("Pads with connection faults:")
+                        n_cols = 5
+                        i = 0
+                        row = []
                         for line in fails:
-                            body.append(f'{line["slot"]}-{line["pad"]}')
+                            i = i + 1
+                            if i > n_cols:
+                                body.append(" ".join(row))
+                                i = 0
+                                row = []
+                            else:
+                                pair = f'{line["slot"]}-{line["pad"]}'
+                                row.append(f"{pair : <10}")
+                        if row:
+                            body.append(" ".join(row))
 
                         payload = {"warn_dialog": {"headline": headline, "body": "\n".join(body), "buttons": ("Ignore and Continue", "Abort the Run")}}
                         self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
