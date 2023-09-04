@@ -7,6 +7,9 @@ from urllib.parse import parse_qs, urlparse
 from centralcontrol.afms import AFMS
 from centralcontrol.logstuff import get_logger
 from centralcontrol.us import Us
+from centralcontrol.stpdrv import Stpdrv
+from centralcontrol.virt import FakeStpdrv
+from centralcontrol.virt import FakeMC
 
 
 class Motion(object):
@@ -33,13 +36,14 @@ class Motion(object):
 
     address = "us://controller"
 
-    def __init__(self, address: str | None = address, pcb_object=None, enabled=True):
+    def __init__(self, address: str | None = address, pcb_object=None, enabled=True, fake=False):
         """
         sets up communication to motion controller
         """
         # setup logging
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
         self.address = address
+        self.fake = fake
 
         self.enabled = enabled
         if address is None:
@@ -95,6 +99,21 @@ class Motion(object):
                     if pcb_object.is_virtual == True:
                         pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
                 self.motion_engine = Us(**us_setup)
+            elif parsed.scheme == "stpdrv":
+                if self.fake:
+                    us_setup = {}
+                    us_setup["spm"] = self.steps_per_mm
+                    us_setup["dir"] = self.direction
+                    pcb_object = FakeMC()
+                    us_setup["pcb_object"] = pcb_object
+                    pcb_object.prepare_virt_motion(spm=self.steps_per_mm, el=self.expected_lengths)
+                    self.motion_engine = Us(**us_setup)
+                else:
+                    stpdrv_setup = {}
+                    stpdrv_setup["address"] = self.location
+                    stpdrv_setup["steps_per_mm"] = self.steps_per_mm
+                    stpdrv_setup["motion_timeout"] = self.home_timeout
+                    self.motion_engine = Stpdrv(**stpdrv_setup)
             else:
                 raise ValueError(f"Unexpected motion controller protocol {parsed.scheme} in {address}")
 

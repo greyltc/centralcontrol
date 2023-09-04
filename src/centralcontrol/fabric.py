@@ -31,6 +31,7 @@ import redis
 
 # import redis_annex
 
+from centralcontrol.mux481can import Mux481can
 from centralcontrol import virt
 from centralcontrol.illumination import LightAPI
 from centralcontrol.illumination import factory as ill_fac
@@ -733,7 +734,10 @@ class Fabric(object):
             # check the MC configs
             fake_mc = True
             mc_address = None
+            mux_address = None
             mc_enabled = False
+            mux_enabled = False
+            fake_mux = True
             mc_expected_muxes = [""]
             if "mc" in config:
                 # check if we'll be virtualizing the MC
@@ -745,10 +749,25 @@ class Fabric(object):
                 # check if the MC is enabled
                 if "enabled" in config["mc"]:
                     mc_enabled = config["mc"]["enabled"] == True
+
             if "mux" in config:
                 # check what muxes we expect
                 if "expected_muxes" in config["mux"]:
                     mc_expected_muxes = config["mux"]["expected_muxes"]
+                if "virtual" in config["mux"]:
+                    fake_mux = config["mux"]["virtual"] == True
+                if "enabled" in config["mux"]:
+                    mux_enabled = config["mux"]["enabled"] == True
+                if "address" in config["mux"]:
+                    mux_address = config["mux"]["address"]
+                    if mux_address == "std://mc":
+                        mux_enabled = False  # is is an MC mux, not a standalone one
+
+            if fake_mux:
+                ThisMux = virt.FakeMux
+            else:
+                ThisMux = Mux481can
+
             if fake_mc:
                 ThisMC = virt.FakeMC
             else:
@@ -778,6 +797,10 @@ class Fabric(object):
             mc_args["address"] = mc_address
             mc_args["expected_muxes"] = mc_expected_muxes
             mc_args["enabled"] = mc_enabled
+
+            mux_args = {}
+            mux_args["address"] = mux_address
+            # mux_args["enabled"] = mux_enabled
 
             smucfgs = config["smus"]  # the smu configs
             for smucfg in smucfgs:
@@ -824,7 +847,12 @@ class Fabric(object):
                 # user registration TODO: consider moving this kind of thing to the frontend
                 uid = db.xadd("users", fields={"str": args["user_name"]}, maxlen=100, approximate=True).decode()
 
+                mux = stack.enter_context(ThisMux(**mux_args))  # init and connect mux
+                mux.enabled = mux_enabled
+                if mux_enabled:
+                    mux.connect()
                 mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
+                mc.mux = mux
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
 
                 suid = db.xadd("setups", fields={"json": json.dumps(config["setup"])}, maxlen=100, approximate=True).decode()
@@ -906,9 +934,9 @@ class Fabric(object):
 
                 # setup motion object
                 if fake_mo:
-                    mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled)
+                    mo = Motion(mo_address, pcb_object=virt.FakeMC(), enabled=mo_enabled, fake=fake_mo)
                 else:
-                    mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled)
+                    mo = Motion(mo_address, pcb_object=mc, enabled=mo_enabled, fake=fake_mo)
                 assert mo.connect() == 0, f"{mo.connect() == 0=}"  # make connection to motion system
 
                 # register a new run
@@ -1446,7 +1474,7 @@ class Fabric(object):
         return ret_val
 
     @staticmethod
-    def select_pixel(pcb: MC | virt.FakeMC, mux_sels: list[tuple[str, int]] | list[tuple[str, str]] | None = None):
+    def select_pixel(pcb: MC | virt.FakeMC | Mux481can | virt.FakeMux, mux_sels: list[tuple[str, int]] | list[tuple[str, str]] | None = None):
         """manipulates the mux. returns nothing and throws a value error if there was a filaure"""
         if mux_sels is None:
             mux_sels = [("OFF", 0)]  # empty call disconnects everything

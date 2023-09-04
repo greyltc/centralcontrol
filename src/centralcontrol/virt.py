@@ -97,6 +97,47 @@ class FakeLight(object):
         return 0
 
 
+class FakeStpdrv(object):
+    """virtualized/simulated stpdrv class which can be used like the real one but without hardware"""
+
+    def __init__(self, *args, **kwargs):
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
+        self.lg.debug("Initialized.")
+
+
+class FakeMux(object):
+    """virtualized/simulated mux class which can be used like the real one but without hardware"""
+
+    def __init__(self, *args, **kwargs):
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
+
+        self.lg.debug("Initialized.")
+
+        if "expected_muxes" in kwargs:
+            self.detected_muxes = kwargs["expected_muxes"]
+
+        if "enabled" in kwargs:
+            self.enabled = kwargs["enabled"]
+
+        if "address" in kwargs:
+            if kwargs["address"] is None:
+                self.disabled = True
+        else:
+            self.disabled = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        pass
+
+    def set_mux(self, mux_setting):
+        pass
+
+    def connect(self):
+        pass
+
+
 class FakeMC(object):
     """virtualized/simulated MC class which can be used like the real one but without hardware"""
 
@@ -395,7 +436,6 @@ class FakeSMU(object):
 
     @intensity.setter
     def intensity(self, value):
-
         if value > 0:
             self._calc_area = self._area
         else:
@@ -509,7 +549,6 @@ class FakeSMU(object):
             else:
                 self.V = self.I * self.resistor_connected
         else:
-
             Rs = self.Rsa / self._calc_area
             Rsh = self.Rsha / self._calc_area
             n = self.n
