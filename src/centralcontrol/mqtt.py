@@ -123,7 +123,7 @@ class MQTTClient(object):
                 if to_send == "die":
                     break
                 else:
-                    self.mqttc.publish(**to_send)
+                    self.mqttc.publish(**to_send).wait_for_publish()
             except Exception as e:
                 self.lg.error(f"Error publishing message to broker: {e}")
         self.lg.debug("Out queue relay stopped")
