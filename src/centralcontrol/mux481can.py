@@ -9,6 +9,8 @@ import centralcontrol.i7540d as i7540d
 class Mux481can:
     """Ark Metrica MUX-481-CAN multiplexor."""
 
+    enabled = False
+
     ERROR_CODES = {
         0: "General error",
         1: "Invalid command",
@@ -17,6 +19,8 @@ class Mux481can:
     }
 
     MAX_RETRIES = 3
+
+    SLOT_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
     def __enter__(self):
         """Enter the runtime context related to this object."""
@@ -282,14 +286,64 @@ class Mux481can:
 
         return pins
 
+    def slot_to_addr(self, slot: str) -> int:
+        """Convert a slot label to a board address.
+
+        Slot labels are capital letters that ascend alphabetically from 'A'.
+
+        Parameters
+        ----------
+        slot : str
+            Slot label.
+
+        Returns
+        -------
+        board_addr : int
+            Mux board address.
+        """
+        board_addr = ord(slot) - ord("A") + 1
+        if board_addr not in self.SLOT_NUMBERS:
+            raise ValueError(f"Invalid slot: {slot}")
+
+        return board_addr
+
     def set_mux(self, mux_settings: list[tuple[str, int]] | list[tuple[str, str]]) -> None:
-        """TODO program mux with failure recovery logic. returns nothing but raises a value error on failure"""
-        # takes a list of tuples
+        """program mux with failure recovery logic. returns nothing but raises a value error on failure"""
         if self.enabled:
-            for mux_setting in mux_settings:
-                slot, pad = mux_setting
-                # ...turn this pixel on here. slot is a letter A...D...F...P
-                # or it can be like this:
-                # if slot.startswith("EXT") or (slot == "OFF"):
-                # also must be handled
-                pass
+            if (mux_settings is None) or (mux_settings == []):
+                mux_settings = [("OFF", 0)]
+
+            for pixel in mux_settings:
+                slot, device = pixel
+                if slot.startswith("EXT") or (slot == "OFF"):
+                    # turn all mux pins off on all boards
+                    for _board_addr in self.SLOT_NUMBERS:
+                        self.set_pins(_board_addr, None)
+                    break
+                else:
+                    board_addr = self.slot_to_addr(slot)
+
+                    if device == 0:
+                        # turn off all pins on board
+                        self.set_pins(board_addr, None)
+                    elif isinstance(device, int):
+                        # list all common pins in the slot, which should turn on
+                        # also add device pins that should also turn on
+                        # pins are 0-indexed by the mux firmware
+                        pins = [
+                            device - 1,
+                            device - 1 + 8,
+                            16,
+                            17,
+                            18,
+                            19,
+                            24,
+                            25,
+                            26,
+                            27,
+                        ]
+
+                        # turn on only requested pins, turning off all others
+                        self.set_pins(board_addr, pins)
+                    elif isinstance(device, str):
+                        pass  # TODO handle Direct latch programming (DLP) selection mode

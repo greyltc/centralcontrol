@@ -767,6 +767,7 @@ class Fabric(object):
                 ThisMux = virt.FakeMux
             else:
                 ThisMux = Mux481can
+            ThisMux.enabled = mux_enabled
 
             if fake_mc:
                 ThisMC = virt.FakeMC
@@ -800,7 +801,6 @@ class Fabric(object):
 
             mux_args = {}
             mux_args["address"] = mux_address
-            # mux_args["enabled"] = mux_enabled
 
             smucfgs = config["smus"]  # the smu configs
             for smucfg in smucfgs:
@@ -848,7 +848,6 @@ class Fabric(object):
                 uid = db.xadd("users", fields={"str": args["user_name"]}, maxlen=100, approximate=True).decode()
 
                 mux = stack.enter_context(ThisMux(**mux_args))  # init and connect mux
-                mux.enabled = mux_enabled
                 if mux_enabled:
                     mux.connect()
                 mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb

@@ -11,6 +11,8 @@ from centralcontrol.logstuff import get_logger
 class MC(object):
     """Interface for talking to the Master of Ceremonies (aka the control box/pc board)"""
 
+    mux = None  # for dedicated mux hardware
+
     write_terminator = "\r\n"
     # read_terminator = b'\r\n'
     prompt_string = ">>> "

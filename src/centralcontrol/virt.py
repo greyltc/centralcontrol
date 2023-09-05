@@ -108,6 +108,8 @@ class FakeStpdrv(object):
 class FakeMux(object):
     """virtualized/simulated mux class which can be used like the real one but without hardware"""
 
+    enabled = False
+
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
@@ -121,9 +123,9 @@ class FakeMux(object):
 
         if "address" in kwargs:
             if kwargs["address"] is None:
-                self.disabled = True
+                self.enabled = False
         else:
-            self.disabled = True
+            self.enabled = False
 
     def __enter__(self):
         return self
