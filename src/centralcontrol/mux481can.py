@@ -346,4 +346,5 @@ class Mux481can:
                         # turn on only requested pins, turning off all others
                         self.set_pins(board_addr, pins)
                     elif isinstance(device, str):
+                        the_bin = format(int(device), '#012b')[2::]
                         pass  # TODO handle Direct latch programming (DLP) selection mode
