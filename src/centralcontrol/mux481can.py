@@ -346,5 +346,24 @@ class Mux481can:
                         # turn on only requested pins, turning off all others
                         self.set_pins(board_addr, pins)
                     elif isinstance(device, str):
-                        the_bin = format(int(device), '#012b')[2::]
-                        pass  # TODO handle Direct latch programming (DLP) selection mode
+                        the_bin = format(int(device), "#012b")[2::]
+
+                        pins = []
+                        if the_bin[0] == "1":
+                            # turn on bottom common pins
+                            pins.extend([17, 19, 25, 27])
+
+                        if the_bin[1] == "1":
+                            # turn on top common pins (nearest device 1)
+                            pins.extend([16, 18, 24, 26])
+
+                        # get device selection from bitmask
+                        device_bitmask = the_bin[2:]
+                        device_bitmask = device_bitmask[::-1]
+                        for bit_ix, bit in enumerate(device_bitmask):
+                            if bit == "1":
+                                pins.extend([bit_ix, bit_ix + 8])
+
+                        self.set_pins(board_addr, pins)
+                    else:
+                        raise ValueError(f"Invalid device designator: {device}, of type: " + f"{type(device)}.")
