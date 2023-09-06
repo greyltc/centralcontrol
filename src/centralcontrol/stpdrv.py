@@ -242,7 +242,8 @@ class Stpdrv:
             Keyword arguments passed to PyVISA resource to be used to change
             instrument attributes after construction.
         """
-        self.instr = serial.Serial(self.address, **self.resource_kwargs)
+        # self.instr = serial.Serial(self.address, **self.resource_kwargs)
+        self.instr = serial.Serial(self.address, baudrate=19200)
 
         # set initialisation comms timeout
         self.instr.timeout = 1
