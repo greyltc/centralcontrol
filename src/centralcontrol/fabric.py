@@ -759,9 +759,12 @@ class Fabric(object):
                 if "enabled" in config["mux"]:
                     mux_enabled = config["mux"]["enabled"] == True
                 if "address" in config["mux"]:
-                    mux_address = config["mux"]["address"]
-                    if mux_address == "std://mc":
+                    mux_address_split = config["mux"].split("://")
+                    if config["mux"] == "std://mc":
+                        mux_address = config["mux"]["address"]
                         mux_enabled = False  # is is an MC mux, not a standalone one
+                    elif mux_address_split[0] == "canux":
+                        mux_address = mux_address_split[1]
 
             if fake_mux:
                 ThisMux = virt.FakeMux
