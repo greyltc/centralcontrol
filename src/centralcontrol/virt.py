@@ -218,7 +218,7 @@ class FakeMC(object):
     def set_mux(self, mux_setting):
         # TODO: remove hack
         if hasattr(self, "mux"):
-            self.mux.set_mux()
+            self.mux.set_mux(mux_setting)
         else:
             pass
 
