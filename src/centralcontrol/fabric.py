@@ -763,7 +763,7 @@ class Fabric(object):
                     if config["mux"] == "std://mc":
                         mux_address = config["mux"]["address"]
                         mux_enabled = False  # is is an MC mux, not a standalone one
-                    elif mux_address_split[0] == "canux":
+                    elif mux_address_split[0] == "canmux":
                         mux_address = mux_address_split[1]
 
             if fake_mux:
