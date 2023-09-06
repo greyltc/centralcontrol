@@ -229,7 +229,7 @@ class Stpdrv:
             cmd = f"a{self.mm_to_steps(self._acceleration)}"
             self._query(cmd)
 
-    def connect(self) -> None:
+    def connect(self) -> int:
         """Connect to the instrument.
 
         Parameters
@@ -266,6 +266,7 @@ class Stpdrv:
         self.acceleration = self._acceleration
         self.motion_timeout = self._motion_timeout
         # TODO: self.limit_offset = self._limit_offset
+        return 0
 
     def disconnect(self) -> None:
         """Disconnect instrument."""
