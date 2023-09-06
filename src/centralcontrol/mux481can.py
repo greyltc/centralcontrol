@@ -4,6 +4,7 @@ from typing import List, Dict
 import warnings
 
 import centralcontrol.i7540d as i7540d
+from centralcontrol.logstuff import get_logger
 
 
 class Mux481can:
@@ -44,6 +45,12 @@ class Mux481can:
             Socket timeout in s.
         expected_muxes: list[str] = [], enabled=True
         """
+
+        # setup logging
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))
+
+        self.lg.debug(f"Initialized with {address=}")
+
         self._address = address
         self._timeout = timeout
         self.gateway = i7540d.I7540d(address, timeout)
