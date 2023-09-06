@@ -68,9 +68,11 @@ class Mux481can:
     def connect(self) -> None:
         """Open client connections to the gateway."""
         self.gateway.connect()
+        self.lg.debug(f"Gateway connect called")
 
         # check for existing transmit/receive errors and reboot to clear if necessary
         status = self.gateway.get_status()
+        self.lg.debug(f"Gateway status: {status=}")
         if status["can_tx_err_n"] != 0 or status["can_rx_err_n"] != 0:
             warnings.warn("Gateway connected with transmit/receive errors flagged. Rebooting to " + "clear...")
 
@@ -87,6 +89,10 @@ class Mux481can:
                     self.gateway.disconnect()
                     if attempt == 2:
                         raise err
+
+            for board_address in range(1, 17):
+                idn = self.get_board_idn(board_address)
+                self.lg.debug(f"Board {board_address} idn: {idn}")
 
     def disconnect(self) -> None:
         """Disconnect from gateway."""
@@ -328,6 +334,7 @@ class Mux481can:
                         self.set_pins(_board_addr, None)
                     break
                 else:
+                    self.lg.debug(f"Pixel switched with int: {pixel=}")
                     board_addr = self.slot_to_addr(slot)
 
                     if device == 0:
@@ -353,6 +360,7 @@ class Mux481can:
                         # turn on only requested pins, turning off all others
                         self.set_pins(board_addr, pins)
                     elif isinstance(device, str):
+                        self.lg.debug(f"Pixel switched with str: {pixel=}")
                         the_bin = format(int(device), "#012b")[2::]
 
                         pins = []
