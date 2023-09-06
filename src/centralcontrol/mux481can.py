@@ -334,13 +334,14 @@ class Mux481can:
                         self.set_pins(_board_addr, None)
                     break
                 else:
-                    self.lg.debug(f"Pixel switched with int: {pixel=}")
                     board_addr = self.slot_to_addr(slot)
 
                     if device == 0:
+                        self.lg.debug(f"Pixel switched with int: {pixel=}")
                         # turn off all pins on board
                         self.set_pins(board_addr, None)
                     elif isinstance(device, int):
+                        self.lg.debug(f"Pixel switched with int: {pixel=}")
                         # list all common pins in the slot, which should turn on
                         # also add device pins that should also turn on
                         # pins are 0-indexed by the mux firmware
