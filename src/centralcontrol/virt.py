@@ -216,7 +216,11 @@ class FakeMC(object):
         #    self.detected_axes = ["1", "2", "3"]
 
     def set_mux(self, mux_setting):
-        pass
+        # TODO: remove hack
+        if hasattr(self, "mux"):
+            self.mux.set_mux()
+        else:
+            pass
 
     def expect_int(self, cmd, tries=1):
         return int(self.query(cmd))

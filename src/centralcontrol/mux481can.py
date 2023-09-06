@@ -90,9 +90,9 @@ class Mux481can:
                     if attempt == 2:
                         raise err
 
-            for board_address in range(1, 17):
-                idn = self.get_board_idn(board_address)
-                self.lg.debug(f"Board {board_address} idn: {idn}")
+        for board_address in range(1, 17):
+            idn = self.get_board_idn(board_address)
+            self.lg.debug(f"Board {board_address} idn: {idn}")
 
     def disconnect(self) -> None:
         """Disconnect from gateway."""

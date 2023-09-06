@@ -851,7 +851,8 @@ class Fabric(object):
                 uid = db.xadd("users", fields={"str": args["user_name"]}, maxlen=100, approximate=True).decode()
 
                 mux = stack.enter_context(ThisMux(**mux_args))  # init and connect mux
-                if mux_enabled:
+                mux.enabled = mux_enabled
+                if mux.enabled:
                     mux.connect()
                 mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
                 mc.mux = mux
