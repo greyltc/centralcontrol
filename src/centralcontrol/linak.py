@@ -26,6 +26,7 @@ class Linak(object):
     wValue_GetExt = 0x0309
 
     StatusReport_ID = 0x4
+    StatusReportSize = 64
 
     featureReportID_modeOfOperation = 3
     featureReportID_getLINdata = 4
@@ -73,8 +74,8 @@ class Linak(object):
         self.stage = stage
 
         # init the controller
-        self.start_pos = self.get_pos()
         self.setup()
+        self.start_pos = self.get_pos()
 
         self.ready = True
 
@@ -85,8 +86,14 @@ class Linak(object):
         msg[pos : pos + 1] = [self.StatusReport_ID]
 
         status_msg = self.stage.ctrl_transfer(self.RequestType_GetClassInterface, self.HID_REPORT_GET, self.wValue_GetStatus, 0, msg)
+        assert len(status_msg) == self.StatusReportSize, f"Wrong status message length {status_msg=}"
+        pos = status_msg[5] * 256 + status_msg[4]  # pick out position from status message
+        #time.sleep(0.2)
+        return pos
 
-        return status_msg[5] * 256 + status_msg[4]  # pick out position from status message
+    @staticmethod
+    def pos2height(pos: int) -> float:
+        return pos / 98.0
 
     def setup(self):
         msg = self.empty_buf
@@ -138,12 +145,16 @@ class Linak(object):
 if __name__ == "__main__":
 
     if len(sys.argv) != 2:
-        # bad usage
         print(f"Usage: {sys.argv[0]} TARGET_STEP_VALUE")
         sys.exit(1)
 
     if sys.argv[1] == "home":
-        goal = 2805
+        goal = 2705
+    elif sys.argv[1] == "where":
+        s = Linak()
+        here_counts = s.start_pos
+        height_cm = Linak.pos2height(here_counts)
+        print(f"{height_counts=}")
     else:
         goal = int(sys.argv[1])
 
