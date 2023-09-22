@@ -362,9 +362,9 @@ class Mux481can:
                         self.set_pins(board_addr, pins)
                     elif isinstance(device, str):
                         self.lg.debug(f"Pixel switched with str: {pixel=}")
-                        the_bin = format(int(device), "#012b")[2::]
+                        the_bin = format(int(device), "#018b")[2::]
 
-                        common_bitmask = the_bin[0:2]
+                        common_bitmask = the_bin[-8:]
                         pins = []
                         if common_bitmask[0] == "1":
                             # turn on TOP common pins (nearest to devices 5&6)
@@ -375,7 +375,7 @@ class Mux481can:
                             pins.extend([16, 18, 24, 26])
 
                         # get device selection from bitmask
-                        device_bitmask = the_bin[-8:]
+                        device_bitmask = the_bin[0:8]
                         device_bitmask = device_bitmask[::-1]
                         for bit_ix, bit in enumerate(device_bitmask):
                             if bit == "1":
