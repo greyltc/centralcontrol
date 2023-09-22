@@ -364,17 +364,18 @@ class Mux481can:
                         self.lg.debug(f"Pixel switched with str: {pixel=}")
                         the_bin = format(int(device), "#012b")[2::]
 
+                        common_bitmask = the_bin[0:2]
                         pins = []
-                        if the_bin[0] == "1":
-                            # turn on bottom common pins
+                        if common_bitmask[0] == "1":
+                            # turn on TOP common pins (nearest to devices 5&6)
                             pins.extend([17, 19, 25, 27])
 
-                        if the_bin[1] == "1":
-                            # turn on top common pins (nearest device 1)
+                        if common_bitmask[1] == "1":
+                            # turn on BOT common pins (nearest to devices 1&2)
                             pins.extend([16, 18, 24, 26])
 
                         # get device selection from bitmask
-                        device_bitmask = the_bin[2:]
+                        device_bitmask = the_bin[-8:]
                         device_bitmask = device_bitmask[::-1]
                         for bit_ix, bit in enumerate(device_bitmask):
                             if bit == "1":
