@@ -855,7 +855,7 @@ class Fabric(object):
                 if mux.enabled:
                     mux.connect()
                 mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
-                mc.mux = mux
+                mc.mux = mux  # TODO: remove this hack
                 smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
 
                 suid = db.xadd("setups", fields={"json": json.dumps(config["setup"])}, maxlen=100, approximate=True).decode()
@@ -873,8 +873,8 @@ class Fabric(object):
                 self.lg.log(29, f"Checking device connectivity...")
                 tosort = []
                 for group in run_queue:
-                    for smui, device_dict in enumerate(group):
-                        tosort.append((device_dict["slot"], device_dict["pad"], smui))
+                    for device_dict in group:
+                        tosort.append((device_dict["slot"], device_dict["pad"], device_dict["smui"]))
                 tosort.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
                 slots = [x[0] for x in tosort]
                 pads = [x[1] for x in tosort]
