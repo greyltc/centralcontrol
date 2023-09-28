@@ -148,11 +148,25 @@ class Wavelabs(object):
     def recvXML(self):
         """reads xml object from socket"""
         target = self.XMLHandler()
-        parser = ET.XMLParser(target=target)
+        parser = ET.XMLParser(target=target)  # TODO: consider dropping this parser in favor of the next
+        pparser = ET.XMLPullParser()
         raw_msg = None
         try:
-            raw_msg = self.sock_file.readline()
-            parser.feed(raw_msg)
+            pieces = b""
+            break_out = False
+            while not break_out:
+                if self.client_socket:
+                    piece = self.client_socket.recv(4096)
+                    pieces += piece
+                    pparser.feed(piece)
+                    for event, elem in pparser.read_events():
+                        if elem.tag == "WLRC" and event == "end":
+                            break_out = True
+                            raw_msg = pieces
+                else:
+                    break
+            if raw_msg:
+                parser.feed(raw_msg)
         except socket.timeout as to:
             target.error = 9999
             sto = self.client_socket.gettimeout()
