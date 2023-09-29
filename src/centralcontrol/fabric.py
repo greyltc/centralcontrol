@@ -236,12 +236,16 @@ class Fabric(object):
         # catch all the virtual cases right here
         ThisStageMC = MC
         ThisMC = MC
-        if "stage_virt" in task:
-            if task["stage_virt"] == True:
-                ThisStageMC = virt.FakeMC
+
         if "mc_virt" in task:
             if task["mc_virt"] == True:
                 ThisMC = virt.FakeMC
+
+        if "stage_virt" in task:
+            if task["stage_virt"] == True:
+                ThisStageMC = virt.FakeMC
+            else:
+                ThisStageMC = ThisMC
 
         if "cmd" in task:
             cmd = task["cmd"]
