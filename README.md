@@ -14,7 +14,7 @@ This software controls laboratory instruments. It receives high level instructio
     ```bash
     $ python -m venv --without-pip --system-site-packages --clear venv
     ```
-1) Activate the venv (this step is os/shell-dependant, see [1] for non-linux/bash)
+1) Activate the venv (however your shell does it[^1])
     ```bash
     $ source venv/bin/activate
     ```
@@ -23,3 +23,5 @@ This software controls laboratory instruments. It receives high level instructio
     (venv) $ python tools/venv_dev_install.py
     ```
 1) Develop! When you're finished with it, you can deactivate the virtual environment with `deactivate`
+
+[^1]: https://docs.python.org/3/library/venv.html#how-venvs-work
