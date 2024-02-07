@@ -743,6 +743,7 @@ class Fabric(object):
             mux_enabled = False
             fake_mux = True
             mc_expected_muxes = [""]
+            std_expected_muxes = [""]
             if "mc" in config:
                 # check if we'll be virtualizing the MC
                 if "virtual" in config["mc"]:
@@ -888,6 +889,11 @@ class Fabric(object):
 
                 # do the contact check
                 rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
+                self.lg.debug(f"{mc=}")
+                self.lg.debug(f"{smus=}")
+                self.lg.debug(f"{pads=}")
+                self.lg.debug(f"{slots=}")
+                self.lg.debug(f"{smuis=}")
 
                 # send results to db
                 for r in rs:
