@@ -758,6 +758,7 @@ class Fabric(object):
                 # check what muxes we expect
                 if "expected_muxes" in config["mux"]:
                     mc_expected_muxes = config["mux"]["expected_muxes"]
+                    std_expected_muxes = config["mux"]["expected_muxes"]  # TODO: clean this up
                 if "virtual" in config["mux"]:
                     fake_mux = config["mux"]["virtual"] == True
                 if "enabled" in config["mux"]:
@@ -808,6 +809,7 @@ class Fabric(object):
 
             mux_args = {}
             mux_args["address"] = mux_address
+            mux_args["expected_muxes"] = std_expected_muxes
 
             smucfgs = config["smus"]  # the smu configs
             for smucfg in smucfgs:
