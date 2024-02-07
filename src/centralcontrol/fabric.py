@@ -731,7 +731,7 @@ class Fabric(object):
                 else:
                     args = {}
                 
-                self.lg.debug(f"{run_queue=}")
+            self.lg.debug(f"{run_queue=}")
 
             if self.pkiller.is_set():
                 self.lg.debug("Killed by killer.")
