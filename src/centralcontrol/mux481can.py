@@ -21,8 +21,6 @@ class Mux481can:
 
     MAX_RETRIES = 3
 
-    SLOT_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-
     def __enter__(self):
         """Enter the runtime context related to this object."""
         return self
@@ -34,7 +32,7 @@ class Mux481can:
         """
         self.disconnect()
 
-    def __init__(self, address: str = "192.168.255.1", timeout: float = 2):
+    def __init__(self, address: str = "192.168.255.1", timeout: float = 2, expected_muxes: list[str] = []):
         """Construct object.
 
         Parameters
@@ -43,9 +41,9 @@ class Mux481can:
             IP address or hostname of gateway.
         timeout : int
             Socket timeout in s.
-        expected_muxes: list[str] = [], enabled=True
+        expected_muxes: list[str] = []
+            List of expected muxes slot names. Must be upper case letters only.
         """
-
         # setup logging
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
 
@@ -53,6 +51,11 @@ class Mux481can:
 
         self._address = address
         self._timeout = timeout
+
+        if expected_muxes == []:
+            self.lg.debug("Expected muxes list is empty!")
+        self._expected_muxes = expected_muxes
+
         self.gateway = i7540d.I7540d(address, timeout)
 
     @property
@@ -64,6 +67,11 @@ class Mux481can:
     def timeout(self):
         """Read the gateway timeout."""
         return self._timeout
+
+    @property
+    def expected_muxes(self):
+        """Read the gateway timeout."""
+        return self._expected_muxes
 
     def connect(self) -> None:
         """Open client connections to the gateway."""
@@ -90,7 +98,8 @@ class Mux481can:
                     if attempt == 2:
                         raise err
 
-        for board_address in range(1, 17):
+        for slot in self.expected_muxes:
+            board_address = self.slot_to_addr(slot)
             idn = self.get_board_idn(board_address)
             self.lg.debug(f"Board {board_address} idn: {idn}")
 
@@ -314,9 +323,13 @@ class Mux481can:
         board_addr : int
             Mux board address.
         """
-        board_addr = ord(slot) - ord("A") + 1
-        if board_addr not in self.SLOT_NUMBERS:
+        if slot not in self.expected_muxes:
             raise ValueError(f"Invalid slot: {slot}")
+
+        board_addr = ord(slot) - ord("A") + 1
+
+        if board_addr < 1:
+            self.lg.debug(f"Invalid slot name: {slot}. Slot names in 'expected_muxes' should be upper case letters.")
 
         return board_addr
 
@@ -330,8 +343,8 @@ class Mux481can:
                 slot, device = pixel
                 if slot.startswith("EXT") or (slot == "OFF"):
                     # turn all mux pins off on all boards
-                    for _board_addr in self.SLOT_NUMBERS:
-                        self.set_pins(_board_addr, None)
+                    for _slot in self.expected_muxes:
+                        self.set_pins(self.slot_to_addr(_slot), None)
                     break
                 else:
                     board_addr = self.slot_to_addr(slot)
