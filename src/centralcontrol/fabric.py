@@ -719,6 +719,8 @@ class Fabric(object):
                 config = json.loads(db.xrange("conf_as", conf_a_id, conf_a_id)[0][1][b"json"])
                 args = json.loads(db.xrange("conf_bs", conf_b_id, conf_b_id)[0][1][b"json"])
                 run_queue = json.loads(db.xrange("runqs", rq_id, rq_id)[0][1][b"json"])
+                
+                self.lg.debug(f'{db.xrange("runqs", rq_id, rq_id)=}')
             else:  # TODO: remove this legacy code path
                 rid = 1  # HACK a run id for testing
                 if "config" in request:
@@ -730,9 +732,6 @@ class Fabric(object):
                     args = request["args"]
                 else:
                     args = {}
-                
-            self.lg.debug(f"{run_queue=}")
-            self.lg.debug(f"{request=}")
 
             if self.pkiller.is_set():
                 self.lg.debug("Killed by killer.")
