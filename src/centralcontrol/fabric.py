@@ -841,7 +841,7 @@ class Fabric(object):
             # handle a remapped mux
             if "remap" in config["mux"]:
                 remap = {}
-                for line in config["mux"][remap]:
+                for line in config["mux"]["remap"]:
                     remap[f"{(line[0], line[1])}"] = (line[2], line[3])
             else:
                 remap = None
