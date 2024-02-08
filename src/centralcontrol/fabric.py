@@ -269,11 +269,12 @@ class Fabric(object):
             self.lg.debug(f"{cmd=} complete!")
 
     @staticmethod
-    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], smuis: list[int]) -> list[dict]:
+    def get_pad_rs(mc: MC | virt.FakeMC, sms: list[SourcemeterAPI], pads: list[int], slots: list[str], smuis: list[int], remap=None) -> list[dict]:
         """get a list of resistance values for all the connection pads of a given device list"""
         conns = []  # holds the connection info
         if len(slots) > 0:
-            hconns = []
+            hconns = []  # holds the hi side connection info
+            lconns = []  # holds the lo side connection info
             for i in range(len(slots)):
                 # for slot, pad in zip(slots, pads):  # hi-side lines
                 line = {}
@@ -286,14 +287,34 @@ class Fabric(object):
                     if pad == 0:
                         dlp = f"{0:05}"
                     else:
-                        dlp = f"{(1<<(7+pad)):05}"
+                        if remap:  # handle special mux mapping
+                            dlph = remap[f"{(slots[i], pad)}"][0]
+                            for (pos, val) in enumerate(bin(dlph).removeprefix("0b")[::-1]):
+                                if val == "1":
+                                    line = {}
+                                    line["slot"] = slots[i]
+                                    line["pad"] = f"{pad}:{pos}"
+                                    line["dlp"] = f"{(1<<(pos)):05}"
+                                    line["smi"] = smuis[i]
+                                    hconns.append(line)
+                            dlpl = remap[f"{(slots[i], pad)}"][1]
+                            for (pos, val) in enumerate(bin(dlpl).removeprefix("0b")[::-1]):
+                                if val == "1":
+                                    line = {}
+                                    line["slot"] = slots[i]
+                                    line["pad"] = f"{pad}::{pos}"
+                                    line["dlp"] = f"{(1<<(pos)):05}"
+                                    line["smi"] = smuis[i]
+                                    lconns.append(line)
+                            continue
+                        else:
+                            dlp = f"{(1<<(7+pad)):05}"
                 line["pad"] = pad
                 line["dlp"] = dlp  # use direct latch programming for the odd mux configs here
                 line["smi"] = smuis[i]
                 hconns.append(line)
 
             # lo side stuff
-            lconns = []  # holds the connection info
             # uslots = list(set(slots))  # unique substrates
             uidx = [slots.index(x) for x in set(slots)]  # indicies of unique slots
             lo_side_mux_strings = [("TOP", f"{(1<<0):05}"), ("BOT", f"{(1<<1):05}")]
@@ -308,6 +329,8 @@ class Fabric(object):
                         lconns.append(line)
                         break
                     else:
+                        if remap:
+                            continue  # we've already filled the non-off lconns
                         line["pad"] = pad
                         line["dlp"] = sel
                         line["smi"] = smuis[i]
@@ -318,8 +341,10 @@ class Fabric(object):
                         lconns.append(line)
 
             Fabric.select_pixel(mc)  # ensure we start with devices all deselected
+
+            # ccmode setup leaves us in hi-side checking mode, so we do that first
             for sm in sms:
-                sm.enable_cc_mode(True)  # ccmode setup leaves us in hi-side checking mode, so we do that first
+                sm.enable_cc_mode(True)
 
             last_slot = None
             for line in hconns:
@@ -340,8 +365,10 @@ class Fabric(object):
                 last_slot = this_slot
             conns += lconns
 
+            # disable cc mode
             for sm in sms:
-                sm.enable_cc_mode(False)  # disable cc mode
+                sm.enable_cc_mode(False)
+
             Fabric.select_pixel(mc)  # ensure we end with devices all deselected
 
         return conns
@@ -811,6 +838,14 @@ class Fabric(object):
             mux_args = {}
             mux_args["address"] = mux_address
             mux_args["expected_muxes"] = std_expected_muxes
+            # handle a remapped mux
+            if "remap" in config["mux"]:
+                remap = {}
+                for line in config["mux"][remap]:
+                    remap[f"{(line[0], line[1])}"] = (line[2], line[3])
+            else:
+                remap = None
+            mux_args["remap"] = remap
 
             smucfgs = config["smus"]  # the smu configs
             for smucfg in smucfgs:
@@ -888,7 +923,7 @@ class Fabric(object):
                 smuis = [x[2] for x in tosort]
 
                 # do the contact check
-                rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
+                rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis, remap=remap)
 
                 # send results to db
                 for r in rs:

@@ -32,7 +32,7 @@ class Mux481can:
         """
         self.disconnect()
 
-    def __init__(self, address: str = "192.168.255.1", timeout: float = 2, expected_muxes: list[str] = []):
+    def __init__(self, address: str = "192.168.255.1", timeout: float = 2, expected_muxes: list[str] = [], remap=None):
         """Construct object.
 
         Parameters
@@ -55,6 +55,8 @@ class Mux481can:
         if expected_muxes == []:
             self.lg.debug("Expected muxes list is empty!")
         self._expected_muxes = expected_muxes
+
+        self._remap = remap
 
         self.gateway = i7540d.I7540d(address, timeout)
 
@@ -370,6 +372,18 @@ class Mux481can:
                             26,
                             27,
                         ]
+
+                        # handle the remapping
+                        if self._remap:
+                            hi_pins = self._remap[f"{(slot, device)}"][0]
+                            lo_pins = self._remap[f"{(slot, device)}"][1]
+                            pin_total = hi_pins + lo_pins
+                            bin_total = bin(pin_total)
+                            self.lg.debug(f"But it was remapped to hi+lo = {hi_pins}+{lo_pins}={pin_total} aka {bin_total}")
+                            pins = []
+                            for (pos, val) in enumerate(bin_total.removeprefix("0b")[::-1]):
+                                if val == "1":
+                                    pins.append(pos)
 
                         # turn on only requested pins, turning off all others
                         self.set_pins(board_addr, pins)

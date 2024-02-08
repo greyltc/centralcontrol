@@ -134,6 +134,7 @@ class FakeMux(object):
         pass
 
     def set_mux(self, mux_setting):
+        self.lg.debug(f"set with: {mux_setting}")
         pass
 
     def connect(self):
