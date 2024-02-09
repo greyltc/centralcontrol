@@ -281,11 +281,11 @@ class Fabric(object):
                 line["slot"] = slots[i]
                 if slots[i] == "OFF":
                     pad = "HI"
-                    dlp = f"{0:05}"
+                    dlp = f"{0:010}"
                 else:
                     pad = pads[i]
                     if pad == 0:
-                        dlp = f"{0:05}"
+                        dlp = f"{0:010}"
                     else:
                         if remap:  # handle special mux mapping
                             himap = remap[f"{(slots[i], pad)}"][0]
@@ -296,7 +296,7 @@ class Fabric(object):
                                     pintot += 2**pin
                                 line["slot"] = slots[i]
                                 line["pad"] = f"{pad}H{hignum}"
-                                line["dlp"] = f"{(pintot):09}"
+                                line["dlp"] = f"{(pintot):010}"
                                 line["smi"] = smuis[i]
                                 hconns.append(line)
                             lomap = remap[f"{(slots[i], pad)}"][1]
@@ -307,12 +307,12 @@ class Fabric(object):
                                     pintot += 2**pin
                                 line["slot"] = slots[i]
                                 line["pad"] = f"{pad}L{lognum}"
-                                line["dlp"] = f"{(pintot):09}"
+                                line["dlp"] = f"{(pintot):010}"
                                 line["smi"] = smuis[i]
                                 lconns.append(line)
                             continue
                         else:
-                            dlp = f"{(1<<(7+pad)):05}"
+                            dlp = f"{(1<<(7+pad)):010}"
                 line["pad"] = pad
                 line["dlp"] = dlp  # use direct latch programming for the odd mux configs here
                 line["smi"] = smuis[i]
@@ -321,14 +321,14 @@ class Fabric(object):
             # lo side stuff
             # uslots = list(set(slots))  # unique substrates
             uidx = [slots.index(x) for x in set(slots)]  # indicies of unique slots
-            lo_side_mux_strings = [("TOP", f"{(1<<0):05}"), ("BOT", f"{(1<<1):05}")]
+            lo_side_mux_strings = [("TOP", f"{(1<<0):010}"), ("BOT", f"{(1<<1):010}")]
             for i in uidx:
                 for pad, sel in lo_side_mux_strings:
                     line = {}
                     line["slot"] = slots[i]
                     if slots[i] == "OFF":
                         line["pad"] = "LO"
-                        line["dlp"] = f"{0:05}"
+                        line["dlp"] = f"{0:010}"
                         line["smi"] = smuis[i]
                         lconns.append(line)
                         break
