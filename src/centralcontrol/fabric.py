@@ -5,8 +5,8 @@ import concurrent.futures
 import contextlib
 import datetime
 import hmac
-import hashlib
 import importlib.metadata
+from collections import OrderedDict
 import asyncio
 import json
 import multiprocessing
@@ -26,7 +26,7 @@ import numpy as np
 from paho.mqtt.client import MQTTMessage
 import centralcontrol.enums as en
 
-from slothdb.dbsync import SlothDBSync as SlothDB
+#from slothdb.dbsync import SlothDBSync as SlothDB
 import redis
 
 # import redis_annex
@@ -210,7 +210,11 @@ class Fabric(object):
                             if channel == b"runs":
                                 rid = stream_id
                                 self.lg.debug(f"Got new run start with id: {rid.decode()}")
-                                future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid} | json.loads(payload[b"json"]))
+                                if (future == None) or future.done():  # TODO: figure out why we can get two runs at once
+                                    future = self.submit_for_execution(exicuter, future, self.do_run, {"runid": rid} | json.loads(payload[b"json"]))
+                                else:
+                                    self.lg.debug(f"Run start ignored.")
+
                         else:
                             self.lg.debug(f"Unknown message type in inq: {type(msg)}")
 
@@ -284,35 +288,46 @@ class Fabric(object):
                     dlp = f"{0:010}"
                 else:
                     pad = pads[i]
-                    if pad == 0:
+                    if remap:  # handle special mux mapping
+                        himap = remap[f"{(slots[i], pad)}"][0]
+                        for hignum, higroup in enumerate(himap):
+                            pintot = 0
+                            line = {}
+                            for pin in higroup:
+                                pintot += 2**pin
+                            line["slot"] = slots[i]
+                            if pintot == 0:
+                                line["pad"] = "HI"
+                            else:
+                                if len(himap) > 1:
+                                    line["pad"] = f"{pad}H{hignum}"
+                                else:
+                                    line["pad"] = f"{pad}"
+                            line["dlp"] = f"{(pintot):010}"
+                            line["smi"] = smuis[i]
+                            hconns.append(line)
+                        lomap = remap[f"{(slots[i], pad)}"][1]
+                        for lognum, logroup in enumerate(lomap):
+                            pintot = 0
+                            line = {}
+                            for pin in logroup:
+                                pintot += 2**pin
+                            line["slot"] = slots[i]
+                            if pintot == 0:
+                                line["pad"] = "LO"
+                            else:
+                                if len(lomap) > 1:
+                                    line["pad"] = f"{pad}L{lognum}"
+                                else:
+                                    line["pad"] = f"{pad}L"
+                            line["dlp"] = f"{(pintot):010}"
+                            line["smi"] = smuis[i]
+                            lconns.append(line)
+                        continue
+                    elif pad == 0:
                         dlp = f"{0:010}"
                     else:
-                        if remap:  # handle special mux mapping
-                            himap = remap[f"{(slots[i], pad)}"][0]
-                            for hignum, higroup in enumerate(himap):
-                                pintot = 0
-                                line = {}
-                                for pin in higroup:
-                                    pintot += 2**pin
-                                line["slot"] = slots[i]
-                                line["pad"] = f"{pad}H{hignum}"
-                                line["dlp"] = f"{(pintot):010}"
-                                line["smi"] = smuis[i]
-                                hconns.append(line)
-                            lomap = remap[f"{(slots[i], pad)}"][1]
-                            for lognum, logroup in enumerate(lomap):
-                                pintot = 0
-                                line = {}
-                                for pin in logroup:
-                                    pintot += 2**pin
-                                line["slot"] = slots[i]
-                                line["pad"] = f"{pad}L{lognum}"
-                                line["dlp"] = f"{(pintot):010}"
-                                line["smi"] = smuis[i]
-                                lconns.append(line)
-                            continue
-                        else:
-                            dlp = f"{(1<<(7+pad)):010}"
+                        dlp = f"{(1<<(7+pad)):010}"
                 line["pad"] = pad
                 line["dlp"] = dlp  # use direct latch programming for the odd mux configs here
                 line["smi"] = smuis[i]
@@ -347,8 +362,8 @@ class Fabric(object):
             # remove duplicated tests (there should only be dups for the lconns, but we'll do both here anyway to be extra sure)
             lsearch_list = [(x["slot"], x["dlp"]) for x in lconns]
             hsearch_list = [(x["slot"], x["dlp"]) for x in hconns]
-            uidxl = [lsearch_list.index(x) for x in set(lsearch_list)]
-            uidxh = [hsearch_list.index(x) for x in set(hsearch_list)]
+            uidxl = [lsearch_list.index(x) for x in OrderedDict((x, True) for x in lsearch_list).keys()]
+            uidxh = [hsearch_list.index(x) for x in OrderedDict((x, True) for x in hsearch_list).keys()]
             lconns = [lconns[i] for i in uidxl]
             hconns = [hconns[i] for i in uidxh]
 

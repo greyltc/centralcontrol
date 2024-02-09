@@ -8,5 +8,5 @@ Restart=always
 RestartSec=3
 PrivateTmp=true
 NoNewPrivileges=true
-ExecReload=/bin/kill -HUP $MAINPID
-KillMode=process
+#ExecReload=/bin/kill -HUP $MAINPID
+#KillMode=process

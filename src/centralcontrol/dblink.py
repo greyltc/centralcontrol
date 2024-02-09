@@ -1,7 +1,6 @@
 import redis
 import redis.asyncio as aredis
 import asyncio
-import signal
 
 # import redis_annex
 import json
