@@ -436,10 +436,17 @@ class Fabric(object):
                 config = json.loads(db.xrange("conf_as", task["conf_id"], task["conf_id"])[0][1][b"json"])
                 suid = db.xadd("setups", fields={"json": json.dumps(config["setup"])}, maxlen=100, approximate=True).decode()
 
+                if "remap" in config["mux"]:
+                    remap = {}
+                    for line in config["mux"]["remap"]:
+                        remap[f"{(line[0], line[1])}"] = (line[2], line[3])
+                else:
+                    remap = None
+
                 lu = dbl.registerer(dev_dicts, suid, smus, layouts)
                 Fabric.select_pixel(mc)  # ensure we start with devices all deselected
                 if task["type"] == "connectivity":
-                    rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis)
+                    rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis, remap=remap)
                     for r in rs:
                         if r["slot"] in lu["slots"]:  # make sure we don't try to register OFF
                             to_upsert = {}
