@@ -288,24 +288,28 @@ class Fabric(object):
                         dlp = f"{0:05}"
                     else:
                         if remap:  # handle special mux mapping
-                            dlph = remap[f"{(slots[i], pad)}"][0]
-                            for (pos, val) in enumerate(bin(dlph).removeprefix("0b")[::-1]):
-                                if val == "1":
-                                    line = {}
-                                    line["slot"] = slots[i]
-                                    line["pad"] = f"{pad}:{pos}"
-                                    line["dlp"] = f"{(1<<(pos)):05}"
-                                    line["smi"] = smuis[i]
-                                    hconns.append(line)
-                            dlpl = remap[f"{(slots[i], pad)}"][1]
-                            for (pos, val) in enumerate(bin(dlpl).removeprefix("0b")[::-1]):
-                                if val == "1":
-                                    line = {}
-                                    line["slot"] = slots[i]
-                                    line["pad"] = f"{pad}::{pos}"
-                                    line["dlp"] = f"{(1<<(pos)):05}"
-                                    line["smi"] = smuis[i]
-                                    lconns.append(line)
+                            himap = remap[f"{(slots[i], pad)}"][0]
+                            for hignum, higroup in enumerate(himap):
+                                pintot = 0
+                                line = {}
+                                for pin in higroup:
+                                    pintot += 2**pin
+                                line["slot"] = slots[i]
+                                line["pad"] = f"{pad}H{hignum}"
+                                line["dlp"] = f"{(pintot):09}"
+                                line["smi"] = smuis[i]
+                                hconns.append(line)
+                            lomap = remap[f"{(slots[i], pad)}"][1]
+                            for lognum, logroup in enumerate(lomap):
+                                pintot = 0
+                                line = {}
+                                for pin in logroup:
+                                    pintot += 2**pin
+                                line["slot"] = slots[i]
+                                line["pad"] = f"{pad}L{lognum}"
+                                line["dlp"] = f"{(pintot):09}"
+                                line["smi"] = smuis[i]
+                                lconns.append(line)
                             continue
                         else:
                             dlp = f"{(1<<(7+pad)):05}"

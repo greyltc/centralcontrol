@@ -357,56 +357,31 @@ class Mux481can:
                         self.set_pins(board_addr, None)
                     elif isinstance(device, int):
                         self.lg.debug(f"Pixel switched with int: {pixel=}")
-                        # list all common pins in the slot, which should turn on
-                        # also add device pins that should also turn on
-                        # pins are 0-indexed by the mux firmware
-                        pins = [
-                            device - 1,
-                            device - 1 + 8,
-                            16,
-                            17,
-                            18,
-                            19,
-                            24,
-                            25,
-                            26,
-                            27,
-                        ]
 
                         # handle the remapping
                         if self._remap:
                             hi_pins = self._remap[f"{(slot, device)}"][0]
                             lo_pins = self._remap[f"{(slot, device)}"][1]
-                            pin_total = hi_pins + lo_pins
-                            bin_total = bin(pin_total)
-                            self.lg.debug(f"But it was remapped to hi+lo = {hi_pins}+{lo_pins}={pin_total} aka {bin_total}")
+                            self.lg.debug(f"But it was remapped to hi:{hi_pins} & lo:{lo_pins}")
                             pins = []
-                            for (pos, val) in enumerate(bin_total.removeprefix("0b")[::-1]):
-                                if val == "1":
-                                    pins.append(pos)
+                            for higroup in self._remap[f"{(slot, device)}"][0]:
+                                for pin in higroup:
+                                    pins.append(pin)
+                            for logroup in self._remap[f"{(slot, device)}"][1]:
+                                for pin in logroup:
+                                    pins.append(pin)
+                        else:
+                            raise ValueError("Mux pin (re)mapping is missing")
 
                         # turn on only requested pins, turning off all others
                         self.set_pins(board_addr, pins)
                     elif isinstance(device, str):
                         self.lg.debug(f"Pixel switched with str: {pixel=}")
-                        the_bin = format(int(device), "#018b")[2::]
-
-                        common_bitmask = the_bin[-8:]
+                        the_bin = format(int(device), "#034b")[2::][::-1]
                         pins = []
-                        if common_bitmask[0] == "1":
-                            # turn on TOP common pins (nearest to devices 5&6)
-                            pins.extend([17, 19, 25, 27])
-
-                        if common_bitmask[1] == "1":
-                            # turn on BOT common pins (nearest to devices 1&2)
-                            pins.extend([16, 18, 24, 26])
-
-                        # get device selection from bitmask
-                        device_bitmask = the_bin[0:8]
-                        device_bitmask = device_bitmask[::-1]
-                        for bit_ix, bit in enumerate(device_bitmask):
+                        for bitpos, bit in enumerate(the_bin):
                             if bit == "1":
-                                pins.extend([bit_ix, bit_ix + 8])
+                                pins.append(bitpos)
 
                         self.set_pins(board_addr, pins)
                     else:
