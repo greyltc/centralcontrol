@@ -344,6 +344,14 @@ class Fabric(object):
                         #    line["smi"] = SourcemeterAPI.which_smu(device_grouping, [uslot, 0])
                         lconns.append(line)
 
+            # remove duplicated tests (there should only be dups for the lconns, but we'll do both here anyway to be extra sure)
+            lsearch_list = [(x["slot"], x["dlp"]) for x in lconns]
+            hsearch_list = [(x["slot"], x["dlp"]) for x in hconns]
+            uidxl = [lsearch_list.index(x) for x in set(lsearch_list)]
+            uidxh = [hsearch_list.index(x) for x in set(hsearch_list)]
+            lconns = [lconns[i] for i in uidxl]
+            hconns = [hconns[i] for i in uidxh]
+
             Fabric.select_pixel(mc)  # ensure we start with devices all deselected
 
             # ccmode setup leaves us in hi-side checking mode, so we do that first
