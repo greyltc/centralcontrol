@@ -1,7 +1,6 @@
 {
+    "editor.defaultFormatter": "ms-python.black-formatter",
     "editor.formatOnSave": true,
-    "python.formatting.provider": "black",
     "python.analysis.autoImportCompletions": false,
-    "python.testing.unittestEnabled": true,
     "python.analysis.typeCheckingMode": "basic",
 }

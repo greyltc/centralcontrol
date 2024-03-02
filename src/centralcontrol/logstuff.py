@@ -10,6 +10,7 @@ except ImportError:
 
 
 class NewHandler(logging.Handler):
+
     emitter: typing.Callable
 
     def __init__(self, emitter: typing.Callable, *args, **kwargs):

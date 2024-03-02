@@ -88,7 +88,7 @@ class Linak(object):
         status_msg = self.stage.ctrl_transfer(self.RequestType_GetClassInterface, self.HID_REPORT_GET, self.wValue_GetStatus, 0, msg)
         assert len(status_msg) == self.StatusReportSize, f"Wrong status message length {status_msg=}"
         pos = status_msg[5] * 256 + status_msg[4]  # pick out position from status message
-        #time.sleep(0.2)
+        # time.sleep(0.2)
         return pos
 
     @staticmethod

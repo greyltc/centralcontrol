@@ -9,6 +9,7 @@ import sys
 
 
 class put_ftp:
+
     verbose = False
     remote_path = "/"
 

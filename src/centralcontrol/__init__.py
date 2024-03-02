@@ -1,4 +1,5 @@
 """central control package"""
+
 from centralcontrol.__about__ import __version__, __version_tuple__
 from centralcontrol.fabric import Fabric
 import argparse

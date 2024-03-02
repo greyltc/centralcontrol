@@ -26,7 +26,7 @@ import numpy as np
 from paho.mqtt.client import MQTTMessage
 import centralcontrol.enums as en
 
-#from slothdb.dbsync import SlothDBSync as SlothDB
+# from slothdb.dbsync import SlothDBSync as SlothDB
 import redis
 
 # import redis_annex

@@ -127,9 +127,7 @@ class I7540d:
             self._can_client.settimeout(self._timeout)
             self._can_client.connect((self.host, self.CAN_PORT))
         else:
-            warnings.warn(
-                "A connection has already been established so cannot create a new one."
-            )
+            warnings.warn("A connection has already been established so cannot create a new one.")
 
     def disconnect(self) -> None:
         """Disconnect client connections."""
@@ -137,9 +135,7 @@ class I7540d:
             self._dev_client.close()
             self._can_client.close()
         else:
-            warnings.warn(
-                "No connection has been established so nothing to disconnect."
-            )
+            warnings.warn("No connection has been established so nothing to disconnect.")
 
         self._dev_client = None
         self._can_client = None
@@ -361,10 +357,7 @@ class I7540d:
         can_err_resp: bool = can_config["can_err_resp"]
         can_timestamp_resp: bool = can_config["can_timestamp_resp"]
 
-        cmd = (
-            f"$P114{can_specification}{can_baud}{can_acc_code_reg}{can_acc_mask_reg}"
-            + f"{int(can_err_resp)}{int(can_timestamp_resp)}"
-        )
+        cmd = f"$P114{can_specification}{can_baud}{can_acc_code_reg}{can_acc_mask_reg}" + f"{int(can_err_resp)}{int(can_timestamp_resp)}"
         raw_can_config_resp = self._device_read(cmd)
         if raw_can_config_resp != "OK":
             raise ValueError(f"Invalid command. Response: {raw_can_config_resp}.")
@@ -387,26 +380,17 @@ class I7540d:
         """
         # check if identifier is valid for a standard dataframe
         if (identifier > 0x7FF) or (identifier < 0):
-            raise ValueError(
-                f"Invalid identifier: {identifier}. Must in range 0x000-0x7FF (0-2047)."
-            )
+            raise ValueError(f"Invalid identifier: {identifier}. Must in range 0x000-0x7FF (0-2047).")
 
         # TODO: handle longer dataframes
         # check if length of data can fit in a single dataframe
         dlc = len(data)
         if dlc > 8:
-            raise ValueError(
-                f"Input data frame is too long. It contains {dlc} elements but can "
-                + "only be a maximum of 8 for a standard CAN dataframe."
-            )
+            raise ValueError(f"Input data frame is too long. It contains {dlc} elements but can " + "only be a maximum of 8 for a standard CAN dataframe.")
 
         # check if all elements of the data list are compatible with 8-bit ints
         if any(i > 255 for i in data):
-            raise ValueError(
-                "An element in the data list is greater than 255 so is not a valid "
-                + f"8-bit code: {data}. ICPCON I-7540D can only handle valid 8-bit "
-                + "codes."
-            )
+            raise ValueError("An element in the data list is greater than 255 so is not a valid " + f"8-bit code: {data}. ICPCON I-7540D can only handle valid 8-bit " + "codes.")
 
         data_str = "".join([f"{i:02x}" for i in data])
 
