@@ -8,7 +8,6 @@ from centralcontrol.logstuff import get_logger
 
 # this boilerplate is required to allow this module to be run directly as a script
 if __name__ == "__main__" and __package__ in [None, ""]:
-
     __package__ = "centralcontrol"
     from pathlib import Path
     import sys

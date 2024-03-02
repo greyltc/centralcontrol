@@ -9,7 +9,6 @@ from centralcontrol.logstuff import get_logger
 
 
 class Xdac(object):
-
     # zmq comms params
     topicfilter = b""
     req_port = 5555
