@@ -211,7 +211,7 @@ class k2400(object):
                 self.lg.debug(f"Connection opened: {self.address}")
                 if "socket" in self.address:
                     # set the initial timeout to something long for setup
-                    self.ser._socket.settimeout(5.0)
+                    self.ser._socket.settimeout(5.0)  #TODO: try just setting self.ser.timeout = 5
                     time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
@@ -247,6 +247,21 @@ class k2400(object):
         self.hardware_reset()
         # really make sure the buffer's clean
         self.hard_input_buffer_reset()  # for discarding currently streaming data
+
+        # ensure we're using 2400 language set
+        try:
+            self.lg.debug("Checking language set...")
+            lang = self.query("*LANG?")
+            if "2400" not in lang:
+                self.lg.debug(f"Found a bad language set: {lang}")
+                self.lg.debug(f"Attempting language set change")
+                self.write("*LANG SCPI2400")
+                self.lg.error(f"Please manually power cycle the SMU at address {self.address} now to complete a language set change.")
+                raise ValueError(f"Bad SMU language set: {lang}")
+            else:
+                self.lg.debug(f"Found good language set: {lang}")
+        except Exception as e:
+            self.lg.debug(f"Exception: {repr(e)}")
 
         # tests the ROM's checksum. can take over a second
         self.timeout = self.ser.timeout
