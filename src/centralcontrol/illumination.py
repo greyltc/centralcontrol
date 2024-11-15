@@ -1,4 +1,5 @@
 from centralcontrol.wavelabs import Wavelabs
+from centralcontrol.usbtmclight import Usbtmclight
 from centralcontrol.virt import FakeLight
 
 # from centralcontrol.newport import Newport
@@ -26,6 +27,10 @@ def factory(cfg: dict) -> Type["LightAPI"]:
     if ("virtual" in cfg) and (cfg["virtual"] is False):
         if "wavelabs" in kind:
             base = Wavelabs  # wavelabs selected
+
+    if ("virtual" in cfg) and (cfg["virtual"] is False):
+        if "usbtmc" in kind:
+            base = Usbtmclight  # Usbtmclight selected
 
     if ("enabled" in cfg) and (cfg["enabled"] is False):
         base = DisabledLight  # disabled SMU selected
@@ -73,12 +78,12 @@ class LightAPI(object):
         super(LightAPI, self).__init__(**kwargs)
 
     def __enter__(self) -> "LightAPI":
-        """so that the smu can enter a context"""
+        """so that the light can enter a context"""
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
-        """so that the smu can leave a context cleanly"""
+        """so that the light can leave a context cleanly"""
         self.disconnect()
         return False
 

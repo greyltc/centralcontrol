@@ -17,11 +17,7 @@ class FakeLight(object):
     idn: str
     runtime = 60000
     _intensity: float = 0.0  # the current value this is set for
-    _previous_inetensity: float = 0.0  # used to keep track for on and off
     _on_intensity: float = 100.0
-    # barrier_timeout = 10  # s. wait at most this long for thread sync on light state change
-    # _current_state = False  # True if we believe the light is on, False if we believe it's off
-    # requested_state = False  # keeps track of what state we'd like the light to be in
     last_temps = [25.3, 17.3]
     active_recipe: None | str = None
     address: None | str = None
