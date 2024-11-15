@@ -44,9 +44,11 @@ class Usbtmclight(object):
         except:
             self.lg = None
 
+        # compat
         if "active_recipe" in kwargs:
             self.active_recipe = kwargs["active_recipe"]
 
+        # compat
         if "intensity" in kwargs:
             self._on_intensity = kwargs["intensity"]
 
@@ -113,6 +115,7 @@ class Usbtmclight(object):
 
     def on(self):
         """turns the light on"""
+        self._intensity = self._on_intensity  # compat
         self.tmc_obj.write("output 1")
         self.get_status()
         if self.query_on_state():
@@ -130,6 +133,7 @@ class Usbtmclight(object):
 
     def off(self):
         """turns the light off"""
+        self._intensity = 0  # compat
         self.tmc_obj.write("output 0")
         self.get_status()
         if self.query_on_state():
