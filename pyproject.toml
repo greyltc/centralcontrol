@@ -28,6 +28,7 @@ dependencies = [
   "mpmath",
   "paho-mqtt",
   "psycopg",
+  "usbtmc",
 ]
 dynamic = ["version"]
 
