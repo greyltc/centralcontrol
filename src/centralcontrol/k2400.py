@@ -42,8 +42,11 @@ class k2400(object):
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
-        self.lg = get_logger(".".join([__name__, type(self).__name__]), logging.INFO)  # setup logging
-        self.lg.debug("k2400 init starting")
+        self.lg.debug("k2400 init starting a")
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))   # setup logging
+        self.lg.debug("k2400 init starting b")
+        #self.lg = get_logger(".".join([__name__, type(self).__name__]), logging.INFO)
+        #self.lg.debug("k2400 init starting")
 
         self.killer = killer
         self.quiet = quiet
