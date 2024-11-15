@@ -42,8 +42,8 @@ class k2400(object):
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
-        self.llg = get_logger(".".join([__name__, type(self).__name__]), logging.INFO)  # setup logging
-        self.llg.debug("k2400 init starting")
+        self.lg = get_logger(".".join([__name__, type(self).__name__]), logging.INFO)  # setup logging
+        self.lg.debug("k2400 init starting")
 
         self.killer = killer
         self.quiet = quiet
@@ -59,7 +59,7 @@ class k2400(object):
         self.cc_mode = cc_mode
         self.remaining_init_kwargs = kwargs
 
-        self.llg.debug("hwurl:// schema setup starting")
+        self.lg.debug("hwurl:// schema setup starting")
         # add some features to pyserial's address URL handling
         # trigger this through the use of a hwurl:// schema
         class HWURL(object):
@@ -97,22 +97,22 @@ class k2400(object):
                     else:
                         raise ValueError(f"Expected hw:// url, got: {value}")
 
-        self.llg.debug("registering new hwurl:// handler")
+        self.lg.debug("registering new hwurl:// handler")
         sys.modules["hwurl"] = HWURL
         sys.modules["hwurl.protocol_hw"] = HWURL
         serial.protocol_handler_packages.append("hwurl")
 
-        self.llg.debug("k2400 initialized.")
+        self.lg.debug("k2400 initialized.")
 
     def __enter__(self) -> "k2400":
         """so that the smu can enter a context"""
-        self.llg.debug("Entering context")
+        self.lg.debug("Entering context")
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         """so that the smu can leave a context cleanly"""
-        self.llg.debug("Exiting context")
+        self.lg.debug("Exiting context")
         self.disconnect()
         return False
 
@@ -148,7 +148,7 @@ class k2400(object):
                 s.shutdown(socket.SHUT_RDWR)
                 self.hard_input_buffer_reset(s)
         except Exception as e:
-            self.llg.debug(f"Dead socket cleanup issue: {e}")
+            self.lg.debug(f"Dead socket cleanup issue: {e}")
 
     def socket_cleanup(self, host, port):
         """ensure a the host/port combo is clean and closed"""
@@ -160,7 +160,7 @@ class k2400(object):
                 s.shutdown(socket.SHUT_RDWR)
                 self.hard_input_buffer_reset(s)
         except Exception as e:
-            self.llg.debug(f"Socket cleanup issue: {e}")
+            self.lg.debug(f"Socket cleanup issue: {e}")
 
     def hard_input_buffer_reset(self, s=None) -> bool:
         """brute force input buffer discard with failure check"""
@@ -203,18 +203,18 @@ class k2400(object):
                 kwargs = {}
                 hostport = self.address.removeprefix("socket://")
                 [self.host, self.port] = hostport.split(":", 1)
-                self.llg.debug(f"Cleaning up socket: {[self.host, self.port]}")
+                self.lg.debug(f"Cleaning up socket: {[self.host, self.port]}")
                 self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
                 self.dead_socket_cleanup(self.host)  # NOTE: this might cause trouble
                 self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
                 time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
-                self.llg.debug(f"Socket clean.")
+                self.lg.debug(f"Socket clean.")
             else:
                 kwargs = {}
 
             try:
                 self.ser = serial.serial_for_url(self.address, **kwargs)
-                self.llg.debug(f"Connection opened: {self.address}")
+                self.lg.debug(f"Connection opened: {self.address}")
                 if "socket" in self.address:
                     # set the initial timeout to something long for setup
                     self.ser._socket.settimeout(5.0)  #TODO: try just setting self.ser.timeout = 5
@@ -227,7 +227,7 @@ class k2400(object):
                 break  # not a ghost connection, exit connection retry loop
             else:  # ghost connection!
                 remaining_connection_retries -= 1
-                self.llg.debug(f"Connection retries remaining: {remaining_connection_retries}")
+                self.lg.debug(f"Connection retries remaining: {remaining_connection_retries}")
                 self.disconnect()
         else:
             raise ValueError(f"Connection retries exhausted while connecting to {self.address}")
@@ -256,18 +256,18 @@ class k2400(object):
 
         # ensure we're using SCPI2400 language set
         try:
-            self.llg.debug("Checking language set...")
+            self.lg.debug("Checking language set...")
             lang = self.query("*LANG?")
             if "2400" not in lang:
-                self.llg.debug(f"Found a bad language set: {lang}")
-                self.llg.debug(f"Attempting language set change")
+                self.lg.debug(f"Found a bad language set: {lang}")
+                self.lg.debug(f"Attempting language set change")
                 self.write("*LANG SCPI2400")
-                self.llg.error(f"Please manually power cycle the SMU at address {self.address} now to complete a language set change.")
+                self.lg.error(f"Please manually power cycle the SMU at address {self.address} now to complete a language set change.")
                 raise ValueError(f"Bad SMU language set: {lang}")
             else:
-                self.llg.debug(f"Found good language set: {lang}")
+                self.lg.debug(f"Found good language set: {lang}")
         except Exception as e:
-            self.llg.debug(f"Exception: {repr(e)}")
+            self.lg.debug(f"Exception: {repr(e)}")
 
         # tests the ROM's checksum. can take over a second
         self.timeout = self.ser.timeout
@@ -283,7 +283,7 @@ class k2400(object):
             # timeout for normal operation will be shorter
             self.ser._socket.settimeout(1.0)
 
-        self.llg.debug("k2400 connected.")
+        self.lg.debug("k2400 connected.")
 
         return 0
 
@@ -295,7 +295,7 @@ class k2400(object):
         self.is_2450 = len(self.query("DISP:WIND:DATA?").strip()) == 0
         if self.is_2450:
             if self.query("syst:tlin?") != "0":
-                self.llg.debug("Switching DIO port state to match 240x series")
+                self.lg.debug("Switching DIO port state to match 240x series")
                 self.write("syst:tlin 0")  # dio lines on 245x to mimic 240x series
 
         self.write("outp:smod himp")  # outputs go to high impedance when switched off
@@ -340,7 +340,7 @@ class k2400(object):
             # self.write("syst:cch:res 50")  # choices are 2, 15 or 50 (50 is default)
 
         self.write("syst:time:res")  # reset the internal timer
-        self.llg.debug("k2400 setup complete.")
+        self.lg.debug("k2400 setup complete.")
 
     def opc(self) -> bool:
         """asks the hardware to finish whatever it's doing then send a 1"""
@@ -355,7 +355,7 @@ class k2400(object):
             else:
                 ret = False
         if not ret:
-            self.llg.debug(f"*OPC? gave: {opc_val}")
+            self.lg.debug(f"*OPC? gave: {opc_val}")
         return ret
 
     def write(self, cmd):
@@ -493,7 +493,7 @@ class k2400(object):
             try:
                 self.hard_input_buffer_reset(self.ser._socket)
             except Exception as e:
-                self.llg.debug("Issue resetting input buffer during disconnect: {e}")
+                self.lg.debug("Issue resetting input buffer during disconnect: {e}")
 
             # use the dead socket port to close the connection from the other side
             self.dead_socket_cleanup(self.host)
@@ -502,7 +502,7 @@ class k2400(object):
             if self.ser:
                 self.ser.close()
         except Exception as e:
-            self.llg.debug("Issue disconnecting: {e}")
+            self.lg.debug("Issue disconnecting: {e}")
 
         if "socket" in self.address:
             self.socket_cleanup(self.host, int(self.port))
@@ -568,7 +568,7 @@ class k2400(object):
         if ohms == "auto":
             self.write('sens:func "res"')
             self.write("sens:res:mode auto")
-            self.llg.warning("Auto sense resistance mode could result in dangerously high current and/or voltage on the SMU's terminals")
+            self.lg.warning("Auto sense resistance mode could result in dangerously high current and/or voltage on the SMU's terminals")
             self.write("sens:res:range:auto on")
             # sm.write('sens:res:range 20E3')
             self.write("format:elements voltage,current,resistance,time,status")
@@ -761,9 +761,9 @@ class k2400(object):
             n_vals = len(vals)
             stats_string = f"sweep duration={self.last_sweep_time:0.2f}s|mean voltage step={(v_start-v_end)/n_vals*1000:+0.2f}mV|mean sample period={self.last_sweep_time/n_vals*1000:0.0f}ms|mean sweep rate={(v_start-v_end)/self.last_sweep_time:+0.3f}V/s"
             if self.print_sweep_deets:
-                self.llg.log(29, stats_string)
+                self.lg.log(29, stats_string)
             else:
-                self.llg.debug(stats_string)
+                self.lg.debug(stats_string)
             # reset comms timeout to default value after sweep
             if self.ser:
                 self.ser.timeout = self.timeout
@@ -790,7 +790,7 @@ class k2400(object):
             q.append(measurement[0])
             cb(measurement)
         if self.killer.is_set():
-            self.llg.debug("Killed by killer")
+            self.lg.debug("Killed by killer")
         return q
 
     def enable_cc_mode(self, value: bool = True):
@@ -816,9 +816,9 @@ class k2400(object):
                         self.write(f"sense:resistance:nplc {self.nplc_user_set}")
                         self.write("system:cchech OFF")
                 else:
-                    self.llg.debug("Contact check option not installed")
+                    self.lg.debug("Contact check option not installed")
             else:
-                self.llg.debug("Contact check function requires 4-wire mode")
+                self.lg.debug("Contact check function requires 4-wire mode")
         elif self.cc_mode == "external":
             sense_current = 0.001  # A
             compliance_voltage = 3  # V
@@ -845,7 +845,7 @@ class k2400(object):
                         time.sleep(self.t_relay_bounce)
                         self.last_lo = None  # mark as unsetup for for any contact checking
         else:
-            self.llg.warning("The contact check feature is not configured.")
+            self.lg.warning("The contact check feature is not configured.")
 
     def do_contact_check(self, lo_side: bool = False) -> tuple[bool, float]:
         """
@@ -868,7 +868,7 @@ class k2400(object):
         elif self.cc_mode == "external":
             # TODO: add a potential check
             if lo_side is None:
-                self.llg.debug("Contact check has not been set up.")
+                self.lg.debug("Contact check has not been set up.")
             else:
                 if ((lo_side) and (not self.last_lo)) or ((not lo_side) and (self.last_lo)):  # we're not set up for the right checking side
                     # we need to reconfigure the relays. do that with the output off
@@ -891,11 +891,11 @@ class k2400(object):
                         if not in_compliance:
                             if abs(r_val) < self.threshold_ohm:
                                 good_contact = True
-                        #         self.llg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {self.threshold_ohm}Ω")
+                        #         self.lg.debug(f"CC resistance in  of bounds: abs({r_val}Ω) <  {self.threshold_ohm}Ω")
                         #     else:
-                        #         self.llg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {self.threshold_ohm}Ω")
+                        #         self.lg.debug(f"CC resistance out of bounds: abs({r_val}Ω) >= {self.threshold_ohm}Ω")
                         # else:
-                        #     self.llg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
+                        #     self.lg.debug(f"CC compliance failure: V={m[0]}V, I={m[1]}A")
         elif self.cc_mode == "none":
             good_contact = True
         return (good_contact, r_val)
@@ -905,4 +905,4 @@ class k2400(object):
         self.write(f"sour2:ttl {value}")
         readback = self.query(f"sour2:ttl:act?")
         if f"{value}" != readback:
-            self.llg.debug("digital output readback failure: {value} != {readback}")
+            self.lg.debug("digital output readback failure: {value} != {readback}")
