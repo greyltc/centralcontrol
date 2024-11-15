@@ -72,6 +72,10 @@ class SourcemeterAPI(object):
         if "current_limit" in kwargs:
             self.current_limit = kwargs["current_limit"]
 
+        if "address" in kwargs:
+            self.lg.debug(f"SMU init phase 1: {kwargs['address']}")
+        else:
+            self.lg.debug(f"SMU init phase 1")
         super(SourcemeterAPI, self).__init__(**kwargs)
         return None
 
