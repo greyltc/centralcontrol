@@ -199,10 +199,12 @@ class k2400(object):
                 kwargs = {}
                 hostport = self.address.removeprefix("socket://")
                 [self.host, self.port] = hostport.split(":", 1)
+                self.lg.debug(f"Cleaning up socket: {[self.host, self.port]}")
                 self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
                 self.dead_socket_cleanup(self.host)  # NOTE: this might cause trouble
                 self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
                 time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
+                self.lg.debug(f"Socket clean.")
             else:
                 kwargs = {}
 
@@ -248,7 +250,7 @@ class k2400(object):
         # really make sure the buffer's clean
         self.hard_input_buffer_reset()  # for discarding currently streaming data
 
-        # ensure we're using 2400 language set
+        # ensure we're using SCPI2400 language set
         try:
             self.lg.debug("Checking language set...")
             lang = self.query("*LANG?")
