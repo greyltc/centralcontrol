@@ -208,6 +208,7 @@ class k2400(object):
 
             try:
                 self.ser = serial.serial_for_url(self.address, **kwargs)
+                self.lg.debug(f"Connection opened: {self.address}")
                 if "socket" in self.address:
                     # set the initial timeout to something long for setup
                     self.ser._socket.settimeout(5.0)
