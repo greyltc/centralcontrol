@@ -59,7 +59,7 @@ class k2400(object):
         self.cc_mode = cc_mode
         self.remaining_init_kwargs = kwargs
 
-        self.llg.debug(" hwurl:// schema setup starting")
+        self.llg.debug("hwurl:// schema setup starting")
         # add some features to pyserial's address URL handling
         # trigger this through the use of a hwurl:// schema
         class HWURL(object):
