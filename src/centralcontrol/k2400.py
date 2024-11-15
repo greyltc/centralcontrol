@@ -42,6 +42,7 @@ class k2400(object):
 
     def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
         """just set class variables here"""
+        self.lg.debug("k2400 init starting")
 
         self.lg = get_logger(".".join([__name__, type(self).__name__]), logging.INFO)  # setup logging
 
@@ -104,11 +105,13 @@ class k2400(object):
 
     def __enter__(self) -> "k2400":
         """so that the smu can enter a context"""
+        self.lg.debug("Entering context")
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         """so that the smu can leave a context cleanly"""
+        self.lg.debug("Exiting context")
         self.disconnect()
         return False
 

@@ -73,19 +73,21 @@ class SourcemeterAPI(object):
             self.current_limit = kwargs["current_limit"]
 
         if "address" in kwargs:
-            self.lg.debug(f"SMU init phase 1: {kwargs['address']}")
+            self.lg.debug("SMU init phase 1: {kwargs['address']}")
         else:
-            self.lg.debug(f"SMU init phase 1")
+            self.lg.debug("SMU init phase 1")
         super(SourcemeterAPI, self).__init__(**kwargs)
         return None
 
     def __enter__(self) -> "SourcemeterAPI":
         """so that the smu can enter a context"""
+        self.lg.debug("Entering context")
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
         """so that the smu can leave a context cleanly"""
+        self.lg.debug("Exiting context")
         self.disconnect()
         return False
 
