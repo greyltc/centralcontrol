@@ -18,7 +18,7 @@ class FakeLight(object):
     runtime = 60000
     _intensity: float = 0.0  # the current value this is set for
     _on_intensity: float = 100.0
-    last_temps = [25.3, 17.3]
+    last_temps = (25.3, 17.3)
     active_recipe: None | str = None
     address: None | str = None
 

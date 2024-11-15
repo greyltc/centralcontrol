@@ -51,7 +51,7 @@ class LightAPI(object):
     requested_intensity: int = 0  # percent. 0 means off. otherwise can be on [10, 100]. keeps track of what we want the light's intensity to be
     active_intensity: int  # the intensity value the hardware was initalized with. used in "on"
     get_spectrum: Callable[[], tuple[list[float], list[float]]]
-    get_stemperatures: Callable[[], list[float]]
+    get_temperatures: Callable[[], list[float]]
     last_temps: tuple[float]
     get_run_status: Callable[[], str]
 

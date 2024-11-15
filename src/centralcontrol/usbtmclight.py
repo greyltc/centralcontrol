@@ -32,6 +32,7 @@ class Usbtmclight(object):
     _intensity: float = 0.0  # compat
     _on_intensity: float = 100.0  # compat
     active_recipe: None | str = None  # compat
+    last_temps = ret = (-99.9, -99.9)
 
 
     def __init__(self, *args, **kwargs):
@@ -225,13 +226,14 @@ class Usbtmclight(object):
     def get_temperatures(self, *args, **kwargs):
         if self.get_status() is not None:
             if self.over_temperature:
-                ret = [999.9, 999.9]
+                ret = (999.9, 999.9)
             elif self.under_temperature:
-                ret = [0.0, 0.0]
+                ret = (0.0, 0.0)
             else:
-                ret = [25.3, 17.3]  # "good" values
+                ret = (25.3, 17.3)  # "good" values
         else:
-            ret = [-999.9, -999.9]
+            ret = (-999.9, -999.9)
+        self.last_temps = ret
         return ret
 
     def activate_recipe(self, recipe_name=None):
