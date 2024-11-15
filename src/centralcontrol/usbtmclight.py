@@ -15,7 +15,7 @@ class Usbtmclight(object):
     address:str = "USB::0x1fde::0x000a::INSTR"  # "USB::0x1fde::0x000a::INSTR" for LSS-7120
     is_LSS_7120:bool = False
     tmc_obj:usbtmc.Instrument|None = None
-    lit:bool|None = None
+    _lit:bool|None = None
     stb:int|None = None  # status byte
     under_temperature = False
     over_temperature = False
@@ -115,7 +115,7 @@ class Usbtmclight(object):
 
     def on(self):
         """turns the light on"""
-        self._intensity = self._on_intensity  # compat
+        #self._intensity = self._on_intensity  # compat
         self.tmc_obj.write("output 1")
         self.get_status()
         if self.query_on_state():
@@ -133,7 +133,7 @@ class Usbtmclight(object):
 
     def off(self):
         """turns the light off"""
-        self._intensity = 0  # compat
+        #self._intensity = 0  # compat
         self.tmc_obj.write("output 0")
         self.get_status()
         if self.query_on_state():
@@ -159,12 +159,12 @@ class Usbtmclight(object):
     
     def query_on_state(self):
         if self.tmc_obj.ask("output?") == "1":
-            self.lit = True
-            self._intensity = 100
+            self._lit = True
+            self._intensity = self._on_intensity
         else:
-            self.lit = False
+            self._lit = False
             self._intensity = 0
-        return self.lit
+        return self._lit
     
     def get_status(self):
         if self.is_LSS_7120:
@@ -203,7 +203,7 @@ class Usbtmclight(object):
     
     def get_run_status(self):
         """compat"""
-        if self.lit:
+        if self._lit:
             ret = "running"
         else:
             ret = "finished"
@@ -268,7 +268,7 @@ if __name__ == "__main__":
                 print(f"Status byte: {bin(self.tst_obj.stb)}")
             else:
                 print(f"Status byte: {self.tst_obj.stb}")
-            if self.tst_obj.lit:
+            if self.tst_obj.query_on_state():
                 print("and it's on")
             else:
                 print("and it's off")
