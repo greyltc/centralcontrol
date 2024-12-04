@@ -97,6 +97,8 @@ class SourcemeterAPI(object):
             self.conn_status = super(SourcemeterAPI, self).connect()  # call the underlying connect method
             if self.conn_status < 0:
                 self.lg.debug(f"Connection attempt failed with status {self.conn_status}")
+            else:
+                self.lg.debug(f"Connected to: {self.idn}")
         return None
 
     def disconnect(self) -> None:
