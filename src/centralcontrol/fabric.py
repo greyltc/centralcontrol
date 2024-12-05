@@ -962,7 +962,7 @@ class Fabric(object):
 
                 # do the contact check
                 rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis, remap=remap)
-                self.lg.log(9, repr(rs))  # use sub debug level logging for contact check results
+                self.lg.debug(repr(rs))  # log contact check results
 
                 # send results to db
                 for r in rs:
