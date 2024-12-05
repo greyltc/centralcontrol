@@ -978,12 +978,17 @@ class Fabric(object):
                 fails = [line for line in rs if not line["data"][0]]
                 if any(fails):
                     headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
-                    self.lg.warning(headline)
+                    if config["UI"]["bad_connections"] == "ignore":  # ignore mode
+                        self.lg.debug(headline)
+                    else:
+                        self.lg.warning(headline)
                     if config["UI"]["bad_connections"] == "abort":  # abort mode
+                        self.lg.warning("Aborting run because of connection failures!")
                         return
                     body = ["Ignoring poor connections can result in the collection of misleading data."]
                     if config["UI"]["bad_connections"] == "ignore":  # ignore mode
-                        pass
+                        self.lg.debug("Data from poorly connected devices in this run will be flagged as untrustworthy.")
+                        self.lg.debug("Continuting anyway...")
                     else:  # "ask" mode: generate warning dialog for user to decide
                         body.append("Pads with connection faults:")
                         n_cols = 5
@@ -1009,8 +1014,8 @@ class Fabric(object):
                         if self.pkiller.is_set():
                             self.lg.debug("Killed by killer.")
                             return
-                    self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
-                    self.lg.warning("Continuting anyway...")
+                        self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
+                        self.lg.warning("Continuting anyway...")
                 else:
                     self.lg.log(29, "🟢 All good!")
 
