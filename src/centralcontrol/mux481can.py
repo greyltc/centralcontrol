@@ -377,7 +377,7 @@ class Mux481can:
                         self.set_pins(board_addr, pins)
                     elif isinstance(device, str):
                         self.lg.debug(f"Pixel switched with str: {pixel=}")
-                        the_bin = format(int(device), "#034b")[2::][::-1]
+                        the_bin = bin(int(device)).lstrip("0b").rjust(32,"0")
                         pins = []
                         for bitpos, bit in enumerate(the_bin):
                             if bit == "1":

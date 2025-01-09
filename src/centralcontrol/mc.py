@@ -3,7 +3,7 @@
 import os
 import socket
 import time
-from telnetlib import Telnet
+from centralcontrol._telnetlib.telnetlib import Telnet
 
 from centralcontrol.logstuff import get_logger
 
