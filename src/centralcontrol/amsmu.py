@@ -1081,14 +1081,14 @@ class AmSmu(object):
                     float(red_nums[i]),
                     float(red_nums[i + 1]),
                     float(red_nums[i]) / float(red_nums[i + 1]),
-                    float(red_nums[i + 2]),
+                    float(red_nums[i + 2]) / 1000,  # convert t from ms to s
                     int(red_nums[i + 3]),
                 )
             else:
                 line = (
                     float(red_nums[i]),
                     float(red_nums[i + 1]),
-                    float(red_nums[i + 2]),
+                    float(red_nums[i + 2]) / 1000,  # convert t from ms to s
                     int(red_nums[i + 3]),
                 )
             vals.append(line)
