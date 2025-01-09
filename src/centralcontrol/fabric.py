@@ -831,7 +831,7 @@ class Fabric(object):
                     mux_enabled = config["mux"]["enabled"] == True
                 if "address" in config["mux"]:
                     mux_address_split = config["mux"]["address"].split("://")
-                    if config["mux"] == "std://mc":
+                    if config["mux"] == "std://mc":  # TODO: this probably needs to look at "address." does nothing atm. snaith mux is likely broken
                         mux_address = config["mux"]["address"]
                         mux_enabled = False  # is is an MC mux, not a standalone one
                     elif mux_address_split[0] == "canmux":
