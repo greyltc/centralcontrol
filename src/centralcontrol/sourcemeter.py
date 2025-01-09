@@ -3,6 +3,7 @@ from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 from centralcontrol.virt import FakeSMU as vsmu
 from centralcontrol.k2400 import k2400
+from centralcontrol.amsmu import AmSmu
 from centralcontrol.logstuff import get_logger
 
 
@@ -21,6 +22,8 @@ def factory(cfg: dict) -> Type["SourcemeterAPI"]:
     if ("virtual" in cfg) and (cfg["virtual"] is False):
         if kind == "k24xx":
             base = k2400  # hardware k2400 selected
+        elif kind == "am":
+            base = AmSmu  # hardware Ark Metrica SMU selected
 
     if ("enabled" in cfg) and (cfg["enabled"] is False):
         base = DisabledSMU  # disabled SMU selected

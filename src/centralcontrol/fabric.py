@@ -949,75 +949,78 @@ class Fabric(object):
                 lu = dbl.registerer(device_dicts, suid, smus, layouts)
                 assert len(lu["device_ids"]) == len(set(lu["device_ids"])), "Every device in a run must be unique."
 
-                # check connectivity
-                self.lg.log(29, f"Checking device connectivity...")
-                tosort = []
-                for group in run_queue:
-                    for device_dict in group:
-                        tosort.append((device_dict["slot"], device_dict["pad"], device_dict["smui"]))
-                tosort.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
-                slots = [x[0] for x in tosort]
-                pads = [x[1] for x in tosort]
-                smuis = [x[2] for x in tosort]
+                # only do contact checking stuff if at least one smu has it enabled
+                rs = None
+                if not all([smu.cc_mode.upper()=="NONE" for smu in smus]):
+                    # check connectivity
+                    self.lg.log(29, f"Checking device connectivity...")
+                    tosort = []
+                    for group in run_queue:
+                        for device_dict in group:
+                            tosort.append((device_dict["slot"], device_dict["pad"], device_dict["smui"]))
+                    tosort.sort(key=lambda x: x[0])  # reorder this for optimal contact checking
+                    slots = [x[0] for x in tosort]
+                    pads = [x[1] for x in tosort]
+                    smuis = [x[2] for x in tosort]
 
-                # do the contact check
-                rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis, remap=remap)
-                self.lg.debug(repr(rs))  # log contact check results
+                    # do the contact check
+                    rs = Fabric.get_pad_rs(mc, smus, pads, slots, smuis, remap=remap)
+                    self.lg.debug(repr(rs))  # log contact check results
 
-                # send results to db
-                for r in rs:
-                    to_upsert = {}
-                    to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
-                    to_upsert["setup_slot_id"] = lu["slot_ids"][lu["slots"].index(r["slot"])]
-                    to_upsert["pad_name"] = str(r["pad"])
-                    to_upsert["pass"] = r["data"][0]
-                    to_upsert["r"] = r["data"][1]
-                    r["ccid"] = db.xadd("tbl_contact_checks", fields={"json": json.dumps(to_upsert)}, maxlen=10000, approximate=True).decode()
+                    # send results to db
+                    for r in rs:
+                        to_upsert = {}
+                        to_upsert["substrate_id"] = lu["substrate_ids"][lu["slots"].index(r["slot"])]
+                        to_upsert["setup_slot_id"] = lu["slot_ids"][lu["slots"].index(r["slot"])]
+                        to_upsert["pad_name"] = str(r["pad"])
+                        to_upsert["pass"] = r["data"][0]
+                        to_upsert["r"] = r["data"][1]
+                        r["ccid"] = db.xadd("tbl_contact_checks", fields={"json": json.dumps(to_upsert)}, maxlen=10000, approximate=True).decode()
 
-                # notify user of contact check failures
-                fails = [line for line in rs if not line["data"][0]]
-                if any(fails):
-                    headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
-                    if config["UI"]["bad_connections"] == "ignore":  # ignore mode
-                        self.lg.debug(headline)
-                    else:
-                        self.lg.warning(headline)
-                    if config["UI"]["bad_connections"] == "abort":  # abort mode
-                        self.lg.warning("Aborting run because of connection failures!")
-                        return
-                    body = ["Ignoring poor connections can result in the collection of misleading data."]
-                    if config["UI"]["bad_connections"] == "ignore":  # ignore mode
-                        self.lg.debug("Data from poorly connected devices in this run will be flagged as untrustworthy.")
-                        self.lg.debug("Continuting anyway...")
-                    else:  # "ask" mode: generate warning dialog for user to decide
-                        body.append("Pads with connection faults:")
-                        n_cols = 5
-                        i = 0
-                        row = []
-                        for line in fails:
-                            i = i + 1
-                            if i > n_cols:
-                                body.append(" ".join(row))
-                                i = 0
-                                row = []
-                            else:
-                                pair = f'{line["slot"]}-{line["pad"]}'
-                                row.append(f"{pair : <10}")
-                        if row:
-                            body.append(" ".join(row))
-
-                        payload = {"warn_dialog": {"headline": headline, "body": "\n".join(body), "buttons": ("Ignore and Continue", "Abort the Run")}}
-                        self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
-                        self.lg.log(29, "Waiting for user input on what to do...")
-                        self.bc_response.wait()
-                        self.bc_response.clear()
-                        if self.pkiller.is_set():
-                            self.lg.debug("Killed by killer.")
+                    # notify user of contact check failures
+                    fails = [line for line in rs if not line["data"][0]]
+                    if any(fails):
+                        headline = f'⚠️Found {len(fails)} connection fault(s) in slot(s): {",".join(set([x["slot"] for x in fails]))}'
+                        if config["UI"]["bad_connections"] == "ignore":  # ignore mode
+                            self.lg.debug(headline)
+                        else:
+                            self.lg.warning(headline)
+                        if config["UI"]["bad_connections"] == "abort":  # abort mode
+                            self.lg.warning("Aborting run because of connection failures!")
                             return
-                        self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
-                        self.lg.warning("Continuting anyway...")
-                else:
-                    self.lg.log(29, "🟢 All good!")
+                        body = ["Ignoring poor connections can result in the collection of misleading data."]
+                        if config["UI"]["bad_connections"] == "ignore":  # ignore mode
+                            self.lg.debug("Data from poorly connected devices in this run will be flagged as untrustworthy.")
+                            self.lg.debug("Continuting anyway...")
+                        else:  # "ask" mode: generate warning dialog for user to decide
+                            body.append("Pads with connection faults:")
+                            n_cols = 5
+                            i = 0
+                            row = []
+                            for line in fails:
+                                i = i + 1
+                                if i > n_cols:
+                                    body.append(" ".join(row))
+                                    i = 0
+                                    row = []
+                                else:
+                                    pair = f'{line["slot"]}-{line["pad"]}'
+                                    row.append(f"{pair : <10}")
+                            if row:
+                                body.append(" ".join(row))
+
+                            payload = {"warn_dialog": {"headline": headline, "body": "\n".join(body), "buttons": ("Ignore and Continue", "Abort the Run")}}
+                            self.outq.put({"topic": "status", "payload": json.dumps(payload), "qos": 2})
+                            self.lg.log(29, "Waiting for user input on what to do...")
+                            self.bc_response.wait()
+                            self.bc_response.clear()
+                            if self.pkiller.is_set():
+                                self.lg.debug("Killed by killer.")
+                                return
+                            self.lg.warning("Data from poorly connected devices in this run will be flagged as untrustworthy.")
+                            self.lg.warning("Continuting anyway...")
+                    else:
+                        self.lg.log(29, "🟢 All good!")
 
                 ss = stack.enter_context(ill_fac(sscfg)(**sscfg))  # init and connect to solar sim
 
@@ -1042,8 +1045,9 @@ class Fabric(object):
                 dbl.multiput("tbl_run_devices", run_devices, ["run_id", "device_id"])
 
                 # now go back and attach this run id to the contact check results that go with it
-                ccids = [r["ccid"] for r in rs]
-                db.xadd("rid_to_ccid", fields={rid: json.dumps(ccids)}, maxlen=10000, approximate=True).decode()
+                if rs:
+                    ccids = [r["ccid"] for r in rs]
+                    db.xadd("rid_to_ccid", fields={rid: json.dumps(ccids)}, maxlen=10000, approximate=True).decode()
 
                 for sm in smus:
                     sm.killer = self.pkiller  # register the kill signal with the smu object
