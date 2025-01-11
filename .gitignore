@@ -132,3 +132,6 @@ dmypy.json
 
 .vscode/
 src/centralcontrol/__about__.py
+
+# don't commit smu cal
+data/calibration/*/*.csv

@@ -1205,7 +1205,7 @@ def run_test(address: str):
         socket address formatted for pyserial: 'socket://{host}:{port}'.
     """
     # instrument config
-    two_wire = False
+    two_wire = True
     kws = {"line_frequency": 50}
 
     # general measurement config
@@ -1295,158 +1295,158 @@ def run_test(address: str):
         # print sweep data after otuput has been disabled
         print(f"Sweep data: {sweep_data}")
 
-        # setup a DC svmi dwell measurement and turn on output
-        print("set up dwell measurement")
-        smu.setupDC(
-            sourceVoltage=source_voltage,
-            compliance=i_compliance,
-            setPoint=v_dc,
-            senseRange=sense_range,
-        )
+        # # setup a DC svmi dwell measurement and turn on output
+        # print("set up dwell measurement")
+        # smu.setupDC(
+        #     sourceVoltage=source_voltage,
+        #     compliance=i_compliance,
+        #     setPoint=v_dc,
+        #     senseRange=sense_range,
+        # )
 
-        # run dwell measurement
-        print("measuring...")
-        dwell_data = smu.measure_until(t_dwell)
+        # # run dwell measurement
+        # print("measuring...")
+        # dwell_data = smu.measure_until(t_dwell)
 
-        # print dwell data after otuput has been disabled
-        print(f"Dwell data: {dwell_data}")
-        print(f"Dwell points: {len(dwell_data)}")
-        print(f"Dwell time: {dwell_data[-1][-2] - dwell_data[0][-2]} ms")
+        # # print dwell data after otuput has been disabled
+        # print(f"Dwell data: {dwell_data}")
+        # print(f"Dwell points: {len(dwell_data)}")
+        # print(f"Dwell time: {dwell_data[-1][-2] - dwell_data[0][-2]} ms")
 
-        # trigger a dummy watchdog timeout and recover from it
-        print("triggering wdt...")
-        smu.reset(hard=True)
+        # # trigger a dummy watchdog timeout and recover from it
+        # print("triggering wdt...")
+        # smu.reset(hard=True)
 
-        print("measuring...")
-        dc_data = smu.measure(1)
+        # print("measuring...")
+        # dc_data = smu.measure(1)
 
-        # turn off output
-        print("set output off")
-        smu.outOn(False)
+        # # turn off output
+        # print("set output off")
+        # smu.outOn(False)
 
-        # print dc data after output has been disabled
-        print(f"DC data: {dc_data}")
+        # # print dc data after output has been disabled
+        # print(f"DC data: {dc_data}")
 
-        # --- source current ---
-        print("\nRunning source current, measure voltage mode...")
+        # # --- source current ---
+        # print("\nRunning source current, measure voltage mode...")
 
-        # setup a DC simv measurement and turn on output
-        print("set up dc measurement")
-        smu.setupDC(
-            sourceVoltage=not source_voltage,
-            compliance=v_compliance,
-            setPoint=i_dc,
-            senseRange=sense_range,
-        )
+        # # setup a DC simv measurement and turn on output
+        # print("set up dc measurement")
+        # smu.setupDC(
+        #     sourceVoltage=not source_voltage,
+        #     compliance=v_compliance,
+        #     setPoint=i_dc,
+        #     senseRange=sense_range,
+        # )
 
-        # run DC measurement
-        print("measuring...")
-        dc_data = smu.measure(1)
+        # # run DC measurement
+        # print("measuring...")
+        # dc_data = smu.measure(1)
 
-        # turn off output
-        print("set output off")
-        smu.outOn(False)
+        # # turn off output
+        # print("set output off")
+        # smu.outOn(False)
 
-        # print dc data after output has been disabled
-        print(f"DC data: {dc_data}")
+        # # print dc data after output has been disabled
+        # print(f"DC data: {dc_data}")
 
-        # setup a simv sweep and turn on output
-        print("set up sweep")
-        smu.setupSweep(
-            sourceVoltage=not source_voltage,
-            compliance=v_compliance,
-            nPoints=npoints,
-            stepDelay=settling_delay,
-            start=i_start,
-            end=i_stop,
-            senseRange=sense_range,
-        )
+        # # setup a simv sweep and turn on output
+        # print("set up sweep")
+        # smu.setupSweep(
+        #     sourceVoltage=not source_voltage,
+        #     compliance=v_compliance,
+        #     nPoints=npoints,
+        #     stepDelay=settling_delay,
+        #     start=i_start,
+        #     end=i_stop,
+        #     senseRange=sense_range,
+        # )
 
-        # run sweep measurement
-        print("measuring...")
-        sweep_data = smu.measure(npoints)
+        # # run sweep measurement
+        # print("measuring...")
+        # sweep_data = smu.measure(npoints)
 
-        # turn off output
-        print("set output off")
-        smu.outOn(False)
+        # # turn off output
+        # print("set output off")
+        # smu.outOn(False)
 
-        # print sweep data after otuput has been disabled
-        print(f"Sweep data: {sweep_data}")
+        # # print sweep data after otuput has been disabled
+        # print(f"Sweep data: {sweep_data}")
 
-        # setup a DC simv dwell measurement and turn on output
-        print("set up dwell measurement")
-        smu.setupDC(
-            sourceVoltage=not source_voltage,
-            compliance=v_compliance,
-            setPoint=i_dc,
-            senseRange=sense_range,
-        )
+        # # setup a DC simv dwell measurement and turn on output
+        # print("set up dwell measurement")
+        # smu.setupDC(
+        #     sourceVoltage=not source_voltage,
+        #     compliance=v_compliance,
+        #     setPoint=i_dc,
+        #     senseRange=sense_range,
+        # )
 
-        # run dwell measurement
-        print("measuring...")
-        dwell_data = smu.measure_until(t_dwell)
+        # # run dwell measurement
+        # print("measuring...")
+        # dwell_data = smu.measure_until(t_dwell)
 
-        # turn off output
-        print("set output off")
-        smu.outOn(False)
+        # # turn off output
+        # print("set output off")
+        # smu.outOn(False)
 
-        # print dwell data after otuput has been disabled
-        print(f"Dwell data: {dwell_data}")
-        print(f"Dwell points: {len(dwell_data)}")
-        print(f"Dwell time: {dwell_data[-1][-2] - dwell_data[0][-2]} ms")
+        # # print dwell data after otuput has been disabled
+        # print(f"Dwell data: {dwell_data}")
+        # print(f"Dwell points: {len(dwell_data)}")
+        # print(f"Dwell time: {dwell_data[-1][-2] - dwell_data[0][-2]} ms")
 
-        # --- measure voc ---
-        print("\nRunning source current measure voltage at Voc...")
+        # # --- measure voc ---
+        # print("\nRunning source current measure voltage at Voc...")
 
-        # setup a DC 0A measurement with output off
-        print("set up dc measurement")
-        smu.setupDC(
-            sourceVoltage=not source_voltage,
-            compliance=v_compliance,
-            setPoint=i_voc,
-            senseRange=sense_range,
-        )
+        # # setup a DC 0A measurement with output off
+        # print("set up dc measurement")
+        # smu.setupDC(
+        #     sourceVoltage=not source_voltage,
+        #     compliance=v_compliance,
+        #     setPoint=i_voc,
+        #     senseRange=sense_range,
+        # )
 
-        # run DC measurement
-        print("measuring...")
-        dc_data = smu.measure(1)
+        # # run DC measurement
+        # print("measuring...")
+        # dc_data = smu.measure(1)
 
-        # turn off output (though it should be off already)
-        print("set output off")
-        smu.outOn(False)
+        # # turn off output (though it should be off already)
+        # print("set output off")
+        # smu.outOn(False)
 
-        # print dc data after output has been disabled
-        print(f"DC data: {dc_data}")
+        # # print dc data after output has been disabled
+        # print(f"DC data: {dc_data}")
 
-        # setup a DC 0A dwell measurement wiht output off
-        print("set up dwell measurement")
-        smu.setupDC(
-            sourceVoltage=not source_voltage,
-            compliance=v_compliance,
-            setPoint=i_voc,
-            senseRange=sense_range,
-        )
+        # # setup a DC 0A dwell measurement wiht output off
+        # print("set up dwell measurement")
+        # smu.setupDC(
+        #     sourceVoltage=not source_voltage,
+        #     compliance=v_compliance,
+        #     setPoint=i_voc,
+        #     senseRange=sense_range,
+        # )
 
-        # run dwell measurement
-        print("measuring...")
-        dwell_data = smu.measure_until(t_dwell)
+        # # run dwell measurement
+        # print("measuring...")
+        # dwell_data = smu.measure_until(t_dwell)
 
-        # turn off output (though it should be off already)
-        print("set output off")
-        smu.outOn(False)
+        # # turn off output (though it should be off already)
+        # print("set output off")
+        # smu.outOn(False)
 
-        # print dwell data after otuput has been disabled
-        print(f"Dwell data: {dwell_data}")
-        print(f"Dwell points: {len(dwell_data)}")
-        print(f"Dwell time: {dwell_data[-1][-2] - dwell_data[0][-2]} ms")
+        # # print dwell data after otuput has been disabled
+        # print(f"Dwell data: {dwell_data}")
+        # print(f"Dwell points: {len(dwell_data)}")
+        # print(f"Dwell time: {dwell_data[-1][-2] - dwell_data[0][-2]} ms")
 
 
 if __name__ == "__main__":
     import multiprocessing
 
-    HOST = "192.168.1.218"
-    # PORTS = [50001, 50002, 50003, 50004]
-    PORTS = [50004]
+    HOST = "SMU-A"
+    PORTS = [50001, 50002, 50003, 50004]
+    #PORTS = [50001]
 
     addresses = [f"socket://{HOST}:{port}" for port in PORTS]
 
