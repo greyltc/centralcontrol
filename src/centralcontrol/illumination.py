@@ -23,17 +23,19 @@ def factory(cfg: dict) -> Type["LightAPI"]:
         lg.debug("Assuming wavelabs type light")
         kind = "wavelabs"
 
-    base = FakeLight  # the default is to make a virtual light
-    if ("virtual" in cfg) and (cfg["virtual"] is False):
-        if "wavelabs" in kind:
-            base = Wavelabs  # wavelabs selected
+    if "wavelabs" in kind:
+        base = Wavelabs  # wavelabs selected
+    elif "usbtmc" in kind:
+        base = Usbtmclight  # Usbtmclight selected
+    else:
+        lg.warning(f"Unknown light source type: {kind}")
+        base = DisabledLight  # disabled(/no) light source selected
 
-    if ("virtual" in cfg) and (cfg["virtual"] is False):
-        if "usbtmc" in kind:
-            base = Usbtmclight  # Usbtmclight selected
+    if ("virtual" in cfg) and (cfg["virtual"] is True):
+        base = FakeLight  # the default is to make a virtual light
 
     if ("enabled" in cfg) and (cfg["enabled"] is False):
-        base = DisabledLight  # disabled SMU selected
+        base = DisabledLight  # disabled(/no) light source selected
 
     name = LightAPI.__name__
     bases = (LightAPI, base)
@@ -214,17 +216,35 @@ class LightAPI(object):
 
 class DisabledLight(object):
     """this is the light class for when the user has disabled it"""
+    idn = "disabled"
 
     def __init__(self, **kwargs):
         return None
 
+    def connect(*args, **kwargs):
+        return 0
+
+    def get_run_status(*args, **kwargs):
+        return "running"
+
+    def get_intensity(*args, **kwargs):
+        return 100
+
+    def disconnect(*args, **kwargs):
+        return None
+
+    def on(*args, **kwargs):
+        return "sn0"
+
+    def off(*args, **kwargs):
+        return 0
+
+    def set_intensity(*args, **kwargs):
+        return 0
+
     def __getattribute__(self, name):
-        """handles any function call"""
-        if hasattr(object, name):
+        try:
             return object.__getattribute__(self, name)
-        elif name == "idn":
-            return "disabled"  # handle idn parameter check
-        elif name == "connect":
-            return lambda *args, **kwargs: 0  # connect() always returns zero
-        else:
-            return lambda *args, **kwargs: None  # all function calls return with none
+        except Exception as e:
+            # all unknown attributes are functions that reutrn None when called
+            return lambda *args, **kwargs: None
