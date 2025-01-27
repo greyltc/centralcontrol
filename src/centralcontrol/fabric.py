@@ -1063,18 +1063,19 @@ class Fabric(object):
 
                     # make sure we have a record of spectral data
                     # TODO: only do this if this run will actually use the light
-                    if hasattr(ss, "get_spectrum"):
-                        datas = Fabric.record_spectrum(ss, self.outq, self.lg)
-                        for ldata in datas:
-                            self.log_light_cal(ldata, suid, dbl, args["light_recipe"], rid)
-                    else:
-                        light_temps = ss.get_temperatures()
-                        self.lg.debug(f"Light temperatures: {light_temps}")
-                        if any([t > 60 for t in light_temps]):
-                            self.lg.error(f"The light is too hot. Temperatures: {light_temps}")
-                            return
-                        if any([t < 0 for t in light_temps]):
-                            self.lg.warning(f"The light is too cold (not warmed up yet). Temperatures: {light_temps}")
+                    if ss.idn != "disabled":
+                        if hasattr(ss, "get_spectrum"):
+                            datas = Fabric.record_spectrum(ss, self.outq, self.lg)
+                            for ldata in datas:
+                                self.log_light_cal(ldata, suid, dbl, args["light_recipe"], rid)
+                        else:
+                            light_temps = ss.get_temperatures()
+                            self.lg.debug(f"Light temperatures: {light_temps}")
+                            if any([t > 60 for t in light_temps]):
+                                self.lg.error(f"The light is too hot. Temperatures: {light_temps}")
+                                return
+                            if any([t < 0 for t in light_temps]):
+                                self.lg.warning(f"The light is too cold (not warmed up yet). Temperatures: {light_temps}")
 
                     # set NPLC
                     if args["nplc"] != -1:
