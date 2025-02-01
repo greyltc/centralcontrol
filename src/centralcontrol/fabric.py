@@ -44,6 +44,7 @@ from centralcontrol.sourcemeter import SourcemeterAPI
 from centralcontrol.sourcemeter import factory as smu_fac
 from centralcontrol.dblink import DBLink
 from centralcontrol import __version__ as backend_ver
+from centralcontrol.datalogger import DataLogger
 
 
 class DataHandler(object):
@@ -71,6 +72,21 @@ class DataHandler(object):
         self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
         return result
 
+    def handle_logger_data(self, channel:int, t: float, name: str, value: float, unit: str, dodb: bool = True):
+        result = 0
+
+        payload = {}
+        payload["num"] = channel
+        payload["time"] = t
+        payload["name"] = name
+        payload["value"] = value
+        payload["unit"] = unit
+
+        if self.dbputter and dodb:
+            result = self.dbputter(payload, None)
+
+        self.outq.put({"topic": f"data/raw/{self.kind}", "payload": json.dumps(payload), "qos": 2})
+        return result
 
 class Fabric(object):
     """High level experiment control logic"""
@@ -1053,6 +1069,12 @@ class Fabric(object):
                     sm.killer = self.pkiller  # register the kill signal with the smu object
                 mppts = [MPPT(sm) for sm in smus]  # spin up all the max power point trackers
 
+                # datalogging setup
+                if "datalogger" in config:
+                    dler = stack.enter_context(DataLogger(**config["datalogger"]))
+                else:
+                    dler = None
+
                 # ====== the hardware and configuration is all set up now so the actual run logic begins here ======
 
                 # here's a context manager that ensures the hardware is in the right state at the start and end
@@ -1131,6 +1153,9 @@ class Fabric(object):
                             pix_deselections = [(slot, 0) for slot, pad in pix_selections]
                             Fabric.select_pixel(mc, mux_sels=pix_selections)
 
+                            if dler:
+                                n_parallel = n_parallel + 1  # add one thread for the datalogger
+
                             # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
                             with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
                                 # keeps track of the parallelized objects
@@ -1148,13 +1173,20 @@ class Fabric(object):
                                         this_smu.area = device_dict["area"]
                                         this_smu.dark_area = device_dict["dark_area"]
 
-                                    # submit for processing
+                                    # submit device routines for processing
                                     futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
-                                    futures[-1].add_done_callback(self.on_device_routine_done)
+                                    futures[-1].add_done_callback(self.on_routine_done)
+                                
+                                if dler:
+                                    # start up the datalogger thread
+                                    dh = DataHandler(pixel={}, outq=self.outq)
+                                    dh.kind = "dlogger"
+                                    futures.append(executor.submit(self.datalogger_routine, dler, dh, self.pkiller))
+                                    futures[-1].add_done_callback(self.on_routine_done)
 
                                 # wait for the futures to come back
                                 max_future_time = None  # TODO: try to calculate an upper limit for this
-                                (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)
+                                (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)  # here is where we wait for the run to complete
 
                                 for futrue in not_done:
                                     self.lg.warning(f"{repr(futrue)} didn't finish in time!")
@@ -1176,8 +1208,8 @@ class Fabric(object):
                                 run_queue = start_q.copy()
                                 remaining = len(run_queue)
 
-    def on_device_routine_done(self, future: concurrent.futures.Future):
-        """callback function for when a device routine future completes"""
+    def on_routine_done(self, future: concurrent.futures.Future):
+        """callback function for when a routine future completes"""
         future_exception = future.exception()  # check if the process died because of an exception
         if future_exception:
             self.lg.error(f"Future failed: {repr(future_exception)}")
