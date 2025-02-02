@@ -95,10 +95,10 @@ class DataLogger(ModbusTcpClient):
 		for analog_input in analog_inputs:
 			this_ai = self.default_ai.copy()
 			for key, val in analog_input.items():
-				if key == "name" and "," in val:
-					raise RuntimeError("Data logger channel name can not contain ','")
-				elif key == "unit" and "," in val:
-					raise RuntimeError("Data logger channel unit can not contain ','")
+				if key == "name" and "\t" in val:
+					raise RuntimeError("Data logger channel name string can not contain tab")
+				elif key == "unit" and "\t" in val:
+					raise RuntimeError("Data logger channel unit string can not contain tab")
 				this_ai[key] = val
 			self.analog_inputs.append(this_ai)
 
