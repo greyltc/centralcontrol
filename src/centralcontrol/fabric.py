@@ -10,6 +10,7 @@ from collections import OrderedDict
 import asyncio
 import json
 import multiprocessing
+import sched
 import signal
 import threading
 import time
@@ -1108,57 +1109,70 @@ class Fabric(object):
                     t0 = time.time()  # run start time snapshot
 
                     if run_queue:
-                        while (remaining > 0) and (not self.pkiller.is_set()):  # main run loop
-                            group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
+                        n_parallel = len(run_queue[0])
 
-                            dt = time.time() - t0  # seconds since run start
-                            if (n_done > 0) and (args["cycles"] != 0):
-                                tpp = dt / n_done  # average time per step
-                                finishtime = time.time() + tpp * remaining
-                                finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
-                                human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
-                                fraction = n_done / p_total
-                                text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
-                                self.lg.debug(f'{text} for {args["run_name_prefix"]} by {args["user_name"]}')
-                                progress_msg = {"text": text, "fraction": fraction}
-                                self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
+                        if dler is not None:
+                            # add one thread for the datalogger
+                            n_parallel = n_parallel + 1
 
-                            n_parallel = len(group)  # how many pixels this group holds
-                            dev_labels = [device_dict["device_label"] for device_dict in group]
-                            dev_labp = [f"[{l}]" for l in dev_labels]
-                            print_label = f'{", ".join(dev_labp)}'
-                            theres = np.array([device_dict["pos"] for device_dict in group])
-                            self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
-                            if n_parallel > 1:
-                                there = tuple(theres.mean(0))  # the average location of the group
+                        # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
+                            # start up the datalogger thread if it hasn't already been started
+                            if dler is not None:
+                                dh = DataHandler(pixel={}, outq=self.outq)
+                                dh.kind = "ai"
+                                dl_future = executor.submit(self.datalogger_routine, dler, dh)
+                                dl_future.add_done_callback(self.on_routine_done)
                             else:
-                                there = theres[0]
+                                dl_future = None
 
-                            # send a progress message for the frontend's log window
-                            self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
+                            # main run device measurement loop
+                            while (remaining > 0) and (not self.pkiller.is_set()):
+                                group = run_queue.pop(0)  # pop off the queue item that we'll be working on in this loop
 
-                            # set up light source voting/synchronization (if any)
-                            ss.n_sync = n_parallel
+                                dt = time.time() - t0  # seconds since run start
+                                if (n_done > 0) and (args["cycles"] != 0):
+                                    tpp = dt / n_done  # average time per step
+                                    finishtime = time.time() + tpp * remaining
+                                    finish_str = datetime.datetime.fromtimestamp(finishtime).strftime("%I:%M%p")
+                                    human_str = humanize.naturaltime(datetime.datetime.fromtimestamp(finishtime))
+                                    fraction = n_done / p_total
+                                    text = f"[{n_done+1}/{p_total}] finishing at {finish_str}, {human_str}"
+                                    self.lg.debug(f'{text} for {args["run_name_prefix"]} by {args["user_name"]}')
+                                    progress_msg = {"text": text, "fraction": fraction}
+                                    self.outq.put({"topic": "progress", "payload": json.dumps(progress_msg), "qos": 2})
 
-                            # move stage
-                            if there and (float("nan") not in there):
-                                # force light off for motion if configured
-                                if "off_during_motion" in config["solarsim"]:
-                                    if config["solarsim"]["off_during_motion"] is True:
-                                        ss.apply_intensity(0)
-                                mo.goto(there)  # command the stage
+                                group_size = len(group)  # how many pixels this group holds
+                                dev_labels = [device_dict["device_label"] for device_dict in group]
+                                dev_labp = [f"[{l}]" for l in dev_labels]
+                                print_label = f'{", ".join(dev_labp)}'
+                                theres = np.array([device_dict["pos"] for device_dict in group])
+                                self.outq.put({"topic": "plotter/live_devices", "payload": json.dumps(dev_labels), "qos": 2, "retain": True})
+                                if group_size > 1:
+                                    there = tuple(theres.mean(0))  # the average location of the group
+                                else:
+                                    there = theres[0]
 
-                            # select pixel(s)
-                            pix_selections = [device_dict["mux_sel"] for device_dict in group]
-                            pix_deselections = [(slot, 0) for slot, pad in pix_selections]
-                            Fabric.select_pixel(mc, mux_sels=pix_selections)
+                                # send a progress message for the frontend's log window
+                                self.lg.log(29, f"Step {n_done+1}/{p_total} → {print_label}")
 
-                            if dler:
-                                n_parallel = n_parallel + 1  # add one thread for the datalogger
+                                # set up light source voting/synchronization (if any)
+                                ss.n_sync = group_size
 
-                            # we'll use this pool to run several measurement routines in parallel (parallelism set by how much hardware we have)
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=n_parallel, thread_name_prefix="device") as executor:
-                                # keeps track of the parallelized objects
+                                # move stage
+                                if there and (float("nan") not in there):
+                                    # force light off for motion if configured
+                                    if "off_during_motion" in config["solarsim"]:
+                                        if config["solarsim"]["off_during_motion"] is True:
+                                            ss.apply_intensity(0)
+                                    mo.goto(there)  # command the stage
+
+                                # select pixel(s)
+                                pix_selections = [device_dict["mux_sel"] for device_dict in group]
+                                pix_deselections = [(slot, 0) for slot, pad in pix_selections]
+                                Fabric.select_pixel(mc, mux_sels=pix_selections)
+
+                                # reset futures list for new round of parallel measurements
                                 futures: list[concurrent.futures.Future] = []
 
                                 for device_dict in group:
@@ -1176,39 +1190,77 @@ class Fabric(object):
                                     # submit device routines for processing
                                     futures.append(executor.submit(self.device_routine, rid, ss, this_smu, this_mppt, dh, args, config, sweeps, device_dict, suid))
                                     futures[-1].add_done_callback(self.on_routine_done)
-                                
-                                if dler:
-                                    # start up the datalogger thread
-                                    dh = DataHandler(pixel={}, outq=self.outq)
-                                    dh.kind = "dlogger"
-                                    futures.append(executor.submit(self.datalogger_routine, dler, dh, self.pkiller))
-                                    futures[-1].add_done_callback(self.on_routine_done)
 
-                                # wait for the futures to come back
+                                # wait for the device routine futures to come back
                                 max_future_time = None  # TODO: try to calculate an upper limit for this
-                                (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)  # here is where we wait for the run to complete
+                                (done, not_done) = concurrent.futures.wait(futures, timeout=max_future_time)  # here is where we wait for one step in the run to complete
 
                                 for futrue in not_done:
                                     self.lg.warning(f"{repr(futrue)} didn't finish in time!")
                                     if not futrue.cancel():
                                         self.lg.warning("and we couldn't cancel it.")
 
-                            # deselect what we had just selected
-                            Fabric.select_pixel(mc, mux_sels=pix_deselections)
+                                # deselect what we had just selected
+                                Fabric.select_pixel(mc, mux_sels=pix_deselections)
 
-                            # turn off the SMUs
-                            for sm in smus:
-                                sm.outOn(False)
+                                # turn off the SMUs
+                                for sm in smus:
+                                    sm.outOn(False)
 
-                            n_done += 1
-                            remaining = len(run_queue)
-
-                            if (remaining == 0) and (args["cycles"] == 0):
-                                # refresh the deque to loop forever
-                                run_queue = start_q.copy()
+                                n_done += 1
                                 remaining = len(run_queue)
 
-    def on_routine_done(self, future: concurrent.futures.Future):
+                                if (remaining == 0) and (args["cycles"] == 0):
+                                    # refresh the deque to loop forever
+                                    run_queue = start_q.copy()
+                                    remaining = len(run_queue)
+
+                            # use pkiller to ask the datalogger to stop if we're datalogging
+                            if isinstance(dl_future, concurrent.futures.Future):
+                                self.pkiller.set()
+                                concurrent.futures.wait((dl_future,), timeout=10)
+
+    def datalogger_routine(self, dler:DataLogger, dh:DataHandler):
+        """runs the data logging tasks"""
+        self.lg.debug("Starting the Datalogger routine")
+        s = sched.scheduler(time.time, time.sleep)
+
+        class Rescheduler(typing.TypedDict):
+            sc: sched.scheduler
+            action: typing.Callable
+            delay: float
+
+        def dlrunner(dler:DataLogger, ai:DataLogger.AnalogInput, t0:float, dh:DataHandler, rs:None|Rescheduler=None):
+            """runs a data logging event then reschedules it"""
+            dt = time.time() - t0
+            val = dler.read_chan(ai)  # make reading
+            self.lg.debug(f"CH{ai['num']} ({ai['name']}): {val} {ai['unit']} @ {dt=}s")
+            if val is not None:
+                dh.handle_logger_data(ai["num"], dt, ai["name"], val, ai["unit"])
+
+            if rs is not None:
+                # reschedule this
+                rs["sc"].enter(rs["delay"], 1, rs["action"], argument=(dler, ai, t0, dh, rs))
+
+        t0 = time.time()
+
+        for ai_chan in dler.analog_inputs:
+            if ai_chan["enabled"]:
+                # do an initial reading now
+                dlrunner(dler, ai_chan, t0, dh)
+
+                # schedule the next reading
+                s.enter(ai_chan["delay"], 1, dlrunner, argument=(dler, ai_chan, t0, dh, {"sc":s, "action": dlrunner, "delay":ai_chan["delay"]}))
+
+        # loop the scheduler while watching for a pkiller signal to end things
+        finished = self.pkiller.is_set()
+        while not finished:
+            deadline = s.run(blocking=False)
+            finished = self.pkiller.wait(deadline)
+
+        self.lg.debug("Datalogger routine has finished")
+
+    def on_routine_done(self, future:concurrent.futures.Future):
         """callback function for when a routine future completes"""
         future_exception = future.exception()  # check if the process died because of an exception
         if future_exception:

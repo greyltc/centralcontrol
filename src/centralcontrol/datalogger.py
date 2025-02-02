@@ -13,7 +13,7 @@ class DataLogger(ModbusTcpClient):
 	# instead of just the simple scale & offset we have now
 	# TODO: switch all this this to async comms when the main program loop switches
 
-	class Channel(TypedDict):
+	class AnalogInput(TypedDict):
 		name: str  # user readable name for channel
 		num: int  # hardware channel number
 		enabled: bool  # to enable the channel or not
@@ -23,8 +23,8 @@ class DataLogger(ModbusTcpClient):
 		unit: str  # final output value unit string
 		delay: float  # number of seconds to pause between samplings (this is not the same as period)
 	
-	default_channel: Channel = {
-		"name": "unset",
+	default_ai: AnalogInput = {
+		"name": "value",
 		"num": 0,
 		"enabled": False,
 		"range": 0x08,
@@ -67,7 +67,7 @@ class DataLogger(ModbusTcpClient):
 	addr_coil_ai_enable_base = 595  # aka 00595 (coil base address is 0)
 	addr_holding_reg_ai_range_base = 427  # aka 40427 (holding register base address is 40000)
 
-	channels: list[Channel] = []
+	analog_inputs: list[AnalogInput] = []
 
 	def __init__(self, *args, **kwargs):
 		self.lg = get_logger(".".join([__name__, type(self).__name__]))   # setup logging
@@ -87,20 +87,20 @@ class DataLogger(ModbusTcpClient):
 			if not kwargs.pop("enabled"):
 				self.lg.warning("Disabled dataloggers are not yet supported")  # TODO: support disabled dataloggers
 		
-		if "channels" in kwargs:
-			channels = kwargs.pop("channels")
+		if "analog_inputs" in kwargs:
+			analog_inputs = kwargs.pop("analog_inputs")
 		else:
-			channels = []
+			analog_inputs = []
 
-		for channel in channels:
-			this_chan = self.default_channel.copy()
-			for key, val in channel.items():
+		for analog_input in analog_inputs:
+			this_ai = self.default_ai.copy()
+			for key, val in analog_input.items():
 				if key == "name" and "," in val:
 					raise RuntimeError("Data logger channel name can not contain ','")
 				elif key == "unit" and "," in val:
 					raise RuntimeError("Data logger channel unit can not contain ','")
-				this_chan[key] = val
-			self.channels.append(this_chan)
+				this_ai[key] = val
+			self.analog_inputs.append(this_ai)
 
 		return super().__init__(*args, **kwargs)
 
@@ -115,17 +115,17 @@ class DataLogger(ModbusTcpClient):
 			self.lg.warning(f"Modbus Exception: {resp}")
 
 		# set up the channels
-		for channel in self.channels:
-			num = channel["num"]
-			enabled = channel["enabled"]
-			addr_coil_ai_enable_chan = self.addr_coil_ai_enable_base + channel["num"]
+		for analog_input in self.analog_inputs:
+			num = analog_input["num"]
+			enabled = analog_input["enabled"]
+			addr_coil_ai_enable_chan = self.addr_coil_ai_enable_base + num
 			resp = __client.write_coil(addr_coil_ai_enable_chan, enabled)  # enable/disable the channel
 			if resp.isError():
 				self.lg.warning(f"Modbus Exception: {resp}")
 			
 			if enabled:
 				addr_holding_reg_ai_range_chan = self.addr_holding_reg_ai_range_base + num
-				resp = __client.write_register(addr_holding_reg_ai_range_chan, channel["range"])  # set the analog input channel range
+				resp = __client.write_register(addr_holding_reg_ai_range_chan, analog_input["range"])  # set the analog input channel range
 		
 		# somehow these writes/setup seems to take ~5 seconds to apply!?
 		time.sleep(5)
@@ -137,23 +137,23 @@ class DataLogger(ModbusTcpClient):
 		self.lg.debug("DataLogger disconnecting")
 		return super().__exit__(*args, **kwargs)
 	
-	def read_chan(self, chan:Channel) -> float|None:
-		if chan in self.channels:
-			if not chan["enabled"]:
-				self.lg.warning(f"Attempting to read a disabled channel")
+	def read_chan(self, ai:AnalogInput) -> float|None:
+		if ai in self.analog_inputs:
+			if not ai["enabled"]:
+				self.lg.warning(f"Attempting to read a disabled analog input channel")
 
-			resp = self.read_input_registers(chan["num"])
+			resp = self.read_input_registers(ai["num"])
 			if resp.isError():
 				self.lg.warning(f"Modbus Exception: {resp}")
 
 			try:
 				raw_val = int.from_bytes((resp.registers[0]).to_bytes(2), signed=True)  # handle the sign bit
-				ret_val = raw_val * chan["scale"] + chan["offset"]
+				ret_val = raw_val * ai["scale"] + ai["offset"]
 			except Exception as e:
 				self.lg.warning(f"DataLogger handling exception: {e}")
 				ret_val = None
 		else:
-			self.lg.warning(f"Attempt to read unconfigured channel")
+			self.lg.warning(f"Attempt to read unconfigured analog input channel")
 			ret_val = None
 
 		return ret_val
@@ -171,7 +171,7 @@ if __name__ == "__main__":
 		  virtual: false
 		  enabled: true
 		  type: icpdas
-		  channels:
+		  analog_inputs:
 			- {num: 0, enabled: false}
 			- {num: 1, enabled: false}
 			- {num: 2, enabled: false}
@@ -183,7 +183,7 @@ if __name__ == "__main__":
 	cfg = yaml.safe_load(inspect.cleandoc(cfg_str))["datalogger"]
 
 	with DataLogger(**cfg) as client:
-		for channel in client.channels:
-			if channel["enabled"]:
-				val = client.read_chan(channel)
-				print(f"CH{channel['num']} ({channel['name']}): {val} {channel['unit']}")
+		for ai_chan in client.analog_inputs:
+			if ai_chan["enabled"]:
+				val = client.read_chan(ai_chan)
+				print(f"CH{ai_chan['num']} ({ai_chan['name']}): {val} {ai_chan['unit']}")
