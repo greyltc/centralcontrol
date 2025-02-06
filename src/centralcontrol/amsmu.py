@@ -699,12 +699,10 @@ class AmSmu(object):
                 if e.errno == errno.ECONNRESET:
                     self.lg.error("Connection reset by peer on write.")
                 else:
-                    self.lg.error(
-                        "Socket error occurred on write: [%d] %s (%s).",
-                        e.errno,
-                        errno.errorcode.get(e.errno, "UNKNOWN_ERROR"),
-                        str(e),
-                    )
+                    if e.errno is not None:
+                        self.lg.error(f"Socket error occurred on read: [{e.errno}] {errno.errorcode.get(e.errno, "UNKNOWN_ERROR")} ({e}).")
+                    else:
+                        self.lg.error(f"Unknown Socket error occurred on read: {e}.")
             except ValueError:
                 # re-raise commands bytes error
                 raise
@@ -792,12 +790,10 @@ class AmSmu(object):
                 if e.errno == errno.ECONNRESET:
                     self.lg.error("Connection reset by peer on read.")
                 else:
-                    self.lg.error(
-                        "Socket error occurred on read: [%d] %s (%s).",
-                        e.errno,
-                        errno.errorcode.get(e.errno, "UNKNOWN_ERROR"),
-                        str(e),
-                    )
+                    if e.errno is not None:
+                        self.lg.error(f"Socket error occurred on read: [{e.errno}] {errno.errorcode.get(e.errno, "UNKNOWN_ERROR")} ({e}).")
+                    else:
+                        self.lg.error(f"Unknown Socket error occurred on read: {e}.")
             except Exception as e:
                 self.lg.error("Error occurred on read: %s.", str(e))
 
