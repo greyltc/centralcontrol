@@ -61,7 +61,6 @@ class AmSmu(object):
     """
 
     expect_in_idn = "Ark Metrica"
-    quiet = False
     idn = ""
     opts = ""
     status = 0
@@ -80,7 +79,6 @@ class AmSmu(object):
     t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode
-    is_2450: bool | None = None
     killer: tEvent | mEvent
     _address: str = ""
     threshold_ohm = 33.3  # resistance values below this give passing tests
@@ -92,7 +90,6 @@ class AmSmu(object):
         address: str,
         front: bool = True,
         two_wire: bool = True,
-        quiet: bool = False,
         killer: tEvent | mEvent = tEvent(),
         print_sweep_deets: bool = False,
         cc_mode: str = "none",
@@ -104,7 +101,6 @@ class AmSmu(object):
         self.lg = get_logger(".".join([__name__, type(self).__name__]), LOG_LEVEL)
 
         self.killer = killer
-        self.quiet = quiet
         self._address = address
         self.front = front
         self._two_wire = two_wire
@@ -666,8 +662,6 @@ class AmSmu(object):
         """does baseline configuration in prep for data collection"""
         # ask the device to identify its self
         self.idn = self.query("*IDN?")
-
-        self.is_2450 = False
 
         # apply line frequency read from constructor kwargs
         self.line_frequency = self._line_frequency

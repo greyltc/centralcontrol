@@ -2,7 +2,7 @@ from typing import Callable, Type, Optional
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 from centralcontrol.virt import FakeSMU as vsmu
-from centralcontrol.k2400 import k2400
+from centralcontrol.k2xxx import k2xxx
 from centralcontrol.amsmu import AmSmu
 from centralcontrol.logstuff import get_logger
 
@@ -15,13 +15,15 @@ def factory(cfg: dict) -> Type["SourcemeterAPI"]:
     if "kind" in cfg:
         kind = cfg["kind"]
     else:
-        lg.debug("Assuming k24xx type smu")
-        kind = "k24xx"
+        lg.debug("Assuming k2xxx type smu")
+        kind = "k2xxx"
 
     base = vsmu  # the default is to make a virtual smu type
     if ("virtual" in cfg) and (cfg["virtual"] is False):
         if kind == "k24xx":
-            base = k2400  # hardware k2400 selected
+            base = k2xxx  # hardware k24xx selected
+        elif kind == "k2xxx":
+            base = k2xxx  # hardware k2xxx selected
         elif kind == "am":
             base = AmSmu  # hardware Ark Metrica SMU selected
 

@@ -6,19 +6,26 @@ import serial
 from threading import Event as tEvent
 from multiprocessing.synchronize import Event as mEvent
 import socket
+import re
 
 import logging
 from centralcontrol.logstuff import get_logger
 
 
-class k2400(object):
-    """
-    Intertace for Keithley 2400 sourcemeter
-    """
+class k2xxx(object):
+    """Intertace for Keithley 2xxx sourcemeter"""
+    idn_kind_detect = (
+        {"series": "2400",  "model": "2400",  "re": ".*Keithley.*Model 24(00|01|10|20|40),.*"},
+        {"series": "2400G", "model": "2450",  "re": ".*Keithley.*Model 24(50|60|61|70),.*"},
+        {"series": "2600",  "model": "2601",  "re": ".*Keithley.*Model 26(01|11|35),.*"},
+        {"series": "2600",  "model": "2602",  "re": ".*Keithley.*Model 26(02|12|36),.*"},
+        {"series": "2600B", "model": "2601B", "re": ".*Keithley.*Model 26(01|11|35)B,.*"},
+        {"series": "2600B", "model": "2602B", "re": ".*Keithley.*Model 26(02|04|12|14|34|36)B,.*"},
+    )
 
-    expect_in_idn = "KEITHLEY"
-    quiet = False
-    idn = ""
+    idn = ""  # response to *IDN?
+    series = ""  # the SMU acts like this series (from the idn_kind_detect list)
+    model = ""  # the SMU acts like this model (from the idn_kind_detect list)
     opts = ""
     status = 0
     nplc_user_set = 1.0
@@ -26,38 +33,42 @@ class k2400(object):
     readyForAction = False
     four88point1 = False
     print_sweep_deets = False  # false uses debug logging level, true logs sweep stats at info level
-    _write_term_str = "\n"
-    _read_term_str = "\r"
     connected = False
-    ser: serial.Serial | None = None
-    timeout: float | None = None  # default comms timeout
+    ser: serial.Serial
     do_r: str | bool = False  # include resistance in measurement
     t_relay_bounce = 0.05  # number of seconds to wait to ensure the contact check relays have stopped bouncing
     last_lo = None  # we're not set up for contact checking
     cc_mode = "none"  # contact check mode
-    is_2450: bool | None = None
-    killer: tEvent | mEvent
+    front = True
+    two_wire = True
+    killer: tEvent | mEvent = tEvent()
     address: str = ""
-    threshold_ohm = 33.3  # resistance values below this give passing tests
+    threshold_ohm = 33.3  # resistance values below this give passing contact checker tests
+    connect_kwargs = {}
+    __write_term_str = "\n"
+    __write_term_bytes = b'\n'
+    __write_term_len = 1
+    __read_term_str = "\r"
+    __read_term_bytes = b'\n'
+    __read_term_len = 1
+    __sockethost:str = ""
+    __socketport:int = 0
+    __timeout:float|None
 
-    def __init__(self, address: str, front: bool = True, two_wire: bool = True, quiet: bool = False, killer: tEvent | mEvent = tEvent(), print_sweep_deets: bool = False, cc_mode: str = "none", **kwargs):
+    def __init__(self, address:str, front:bool=front, two_wire:bool=two_wire, killer:tEvent|mEvent=killer, print_sweep_deets:bool=print_sweep_deets, cc_mode:str=cc_mode, read_term:str=__read_term_str, write_term:str=__write_term_str, **kwargs):
         """just set class variables here"""
-        self.lg = get_logger(".".join([__name__, type(self).__name__]))   # setup logging
-        self.lg.debug("k2400 init starting")
+        self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
+        self.lg.debug("k2xxx init starting")
 
-        self.killer = killer
-        self.quiet = quiet
         self.address = address
         self.front = front
         self.two_wire = two_wire
+        self.killer = killer
         self.print_sweep_deets = print_sweep_deets
-        self.write_term = bytes([ord(x) for x in self._write_term_str])
-        self.read_term = bytes([ord(x) for x in self._read_term_str])
-        self.write_term_len = len(self.write_term)
-        self.read_term_len = len(self.read_term)
-        self.connected = False
+        self.write_term = write_term
+        self.read_term = read_term
         self.cc_mode = cc_mode
-        self.remaining_init_kwargs = kwargs
+        self.connect_kwargs = kwargs  # use the the rest of the keyword argumests here in connect()
 
         self.lg.debug("hwurl:// schema setup starting")
         # add some features to pyserial's address URL handling
@@ -102,9 +113,9 @@ class k2400(object):
         sys.modules["hwurl.protocol_hw"] = HWURL
         serial.protocol_handler_packages.append("hwurl")
 
-        self.lg.debug("k2400 initialized.")
+        self.lg.debug("k2xxx initialized.")
 
-    def __enter__(self) -> "k2400":
+    def __enter__(self) -> "k2xxx":
         """so that the smu can enter a context"""
         self.lg.debug("Entering context")
         self.connect()
@@ -117,26 +128,39 @@ class k2400(object):
         return False
 
     @property
-    def write_term_str(self):
-        return self._write_term_str
-
-    @write_term_str.setter
-    def write_term_str(self, value):
-        self._write_term_str = value
-        self.write_term = bytes([ord(x) for x in self._write_term_str])
-        self.write_term_len = len(self.write_term)
+    def timeout(self) -> float|None:
+        """comms timeout (read only. set it with the timeout kwarg passed to init)"""
+        return self.__timeout
 
     @property
-    def read_term_str(self):
-        return self._read_term_str
+    def write_term(self) -> str:
+        return self.__write_term_str
 
-    @read_term_str.setter
-    def read_term_str(self, value):
-        self._read_term_str = value
-        self.read_term = bytes([ord(x) for x in self._read_term_str])
-        self.read_term_len = len(self.read_term)
+    @write_term.setter
+    def write_term(self, value:str):
+        self.__write_term_str = value
+        self.__write_term_bytes = bytes([ord(x) for x in value])
+        self.__write_term_len = len(value)
 
-    def dead_socket_cleanup(self, host):
+    @property
+    def write_term_len(self) -> int:
+        return self.__write_term_len
+
+    @property
+    def read_term(self) -> str:
+        return self.__read_term_str
+
+    @read_term.setter
+    def read_term(self, value:str):
+        self.__read_term_str = value
+        self.__read_term_bytes = bytes([ord(x) for x in value])
+        self.__read_term_len = len(value)
+
+    @property
+    def read_term_len(self) -> int:
+        return self.__read_term_len
+
+    def dead_socket_cleanup(self, host:str):
         """attempts dead socket cleanup on a 2450 via the dead socket port"""
         dead_socket_port = 5030
         try:
@@ -150,7 +174,7 @@ class k2400(object):
         except Exception as e:
             self.lg.debug(f"Dead socket cleanup issue: {e}")
 
-    def socket_cleanup(self, host, port):
+    def socket_cleanup(self, host:str, port:int):
         """ensure a the host/port combo is clean and closed"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -200,22 +224,21 @@ class k2400(object):
         while remaining_connection_retries > 0:
             if "socket" in self.address:
                 self.read_term_str = "\n"
-                kwargs = {}
                 hostport = self.address.removeprefix("socket://")
-                [self.host, self.port] = hostport.split(":", 1)
-                self.lg.debug(f"Cleaning up socket: {[self.host, self.port]}")
-                self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
-                self.dead_socket_cleanup(self.host)  # NOTE: this might cause trouble
-                self.socket_cleanup(self.host, int(self.port))  # NOTE: this might cause trouble
+                [sockethost, socketport] = hostport.split(":", 1)
+                self.__sockethost = sockethost
+                self.__socketport = int(socketport)
+                self.lg.debug(f"Cleaning up socket: {[self.__sockethost, self.__socketport]}")
+                self.socket_cleanup(self.__sockethost, self.__socketport)  # NOTE: this might cause trouble
+                self.dead_socket_cleanup(self.__sockethost)  # NOTE: this might cause trouble
+                self.socket_cleanup(self.__sockethost, self.__socketport)  # NOTE: this might cause trouble
                 time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
                 self.lg.debug(f"Socket clean.")
-            else:
-                kwargs = {}
 
             try:
-                self.ser = serial.serial_for_url(self.address, **kwargs)
+                self.ser = serial.serial_for_url(self.address, **self.connect_kwargs)
                 self.lg.debug(f"Connection opened: {self.address}")
-                if "socket" in self.address:
+                if ("socket" in self.address):
                     # set the initial timeout to something long for setup
                     self.ser._socket.settimeout(5.0)  #TODO: try just setting self.ser.timeout = 5
                     time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
@@ -232,79 +255,153 @@ class k2400(object):
         else:
             raise ValueError(f"Connection retries exhausted while connecting to {self.address}")
 
+        self.__timeout = self.ser.timeout  # store away the timeout
+
         self.ser.reset_output_buffer()
 
+        # if we're using hardware flow control here, assert the RTS line
+        if self.ser.rtscts:
+            self.ser.rts = True
+
+        # if we're using software flow control here, send an XON
         if self.ser.xonxoff:
+            self.cts()
             self.ser.send_break()
+            self.cts()
             one = self.ser.write(bytes([17]))  # XON
             if one != 1:
                 raise ValueError(f"Serial send failure.")
 
+        self.cts()
         self.ser.send_break()
-        one = self.ser.write(bytes([18]))  # interrupt
+        self.cts()
+        one = self.interrupt()  # interrupt
         # ser.break_condition = False
         if one != 1:
             raise ValueError(f"Serial send failure.")
 
+        self.cts()
         self.ser.send_break()
         # discard the input buffer
         self.ser.reset_input_buffer()
         self.hard_input_buffer_reset()  # for discarding currently streaming data
-        self.hardware_reset()
+        self.hardware_reset()  # instrument is identified in here
         # really make sure the buffer's clean
         self.hard_input_buffer_reset()  # for discarding currently streaming data
 
-        # ensure we're using SCPI2400 language set
-        try:
-            self.lg.debug("Checking language set...")
-            lang = self.query("*LANG?")
-            if "2400" not in lang:
-                self.lg.debug(f"Found a bad language set: {lang}")
-                self.lg.debug(f"Attempting language set change")
-                self.write("*LANG SCPI2400")
-                self.lg.error(f"Please manually power cycle the SMU at address {self.address} now to complete a language set change.")
-                raise ValueError(f"Bad SMU language set: {lang}")
-            else:
-                self.lg.debug(f"Found good language set: {lang}")
-        except Exception as e:
-            self.lg.debug(f"Exception: {repr(e)}")
+        # test if we're running the newer "Graphical Series"
+        if self.series == "2400G":
+            # ensure we're using SCPI2400 language set
+            try:
+                self.lg.debug("Checking language set...")
+                lang = self.query("*LANG?")
+                if "2400" not in lang:
+                    self.lg.debug(f"Found a bad language set: {lang}")
+                    self.lg.debug(f"Attempting language set change")
+                    self.write("*LANG SCPI2400")
+                    self.lg.error(f"Please manually power cycle the SMU at address {self.address} now to complete a language set change.")
+                    raise ValueError(f"Bad SMU language set: {lang}")
+                else:
+                    self.lg.debug(f"Found good language set: {lang}")
+            except Exception as e:
+                self.lg.debug(f"Exception: {repr(e)}")
 
         # tests the ROM's checksum. can take over a second
-        self.timeout = self.ser.timeout
         self.ser.timeout = 5
         zero = self.query("*TST?")
         if zero != "0":
             raise ValueError(f"Self test failed: {zero}")
-        self.ser.timeout = self.timeout
+        self.ser.timeout = self.timeout  # restore the default timeout
 
         self.setup(self.front, self.two_wire)
 
+        # TODO: get rid of this in favor of setting the timeout in the init kwargs
         if "socket" in self.address:
             # timeout for normal operation will be shorter
             self.ser._socket.settimeout(1.0)
 
-        self.lg.debug("k2400 connected.")
+        self.lg.debug(f"k2xxx connected.")
 
         return 0
 
+    def interrupt(self) -> int|None:
+        self.cts()
+        return self.ser.write(bytes([18]))
+
+    def cts(self):
+        """wait for cts"""
+        while not self.ser.cts:
+            time.sleep(0.1)
+
+    def identify(self):
+        # ask the device to identify itself
+        self.idn = self.query("*IDN?")
+
+        matched = False
+        for idn_line in self.idn_kind_detect:
+            if re.fullmatch(idn_line["re"], self.idn):
+                matched = True
+                self.series = idn_line["series"]
+                self.model = idn_line["model"]
+                self.lg.debug(f"SMU matches {self.model}")
+                break
+
+        if not matched:
+            raise RuntimeError(f"Unsupported SMU IDN: {self.idn}")
+
+    def config_buffers(self, conf_strs:list[str]):
+        """config all buffers (tsp command)"""
+        if self.series in ("2600",):
+            buffers = ("nvbuffer1", "nvbuffer2")
+            chans = ["smua"]
+            if self.model in ("2602",):
+                chans.append("smub")
+            for chan in chans:
+                for buffer in buffers:
+                    self.write(f"{chan}.{buffer}.clear()")
+                    for conf_str in conf_strs:
+                        self.write(f"{chan}.{buffer}.{conf_str}")
+
     def setup(self, front=True, two_wire=False):
         """does baseline configuration in prep for data collection"""
-        self.idn = self.query("*IDN?")  # ask the device to identify its self
 
-        # test for 2450
-        self.is_2450 = len(self.query("DISP:WIND:DATA?").strip()) == 0
-        if self.is_2450:
+        if self.model == "2450":
             if self.query("syst:tlin?") != "0":
                 self.lg.debug("Switching DIO port state to match 240x series")
                 self.write("syst:tlin 0")  # dio lines on 245x to mimic 240x series
 
-        self.write("outp:smod himp")  # outputs go to high impedance when switched off
-        self.write("sour:volt:prot 20")  # limit the voltage output (in all modes) for safety
+        # outputs go to high impedance when switched off
+        if self.series in ("2400", "2400G"):
+            self.write("outp:smod himp")
+        elif self.series in ("2600",):
+            chans = ["smua"]
+            if self.model in ("2602",):
+                chans.append("smub")
+            for chan in chans:
+                self.write(f"{chan}.source.offmode = {chan}.OUTPUT_HIGH_Z")
+
+        # limit the voltage output (in all modes) for safety
+        if self.series in ("2400", "2400G"):
+            self.write("sour:volt:prot 20")
+
         self.setWires(two_wire)
-        self.write("sens:func 'curr:dc', 'volt:dc'")
-        self.write("form:elem time,volt,curr,stat")  # set what we want reported
-        self.write("system:posetup RST")  # system turns on with *RST defaults
-        self.write("system:lfrequency:auto ON")  # auto-detect line frequency
+
+        if self.series in ("2400", "2400G"):
+            self.write("sens:func 'curr:dc', 'volt:dc'")
+
+        # set what we want reported
+        if self.series in ("2400", "2400G"):
+            self.write("form:elem time,volt,curr,stat")
+        elif self.series in ("2600",):
+            buffer_confs = []
+            buffer_confs.append("collectsourcevalues = 1")
+            buffer_confs.append("appendmode = 0")
+            buffer_confs.append("collecttimestamps = 1")
+            buffer_confs.append("timestampresolution = 0.0001")
+            self.config_buffers(buffer_confs)
+
+        # if self.series in ("2400", "2400G"):
+        # from: https://web.archive.org/web/20250109111448/https://download.tek.com/manual/2400S-900-01_K-Sep2011_User.pdf
         # status is a 24 bit intiger. bits are these:
         # Bit 0 (OFLO) — Set to 1 if measurement was made while in over-range.
         # Bit 1 (Filter) — Set to 1 if measurement was made with the filter enabled.
@@ -327,20 +424,92 @@ class k2400(object):
         # Bits 19, 20 and 21 (Limit Results) — Provides limit test results (see grading and sorting modes below).
         # Bit 22 (Remote Sense) — Set to 1 if 4-wire remote sense selected.
         # Bit 23 (Pulse Mode) — Set to 1 if in the Pulse Mode.
+
+        # if self.series in ("2600",):
+        # from: https://web.archive.org/web/20250211012710/https://cores.research.asu.edu/sites/default/files/Keithley%202611A%20Reference%20Manual%202007.pdf
+        # status is a 8 bit intiger. bits are these:
+        # Bit 0 (0x01): TBD -- Reserved for future use.
+        # Bit 1 (0x02): Overtemp -- Over temperature condition.
+        # Bit 2 (0x04): AutoRangeMeas -- Measure range was auto ranged.
+        # Bit 3 (0x08): AutoRangeSrc -- Source range was auto ranged.
+        # Bit 4 (0x10): 4Wire -- 4W (remote) sense mode enabled.
+        # Bit 5 (0x20): Rel -- Rel applied to reading.
+        # Bit 6 (0x40): Compliance1 -- Source function in compliance.
+        # Bit 7 (0x80): Filtered -- Reading was filtered.
+
+        if self.series in ("2400", "2400G"):
+            self.write("system:posetup RST")  # system turns on with *RST defaults
+
+        # auto-detect line frequency
+        if self.series in ("2400", "2400G"):
+            self.write("system:lfrequency:auto ON")
+        elif self.series in ("2600",):
+            self.write("localnode.autolinefreq = true")
+
         self.setTerminals(front)
 
-        self.src = self.query("source:function:mode?")  # check/set the source
-        self.write("system:azero off")  # we'll do this once before every measurement
-        self.write("system:azero:caching:state ON")
+        # check the source
+        if self.series in ("2400", "2400G"):
+            self.src = self.query("source:function:mode?")
+        elif self.series in ("2600",):
+            # TODO: somehow handle 2 channels here
+            smuasrc = self.query("print(smua.source.func)")
+            if smuasrc == "0":
+                self.src = "curr"
+            elif smuasrc == "1":
+                self.src = "volt"
 
-        # enable/setup contact check :system:ccheck
-        self.opts = self.query("*OPT?")
-        if "CONTACT-CHECK" in self.opts.upper():
-            self.write("syst:cch 0")  # disable feature
-            # self.write("syst:cch:res 50")  # choices are 2, 15 or 50 (50 is default)
+        if self.series in ("2400", "2400G"):
+            self.write("system:azero off")  # we'll do this once before every measurement
+        elif self.series in ("2600",):
+            chans = ["smua"]
+            if self.model in ("2602",):
+                chans.append("smub")
+            for chan in chans:
+                self.write(f"{chan}.measure.autozero = {chan}.AUTOZERO_OFF")
 
-        self.write("syst:time:res")  # reset the internal timer
-        self.lg.debug("k2400 setup complete.")
+        if self.series in ("2400", "2400G"):
+            self.write("system:azero:caching:state ON")
+
+            # enable/setup contact check :system:ccheck
+            self.opts = self.query("*OPT?")
+            if "CONTACT-CHECK" in self.opts.upper():
+                self.write("syst:cch 0")  # disable feature
+                # self.write("syst:cch:res 50")  # choices are 2, 15 or 50 (50 is default)
+
+        # reset the internal timer
+        if self.series in ("2400", "2400G"):
+            self.write("syst:time:res")
+        elif self.series in ("2600",):
+            self.write("timer.reset()")
+
+        # the beeps are annoying
+        if self.series in ("2400", "2400G"):
+            self.write("syst:beep:stat 0")
+        elif self.series in ("2600",):
+            self.write("beeper.enable = 0")
+
+        self.lg.debug("k2xxx setup complete.")
+
+    def read(self) -> str:
+        if not self.ser:
+            raise RuntimeError("smu comms not set up")
+        return self.ser.read_until(self.__read_term_bytes).decode().removesuffix(self.__read_term_str)
+
+    def write(self, cmd:str):
+        if not self.ser:
+            raise RuntimeError("smu comms not set up")
+        cmd_bytes = len(cmd)
+        self.cts()
+        bytes_written = self.ser.write(cmd.encode() + self.__write_term_bytes)
+        if bytes_written is None:
+            raise ValueError("Write failure.")
+        elif cmd_bytes != (bytes_written - self.__write_term_len):
+            raise ValueError(f"Write failure: {bytes_written - self.write_term_len} != {cmd_bytes}")
+
+    def query(self, question: str) -> str:
+        self.write(question)
+        return self.read()
 
     def opc(self) -> bool:
         """asks the hardware to finish whatever it's doing then send a 1"""
@@ -358,21 +527,6 @@ class k2400(object):
             self.lg.debug(f"*OPC? gave: {opc_val}")
         return ret
 
-    def write(self, cmd):
-        assert self.ser, "smu comms not set up"
-        cmd_bytes = len(cmd)
-        bytes_written = self.ser.write(cmd.encode() + self.write_term)
-        if cmd_bytes != (bytes_written - self.write_term_len):
-            raise ValueError(f"Write failure, {bytes_written - self.write_term_len} != {cmd_bytes}")
-
-    def query(self, question: str) -> str:
-        self.write(question)
-        return self.read()
-
-    def read(self) -> str:
-        assert self.ser, "smu comms not set up"
-        return self.ser.read_until(self.read_term).decode().removesuffix(self.read_term_str)
-
     def hardware_reset(self):
         """attempt to stop everything and put the hardware into a known baseline state"""
         try:
@@ -387,8 +541,7 @@ class k2400(object):
             pass
 
         try:
-            if self.ser:
-                self.ser.write(bytes([18]))  # interrupt
+            self.interrupt()
         except:
             pass
 
@@ -417,12 +570,9 @@ class k2400(object):
         except:
             pass
 
-        try:
-            self.write("syst:pres")  # factory defaults
-        except:
-            pass
-        else:
-            self.src = "volt"
+        # identify instrument if we haven't done it yet
+        if not self.model:
+            self.identify()
 
         try:
             self.opc()
@@ -430,39 +580,62 @@ class k2400(object):
             pass
 
         try:
-            self.write("*CLS")  # reset registers
+            self.write("*CLS")  # clear status
         except:
             pass
 
         try:
-            self.write("*ESE 0")  # reset registers
+            self.opc()
         except:
             pass
 
         try:
-            self.write("stat:pres")  # reset more registers
+            self.write("*ESE 0")  # disable status events
         except:
             pass
 
         try:
-            self.write("stat:que:cle")  # clear error queue
+            self.opc()
         except:
             pass
 
         try:
-            self.write("syst:beep:stat 0")  # the beeps are annoying
+            self.write("*SRE 0")  # disable service requests
         except:
             pass
 
         try:
-            self.write("syst:lfr:auto 1")  # auto line frequency on
+            self.opc()
         except:
             pass
 
-        try:
-            self.write("trac:cle")  # clear trace/data buffer
-        except:
-            pass
+        if self.model in ["2400", "2450"]:
+            try:
+                self.write("syst:pres")  # factory defaults
+            except:
+                pass
+            else:
+                self.src = "volt"
+
+            try:
+                self.opc()
+            except:
+                pass
+
+            try:
+                self.write("stat:pres")  # reset more registers
+            except:
+                pass
+
+            try:
+                self.write("stat:que:cle")  # clear error queue
+            except:
+                pass
+
+            try:
+                self.write("trac:cle")  # clear trace/data buffer
+            except:
+                pass
 
         try:
             self.opc()
@@ -496,7 +669,7 @@ class k2400(object):
                 self.lg.debug("Issue resetting input buffer during disconnect: {e}")
 
             # use the dead socket port to close the connection from the other side
-            self.dead_socket_cleanup(self.host)
+            self.dead_socket_cleanup(self.__sockethost)
 
         try:
             if self.ser:
@@ -505,9 +678,9 @@ class k2400(object):
             self.lg.debug("Issue disconnecting: {e}")
 
         if "socket" in self.address:
-            self.socket_cleanup(self.host, int(self.port))
-            self.dead_socket_cleanup(self.host)  # use dead socket port to clean up old connections
-            self.socket_cleanup(self.host, int(self.port))
+            self.socket_cleanup(self.__sockethost, self.__socketport)
+            self.dead_socket_cleanup(self.__sockethost)  # use dead socket port to clean up old connections
+            self.socket_cleanup(self.__sockethost, self.__socketport)
 
         if self.ser:
             self.connected = self.ser.is_open
@@ -516,16 +689,34 @@ class k2400(object):
 
     def setWires(self, two_wire=False):
         self.two_wire = two_wire  # record setting
+
         if two_wire:
-            self.write("syst:rsen 0")  # four wire mode off
+            # four wire mode off
+            if self.series in ("2400", "2400G"):
+                self.write("syst:rsen 0")
+            elif self.series in ("2600",):
+                chans = ["smua"]
+                if self.model in ("2602",):
+                    chans.append("smub")
+                for chan in chans:
+                    self.write(f"{chan}.sense = {chan}.SENSE_LOCAL")
         else:
-            self.write("syst:rsen 1")  # four wire mode on
+            # four wire mode on
+            if self.series in ("2400", "2400G"):
+                self.write("syst:rsen 1")  # four wire mode off
+            elif self.series in ("2600",):
+                chans = ["smua"]
+                if self.model in ("2602",):
+                    chans.append("smub")
+                for chan in chans:
+                    self.write(f"{chan}.sense = {chan}.SENSE_REMOTE")
 
     def setTerminals(self, front=False):
-        if front:
-            self.write("rout:term fron")
-        else:
-            self.write("rout:term rear")
+        if self.series in ("2400", "2400G"):
+            if front:
+                self.write("rout:term fron")
+            else:
+                self.write("rout:term rear")
 
     def updateSweepStart(self, startVal):
         self.write(f"source:{self.src}:start {startVal:0.8f}")
@@ -906,3 +1097,26 @@ class k2400(object):
         readback = self.query(f"sour2:ttl:act?")
         if f"{value}" != readback:
             self.lg.debug("digital output readback failure: {value} != {readback}")
+
+
+if __name__ == "__main__":
+    rfc_to = 6  # rfc2217/telnet timeout
+    ser_to = 5  # serial object timeout
+    addr = f"rfc2217://adapter:9001?timeout={rfc_to}&logging=debug"  # for debugging
+    addr = f"rfc2217://adapter:9001?timeout={rfc_to}"
+    init_kwargs = {}
+    init_kwargs["two_wire"] = False
+    init_kwargs["write_term"] = "\r\n"
+    init_kwargs["read_term"] = "\n"
+    init_kwargs["baudrate"] = 115200
+    init_kwargs["bytesize"] = serial.EIGHTBITS
+    init_kwargs["parity"] = serial.PARITY_ODD
+    init_kwargs["stopbits"] = serial.STOPBITS_ONE
+    init_kwargs["timeout"] = ser_to
+    init_kwargs["xonxoff"] = False
+    init_kwargs["rtscts"] = True
+    init_kwargs["dsrdtr"] = False
+
+    with k2xxx(addr, **init_kwargs) as k:
+        for i in range(1000):
+            print(f'{i}:{k.query("*IDN?")}')

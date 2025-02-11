@@ -1,11 +1,11 @@
 import unittest
 
-import centralcontrol.k2400 as k2400
+import centralcontrol.k2xxx as k2xxx
 import time
 
 
-class K2400TestCase(unittest.TestCase):
-    """testing for k2400 API"""
+class K2xxxTestCase(unittest.TestCase):
+    """testing for k2xxx API"""
 
     def setUp(self):
         schema = "hw://"
@@ -29,15 +29,14 @@ class K2400TestCase(unittest.TestCase):
 
     def test_init(self):
         """initilization test"""
-        sm = k2400.k2400("")
-        self.assertIsInstance(sm, k2400.k2400)
+        sm = k2xxx.k2xxx("")
+        self.assertIsInstance(sm, k2xxx.k2xxx)
 
     def test_connect(self):
         """tests connection. needs real hardware"""
 
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
+        with k2xxx.k2xxx(*self.args, **self.kwargs) as sm:
             self.assertTrue(sm.connected)
-        self.assertTrue(sm.expect_in_idn in sm.idn)
         self.assertFalse(sm.connected)
 
     def test_dc_resistance(self):
@@ -45,7 +44,7 @@ class K2400TestCase(unittest.TestCase):
         tests making a resistance measurement with DC setup.
         needs real hardware
         """
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
+        with k2xxx.k2xxx(*self.args, **self.kwargs) as sm:
             sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
             rslt = sm.measure()
             self.assertIsInstance(rslt, list)
@@ -56,7 +55,7 @@ class K2400TestCase(unittest.TestCase):
     def test_measure_until(self):
         """tests measure_until. needs real hardware"""
         seconds = 10  # [s]
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
+        with k2xxx.k2xxx(*self.args, **self.kwargs) as sm:
             sm.setupDC(sourceVoltage=False, compliance=3, setPoint=0.001, senseRange="f", ohms=True)
             sm.setNPLC(1)
             rslt = sm.measure_until(t_dwell=seconds)
@@ -69,7 +68,7 @@ class K2400TestCase(unittest.TestCase):
         v_start = 1
         v_end = 0
         i_limit = 0.001
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
+        with k2xxx.k2xxx(*self.args, **self.kwargs) as sm:
             sm.setupSweep(compliance=i_limit, nPoints=n_points, start=v_start, end=v_end)
             rslt = sm.measure(n_points)
             self.assertIsInstance(rslt, list)
@@ -77,7 +76,7 @@ class K2400TestCase(unittest.TestCase):
 
     def test_dio(self):
         """tests digital output lines. needs real hardware"""
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
+        with k2xxx.k2xxx(*self.args, **self.kwargs) as sm:
             sm.outOn(on=False)
             if sm.query("outp?") == "0":  # check if that worked
                 sm.set_do(14)  # LO check
@@ -93,7 +92,7 @@ class K2400TestCase(unittest.TestCase):
         lo_cc_pass = False
         hi_cc_pass = False
         rval = None
-        with k2400.k2400(*self.args, **self.kwargs) as sm:
+        with k2xxx.k2xxx(*self.args, **self.kwargs) as sm:
             sm.enable_cc_mode(True)
             lo_cc_pass, rval = sm.do_contact_check(lo_side=True)
             hi_cc_pass, rval = sm.do_contact_check(lo_side=False)
