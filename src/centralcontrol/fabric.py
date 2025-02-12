@@ -10,6 +10,7 @@ from collections import OrderedDict
 import asyncio
 import json
 import multiprocessing
+import multiprocessing.synchronize
 import sched
 import signal
 import threading
@@ -53,9 +54,10 @@ class DataHandler(object):
 
     kind: str = ""
     illuminated_sweep: bool | None = None
-    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], None | int], int] = None
+    dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], None | int], int]
 
     def __init__(self, pixel: dict, outq: mQueue):
+        self. dbputter = None
         self.pixel = pixel
         self.outq = outq
 
@@ -95,26 +97,31 @@ class Fabric(object):
     mem_db_url: str = "redis://"
 
     # process killer signal
-    pkiller = multiprocessing.Event()
+    pkiller: multiprocessing.synchronize.Event
 
     # bad connections ask blocker
-    bc_response = multiprocessing.Event()
+    bc_response: multiprocessing.synchronize.Event
 
     # special message output queue so that messages can be sent from other processes
     # poutq = multiprocessing.SimpleQueue()
-    outq = multiprocessing.SimpleQueue()
+    outq: multiprocessing.SimpleQueue
 
     # mqtt connection details
     # set mqttargs["host"] externally before calling run() to use mqtt comms
-    mqttargs = {"host": None, "port": 1883}
+    mqttargs: dict
     hk = "gosox".encode()
 
     # threads/processes
-    workers: list[threading.Thread | multiprocessing.Process] = []
+    workers: list[threading.Thread | multiprocessing.Process]
 
     exitcode: int = 0
 
     def __init__(self, mem_db_url: str | None = None):
+        self.workers = []
+        self.pkiller = multiprocessing.Event()
+        self.bc_response = multiprocessing.Event()
+        outq = multiprocessing.SimpleQueue()
+        self.mqttargs = {"host": None, "port": 1883}
         if mem_db_url:
             self.mem_db_url = mem_db_url
 
@@ -1629,7 +1636,7 @@ class Fabric(object):
     ) -> str:
         """stores away light calibration data"""
         ary = np.array(data["data"])
-        area = np.trapz(ary[:, 1], ary[:, 0])
+        area = np.trapezoid(ary[:, 1], ary[:, 0])
         cal_args = {}
         cal_args["timestamp"] = data["timestamp"]
         cal_args["sid"] = setup_id

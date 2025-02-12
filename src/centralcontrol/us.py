@@ -27,8 +27,8 @@ class Us(object):
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
     home_procedure = "default"
     pcb: MC
-    len_axes_mm = {}  # dict of axis names = keys, lengths = values
-    axes = ["1"]
+    len_axes_mm: dict[str, float]  # dict of axis names = keys, lengths = values
+    axes: list[str]
     poll_delay = 0.25  # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
 
     end_buffers = 4  # disallow movement to closer than this many mm from an end (prevents home issues)
@@ -103,6 +103,8 @@ class Us(object):
         self.home_procedure = homer
         self.direction = dir
         self.stage_firmwares = {}
+        self.len_axes_mm = {}
+        self.axes = ["1"]
 
         # setup logging
         self.lg = get_logger(".".join([__name__, type(self).__name__]))

@@ -15,7 +15,7 @@ class Stpdrv:
     # maximum number of times to retry a query
     MAX_RETRIES = 3
 
-    axes = ["1"]
+    axes: list[str]
 
     # centralcontral uses the limits as position 0 and len and calculates allowed
     # offsets from them in software. The Stepper Motor Controller implements the
@@ -63,6 +63,7 @@ class Stpdrv:
             Additional arguments to be passed to the instrument comms constructor, e.g.
             baudrate etc.
         """
+        self.axes = ["1"]
         self.steps_per_mm = steps_per_mm
         self._limit_offset = limit_offset
         self._motion_timeout = motion_timeout

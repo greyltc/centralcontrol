@@ -13,8 +13,8 @@ class Wavelabs(object):
     def_relay_port = 3335
     def_direct_port = 3334
     spectrum_ms = 1002
-    okay_message_codes = [0, -4001]
-    retry_codes = [9997, 9998, 9999]  # response codes of these code types should result in a comms retry
+    okay_message_codes: list[int]
+    retry_codes: list[int]  # response codes of these code types should result in a comms retry
     active_recipe = ""
     active_intensity = 100
     last_temps: tuple[float, float] = (0.0, 0.0)
@@ -26,6 +26,8 @@ class Wavelabs(object):
         """
 
         def __init__(self):
+            self.okay_message_codes = [0, -4001]
+            self.retry_codes = [9997, 9998, 9999]
             self.done_parsing = False
             self.error = None
             self.error_message = ""

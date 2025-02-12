@@ -14,7 +14,7 @@ from centralcontrol.logstuff import get_logger
 
 class k2xxx(object):
     """Intertace for Keithley 2xxx sourcemeter"""
-    idn_kind_detect = (
+    __IDN_KIND_DETECT = (
         {"series": "2400",  "model": "2400",  "re": ".*Keithley.*Model 24(00|01|10|20|40),.*"},
         {"series": "2400G", "model": "2450",  "re": ".*Keithley.*Model 24(50|60|61|70),.*"},
         {"series": "2600",  "model": "2601",  "re": ".*Keithley.*Model 26(01|11|35),.*"},
@@ -24,8 +24,8 @@ class k2xxx(object):
     )
 
     idn = ""  # response to *IDN?
-    series = ""  # the SMU acts like this series (from the idn_kind_detect list)
-    model = ""  # the SMU acts like this model (from the idn_kind_detect list)
+    series = ""  # the SMU acts like this series (from the __IDN_KIND_DETECT list)
+    model = ""  # the SMU acts like this model (from the __IDN_KIND_DETECT list)
     opts = ""
     status = 0
     nplc_user_set = 1.0
@@ -41,10 +41,10 @@ class k2xxx(object):
     cc_mode = "none"  # contact check mode
     front = True
     two_wire = True
-    killer: tEvent | mEvent = tEvent()
+    killer: tEvent | mEvent
     address: str = ""
     threshold_ohm = 33.3  # resistance values below this give passing contact checker tests
-    connect_kwargs = {}
+    connect_kwargs: dict
     __write_term_str = "\n"
     __write_term_bytes = b'\n'
     __write_term_len = 1
@@ -55,12 +55,13 @@ class k2xxx(object):
     __socketport:int = 0
     __timeout:float|None  # comms timout (read only through timeout property)
     __src:str = ""  # keeps track of volt/curr source mode of hardware
-    __srcs:list[str] = [""]  # same as __src, except for multichannel
+    __srcs:list[str]  # same as __src, except for multichannel
 
-    def __init__(self, address:str, front:bool=front, two_wire:bool=two_wire, killer:tEvent|mEvent=killer, print_sweep_deets:bool=print_sweep_deets, cc_mode:str=cc_mode, read_term:str=__read_term_str, write_term:str=__write_term_str, **kwargs):
+    def __init__(self, address:str, front:bool=front, two_wire:bool=two_wire, killer:tEvent|mEvent=tEvent(), print_sweep_deets:bool=print_sweep_deets, cc_mode:str=cc_mode, read_term:str=__read_term_str, write_term:str=__write_term_str, **kwargs):
         """just set class variables here"""
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
         self.lg.debug("k2xxx init starting")
+        self.__srcs = [""]
 
         self.address = address
         self.front = front
@@ -343,7 +344,7 @@ class k2xxx(object):
         self.idn = self.query("*IDN?")
 
         matched = False
-        for idn_line in self.idn_kind_detect:
+        for idn_line in self.__IDN_KIND_DETECT:
             if re.fullmatch(idn_line["re"], self.idn):
                 matched = True
                 self.series = idn_line["series"]

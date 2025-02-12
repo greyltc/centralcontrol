@@ -37,9 +37,10 @@ class MQTTClient(object):
 
     lg: logging.Logger
 
-    workers: list[threading.Thread] = []  # list of things doing work for us
+    workers: list[threading.Thread]  # list of things doing work for us
 
     def __init__(self, host="127.0.0.1", port=1883, parent_outq: None | Queue | mQueue = None, parent_inq: None | Queue = None):
+        self.workers = []
         if parent_outq:
             self.outq = parent_outq
         else:
