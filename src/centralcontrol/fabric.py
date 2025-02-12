@@ -120,7 +120,7 @@ class Fabric(object):
         self.workers = []
         self.pkiller = multiprocessing.Event()
         self.bc_response = multiprocessing.Event()
-        outq = multiprocessing.SimpleQueue()
+        self.outq = multiprocessing.SimpleQueue()
         self.mqttargs = {"host": None, "port": 1883}
         if mem_db_url:
             self.mem_db_url = mem_db_url
