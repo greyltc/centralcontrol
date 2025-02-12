@@ -21,7 +21,7 @@ class AFMS(object):
         self.steps_per_mm = spm
         self.home_procedure = homer
         self.axes = ["1"]
-        self.len_axes_mm = {"0": float("inf")} 
+        self.len_axes_mm = {"0": float("inf")}
 
     def __del__(self):
         try:
