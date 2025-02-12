@@ -53,7 +53,9 @@ class k2xxx(object):
     __read_term_len = 1
     __sockethost:str = ""
     __socketport:int = 0
-    __timeout:float|None
+    __timeout:float|None  # comms timout (read only through timeout property)
+    __src:str = ""  # keeps track of volt/curr source mode of hardware
+    __srcs:list[str] = [""]  # same as __src, except for multichannel
 
     def __init__(self, address:str, front:bool=front, two_wire:bool=two_wire, killer:tEvent|mEvent=killer, print_sweep_deets:bool=print_sweep_deets, cc_mode:str=cc_mode, read_term:str=__read_term_str, write_term:str=__write_term_str, **kwargs):
         """just set class variables here"""
@@ -330,8 +332,11 @@ class k2xxx(object):
 
     def cts(self):
         """wait for cts"""
+        t0 = time.time()
         while not self.ser.cts:
             time.sleep(0.1)
+            if self.timeout and ((time.time() - t0) > self.timeout):
+                raise TimeoutError("Timeout waiting for cts signal.")
 
     def identify(self):
         # ask the device to identify itself
@@ -448,16 +453,21 @@ class k2xxx(object):
 
         self.setTerminals(front)
 
-        # check the source
+        # check the source(s)
         if self.series in ("2400", "2400G"):
-            self.src = self.query("source:function:mode?")
+            self.__src = self.query("source:function:mode?")
         elif self.series in ("2600",):
-            # TODO: somehow handle 2 channels here
-            smuasrc = self.query("print(smua.source.func)")
-            if smuasrc == "0":
-                self.src = "curr"
-            elif smuasrc == "1":
-                self.src = "volt"
+            chans = ["smua"]
+            if self.model in ("2602",):
+                self.__srcs = ["", ""]
+                chans.append("smub")
+            for chani, chan in enumerate(chans):
+                chansrc = self.query(f"print({chan}.source.func)")
+                if chansrc == "0":
+                    self.__srcs[chani] = "curr"
+                elif chansrc == "1":
+                    self.__srcs[chani] = "volt"
+            self.__src = self.__srcs[0]
 
         if self.series in ("2400", "2400G"):
             self.write("system:azero off")  # we'll do this once before every measurement
@@ -563,7 +573,7 @@ class k2xxx(object):
         except:
             pass
         else:
-            self.src = "volt"
+            self.__src = "volt"
 
         try:
             self.opc()
@@ -615,7 +625,7 @@ class k2xxx(object):
             except:
                 pass
             else:
-                self.src = "volt"
+                self.__src = "volt"
 
             try:
                 self.opc()
@@ -719,14 +729,14 @@ class k2xxx(object):
                 self.write("rout:term rear")
 
     def updateSweepStart(self, startVal):
-        self.write(f"source:{self.src}:start {startVal:0.8f}")
+        self.write(f"source:{self.__src}:start {startVal:0.8f}")
 
     def updateSweepStop(self, stopVal):
-        self.write(f"source:{self.src}:stop {stopVal:0.8f}")
+        self.write(f"source:{self.__src}:stop {stopVal:0.8f}")
 
     # sets the source to some value
     def setSource(self, outVal):
-        self.write(f"source:{self.src} {outVal:0.8f}")
+        self.write(f"source:{self.__src} {outVal:0.8f}")
 
     def outOn(self, on=True):
         if on:
@@ -777,7 +787,7 @@ class k2xxx(object):
             else:
                 src = "curr"
                 snc = "volt"
-            self.src = src
+            self.__src = src
             self.write(f"source:func {src}")
             self.write(f"source:{src}:mode fixed")
             self.write(f"source:{src} {setPoint:0.8f}")
@@ -834,7 +844,7 @@ class k2xxx(object):
         else:
             src = "curr"
             snc = "volt"
-        self.src = src
+        self.__src = src
         self.write(f"sour:func {src}")
         self.write(f"sour:{src} {start:0.8f}")
 
