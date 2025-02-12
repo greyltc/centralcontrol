@@ -57,7 +57,7 @@ class DataHandler(object):
     dbputter: None | typing.Callable[[list[tuple[float, float, float, int]], None | int], int]
 
     def __init__(self, pixel: dict, outq: mQueue):
-        self. dbputter = None
+        self.dbputter = None
         self.pixel = pixel
         self.outq = outq
 
@@ -104,7 +104,7 @@ class Fabric(object):
 
     # special message output queue so that messages can be sent from other processes
     # poutq = multiprocessing.SimpleQueue()
-    outq: multiprocessing.SimpleQueue
+    outq: multiprocessing.queues.SimpleQueue
 
     # mqtt connection details
     # set mqttargs["host"] externally before calling run() to use mqtt comms

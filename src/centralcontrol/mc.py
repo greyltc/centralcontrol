@@ -52,7 +52,7 @@ class MC(object):
         self.comms_timeout = timeout  # pcb has this many seconds to respond
         self.detected_muxes = []
         self.detected_axes = []
-        self.expected_muxes =[]
+        self.expected_muxes = []
         self.snaith_mux_pixel_lookup = {}
         self.otter_mux_pixel_lookup ={}
 
