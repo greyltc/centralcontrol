@@ -67,11 +67,12 @@ class DataLogger(ModbusTcpClient):
 	addr_coil_ai_enable_base = 595  # aka 00595 (coil base address is 0)
 	addr_holding_reg_ai_range_base = 427  # aka 40427 (holding register base address is 40000)
 
-	analog_inputs: list[AnalogInput] = []
+	analog_inputs: list[AnalogInput]
 
 	def __init__(self, *args, **kwargs):
 		self.lg = get_logger(".".join([__name__, type(self).__name__]))   # setup logging
 		self.lg.debug("DataLogger init starting")
+		self.analog_inputs = []
 
 		if kwargs.pop("type") != "icpdas":
 			raise RuntimeError("Only icpdas type dataloggers are currently supported")
