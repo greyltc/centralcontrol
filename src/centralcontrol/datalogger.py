@@ -72,7 +72,7 @@ class DataLogger(ModbusTcpClient):
 	def __init__(self, *args, **kwargs):
 		self.lg = get_logger(".".join([__name__, type(self).__name__]))   # setup logging
 		self.lg.debug("DataLogger init starting")
-		analog_inputs = []
+		self.analog_inputs = []
 
 		if kwargs.pop("type") != "icpdas":
 			raise RuntimeError("Only icpdas type dataloggers are currently supported")
