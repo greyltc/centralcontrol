@@ -14,6 +14,11 @@ from centralcontrol.logstuff import get_logger
 
 class k2xxx(object):
     """Intertace for Keithley 2xxx sourcemeter"""
+    # firmwares tested:
+    # 2400: C34
+    # 2450: 1.7.12b
+    # 4636: 1.4.2
+
     __IDN_KIND_DETECT = (
         {"series": "2400",  "model": "2400",  "re": ".*Keithley.*Model 24(00|01|10|20|40),.*"},
         {"series": "2400G", "model": "2450",  "re": ".*Keithley.*Model 24(50|60|61|70),.*"},
@@ -199,10 +204,6 @@ class k2xxx(object):
             try:
                 self.ser = serial.serial_for_url(self.address, **self.connect_kwargs)
                 self.lg.debug(f"Connection opened: {self.address}")
-                #if ("socket" in self.address):
-                    # set the initial timeout to something long for setup
-                    #self.ser._socket.settimeout(5.0)  #TODO: try just setting self.ser.timeout = 5
-                    #time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
@@ -273,13 +274,17 @@ class k2xxx(object):
                 raise ValueError(f"Bad SMU language set: {lang}")
 
         # tests the ROM's checksum. can take over a second
-        self.ser.timeout = 5
+        self.ser.timeout = 10
         zero = self.query("*TST?")
         if zero != "0":
-            raise ValueError(f"Self test failed: {zero}")
+            raise ValueError(f"Self test failed. Expected: {"0".encode()}. Got: {zero.encode()}")
         self.ser.timeout = self.timeout  # restore the default timeout
 
         self.setup(self.front, self.two_wire)
+
+        if self.model == "2400":
+            if "C30" in self.idn:
+                self.lg.warning("SMU firmware version C30 is known to be bad. Please upgrade to C34 or later.")
 
         self.lg.debug(f"k2xxx connected.")
 
@@ -846,6 +851,7 @@ class k2xxx(object):
         self.write(f"sour:sweep:points {nPoints}")
         self.write(f"sour:{src}:start {start:0.8f}")
         self.write(f"sour:{src}:stop {end:0.8f}")
+        self.opc()
 
         # relax the timeout since the above can take a bit longer to process
         self.ser.timeout = 5
@@ -1078,7 +1084,7 @@ if __name__ == "__main__":
     addr = f"rfc2217://adapter:9001?timeout={rfc_to}&logging=debug"  # for debugging
     addr = f"rfc2217://adapter:9001?timeout={rfc_to}"
     init_kwargs = {}
-    init_kwargs["ccmode"] = "none"
+    init_kwargs["cc_mode"] = "none"
     init_kwargs["two_wire"] = False
     init_kwargs["write_term"] = "\r\n"
     init_kwargs["read_term"] = "\n"
@@ -1091,16 +1097,36 @@ if __name__ == "__main__":
     init_kwargs["rtscts"] = True
     init_kwargs["dsrdtr"] = False
 
-    # 2450:
-    addr = 'socket://10.35.0.100:5025'
-    init_kwargs = {}
-    init_kwargs['front'] = True
-    init_kwargs['two_wire'] = False
-    init_kwargs['cc_mode'] = "external"
-    init_kwargs["timeout"] = 5.0
+    # # 2450:
+    # addr = 'socket://10.35.0.100:5025'
+    # init_kwargs = {}
+    # init_kwargs['front'] = True
+    # init_kwargs['two_wire'] = False
+    # init_kwargs['cc_mode'] = "external"
+    # init_kwargs["timeout"] = 5.0
+
+    # # 2400:
+    # rfc_to = 6  # rfc2217/telnet timeout
+    # ser_to = 5  # serial object timeout
+    # addr = f"rfc2217://adapter:9001?timeout={rfc_to}&logging=debug"  # for debugging
+    # addr = f"rfc2217://adapter:9001?timeout={rfc_to}"
+    # init_kwargs = {}
+    # init_kwargs['front'] = False
+    # init_kwargs["cc_mode"] = "external"
+    # init_kwargs["two_wire"] = False
+    # init_kwargs["write_term"] = "\r"
+    # init_kwargs["read_term"] = "\r"
+    # init_kwargs["baudrate"] = 57600
+    # init_kwargs["bytesize"] = serial.EIGHTBITS
+    # init_kwargs["parity"] = serial.PARITY_NONE
+    # init_kwargs["stopbits"] = serial.STOPBITS_ONE
+    # init_kwargs["timeout"] = ser_to
+    # init_kwargs["xonxoff"] = False
+    # init_kwargs["rtscts"] = False
+    # init_kwargs["dsrdtr"] = False
 
     with k2xxx(addr, **init_kwargs) as k:
-        for i in range(1000):
+        for i in range(100):
             print(f'{i}:{k.query("*IDN?")}')
         k.enable_cc_mode()
         print(f"{k.do_contact_check(lo_side=True)=}")
