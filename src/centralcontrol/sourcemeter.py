@@ -18,8 +18,20 @@ def factory(cfg: dict) -> Type["SourcemeterAPI"]:
         lg.debug("Assuming k2xxx type smu")
         kind = "k2xxx"
 
+    if "virtual" in cfg:
+        virtual = cfg["virtual"]
+    else:
+        virtual = True
+        lg.debug("Assuming virtual smu")
+
+    if "enabled" in cfg:
+        enabled = cfg["enabled"]
+    else:
+        lg.debug("Assuming enabled smu")
+        enabled = True
+
     base = vsmu  # the default is to make a virtual smu type
-    if ("virtual" in cfg) and (cfg["virtual"] is False):
+    if not virtual:
         if kind == "k24xx":
             base = k2xxx  # hardware k24xx selected
         elif kind == "k2xxx":
@@ -27,7 +39,7 @@ def factory(cfg: dict) -> Type["SourcemeterAPI"]:
         elif kind == "am":
             base = AmSmu  # hardware Ark Metrica SMU selected
 
-    if ("enabled" in cfg) and (cfg["enabled"] is False):
+    if not enabled:
         base = DisabledSMU  # disabled SMU selected
 
     name = SourcemeterAPI.__name__
@@ -82,7 +94,15 @@ class SourcemeterAPI(object):
             self.lg.debug(f"SMU init phase 1: {kwargs['address']}")
         else:
             self.lg.debug("SMU init phase 1")
-        super(SourcemeterAPI, self).__init__(**kwargs)
+
+        # sanitize the args for the underlying class
+        initargs = kwargs.copy()
+        initargs.pop("kind", None)
+        initargs.pop("enabled", None)
+        initargs.pop("virtual", None)
+        initargs.pop("voltage_limit", None)
+        initargs.pop("current_limit", None)
+        super(SourcemeterAPI, self).__init__(**initargs)
         return None
 
     def __enter__(self) -> "SourcemeterAPI":

@@ -960,7 +960,12 @@ class Fabric(object):
                     mux.connect()
                 mc = stack.enter_context(ThisMC(**mc_args))  # init and connect pcb
                 mc.mux = mux  # TODO: remove this hack
-                smus = [stack.enter_context(smu_fac(smucfg)(**smucfg)) for smucfg in smucfgs]  # init and connect to smus
+
+                # init and connect to smus
+                smus = []
+                for smucfg in smucfgs:
+                    smuclass = smu_fac(smucfg)
+                    smus.append(stack.enter_context(smuclass(**smucfg)))
 
                 suid = db.xadd("setups", fields={"json": json.dumps(config["setup"])}, maxlen=100, approximate=True).decode()
 

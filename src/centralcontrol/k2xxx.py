@@ -26,7 +26,8 @@ class k2xxx(object):
     idn = ""  # response to *IDN?
     series = ""  # the SMU acts like this series (from the __IDN_KIND_DETECT list)
     model = ""  # the SMU acts like this model (from the __IDN_KIND_DETECT list)
-    opts = ""
+    opts = ""  # option string
+    not2400 = False  # to be set true when a 2450 or similar is pretending to be a 2400
     status = 0
     nplc_user_set = 1.0
     last_sweep_time: float = 0.0
@@ -46,10 +47,10 @@ class k2xxx(object):
     threshold_ohm = 33.3  # resistance values below this give passing contact checker tests
     connect_kwargs: dict
     __write_term_str = "\n"
-    __write_term_bytes = b'\n'
+    __write_term_bytes = b"\n"
     __write_term_len = 1
     __read_term_str = "\r"
-    __read_term_bytes = b'\n'
+    __read_term_bytes = b"\r"
     __read_term_len = 1
     __sockethost:str = ""
     __socketport:int = 0
@@ -72,49 +73,6 @@ class k2xxx(object):
         self.read_term = read_term
         self.cc_mode = cc_mode
         self.connect_kwargs = kwargs  # use the the rest of the keyword argumests here in connect()
-
-        self.lg.debug("hwurl:// schema setup starting")
-        # add some features to pyserial's address URL handling
-        # trigger this through the use of a hwurl:// schema
-        class HWURL(object):
-            class Serial(serial.Serial):
-                @serial.Serial.port.setter
-                def port(self, value):
-                    """translate port name before storing it"""
-                    if isinstance(value, str) and value.startswith("hw://"):
-                        try:
-                            url_meat = value.removeprefix("hw://")
-                            portsplit = url_meat.split("?")
-                            serial.Serial.port.__set__(self, portsplit.pop(0))
-                            if len(portsplit) != 0:
-                                argsplit = portsplit[0].split("&")
-                                for arg in argsplit:
-                                    if "=" in arg:
-                                        [argname, argval] = arg.split("=", 1)
-                                        attr = getattr(serial.Serial, argname)
-                                        if argname == "baudrate":
-                                            argval = int(argval)
-                                        elif argname in ("bytesize", "parity", "stopbits"):
-                                            argval = getattr(serial, argval.upper())
-                                        elif "timeout" in argname:
-                                            if argval.lower() == "none":
-                                                argval = None
-                                            else:
-                                                argval = float(argval)
-                                        elif argname in ("xonxoff", "rtscts", "dsrdtr"):
-                                            argval = argval.lower() in ("yes", "true", "t", "1")
-                                        attr.__set__(self, argval)
-                        except Exception as e:
-                            raise ValueError(f"Failed parsing hw:// url: {e}")
-                    elif value is None:
-                        serial.Serial.port.__set__(self, value)
-                    else:
-                        raise ValueError(f"Expected hw:// url, got: {value}")
-
-        self.lg.debug("registering new hwurl:// handler")
-        sys.modules["hwurl"] = HWURL
-        sys.modules["hwurl.protocol_hw"] = HWURL
-        serial.protocol_handler_packages.append("hwurl")
 
         self.lg.debug("k2xxx initialized.")
 
@@ -226,7 +184,7 @@ class k2xxx(object):
         remaining_connection_retries = 5
         while remaining_connection_retries > 0:
             if "socket" in self.address:
-                self.read_term_str = "\n"
+                self.read_term = "\n"
                 hostport = self.address.removeprefix("socket://")
                 [sockethost, socketport] = hostport.split(":", 1)
                 self.__sockethost = sockethost
@@ -241,10 +199,10 @@ class k2xxx(object):
             try:
                 self.ser = serial.serial_for_url(self.address, **self.connect_kwargs)
                 self.lg.debug(f"Connection opened: {self.address}")
-                if ("socket" in self.address):
+                #if ("socket" in self.address):
                     # set the initial timeout to something long for setup
-                    self.ser._socket.settimeout(5.0)  #TODO: try just setting self.ser.timeout = 5
-                    time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
+                    #self.ser._socket.settimeout(5.0)  #TODO: try just setting self.ser.timeout = 5
+                    #time.sleep(0.5)  # TODO: remove this hack  (but it adds stability)
             except Exception as e:
                 raise ValueError(f"Failure connecting to {self.address} with: {e}")
 
@@ -292,8 +250,10 @@ class k2xxx(object):
         # really make sure the buffer's clean
         self.hard_input_buffer_reset()  # for discarding currently streaming data
 
-        # test if we're running the newer "Graphical Series"
-        if self.series == "2400G":
+        # test if we can use SCPI2400
+        if self.model in ("2450", "2461"):
+            bad_language = True
+            lang = "unknown"
             # ensure we're using SCPI2400 language set
             try:
                 self.lg.debug("Checking language set...")
@@ -303,11 +263,14 @@ class k2xxx(object):
                     self.lg.debug(f"Attempting language set change")
                     self.write("*LANG SCPI2400")
                     self.lg.error(f"Please manually power cycle the SMU at address {self.address} now to complete a language set change.")
-                    raise ValueError(f"Bad SMU language set: {lang}")
                 else:
+                    bad_language = False
                     self.lg.debug(f"Found good language set: {lang}")
             except Exception as e:
                 self.lg.debug(f"Exception: {repr(e)}")
+
+            if bad_language:
+                raise ValueError(f"Bad SMU language set: {lang}")
 
         # tests the ROM's checksum. can take over a second
         self.ser.timeout = 5
@@ -317,11 +280,6 @@ class k2xxx(object):
         self.ser.timeout = self.timeout  # restore the default timeout
 
         self.setup(self.front, self.two_wire)
-
-        # TODO: get rid of this in favor of setting the timeout in the init kwargs
-        if "socket" in self.address:
-            # timeout for normal operation will be shorter
-            self.ser._socket.settimeout(1.0)
 
         self.lg.debug(f"k2xxx connected.")
 
@@ -345,7 +303,7 @@ class k2xxx(object):
 
         matched = False
         for idn_line in self.__IDN_KIND_DETECT:
-            if re.fullmatch(idn_line["re"], self.idn):
+            if re.fullmatch(idn_line["re"], self.idn, re.IGNORECASE):
                 matched = True
                 self.series = idn_line["series"]
                 self.model = idn_line["model"]
@@ -371,10 +329,13 @@ class k2xxx(object):
     def setup(self, front=True, two_wire=False):
         """does baseline configuration in prep for data collection"""
 
-        if self.model == "2450":
-            if self.query("syst:tlin?") != "0":
-                self.lg.debug("Switching DIO port state to match 240x series")
-                self.write("syst:tlin 0")  # dio lines on 245x to mimic 240x series
+        if self.model == "2400":
+            # we can't check idn for a 2450 here because it spoofs 2400 there...
+            self.not2400 = len(self.query("DISP:WIND:DATA?").strip()) == 0
+            if self.not2400:
+                if self.query("syst:tlin?") != "0":
+                    self.lg.debug("Switching DIO port state to match 240x series")
+                    self.write("syst:tlin 0")  # dio lines on 245x to mimic 240x series
 
         # outputs go to high impedance when switched off
         if self.series in ("2400", "2400G"):
@@ -444,11 +405,11 @@ class k2xxx(object):
         # Bit 7 (0x80): Filtered -- Reading was filtered.
 
         if self.series in ("2400", "2400G"):
-            self.write("system:posetup RST")  # system turns on with *RST defaults
+            self.write("syst:pos RST")  # system turns on with *RST defaults
 
         # auto-detect line frequency
         if self.series in ("2400", "2400G"):
-            self.write("system:lfrequency:auto ON")
+            self.write("syst:lfr:auto ON")
         elif self.series in ("2600",):
             self.write("localnode.autolinefreq = true")
 
@@ -456,7 +417,7 @@ class k2xxx(object):
 
         # check the source(s)
         if self.series in ("2400", "2400G"):
-            self.__src = self.query("source:function:mode?")
+            self.__src = self.query("sour:func:mode?")
         elif self.series in ("2600",):
             chans = ["smua"]
             if self.model in ("2602",):
@@ -471,7 +432,7 @@ class k2xxx(object):
             self.__src = self.__srcs[0]
 
         if self.series in ("2400", "2400G"):
-            self.write("system:azero off")  # we'll do this once before every measurement
+            self.write("syst:azero off")  # we'll do this once before every measurement
         elif self.series in ("2600",):
             chans = ["smua"]
             if self.model in ("2602",):
@@ -480,7 +441,7 @@ class k2xxx(object):
                 self.write(f"{chan}.measure.autozero = {chan}.AUTOZERO_OFF")
 
         if self.series in ("2400", "2400G"):
-            self.write("system:azero:caching:state ON")
+            self.write("syst:azero:caching:state ON")
 
             # enable/setup contact check :system:ccheck
             self.opts = self.query("*OPT?")
@@ -600,20 +561,20 @@ class k2xxx(object):
         except:
             pass
 
-        try:
-            self.write("*ESE 0")  # disable status events
-        except:
-            pass
+        #try:
+        #    self.write("*ESE 0")  # disable status events
+        #except:
+        #    pass
 
         try:
             self.opc()
         except:
             pass
 
-        try:
-            self.write("*SRE 0")  # disable service requests
-        except:
-            pass
+        #try:
+        #    self.write("*SRE 0")  # disable service requests
+        #except:
+        #    pass
 
         try:
             self.opc()
@@ -622,7 +583,7 @@ class k2xxx(object):
 
         if self.model in ["2400", "2450"]:
             try:
-                self.write("syst:pres")  # factory defaults
+                self.write("syst:pres")  # factory defaults, fails on 2450 not in SCPI2400 language mode
             except:
                 pass
             else:
@@ -639,7 +600,7 @@ class k2xxx(object):
                 pass
 
             try:
-                self.write("stat:que:cle")  # clear error queue
+                self.write("stat:que:cle")  # clear error queue, fails on 2450 not in SCPI2400 language mode
             except:
                 pass
 
@@ -1111,11 +1072,13 @@ class k2xxx(object):
 
 
 if __name__ == "__main__":
+    # 2636:
     rfc_to = 6  # rfc2217/telnet timeout
     ser_to = 5  # serial object timeout
     addr = f"rfc2217://adapter:9001?timeout={rfc_to}&logging=debug"  # for debugging
     addr = f"rfc2217://adapter:9001?timeout={rfc_to}"
     init_kwargs = {}
+    init_kwargs["ccmode"] = "none"
     init_kwargs["two_wire"] = False
     init_kwargs["write_term"] = "\r\n"
     init_kwargs["read_term"] = "\n"
@@ -1128,6 +1091,18 @@ if __name__ == "__main__":
     init_kwargs["rtscts"] = True
     init_kwargs["dsrdtr"] = False
 
+    # 2450:
+    addr = 'socket://10.35.0.100:5025'
+    init_kwargs = {}
+    init_kwargs['front'] = True
+    init_kwargs['two_wire'] = False
+    init_kwargs['cc_mode'] = "external"
+    init_kwargs["timeout"] = 5.0
+
     with k2xxx(addr, **init_kwargs) as k:
         for i in range(1000):
             print(f'{i}:{k.query("*IDN?")}')
+        k.enable_cc_mode()
+        print(f"{k.do_contact_check(lo_side=True)=}")
+        print(f"{k.do_contact_check(lo_side=False)=}")
+        pass
