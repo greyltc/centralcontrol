@@ -32,7 +32,7 @@ class Usbtmclight(object):
     _intensity: float = 0.0  # compat
     _on_intensity: float = 100.0  # compat
     active_recipe: None | str = None  # compat
-    last_temps = (-99.9, -99.9)
+    last_temps = ret = (-99.9, -99.9)
 
 
     def __init__(self, *args, **kwargs):

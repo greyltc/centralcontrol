@@ -10,8 +10,8 @@ class AFMS(object):
     current_position = 50 / steps_per_mm  #  in mm
     home_procedure = "default"
 
-    len_axes_mm: dict # list of mm for how long the firmware thinks each axis is
-    axes: list[str]  # list of connected axis indicies
+    len_axes_mm = {"0": float("inf")}  # list of mm for how long the firmware thinks each axis is
+    axes = ["1"]  # list of connected axis indicies
 
     end_buffers = 1  # disallow movement to closer than this many mm from an end (prevents home issues)
 
@@ -20,8 +20,6 @@ class AFMS(object):
         self.com_port = location
         self.steps_per_mm = spm
         self.home_procedure = homer
-        self.axes = ["1"]
-        self.len_axes_mm = {"0": float("inf")}
 
     def __del__(self):
         try:

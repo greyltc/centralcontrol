@@ -19,11 +19,11 @@ class Motion(object):
     home_procedure = "default"
     home_timeout = 130  # seconds
     motion_timeout_fraction = 1 / 2  # fraction of home_timeout for movement timeouts
-    expected_lengths: dict[str, float]  # dict of keys=axis, vals =lengths in mm
-    actual_lengths: dict[str, float]  # dict of keys=axis, vals =lengths in mm
-    keepout_zones: dict[str, list[float]]  # dict of keys=axis, vals = list of mm
-    empty_koz: list[float]  # a keepout zone that will never activate
-    axes: list[str]  # list of connected axis strings
+    expected_lengths = {}  # dict of keys=axis, vals =lengths in mm
+    actual_lengths = {}  # dict of keys=axis, vals =lengths in mm
+    keepout_zones = {}  # dict of keys=axis, vals = list of mm
+    empty_koz = [-2, -2]  # a keepout zone that will never activate
+    axes = []  # list of connected axis strings
     allowed_length_deviation = 5  # measured length can deviate from expected length by up to this, in mm
     location = "controller"
 
@@ -44,11 +44,6 @@ class Motion(object):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
         self.address = address
         self.fake = fake
-        self.expected_lengths = {}
-        self.actual_lengths = {}
-        self.keepout_zones = {}
-        self.empty_koz = [-2, -2]
-        self.axes = []
 
         self.enabled = enabled
         if address is None:

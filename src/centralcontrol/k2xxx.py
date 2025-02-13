@@ -42,10 +42,10 @@ class k2xxx(object):
     cc_mode = "none"  # contact check mode
     front = True
     two_wire = True
-    killer: tEvent | mEvent
+    killer: tEvent | mEvent = tEvent()
     address: str = ""
     threshold_ohm = 33.3  # resistance values below this give passing contact checker tests
-    connect_kwargs: dict
+    connect_kwargs = {}
     __write_term_str = "\n"
     __write_term_bytes = b"\n"
     __write_term_len = 1
@@ -56,13 +56,12 @@ class k2xxx(object):
     __socketport:int = 0
     __timeout:float|None  # comms timout (read only through timeout property)
     __src:str = ""  # keeps track of volt/curr source mode of hardware
-    __srcs:list[str]  # same as __src, except for multichannel
+    __srcs:list[str] = [""]  # same as __src, except for multichannel
 
-    def __init__(self, address:str, front:bool=front, two_wire:bool=two_wire, killer:tEvent|mEvent=tEvent(), print_sweep_deets:bool=print_sweep_deets, cc_mode:str=cc_mode, read_term:str=__read_term_str, write_term:str=__write_term_str, **kwargs):
+    def __init__(self, address:str, front:bool=front, two_wire:bool=two_wire, killer:tEvent|mEvent=killer, print_sweep_deets:bool=print_sweep_deets, cc_mode:str=cc_mode, read_term:str=__read_term_str, write_term:str=__write_term_str, **kwargs):
         """just set class variables here"""
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
         self.lg.debug("k2xxx init starting")
-        self.__srcs = [""]
 
         self.address = address
         self.front = front

@@ -67,7 +67,7 @@ class DataLogger(ModbusTcpClient):
 	addr_coil_ai_enable_base = 595  # aka 00595 (coil base address is 0)
 	addr_holding_reg_ai_range_base = 427  # aka 40427 (holding register base address is 40000)
 
-	analog_inputs: list[AnalogInput]
+	analog_inputs: list[AnalogInput] = []
 
 	def __init__(self, *args, **kwargs):
 		self.lg = get_logger(".".join([__name__, type(self).__name__]))   # setup logging
@@ -92,7 +92,6 @@ class DataLogger(ModbusTcpClient):
 		else:
 			analog_inputs = []
 
-		self.analog_inputs = []
 		for analog_input in analog_inputs:
 			this_ai = self.default_ai.copy()
 			for key, val in analog_input.items():

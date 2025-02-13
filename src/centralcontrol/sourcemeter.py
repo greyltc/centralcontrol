@@ -58,7 +58,7 @@ class SourcemeterAPI(object):
     idn: str | None = None  # identification string
     id: int = 0  # id from db
     init_args: tuple = ()
-    init_kwargs: dict
+    init_kwargs: dict = {}
     killer: mEvent | tEvent
     setNPLC: Callable[[float], None]
     outOn: Callable[[bool], None]
@@ -80,7 +80,6 @@ class SourcemeterAPI(object):
     def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
-        self.init_kwargs = {}
 
         # store away the init args and kwargs
         self.init_args = args

@@ -10,11 +10,10 @@ import sys
 class CentralControl(object):
     mem_db_url: str = "redis://"
     mem_db_url_env_name: str = "MEM_DB_URL"
-    run_params: dict
+    run_params = {}
     exitcode = 0
 
     def __init__(self):
-        self.run_params = {}
         pass
 
     def mqtt_cli(self):
