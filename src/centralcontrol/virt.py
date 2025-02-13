@@ -144,13 +144,16 @@ class FakeMC(object):
     virt_speed: float = 300.0  # virtual movement speed in mm per sec
     virt_motion_setup = False  # to track if we're prepared to virtualize motion
     firmware_version = "1.0.0"
-    detected_axes = ["1", "2", "3"]
-    detected_muxes = ["A"]
+    detected_axes: list[str]
+    detected_muxes: list[str]
     enabled = True
-    ax_registers: dict[str, str] = {}
+    ax_registers: dict[str, str]
 
     def __init__(self, *args, **kwargs):
         self.lg = get_logger(".".join([__name__, type(self).__name__]))
+        self.detected_axes = ["1", "2", "3"]
+        self.detected_muxes = ["A"]
+        self.ax_registers = {}
 
         self._votes_needed = 1
         self.on_votes = collections.deque([], maxlen=self._votes_needed)
@@ -350,7 +353,7 @@ class FakeSMU(object):
     idn: str = ""
     nplc: float = 1.0
     ccheck: bool = False
-    killer: tEvent | mEvent = tEvent()
+    killer: tEvent | mEvent
     print_sweep_deets: bool = False
     address: str | None = None
     cc_fail_probability = 0.1  # how often should we simulate a failed contact check?
@@ -385,6 +388,8 @@ class FakeSMU(object):
 
         if "killer" in kwargs:
             self.killer = kwargs["killer"]
+        else:
+            self.killer = tEvent()
 
         if "address" in kwargs:
             self.address = kwargs["address"]

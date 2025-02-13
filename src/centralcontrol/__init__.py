@@ -2,6 +2,7 @@
 
 from centralcontrol.__about__ import __version__, __version_tuple__
 from centralcontrol.fabric import Fabric
+import multiprocessing
 import argparse
 import os
 import sys
@@ -10,11 +11,11 @@ import sys
 class CentralControl(object):
     mem_db_url: str = "redis://"
     mem_db_url_env_name: str = "MEM_DB_URL"
-    run_params = {}
+    run_params: dict
     exitcode = 0
 
     def __init__(self):
-        pass
+        self.run_params = {}
 
     def mqtt_cli(self):
         """gather mqtt specific params from the user"""
@@ -48,8 +49,8 @@ class CentralControl(object):
         """run the server in mqtt mode"""
         f = Fabric(mem_db_url=self.mem_db_url)
         # set the connection parameters
-        f.mqttargs["host"] = self.run_params["mqtthost"]
-        f.mqttargs["port"] = self.run_params["mqttport"]
+        f.mqtt_host = self.run_params["mqtthost"]
+        f.mqtt_port = self.run_params["mqttport"]
         # mc = MQTTClient(mqtthost=self.run_params["mqtthost"], port=self.run_params["mqttport"])
         self.exitcode = f.run()
         return self.exitcode

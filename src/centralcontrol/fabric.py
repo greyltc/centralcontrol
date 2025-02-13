@@ -95,26 +95,27 @@ class Fabric(object):
     mem_db_url: str = "redis://"
 
     # process killer signal
-    pkiller = multiprocessing.Event()
+    pkiller = multiprocessing.Event()  # this is a mutable class attribute. it's global.
 
     # bad connections ask blocker
-    bc_response = multiprocessing.Event()
+    bc_response = multiprocessing.Event()  # this is a mutable class attribute. it's global.
 
     # special message output queue so that messages can be sent from other processes
     # poutq = multiprocessing.SimpleQueue()
-    outq = multiprocessing.SimpleQueue()
+    outq: mQueue = multiprocessing.SimpleQueue()  # this is a mutable class attribute. it's global.
 
     # mqtt connection details
-    # set mqttargs["host"] externally before calling run() to use mqtt comms
-    mqttargs = {"host": None, "port": 1883}
+    mqtt_host:None|str = None
+    mqtt_port:int = 1883
     hk = "gosox".encode()
 
     # threads/processes
-    workers: list[threading.Thread | multiprocessing.Process] = []
+    workers: list[threading.Thread | multiprocessing.Process]
 
     exitcode: int = 0
 
     def __init__(self, mem_db_url: str | None = None):
+        self.workers = []
         if mem_db_url:
             self.mem_db_url = mem_db_url
 
@@ -139,9 +140,11 @@ class Fabric(object):
 
         commcls = None
         comms_args = None
-        if self.mqttargs["host"] is not None:
+        if self.mqtt_host is not None:
             commcls = MQTTClient
-            comms_args = self.mqttargs
+            comms_args = {}
+            comms_args["host"] = self.mqtt_host
+            comms_args["port"] = self.mqtt_port
             comms_args["parent_outq"] = self.outq
             comms_args["parent_inq"] = inq
         assert commcls is not None, f"{commcls=}"
@@ -1634,7 +1637,7 @@ class Fabric(object):
     ) -> str:
         """stores away light calibration data"""
         ary = np.array(data["data"])
-        area = np.trapz(ary[:, 1], ary[:, 0])
+        area = np.trapezoid(ary[:, 1], ary[:, 0])
         cal_args = {}
         cal_args["timestamp"] = data["timestamp"]
         cal_args["sid"] = setup_id

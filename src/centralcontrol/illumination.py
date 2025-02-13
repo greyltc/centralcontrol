@@ -61,10 +61,11 @@ class LightAPI(object):
     idn: str  # identification string
 
     init_args: tuple = ()
-    init_kwargs: dict = {}
+    init_kwargs: dict
 
     def __init__(self, *args, **kwargs) -> None:
         """just sets class variables"""
+        self.init_kwargs = {}
         self.lg = get_logger(".".join([__name__, type(self).__name__]))  # setup logging
 
         # store away the init args and kwargs

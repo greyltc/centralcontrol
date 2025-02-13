@@ -23,13 +23,13 @@ class MC(object):
     telnet_host = "localhost"
     telnet_port = 23
     firmware_version = None
-    detected_muxes: list[str] = []
-    detected_axes: list[str] = []
-    expected_muxes: list[str] = []
+    detected_muxes: list[str]
+    detected_axes: list[str]
+    expected_muxes: list[str]
     welcome_message = None
     enabled = True  # if this is false, everything here is a noop
-    snaith_mux_pixel_lookup: dict[int, str] = {}
-    otter_mux_pixel_lookup: dict[int, str] = {}
+    snaith_mux_pixel_lookup: dict[int, str]
+    otter_mux_pixel_lookup: dict[int, str]
 
     class MyTelnet(Telnet):
         def read_response(self, timeout=None):
@@ -50,6 +50,11 @@ class MC(object):
 
     def __init__(self, address: None | str = None, timeout: float = comms_timeout, expected_muxes: list[str] = [], enabled=True):
         self.comms_timeout = timeout  # pcb has this many seconds to respond
+        self.detected_muxes = []
+        self.detected_axes = []
+        self.expected_muxes = []
+        self.snaith_mux_pixel_lookup = {}
+        self.otter_mux_pixel_lookup = {}
 
         # setup logging
         self.lg = get_logger(".".join([__name__, type(self).__name__]))

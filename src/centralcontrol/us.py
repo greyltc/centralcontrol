@@ -27,8 +27,8 @@ class Us(object):
     steps_per_mm = motor_steps_per_rev * micro_stepping / screw_pitch
     home_procedure = "default"
     pcb: MC
-    len_axes_mm = {}  # dict of axis names = keys, lengths = values
-    axes = ["1"]
+    len_axes_mm: dict[str, float]  # dict of axis names = keys, lengths = values
+    axes: list[str]
     poll_delay = 0.25  # number of seconds to wait between polling events when trying to figure out if home, jog or goto are finsihed
 
     end_buffers = 4  # disallow movement to closer than this many mm from an end (prevents home issues)
@@ -98,6 +98,8 @@ class Us(object):
 
     def __init__(self, pcb_object: MC, spm=steps_per_mm, homer=home_procedure, dir: int = 1):
         """sets up the microstepper object, needs handle to active PCB class object"""
+        self.len_axes_mm = {}
+        self.axes = ["1"]
         self.pcb = pcb_object
         self.steps_per_mm = spm
         self.home_procedure = homer

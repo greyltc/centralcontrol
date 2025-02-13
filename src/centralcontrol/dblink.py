@@ -17,10 +17,11 @@ class DBLink(object):
     inq: Queue  # input message queue
     lg: logging.Logger
     dat_seq: Generator[int, int | None, None]
-    listen_streams: list[str] = []
+    listen_streams: list[str]
     xread_task: asyncio.Task | None = None
 
     def __init__(self, db: redis.Redis, inq: None | Queue = None, lg: None | logging.Logger = None):
+        self.listen_streams = []
         self.db = db
         if inq:
             self.inq = inq
