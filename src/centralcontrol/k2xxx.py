@@ -365,9 +365,10 @@ class k2xxx(object):
         if self.series in ("2400", "2400G"):
             self.write("form:elem time,volt,curr,stat")
         elif self.series in ("2600",):
+            #self.write("format.data = format.ASCII")
             buffer_confs = []
             buffer_confs.append("collectsourcevalues = 1")
-            buffer_confs.append("appendmode = 0")
+            buffer_confs.append("appendmode = 1")
             buffer_confs.append("collecttimestamps = 1")
             buffer_confs.append("timestampresolution = 0.0001")
             self.config_buffers(buffer_confs)
@@ -707,9 +708,15 @@ class k2xxx(object):
 
     def outOn(self, on=True):
         if on:
-            self.write("outp 1")
+            if self.series == "2600":
+                self.write("smua.source.output = smua.OUTPUT_ON")
+            else:
+                self.write("outp 1")
         else:
-            self.write("outp 0")
+            if self.series == "2600":
+                self.write("smua.source.output = smua.OUTPUT_OFF")
+            else:
+                self.write("outp 0")
 
     def getNPLC(self):
         return float(self.query("sens:curr:nplc?"))
@@ -734,58 +741,106 @@ class k2xxx(object):
         """
 
         if ohms == "auto":
-            self.write('sens:func "res"')
-            self.write("sens:res:mode auto")
-            self.lg.warning("Auto sense resistance mode could result in dangerously high current and/or voltage on the SMU's terminals")
-            self.write("sens:res:range:auto on")
-            # sm.write('sens:res:range 20E3')
-            self.write("format:elements voltage,current,resistance,time,status")
+            if self.series == "2600":
+                raise RuntimeError(f"Ohms measurements are not yet supported by {self.series}")
+            else:
+                self.write('sens:func "res"')
+                self.write("sens:res:mode auto")
+                self.lg.warning("Auto sense resistance mode could result in dangerously high current and/or voltage on the SMU's terminals")
+                self.write("sens:res:range:auto on")
+                # sm.write('sens:res:range 20E3')
+                self.write("format:elements voltage,current,resistance,time,status")
         elif isinstance(ohms, bool):
             if ohms:
-                self.write("format:elements voltage,current,resistance,time,status")
-                self.write("sens:resistance:mode man")
+                if self.series == "2600":
+                    raise RuntimeError(f"Ohms measurements are not yet supported by {self.series}")
+                else:
+                    self.write("format:elements voltage,current,resistance,time,status")
+                    self.write("sens:resistance:mode man")
             else:
-                self.write('sens:func:off "resistance"')
-                self.write("format:elements voltage,current,time,status")
+                if self.series != "2600":
+                    self.write('sens:func:off "resistance"')
+                    self.write("format:elements voltage,current,time,status")
 
             if sourceVoltage:
-                src = "volt"
-                snc = "curr"
+                if self.series == "2600":
+                    src = "OUTPUT_DCVOLTS"
+                    lvl = "v"
+                    limit = "i"
+                else:
+                    src = "volt"
+                    snc = "curr"
             else:
-                src = "curr"
-                snc = "volt"
+                if self.series == "2600":
+                    src = "OUTPUT_DCAMPS"
+                    lvl = "i"
+                    limit = "v"
+                else:
+                    src = "curr"
+                    snc = "volt"
             self.__src = src
-            self.write(f"source:func {src}")
-            self.write(f"source:{src}:mode fixed")
-            self.write(f"source:{src} {setPoint:0.8f}")
+            if self.series == "2600":
+                self.write(f"smua.source.func = smua.{src}")
+                self.write(f"smua.source.range{lvl} = {setPoint:0.8f}")
+                self.write(f"smua.source.level{lvl} = {setPoint:0.8f}")
+            else:
+                self.write(f"source:func {src}")
+                self.write(f"source:{src}:mode fixed")
+                self.write(f"source:{src} {setPoint:0.8f}")
 
-            self.write("source:delay:auto on")
+            if self.series == "2600":
+                self.write("smua.source.delay = smua.DELAY_AUTO")
+            else:
+                self.write("source:delay:auto on")
 
             if ohms:
-                self.write('sens:func "res"')
+                if self.series == "2600":
+                    raise RuntimeError(f"Ohms measurements are not yet supported by {self.series}")
+                else:
+                    self.write('sens:func "res"')
             else:
-                self.write(f'sens:func "{snc}"')
-            self.write(f"sens:{snc}:prot {compliance:0.8f}")
+                if self.series != "2600":
+                    self.write(f'sens:func "{snc}"')
+            if self.series == "2600":
+                self.write(f"smua.source.limit{limit} = {compliance:0.8f}")
+            else:
+                self.write(f"sens:{snc}:prot {compliance:0.8f}")
 
             # set the sense range
             if senseRange == "f":
-                self.write(f"sens:{snc}:range:auto off")
-                self.write(f"sens:{snc}:protection:rsynchronize on")
+                if self.series == "2600":
+                    raise RuntimeError(f"Follow range is not yet supported by {self.series}")
+                else:
+                    self.write(f"sens:{snc}:range:auto off")
+                    self.write(f"sens:{snc}:protection:rsynchronize on")
             elif senseRange == "a":
-                self.write(f"sens:{snc}:range:auto on")
+                if self.series == "2600":
+                    self.write(f"smua.measure.autorange{limit} = smua.AUTORANGE_ON")
+                else:
+                    self.write(f"sens:{snc}:range:auto on")
             else:
-                self.write(f"sens:{snc}:range {senseRange:0.8f}")
+                if self.series == "2600":
+                    self.write(f"smua.measure.range{limit} = {senseRange:0.8f}")
+                else:
+                    self.write(f"sens:{snc}:range {senseRange:0.8f}")
 
-            # this again is to make sure the sense range gets updated
-            self.write(f"sens:{snc}:protection {compliance:0.8f}")
+            if self.series != "2600":
+                # this again is to make sure the sense range gets updated
+                self.write(f"sens:{snc}:protection {compliance:0.8f}")
 
             # always auto range ohms
             if ohms:
-                self.write(f"sens:res:range:auto on")
+                if self.series == "2600":
+                    raise RuntimeError(f"Ohms measurements are not yet supported by {self.series}")
+                else:
+                    self.write(f"sens:res:range:auto on")
 
         self.do_r = ohms
         self.outOn()
-        self.write("trigger:count 1")
+        if self.series == "2600":
+            self.write("smua.measure.count = 1")
+        else:
+            self.write("trigger:count 1")
 
         self.do_azer()
 
@@ -876,7 +931,10 @@ class k2xxx(object):
 
     def do_azer(self):
         """parform autozero routine"""
-        self.write("syst:azer once")
+        if self.series == "2600":
+            self.write("smua.measure.autozero = smua.AUTOZERO_ONCE")
+        else:
+            self.write("syst:azer once")
         self.opc()  # ensure the instrument is ready after all this
 
     def arm(self):
@@ -901,8 +959,41 @@ class k2xxx(object):
         else:
             pps = 5
         vals = []
-        self.write("read?")  # trigger measurement
-        red = self.read()
+        # trigger measurement
+        if self.series == "2600":
+            self.write("smua.measure.overlappediv(smua.nvbuffer1, smua.nvbuffer2)")
+            self.write("waitcomplete()")
+            #self.opc()
+        else:
+            self.write("read?")
+        if self.series == "2600":
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.readings, smua.nvbuffer2.readings, smua.nvbuffer1.timestamps, smua.nvbuffer1.statuses)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.measurefunctions)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.measureranges)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.readings)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.sourcefunctions)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.sourceoutputstates)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.sourceranges)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.sourcevalues)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.statuses)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer1.timestamps)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.measurefunctions)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.measureranges)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.readings)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.sourcefunctions)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.sourceoutputstates)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.sourceranges)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.sourcevalues)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.statuses)")=}')
+            # print(f'{self.query("printbuffer(1, 1, smua.nvbuffer2.timestamps)")=}')
+            #red = self.query(f"printbuffer(1, {nPoints}, smua.nvbuffer1.readings, smua.nvbuffer2.readings, smua.nvbuffer1.timestamps, smua.nvbuffer1.statuses)")
+            red = self.query(f"printbuffer(smua.nvbuffer1.n, smua.nvbuffer1.n, smua.nvbuffer1.readings, smua.nvbuffer2.readings, smua.nvbuffer1.timestamps, smua.nvbuffer1.statuses)")
+
+            #red = self.query("print(smua.measure.iv(smua.nvbuffer1, smua.nvbuffer2))")
+            #red = self.query("print(smua.measure.iv(smua.nvbuffer1, smua.nvbuffer2))")
+            #printbuffer(1, 10, smua.nvbuffer1.readings)
+        else:
+            red = self.read()
         red_nums = [float(x.removesuffix("\x00")) for x in red.split(",")]
         for i in range(nPoints):
             line = []
@@ -1044,7 +1135,7 @@ class k2xxx(object):
                     self.outOn(on=False)
                     if self.query("outp?") == "0":  # check if that worked
                         if lo_side:
-                            self.set_do(14)  # LO check
+                            self.set_do(14)  # LO check for 2600: digio.writebit(4,0)
                             self.last_lo = True  # mark as set up for lo side checking
                         if not lo_side:
                             self.set_do(13)  # HI check
@@ -1128,7 +1219,34 @@ if __name__ == "__main__":
     with k2xxx(addr, **init_kwargs) as k:
         for i in range(100):
             print(f'{i}:{k.query("*IDN?")}')
-        k.enable_cc_mode()
-        print(f"{k.do_contact_check(lo_side=True)=}")
-        print(f"{k.do_contact_check(lo_side=False)=}")
+        
+        ss_args = {}
+        ss_args["sourceVoltage"] = True
+        ss_args["compliance"] = 0.1
+        ss_args["setPoint"] = 3
+        ss_args["senseRange"] = "a"
+        k.setupDC(**ss_args)
+
+        print(f"{k.measure()=}")
+        print(f"{k.measure()=}")
+        print(f"{k.measure()=}")
+
+        print(f"{k.measure_until(10)=}")
+
+        ss_args = {}
+        ss_args["sourceVoltage"] = False
+        ss_args["compliance"] = 1
+        ss_args["setPoint"] = 0.1
+        ss_args["senseRange"] = "a"
+        k.setupDC(**ss_args)
+
+        print(f"{k.measure()=}")
+        print(f"{k.measure()=}")
+        print(f"{k.measure()=}")
+
+        print(f"{k.measure_until(10)=}")
+        
+        #k.enable_cc_mode()
+        #print(f"{k.do_contact_check(lo_side=True)=}")
+        #print(f"{k.do_contact_check(lo_side=False)=}")
         pass
