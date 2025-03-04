@@ -669,6 +669,14 @@ class AmSmu(object):
         # set wrie configuration ready for measurment
         self.remote_sense = not two_wire
 
+        # status byte is returned with every measurement. its bits are
+        # bit 0: WDT_RESET_STATUS_BIT
+        # bit 1: COMPLIANCE_STATUS_BIT
+        # bit 2: OUTPUT_ENABLED_BIT
+        # bit 3: OUTPUT_MODE_BIT
+        # bit 4: CMD_ERROR_BIT_0
+        # bit 5: CMD_ERROR_BIT_1
+
         self.lg.debug("AmSmu setup complete.")
 
     def opc(self) -> bool:
