@@ -576,82 +576,85 @@ class Wavelabs(object):
 
 
 if __name__ == "__main__":
+    do_normal_stuff = True
+    do_custom_freefloat = False
     do_disco = False
     gui_plot_spectrum = False
 
-    wl = Wavelabs(address="0.0.0.0:3334", active_recipe="AM1.5G", relay=False)  # for direct connection
+    wl = Wavelabs(address="0.0.0.0:3334", active_recipe="am1_5_1_sun", relay=False)  # for direct connection
     # wl = Wavelabs(host='127.0.0.1', port=3335, relay=True, active_recipe='am1_5_1_sun')  #  for comms via relay
     print("Connecting to light engine...")
     wl.connect()
     status = wl.get_run_status()
     print(f"Light engine status: {status}")
-    old_intensity = wl.getRecipeParam(param="Intensity")
-    old_duration = wl.getRecipeParam(param="Duration")
-    new_intensity = 100.0
-    new_duration = 5.001  # in seconds
-    if new_duration < 3:
-        raise (ValueError("Pick a new duration larger than 3"))
-    wl.setRecipeParam(param="Duration", value=new_duration * 1000)
-    wl.setRecipeParam(param="Intensity", value=new_intensity)
+    if do_normal_stuff:
+        old_intensity = wl.getRecipeParam(param="Intensity")
+        old_duration = wl.getRecipeParam(param="Duration")
+        new_intensity = 100.0
+        new_duration = 5.001  # in seconds
+        if new_duration < 3:
+            raise (ValueError("Pick a new duration larger than 3"))
+        wl.setRecipeParam(param="Duration", value=new_duration * 1000)
+        wl.setRecipeParam(param="Intensity", value=new_intensity)
 
-    duration = wl.getRecipeParam(param="Duration")
-    intensity = wl.getRecipeParam(param="Intensity")
-    print("Recipe Duration = {:} [s]".format(float(duration) / 1000))
-    print("Recipe Intensity = {:} [%]".format(intensity))
+        duration = wl.getRecipeParam(param="Duration")
+        intensity = wl.getRecipeParam(param="Intensity")
+        print("Recipe Duration = {:} [s]".format(float(duration) / 1000))
+        print("Recipe Intensity = {:} [%]".format(intensity))
 
-    print("Light turns on in...")
-    time.sleep(1)
-    print("3...")
-    time.sleep(1)
-    print("2...")
-    time.sleep(1)
-    print("1...")
-    time.sleep(1)
-    print("Now!")
-    run_ID = wl.on()
-    print("Run ID: {:}".format(run_ID))
-    print("Light turns off in {:} [s]".format(new_duration))
-    time.sleep(new_duration - 3)
-    print("3...")
-    time.sleep(1)
-    print("2...")
-    time.sleep(1)
-    print("1...")
-    time.sleep(1)
-    print("Now!")
-    wl.waitForRunFinished(run_ID=run_ID)
-    wl.waitForResultAvailable(run_ID=run_ID)
+        print("Light turns on in...")
+        time.sleep(1)
+        print("3...")
+        time.sleep(1)
+        print("2...")
+        time.sleep(1)
+        print("1...")
+        time.sleep(1)
+        print("Now!")
+        run_ID = wl.on()
+        print("Run ID: {:}".format(run_ID))
+        print("Light turns off in {:} [s]".format(new_duration))
+        time.sleep(new_duration - 3)
+        print("3...")
+        time.sleep(1)
+        print("2...")
+        time.sleep(1)
+        print("1...")
+        time.sleep(1)
+        print("Now!")
+        wl.waitForRunFinished(run_ID=run_ID)
+        wl.waitForResultAvailable(run_ID=run_ID)
 
-    print("Reading LED temps...")
-    print(f"Vis LED temp = {wl.get_vis_led_temp(run_ID=run_ID)}")
-    print(f"IR LED temp = {wl.get_ir_led_temp(run_ID=run_ID)}")
+        print("Reading LED temps...")
+        print(f"Vis LED temp = {wl.get_vis_led_temp(run_ID=run_ID)}")
+        print(f"IR LED temp = {wl.get_ir_led_temp(run_ID=run_ID)}")
 
-    print(f"Getting spectrum data...")
-    spectra = wl.getDataSeries(run_ID=run_ID)
-    spectrum = spectra[0]
-    x = spectrum["data"]["Wavelenght"]
-    y = spectrum["data"]["Irradiance"]
-    print(f"Success! Data length = {len(y)}")
+        print(f"Getting spectrum data...")
+        spectra = wl.getDataSeries(run_ID=run_ID)
+        spectrum = spectra[0]
+        x = spectrum["data"]["Wavelenght"]
+        y = spectrum["data"]["Irradiance"]
+        print(f"Success! Data length = {len(y)}")
 
-    wl.off()
-    wl.activate_recipe()
-    wl.setRecipeParam(param="Intensity", value=old_intensity)
-    wl.setRecipeParam(param="Duration", value=old_duration)
+        wl.off()
+        wl.activate_recipe()
+        wl.setRecipeParam(param="Intensity", value=old_intensity)
+        wl.setRecipeParam(param="Duration", value=old_duration)
 
-    duration = wl.getRecipeParam(param="Duration")
-    intensity = wl.getRecipeParam(param="Intensity")
-    print("Recipe Duration = {:} [s]".format(float(duration) / 1000))
-    print("Recipe Intensity = {:} [%]".format(intensity))
+        duration = wl.getRecipeParam(param="Duration")
+        intensity = wl.getRecipeParam(param="Intensity")
+        print("Recipe Duration = {:} [s]".format(float(duration) / 1000))
+        print("Recipe Intensity = {:} [%]".format(intensity))
 
-    if gui_plot_spectrum == True:
-        import matplotlib.pyplot as plt
-        import pandas as pd
+        if gui_plot_spectrum == True:
+            import matplotlib.pyplot as plt
+            import pandas as pd
 
-        plt.plot(x, y)
-        plt.ylabel("Irradiance")
-        plt.xlabel("Wavelength [nm]")
-        plt.grid(True)
-        plt.show()
+            plt.plot(x, y)
+            plt.ylabel("Irradiance")
+            plt.xlabel("Wavelength [nm]")
+            plt.grid(True)
+            plt.show()
 
     if do_disco == True:
         print("Now we do the Christo Disco!")
@@ -670,5 +673,20 @@ if __name__ == "__main__":
             wl.startFreeFloat(time=disco_time, channel_nums=chan_names, channel_values=chan_values)
             time.sleep(disco_sleep / 1000)
         wl.startFreeFloat()  # stop freefloat
+
+    if do_custom_freefloat == True:
+        print("Doing some freefloat stuff")
+
+        wl.startFreeFloat(time=800000, channel_nums=["all"], channel_values=[0])
+        time.sleep(1)
+        wl.startFreeFloat(time=800000, channel_nums=[1], channel_values=[44])  # 370.5
+        wl.startFreeFloat(time=800000, channel_nums=[2], channel_values=[66])  # 393.6
+        wl.startFreeFloat(time=800000, channel_nums=[3], channel_values=[60])  # 422.0
+        wl.startFreeFloat(time=800000, channel_nums=[4], channel_values=[34])  # 442.5
+        wl.startFreeFloat(time=800000, channel_nums=[5], channel_values=[61])   # 469.1
+        time.sleep(10)
+        print("off")
+        wl.startFreeFloat(time=0, channel_nums=[])
+
     wl.disconnect()
     print("Done!")
