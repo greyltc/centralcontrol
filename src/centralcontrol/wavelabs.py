@@ -679,11 +679,28 @@ if __name__ == "__main__":
 
         wl.startFreeFloat(time=800000, channel_nums=["all"], channel_values=[0])
         time.sleep(1)
-        wl.startFreeFloat(time=800000, channel_nums=[1], channel_values=[44])  # 370.5
-        wl.startFreeFloat(time=800000, channel_nums=[2], channel_values=[66])  # 393.6
-        wl.startFreeFloat(time=800000, channel_nums=[3], channel_values=[60])  # 422.0
-        wl.startFreeFloat(time=800000, channel_nums=[4], channel_values=[34])  # 442.5
-        wl.startFreeFloat(time=800000, channel_nums=[5], channel_values=[61])   # 469.1
+        wl.startFreeFloat(time=800000, channel_nums=[1], channel_values=[44])   # ~370.5
+        wl.startFreeFloat(time=800000, channel_nums=[2], channel_values=[65])   # ~393.6
+        wl.startFreeFloat(time=800000, channel_nums=[3], channel_values=[57])   # ~422.0
+        wl.startFreeFloat(time=800000, channel_nums=[4], channel_values=[15])   # ~442.5
+        wl.startFreeFloat(time=800000, channel_nums=[5], channel_values=[52])   # ~469.1
+        wl.startFreeFloat(time=800000, channel_nums=[6], channel_values=[33])   # ~438.5 + 515 (phosphor)
+        wl.startFreeFloat(time=800000, channel_nums=[7], channel_values=[61])   # ~445.0 + 639 (phosphor)
+        wl.startFreeFloat(time=800000, channel_nums=[8], channel_values=[61])   # ~678
+        wl.startFreeFloat(time=800000, channel_nums=[9], channel_values=[90])   # ~699
+        wl.startFreeFloat(time=800000, channel_nums=[10], channel_values=[41])  # ~731
+        wl.startFreeFloat(time=800000, channel_nums=[11], channel_values=[32])  # ~742
+        wl.startFreeFloat(time=800000, channel_nums=[12], channel_values=[35])  # ~768
+        wl.startFreeFloat(time=800000, channel_nums=[13], channel_values=[42])  # ~804
+        wl.startFreeFloat(time=800000, channel_nums=[14], channel_values=[40])  # ~813
+        wl.startFreeFloat(time=800000, channel_nums=[15], channel_values=[61])  # ~860
+        wl.startFreeFloat(time=800000, channel_nums=[16], channel_values=[58])  # ~886
+        wl.startFreeFloat(time=800000, channel_nums=[17], channel_values=[63])  # ~906
+        wl.startFreeFloat(time=800000, channel_nums=[18], channel_values=[90])  # ~963
+        wl.startFreeFloat(time=800000, channel_nums=[19], channel_values=[70])  # ~1000
+        wl.startFreeFloat(time=800000, channel_nums=[20], channel_values=[90])  # ~1067
+        #wl.startFreeFloat(time=800000, channel_nums=[21], channel_values=[50]) # ?
+
         time.sleep(10)
         print("off")
         wl.startFreeFloat(time=0, channel_nums=[])
